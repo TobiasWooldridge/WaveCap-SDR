@@ -1,0 +1,52 @@
+[tool.poetry]
+name = "wavecapsdr"
+version = "0.1.0"
+description = "WaveCap-SDR server: SDR device control, capture, streaming, and demodulation."
+authors = ["WaveCap Contributors <devnull@example.com>"]
+readme = "../README.md"
+packages = [{ include = "wavecapsdr", from = "." }]
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.13"
+fastapi = "^0.115.0"
+uvicorn = { version = "^0.30.0", extras = ["standard"] }
+PyYAML = "^6.0.1"
+numpy = "^1.26.0"
+anyio = "^4.0.0"
+httpx = "^0.27.0"
+websockets = "^12.0"
+
+# Optional runtime dependency for real hardware access
+SoapySDR = { version = "^0.8.3", optional = true }
+
+[tool.poetry.extras]
+soapy = ["SoapySDR"]
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+httpx = "^0.27.0"
+mypy = "^1.10.0"
+ruff = "^0.6.0"
+
+[tool.poetry.scripts]
+wavecapsdr = "wavecapsdr.__main__:main"
+wavecapsdr-harness = "wavecapsdr.harness:main"
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+warn_unreachable = true
+warn_unused_ignores = true
+warn_return_any = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+disallow_untyped_calls = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+plugins = []
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"

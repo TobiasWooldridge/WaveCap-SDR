@@ -1,0 +1,19 @@
+server:
+  bind_address: 127.0.0.1
+  port: 8087
+  # auth_token: ""
+stream:
+  default_transport: ws
+  default_format: iq16
+limits:
+  max_concurrent_sessions: 2
+  # max_sample_rate: 2400000
+device:
+  driver: soapy  # use 'fake' for tests
+  # device_args: "driver=rtlsdr"  # or: driver=sdrplay,serial=...
+
+presets:
+  kexp:
+    center_hz: 90300000
+    sample_rate: 2000000
+    offsets: [0.0]
