@@ -304,8 +304,7 @@ class Capture:
             chans = list(self._channels.values())
             for ch in chans:
                 # Capture channel reference vars for closure
-                def _process(ch=ch, samples=samples):
-                    asyncio.create_task(ch.process_iq_chunk(samples, self.cfg.sample_rate))
+                coro = ch.process_iq_chunk(samples.copy(), self.cfg.sample_rate)
                 # Try to schedule on any one sink loop if available, otherwise skip
                 target_loop = None
                 try:
@@ -318,7 +317,7 @@ class Capture:
                     target_loop = None
                 if target_loop is not None:
                     try:
-                        target_loop.call_soon_threadsafe(_process)
+                        asyncio.run_coroutine_threadsafe(coro, target_loop)
                     except Exception:
                         pass
 

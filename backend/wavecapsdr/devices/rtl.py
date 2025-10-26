@@ -49,8 +49,18 @@ class _RtlDevice(Device):
         if ppm is not None:
             self.sdr.freq_correction = int(ppm)
         if gain is not None:
-            # 0.0 chooses auto in pyrtlsdr if gain not exactly supported; otherwise set manual
+            # Manual gain
+            try:
+                self.sdr.set_gain_mode(True)
+            except Exception:
+                pass
             self.sdr.gain = gain
+        else:
+            # Prefer automatic gain if available
+            try:
+                self.sdr.set_gain_mode(False)
+            except Exception:
+                pass
 
     def start_stream(self) -> StreamHandle:
         return _RtlStream(self.sdr)
@@ -113,4 +123,3 @@ class RtlDriver(DeviceDriver):
             gains=("LNA",),
         )
         return _RtlDevice(info=info, sdr=sdr)
-

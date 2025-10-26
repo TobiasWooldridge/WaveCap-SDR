@@ -51,7 +51,17 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--token", default=None, help="Bearer token if server requires auth")
     p.add_argument("--start-server", action="store_true", help="Start an in-process server")
     p.add_argument("--driver", choices=["soapy", "rtl", "fake"], default="soapy")
-    p.add_argument("--device-args", default=None, help="Soapy device args, e.g., driver=rtlsdr")
+    p.add_argument(
+        "--device-args",
+        action="append",
+        default=None,
+        help="Device selector/args. For Soapy: 'driver=rtlsdr' or 'driver=sdrplay,serial=...'. Repeatable.",
+    )
+    p.add_argument(
+        "--all-devices",
+        action="store_true",
+        help="When using Soapy driver, enumerate all devices and run the preset on each.",
+    )
     p.add_argument("--config", default=None, help="Path to YAML config (for presets). Defaults to repo config.")
     p.add_argument("--preset", default="kexp", help="Preset name (e.g., kexp, marine, tone)")
     p.add_argument("--center-hz", type=float, default=None)
@@ -62,6 +72,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--gain", type=float, default=None, help="Optional receiver gain in dB")
     p.add_argument("--bandwidth", type=float, default=None, help="Optional RF bandwidth in Hz")
     p.add_argument("--out", default="harness_out", help="Output directory for WAV dumps")
+    p.add_argument("--auto-gain", action="store_true", help="Auto-select gain per device based on audio level")
+    p.add_argument("--probe-seconds", type=float, default=2.0, help="Seconds for auto-gain probe")
     return p.parse_args(argv)
 
 
@@ -70,7 +82,8 @@ def build_config_for_server(args: argparse.Namespace) -> AppConfig:
         server=ServerConfig(bind_address=args.host, port=args.port),
         stream=StreamConfig(default_transport="ws", default_format="iq16", default_audio_rate=args.audio_rate),
         limits=LimitsConfig(),
-        device=DeviceConfig(driver=args.driver, device_args=args.device_args),
+        # Do not pin a specific device at the app level; we pass deviceId per capture.
+        device=DeviceConfig(driver=args.driver, device_args=None),
     )
     return cfg
 
@@ -154,32 +167,81 @@ async def run_harness(args: argparse.Namespace) -> int:
     else:
         center, sr, offsets = preset_channels(args.preset, args.config)
 
-    async with httpx.AsyncClient(base_url=base, timeout=10.0) as client:
-        cap = await http_post_json(
-            client,
-            "/captures",
-            {
-                "deviceId": None,
-                "centerHz": center,
-                "sampleRate": sr,
-                **({"gain": args.gain} if args.gain is not None else {}),
-                **({"bandwidth": args.bandwidth} if args.bandwidth is not None else {}),
-            },
-            args.token,
-        )
-        cid = cap["id"]
-        await http_post_json(client, f"/captures/{cid}/start", {}, args.token)
+    # Decide which devices to use
+    device_args_list: List[Optional[str]] = []
+    if args.device_args:
+        # Already a list due to action='append'
+        device_args_list = list(args.device_args)
+    elif args.all_devices and args.driver == "soapy":
+        # Discover via API
+        async with httpx.AsyncClient(base_url=base, timeout=10.0) as client:
+            r = await client.get("/devices")
+            r.raise_for_status()
+            devs = r.json() or []
+            for d in devs:
+                # Each device's id is a Soapy args string when using SoapyDriver
+                device_args_list.append(d.get("id"))
+    else:
+        device_args_list = [None]
 
-        chan_ids: List[str] = []
-        for off in offsets:
-            ch = await http_post_json(
+    chan_ids: List[str] = []
+    capture_ids: List[str] = []
+    device_best_gain: Dict[Optional[str], Optional[float]] = {}
+
+    async with httpx.AsyncClient(base_url=base, timeout=10.0) as client:
+        # Auto-gain sweep per device (if requested)
+        if args.auto_gain:
+            candidates: List[Optional[float]]
+            if args.gain is not None:
+                candidates = [args.gain]
+            else:
+                # Reasonable sweep for RTL-SDR and SDRplay
+                candidates = [None, 0.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0]
+            for dev_args in device_args_list:
+                try:
+                    best = await _probe_best_gain(
+                        client=client,
+                        token=args.token,
+                        device_id=dev_args,
+                        center=center,
+                        sample_rate=sr,
+                        offset=offsets[0] if offsets else 0.0,
+                        audio_rate=args.audio_rate,
+                        candidates=candidates,
+                        seconds=args.probe_seconds,
+                        host=args.host,
+                        port=args.port,
+                    )
+                except Exception:
+                    best = args.gain
+                device_best_gain[dev_args] = best
+
+        for dev_args in device_args_list:
+            cap = await http_post_json(
                 client,
-                f"/captures/{cid}/channels",
-                {"mode": "wbfm", "offsetHz": float(off), "audioRate": args.audio_rate},
+                "/captures",
+                {
+                    "deviceId": dev_args,
+                    "centerHz": center,
+                    "sampleRate": sr,
+                    **({"gain": device_best_gain.get(dev_args)} if args.auto_gain else ({} if args.gain is None else {"gain": args.gain})),
+                    **({"bandwidth": args.bandwidth} if args.bandwidth is not None else {}),
+                },
                 args.token,
             )
-            chan_ids.append(ch["id"])
-            await http_post_json(client, f"/channels/{ch['id']}/start", {}, args.token)
+            cid = cap["id"]
+            capture_ids.append(cid)
+            await http_post_json(client, f"/captures/{cid}/start", {}, args.token)
+
+            for off in offsets:
+                ch = await http_post_json(
+                    client,
+                    f"/captures/{cid}/channels",
+                    {"mode": "wbfm", "offsetHz": float(off), "audioRate": args.audio_rate},
+                    args.token,
+                )
+                chan_ids.append(ch["id"])
+                await http_post_json(client, f"/channels/{ch['id']}/start", {}, args.token)
 
     # Collect audio for each channel
     async def collect_channel(chan_id: str) -> Dict[str, Any]:
@@ -224,11 +286,108 @@ async def run_harness(args: argparse.Namespace) -> int:
 
     # Cleanup
     async with httpx.AsyncClient(base_url=base, timeout=10.0) as client:
-        await http_post_json(client, f"/captures/{cid}/stop", {}, args.token)
+        for cid in capture_ids:
+            try:
+                await http_post_json(client, f"/captures/{cid}/stop", {}, args.token)
+            except Exception:
+                pass
 
-    print(HarnessReport(capture_id=cid, channel_reports=reports).to_json())
+    # Backwards compatibility: if multiple captures were used, show the first id; include all channels
+    print(HarnessReport(capture_id=capture_ids[0] if capture_ids else "c0", channel_reports=reports).to_json())
     # Fail (non-zero) if any channel did not pass heuristic
     return 0 if all(r.get("ok") for r in reports) else 2
+
+
+async def _probe_best_gain(
+    *,
+    client: httpx.AsyncClient,
+    token: Optional[str],
+    device_id: Optional[str],
+    center: float,
+    sample_rate: int,
+    offset: float,
+    audio_rate: int,
+    candidates: List[Optional[float]],
+    seconds: float,
+    host: str,
+    port: int,
+) -> Optional[float]:
+    """Quickly tests several gains and returns the one with strong audio without clipping.
+
+    Heuristic:
+      - score = rms if peak < 0.98 else rms * 0.1 (penalize clipping)
+      - choose highest score; if all are very low (rms < 0.002), return None to let device AGC decide.
+    """
+    results: List[Tuple[Optional[float], float, float]] = []  # (gain, rms, peak)
+
+    async def one(g: Optional[float]) -> Tuple[Optional[float], float, float]:
+        cap = await http_post_json(
+            client,
+            "/captures",
+            {
+                "deviceId": device_id,
+                "centerHz": center,
+                "sampleRate": sample_rate,
+                **({"gain": g} if g is not None else {}),
+            },
+            token,
+        )
+        cid = cap["id"]
+        await http_post_json(client, f"/captures/{cid}/start", {}, token)
+        ch = await http_post_json(
+            client,
+            f"/captures/{cid}/channels",
+            {"mode": "wbfm", "offsetHz": float(offset), "audioRate": audio_rate},
+            token,
+        )
+        chan_id = ch["id"]
+
+        url = f"ws://{host}:{port}/api/v1/stream/channels/{chan_id}"
+        total = bytearray()
+        start = time.time()
+        try:
+            async with websockets.connect(url, max_size=None) as ws:
+                while time.time() - start < seconds:
+                    msg = await ws.recv()
+                    if isinstance(msg, (bytes, bytearray)):
+                        total.extend(msg)
+        finally:
+            try:
+                await http_post_json(client, f"/captures/{cid}/stop", {}, token)
+            except Exception:
+                pass
+
+        if total:
+            audio = np.frombuffer(total, dtype=np.int16).astype(np.float32) / 32768.0
+            rms = float(np.sqrt(np.mean(np.square(audio))))
+            peak = float(np.max(np.abs(audio)))
+        else:
+            rms = 0.0
+            peak = 0.0
+        return g, rms, peak
+
+    for g in candidates:
+        try:
+            results.append(await one(g))
+        except Exception:
+            # Ignore failures for unsupported gains
+            continue
+
+    if not results:
+        return None
+
+    # Select best by heuristic
+    best_gain: Optional[float] = None
+    best_score = -1.0
+    for g, rms, peak in results:
+        score = rms if peak < 0.98 else (rms * 0.1)
+        if score > best_score:
+            best_score = score
+            best_gain = g
+
+    if best_score < 0.002:
+        return None
+    return best_gain
 
 
 def main(argv: Optional[List[str]] = None) -> None:

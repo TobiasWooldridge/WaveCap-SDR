@@ -26,20 +26,28 @@ class _SoapyStream(StreamHandle):
     stream: "SoapySDR.Stream"
 
     def read(self, num_samples: int) -> tuple[np.ndarray, bool]:
-        import SoapySDR  # type: ignore
-
         buff = np.empty(num_samples, dtype=np.complex64)
-        flags = SoapySDR.SDR_READ_FLAG_NONE
-        # Use a tuple for single channel 0
-        sr = self.sdr.readStream(self.stream, [buff.view(np.float32)], num_samples)
-        if isinstance(sr, tuple):
+        # readStream returns StreamResult with ret, flags, timeNs attributes
+        # ret = number of samples read (or negative error code)
+        # flags = stream flags (bit 1 = overflow)
+        # Use integer constants since not all SoapySDR bindings expose named constants
+        SOAPY_SDR_READ_FLAG_OVERFLOW = (1 << 1)
+        sr = self.sdr.readStream(self.stream, [buff.view(np.float32)], num_samples, flags=0)
+        # Handle both tuple and StreamResult object
+        if hasattr(sr, 'ret'):
+            # StreamResult object
+            ret = sr.ret
+            flags = sr.flags if hasattr(sr, 'flags') else 0
+        elif isinstance(sr, tuple):
             (ret, flags, _timeNs, _) = sr + (0, 0, 0, 0)  # type: ignore[assignment]
-        else:  # pragma: no cover - depends on binding variant
-            ret, flags, _timeNs = sr, 0, 0
+        else:
+            # Assume it's just the return count
+            ret = sr
+            flags = 0
         if ret < 0:
             # Negative indicates error; represent as empty with overrun flag
             return np.empty(0, dtype=np.complex64), True
-        return buff[:ret], bool(flags & SoapySDR.SDR_READ_FLAG_OVERFLOW)
+        return buff[:ret], bool(flags & SOAPY_SDR_READ_FLAG_OVERFLOW)
 
     def close(self) -> None:
         self.sdr.deactivateStream(self.stream)
@@ -64,9 +72,21 @@ class _SoapyDevice(Device):
         self.sdr.setSampleRate(SoapySDR.SOAPY_SDR_RX, 0, float(sample_rate))
         self.sdr.setFrequency(SoapySDR.SOAPY_SDR_RX, 0, center_hz)
         if gain is not None:
+            # Manual gain
             try:
+                try:
+                    self.sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, False)  # manual
+                except Exception:
+                    pass
                 self.sdr.setGain(SoapySDR.SOAPY_SDR_RX, 0, gain)
             except Exception:
+                pass
+        else:
+            # Prefer automatic gain control when supported
+            try:
+                self.sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, True)  # auto
+            except Exception:
+                # Not all drivers support automatic gain; skip
                 pass
         if bandwidth is not None:
             try:
@@ -102,15 +122,24 @@ class SoapyDriver(DeviceDriver):
         SoapySDR = self._SoapySDR
         results = []
         for args in SoapySDR.Device.enumerate():  # type: ignore[attr-defined]
-            # args behaves like a dict-like
-            driver = str(args.get("driver", "unknown"))
-            label = str(args.get("label", "SDR"))
-            serial = str(args.get("serial", ""))
-            id_ = serial or label
+            # args is SoapySDRKwargs, dict-like but use [] instead of .get()
+            driver = str(args["driver"]) if "driver" in args else "unknown"
+            label = str(args["label"]) if "label" in args else "SDR"
+            # Build a canonical args string suitable for SoapySDR.Device(open_args)
+            try:
+                items = []
+                for k in sorted(args.keys()):
+                    v = args[k] if k in args else None
+                    if v is None:
+                        continue
+                    items.append(f"{k}={v}")
+                id_ = ",".join(items) if items else driver
+            except Exception:
+                id_ = driver
 
             # Capability probing is device-specific; provide broad ranges if unavailable
-            freq_min = float(args.get("rfmin", 1e4))
-            freq_max = float(args.get("rfmax", 6e9))
+            freq_min = float(args["rfmin"]) if "rfmin" in args else 1e4
+            freq_max = float(args["rfmax"]) if "rfmax" in args else 6e9
             # Sample rates often not listed here; expose common rates
             sample_rates: tuple[int, ...] = (250_000, 1_000_000, 2_000_000, 2_400_000)
             gains: tuple[str, ...] = ("LNA", "VGA")
