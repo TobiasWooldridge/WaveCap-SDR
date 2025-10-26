@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Set
+from typing import Dict, Optional, Set, Tuple
 
 import numpy as np
 
@@ -51,7 +52,10 @@ class ChannelConfig:
 class Channel:
     cfg: ChannelConfig
     state: str = "created"
-    _audio_sinks: Set[asyncio.Queue[bytes]] = field(default_factory=set)
+    # Store (queue, loop) to support cross-event-loop broadcasting safely
+    _audio_sinks: Set[Tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop]] = field(
+        default_factory=set
+    )
 
     def start(self) -> None:
         self.state = "running"
@@ -61,27 +65,59 @@ class Channel:
 
     async def subscribe_audio(self) -> asyncio.Queue[bytes]:
         q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=8)
-        self._audio_sinks.add(q)
+        loop = asyncio.get_running_loop()
+        self._audio_sinks.add((q, loop))
         return q
 
     def unsubscribe(self, q: asyncio.Queue[bytes]) -> None:
-        self._audio_sinks.discard(q)
+        for item in list(self._audio_sinks):
+            if item[0] is q:
+                self._audio_sinks.discard(item)
 
     async def _broadcast(self, payload: bytes) -> None:
         if not self._audio_sinks:
             return
-        for q in list(self._audio_sinks):
-            try:
-                q.put_nowait(payload)
-            except asyncio.QueueFull:
-                try:
-                    _ = q.get_nowait()
-                except asyncio.QueueEmpty:
-                    pass
+        current_loop = None
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+        for (q, loop) in list(self._audio_sinks):
+            if current_loop is loop:
                 try:
                     q.put_nowait(payload)
                 except asyncio.QueueFull:
-                    pass
+                    try:
+                        _ = q.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                    try:
+                        q.put_nowait(payload)
+                    except asyncio.QueueFull:
+                        pass
+            else:
+                # Schedule put on the queue's owning loop to avoid cross-loop errors
+                def _try_put() -> None:
+                    try:
+                        q.put_nowait(payload)
+                    except asyncio.QueueFull:
+                        try:
+                            _ = q.get_nowait()
+                        except asyncio.QueueEmpty:
+                            pass
+                        try:
+                            q.put_nowait(payload)
+                        except asyncio.QueueFull:
+                            pass
+
+                try:
+                    loop.call_soon_threadsafe(_try_put)
+                except Exception:
+                    # If loop is closed or unavailable, drop sink
+                    try:
+                        self._audio_sinks.discard((q, loop))
+                    except Exception:
+                        pass
 
     async def process_iq_chunk(self, iq: np.ndarray, sample_rate: int) -> None:
         if self.state != "running":
@@ -112,9 +148,11 @@ class Capture:
     device: Device
     state: str = "created"
     _stream: Optional[StreamHandle] = None
-    _task: Optional[asyncio.Task[None]] = None
-    _iq_sinks: Set[asyncio.Queue[bytes]] = field(default_factory=set)
-    _stop_event: asyncio.Event = field(default_factory=asyncio.Event)
+    _thread: Optional[threading.Thread] = None
+    _iq_sinks: Set[Tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop]] = field(
+        default_factory=set
+    )
+    _stop_event: threading.Event = field(default_factory=threading.Event)
     _channels: Dict[str, Channel] = field(default_factory=dict)
 
     def create_channel(self, chan: Channel) -> None:
@@ -124,68 +162,165 @@ class Capture:
         self._channels.pop(chan_id, None)
 
     def start(self) -> None:
-        if self._task is not None:
+        if self._thread is not None and self._thread.is_alive():
             return
         self.state = "running"
         self._stop_event.clear()
-        self._task = asyncio.create_task(self._run_loop())
+        self._thread = threading.Thread(target=self._run_thread, name=f"Capture-{self.cfg.id}", daemon=True)
+        self._thread.start()
 
     async def stop(self) -> None:
         self._stop_event.set()
-        if self._task is not None:
-            await self._task
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+            self._thread = None
         if self._stream is not None:
-            self._stream.close()
+            try:
+                self._stream.close()
+            except Exception:
+                pass
             self._stream = None
-        self.device.close()
+        try:
+            self.device.close()
+        except Exception:
+            pass
         self.state = "stopped"
 
     async def subscribe_iq(self) -> asyncio.Queue[bytes]:
         q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=8)
-        self._iq_sinks.add(q)
+        loop = asyncio.get_running_loop()
+        self._iq_sinks.add((q, loop))
         return q
 
     def unsubscribe(self, q: asyncio.Queue[bytes]) -> None:
-        self._iq_sinks.discard(q)
+        for item in list(self._iq_sinks):
+            if item[0] is q:
+                self._iq_sinks.discard(item)
 
     async def _broadcast_iq(self, payload: bytes) -> None:
         if not self._iq_sinks:
             return
-        for q in list(self._iq_sinks):
-            try:
-                q.put_nowait(payload)
-            except asyncio.QueueFull:
-                try:
-                    _ = q.get_nowait()
-                except asyncio.QueueEmpty:
-                    pass
+        current_loop = None
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+        for (q, loop) in list(self._iq_sinks):
+            if current_loop is loop:
                 try:
                     q.put_nowait(payload)
                 except asyncio.QueueFull:
-                    pass
+                    try:
+                        _ = q.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                    try:
+                        q.put_nowait(payload)
+                    except asyncio.QueueFull:
+                        pass
+            else:
+                def _try_put() -> None:
+                    try:
+                        q.put_nowait(payload)
+                    except asyncio.QueueFull:
+                        try:
+                            _ = q.get_nowait()
+                        except asyncio.QueueEmpty:
+                            pass
+                        try:
+                            q.put_nowait(payload)
+                        except asyncio.QueueFull:
+                            pass
 
-    async def _run_loop(self) -> None:
+                try:
+                    loop.call_soon_threadsafe(_try_put)
+                except Exception:
+                    try:
+                        self._iq_sinks.discard((q, loop))
+                    except Exception:
+                        pass
+
+    def _run_thread(self) -> None:
         # Configure device and start streaming
-        self.device.configure(
-            center_hz=self.cfg.center_hz,
-            sample_rate=self.cfg.sample_rate,
-            gain=self.cfg.gain,
-            bandwidth=self.cfg.bandwidth,
-            ppm=self.cfg.ppm,
-        )
-        self._stream = self.device.start_stream()
+        try:
+            self.device.configure(
+                center_hz=self.cfg.center_hz,
+                sample_rate=self.cfg.sample_rate,
+                gain=self.cfg.gain,
+                bandwidth=self.cfg.bandwidth,
+                ppm=self.cfg.ppm,
+            )
+            self._stream = self.device.start_stream()
+        except Exception:
+            return
         chunk = 4096
         while not self._stop_event.is_set():
-            # Offload blocking reads to a thread
-            samples, _ov = await asyncio.to_thread(self._stream.read, chunk)
+            try:
+                samples, _ov = self._stream.read(chunk)
+            except Exception:
+                break
             if samples.size == 0:
-                await asyncio.sleep(0.001)
+                # Light backoff to avoid busy-spin
+                try:
+                    threading.Event().wait(0.001)
+                except Exception:
+                    pass
                 continue
-            await self._broadcast_iq(pack_iq16(samples))
-            # Dispatch to channels
+            # Broadcast IQ to subscribers (schedule on their loops)
+            # Use asyncio.run() is not allowed here; rely on _broadcast_iq scheduling
+            try:
+                # Schedule broadcast onto any event loop via call_soon_threadsafe
+                asyncio.get_event_loop
+            except Exception:
+                pass
+            # Reuse asyncio to schedule coroutine execution in a thread-safe manner
+            # by using the same logic inside _broadcast_iq (which uses call_soon_threadsafe)
+            # Invoke it in a synchronous context using asyncio.run in a dedicated loop is heavy.
+            # Instead, inline the same logic here to avoid requiring a loop in this thread.
+            #
+            # Duplicate minimal logic of _broadcast_iq without awaiting.
+            payload = pack_iq16(samples)
+            for (q, loop) in list(self._iq_sinks):
+                def _try_put() -> None:
+                    try:
+                        q.put_nowait(payload)
+                    except asyncio.QueueFull:
+                        try:
+                            _ = q.get_nowait()
+                        except asyncio.QueueEmpty:
+                            pass
+                        try:
+                            q.put_nowait(payload)
+                        except asyncio.QueueFull:
+                            pass
+                try:
+                    loop.call_soon_threadsafe(_try_put)
+                except Exception:
+                    try:
+                        self._iq_sinks.discard((q, loop))
+                    except Exception:
+                        pass
+            # Dispatch to channels by scheduling their processing on their loops
             chans = list(self._channels.values())
             for ch in chans:
-                await ch.process_iq_chunk(samples, self.cfg.sample_rate)
+                # Capture channel reference vars for closure
+                def _process(ch=ch, samples=samples):
+                    asyncio.create_task(ch.process_iq_chunk(samples, self.cfg.sample_rate))
+                # Try to schedule on any one sink loop if available, otherwise skip
+                target_loop = None
+                try:
+                    # Prefer a sink loop if exists; else, try any loop from audio sinks
+                    if self._iq_sinks:
+                        target_loop = next(iter(self._iq_sinks))[1]
+                    elif ch._audio_sinks:
+                        target_loop = next(iter(ch._audio_sinks))[1]
+                except Exception:
+                    target_loop = None
+                if target_loop is not None:
+                    try:
+                        target_loop.call_soon_threadsafe(_process)
+                    except Exception:
+                        pass
 
 
 class CaptureManager:
@@ -281,4 +416,3 @@ class CaptureManager:
         cap = self.get_capture(ch.cfg.capture_id)
         if cap is not None:
             cap.remove_channel(chan_id)
-

@@ -84,6 +84,20 @@ CI/automation tips
 - Scripts return non‑zero if audio not detected above thresholds; agents can treat this as a failed check.
 - WAVs are stored under `backend/harness_out/` for post‑run inspection.
 
+## Timeout wrapper (generic)
+To avoid indefinite stalls when running commands that may hang or take too long, use the generic timeout wrapper. This is required for agentic/CI runs; prefer it during local development for long‑running tasks.
+
+- Script: `scripts/run-with-timeout.sh`
+- Defaults: 120s timeout; returns exit code 124 on timeout.
+- Uses coreutils `timeout` when available, otherwise a Python fallback.
+- Examples:
+  - `scripts/run-with-timeout.sh --seconds 40 -- bash scripts/harness-kexp.sh`
+  - `scripts/run-with-timeout.sh --seconds 60 -- env PYTHONPATH=. pytest -q`
+  - `scripts/run-with-timeout.sh --seconds 30 -- bash -lc 'cd backend && . .venv/bin/activate && python -m wavecapsdr.harness --start-server --driver fake --preset kexp --duration 3'`
+- Notes:
+  - Continue to use the Soapy wrappers (`scripts/soapy-*.sh`) for SoapySDRUtil; the generic timeout is for everything else (tests, harness, ad‑hoc commands).
+  - On timeout (124), capture logs and artifacts and retry with more verbosity if needed.
+
 ## SoapySDRUtil wrapper
 When probing hardware or testing rates with SoapySDRUtil, you MUST use the timeout wrapper so commands never hang indefinitely. Do not call `SoapySDRUtil` directly.
 

@@ -5,6 +5,7 @@ set -euo pipefail
 # Optional env:
 #   DEVICE_ARGS="driver=rtlsdr" | "driver=sdrplay,serial=..."
 #   DURATION=5    AUDIO_RATE=48000
+#   HOST=127.0.0.1 PORT=8097   # override bind/port to avoid conflicts
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -26,6 +27,8 @@ fi
 set +e
 PYTHONPATH=. "$VENV_DIR/bin/python" -m wavecapsdr.harness \
   --start-server \
+  --host "${HOST:-127.0.0.1}" \
+  --port "${PORT:-8087}" \
   --driver soapy \
   --preset marine \
   --duration "$DURATION" \

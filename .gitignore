@@ -1,0 +1,59 @@
+# Python byte-compiled files and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+.wheelhouse/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.nox/
+.tox/
+
+# Type checking / linters
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.ruff_cache/
+.pylint.d/
+.pyre/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.code-workspace
+.ropeproject/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Project-specific artifacts
+# Harness outputs and generated audio/assets should not be committed
+backend/harness_out/
+harness_out/
+logs/
+*.pid
+
+# Do not ignore audio fixtures in tests; avoid global *.wav ignores

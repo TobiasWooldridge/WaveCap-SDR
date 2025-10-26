@@ -237,3 +237,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         asyncio.run(run_harness(args))
     except KeyboardInterrupt:
         pass
+
+
+if __name__ == "__main__":  # pragma: no cover - manual invocation path
+    main()
