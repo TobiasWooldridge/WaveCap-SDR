@@ -34,10 +34,15 @@ class Device(Protocol):
         gain: Optional[float] = None,
         bandwidth: Optional[float] = None,
         ppm: Optional[float] = None,
+        antenna: Optional[str] = None,
     ) -> None:
         ...
 
     def start_stream(self) -> StreamHandle:
+        ...
+
+    def get_antenna(self) -> Optional[str]:
+        """Return the currently configured antenna, if any."""
         ...
 
     def close(self) -> None:

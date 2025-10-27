@@ -1,5 +1,25 @@
 # Changelog
 
+## 2025-10-26 - Antenna Selection Support
+
+### New Features
+- **Antenna Configuration**: Full support for multi-antenna SDR devices (e.g., SDRplay RSPdx-R2)
+- **API Enhancement**: Antenna parameter in capture creation and responses
+- **Web UI Display**: Antenna information shown in channel detail tables
+- **Configuration**: Antenna hardware documentation and recommendations
+
+### Implementation
+- Device layer: `configure()` and `get_antenna()` methods accept/return antenna selection
+- Capture layer: Antenna stored in config and actual antenna in use tracked
+- API layer: `antenna` field in CreateCaptureRequest and CaptureModel
+- Web UI: Conditional display of antenna when available
+- Config: RSPdx-R2 antenna documentation (Ant A/B/C with hardware specs)
+
+### Antenna Recommendations (RSPdx-R2)
+- **Ant B (GRA-RH795)**: Best for FM broadcast (88-108 MHz) - wideband telescoping
+- **Ant C (SRH789)**: Optimized for VHF amateur (144 MHz, 2m band)
+- **Ant A (TW-777BNC)**: Optimized for UHF amateur (440 MHz, 70cm band)
+
 ## 2025-10-26 - Web UI and Multi-Format Streaming
 
 ### New Features

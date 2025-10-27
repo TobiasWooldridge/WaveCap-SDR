@@ -29,6 +29,7 @@ class CreateCaptureRequest(BaseModel):
     gain: Optional[float] = None
     bandwidth: Optional[float] = None
     ppm: Optional[float] = None
+    antenna: Optional[str] = None
 
 
 class CaptureModel(BaseModel):
@@ -37,6 +38,7 @@ class CaptureModel(BaseModel):
     state: Literal["created", "running", "stopped"]
     centerHz: float
     sampleRate: int
+    antenna: Optional[str] = None
 
 
 class CreateChannelRequest(BaseModel):

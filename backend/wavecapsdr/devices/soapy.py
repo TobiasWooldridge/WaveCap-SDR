@@ -58,6 +58,7 @@ class _SoapyStream(StreamHandle):
 class _SoapyDevice(Device):
     info: DeviceInfo
     sdr: "SoapySDR.Device"
+    _antenna: Optional[str] = None
 
     def configure(
         self,
@@ -66,6 +67,7 @@ class _SoapyDevice(Device):
         gain: Optional[float] = None,
         bandwidth: Optional[float] = None,
         ppm: Optional[float] = None,
+        antenna: Optional[str] = None,
     ) -> None:
         import SoapySDR  # type: ignore
 
@@ -98,14 +100,29 @@ class _SoapyDevice(Device):
                 self.sdr.setFrequencyCorrection(SoapySDR.SOAPY_SDR_RX, 0, ppm)
             except Exception:
                 pass
+        if antenna is not None:
+            self._antenna = antenna
 
     def start_stream(self) -> StreamHandle:
         import SoapySDR  # type: ignore
 
-        self.sdr.setAntenna(SoapySDR.SOAPY_SDR_RX, 0, self.sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0)[0])
+        # Set antenna: use configured antenna if specified, otherwise use first available
+        available_antennas = self.sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0)
+        if self._antenna is not None:
+            antenna = self._antenna
+        else:
+            antenna = available_antennas[0] if available_antennas else "RX"
+        self.sdr.setAntenna(SoapySDR.SOAPY_SDR_RX, 0, antenna)
+        # Update _antenna to reflect what was actually set
+        self._antenna = antenna
+
         stream = self.sdr.setupStream(SoapySDR.SOAPY_SDR_RX, SoapySDR.SOAPY_SDR_CF32, [0])
         self.sdr.activateStream(stream)
         return _SoapyStream(self.sdr, stream)
+
+    def get_antenna(self) -> Optional[str]:
+        """Return the currently configured antenna, if any."""
+        return self._antenna
 
     def close(self) -> None:
         self.sdr = None  # type: ignore[assignment]

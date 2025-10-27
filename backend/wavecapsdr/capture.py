@@ -160,6 +160,7 @@ class CaptureConfig:
     gain: Optional[float] = None
     bandwidth: Optional[float] = None
     ppm: Optional[float] = None
+    antenna: Optional[str] = None
 
 
 @dataclass
@@ -167,6 +168,7 @@ class Capture:
     cfg: CaptureConfig
     device: Device
     state: str = "created"
+    antenna: Optional[str] = None  # Actual antenna in use
     _stream: Optional[StreamHandle] = None
     _thread: Optional[threading.Thread] = None
     _iq_sinks: Set[Tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop]] = field(
@@ -269,8 +271,11 @@ class Capture:
                 gain=self.cfg.gain,
                 bandwidth=self.cfg.bandwidth,
                 ppm=self.cfg.ppm,
+                antenna=self.cfg.antenna,
             )
             self._stream = self.device.start_stream()
+            # Store the actual antenna being used
+            self.antenna = self.device.get_antenna()
         except Exception:
             return
         chunk = 4096
@@ -377,6 +382,7 @@ class CaptureManager:
         gain: Optional[float] = None,
         bandwidth: Optional[float] = None,
         ppm: Optional[float] = None,
+        antenna: Optional[str] = None,
     ) -> Capture:
         cid = f"c{self._next_cap_id}"
         self._next_cap_id += 1
@@ -389,6 +395,7 @@ class CaptureManager:
             gain=gain,
             bandwidth=bandwidth,
             ppm=ppm,
+            antenna=antenna,
         )
         cap = Capture(cfg=cfg, device=dev)
         self._captures[cid] = cap

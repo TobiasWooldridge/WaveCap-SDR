@@ -12,8 +12,20 @@ device:
   driver: soapy  # use 'fake' for tests
   # device_args: "driver=rtlsdr"  # or: driver=sdrplay,serial=...
 
+# Antenna configuration for specific devices
+# RSPdx-R2 (serial: 240309F070) has three antenna ports:
+#   Ant A: TW-777BNC (fixed stub, 2m/70cm dual-band VHF/UHF, 144/440 MHz)
+#   Ant B: GRA-RH795 (telescoping, wideband, best for FM broadcast 88-108 MHz)
+#   Ant C: SRH789 (telescoping, 2m/70cm dual-band, 144/440 MHz)
+antennas:
+  sdrplay_240309F070:
+    fm_broadcast: "Ant B"  # Best for 88-108 MHz
+    vhf_amateur: "Ant C"   # Best for 2m (144 MHz)
+    uhf_amateur: "Ant A"   # Best for 70cm (440 MHz)
+
 presets:
   kexp:
     center_hz: 90300000
     sample_rate: 2000000
     offsets: [0.0]
+    antenna: "Ant B"  # Use Ant B for FM broadcast

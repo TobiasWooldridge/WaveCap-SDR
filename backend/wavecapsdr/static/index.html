@@ -243,6 +243,10 @@
                                                 <td>Offset</td>
                                                 <td>${channel.offsetHz} Hz</td>
                                             </tr>
+                                            ${capture.antenna ? `<tr>
+                                                <td>Antenna</td>
+                                                <td><strong>${escapeHtml(capture.antenna)}</strong></td>
+                                            </tr>` : ''}
                                             <tr>
                                                 <td>Capture ID</td>
                                                 <td>${capture.id}</td>
