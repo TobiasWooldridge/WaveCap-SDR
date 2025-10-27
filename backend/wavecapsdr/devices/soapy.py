@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import multiprocessing
+import signal
 import time
 from typing import Iterable, Optional, Tuple
 
@@ -138,6 +140,77 @@ class SoapyDriver(DeviceDriver):
         self._enumerate_cache: Optional[tuple[float, list[DeviceInfo]]] = None
         self._enumerate_cache_ttl = 30.0  # seconds
 
+    def _enumerate_driver(self, driver_name: str, timeout: float = 5.0) -> list[DeviceInfo]:
+        """Enumerate devices for a specific driver with timeout protection."""
+        def enumerate_worker(driver_name: str, queue: multiprocessing.Queue) -> None:
+            """Worker function to enumerate in subprocess."""
+            try:
+                import SoapySDR  # type: ignore
+                # Unload and reload modules to reset any stuck state
+                try:
+                    SoapySDR.Device.unmake()  # type: ignore[attr-defined]
+                except Exception:
+                    pass
+                # Only enumerate for this specific driver
+                results = []
+                for args in SoapySDR.Device.enumerate(f"driver={driver_name}"):  # type: ignore[attr-defined]
+                    driver = str(args["driver"]) if "driver" in args else "unknown"
+                    label = str(args["label"]) if "label" in args else "SDR"
+                    # Build a canonical args string
+                    try:
+                        items = []
+                        for k in sorted(args.keys()):
+                            v = args[k] if k in args else None
+                            if v is None:
+                                continue
+                            items.append(f"{k}={v}")
+                        id_ = ",".join(items) if items else driver
+                    except Exception:
+                        id_ = driver
+
+                    freq_min = float(args["rfmin"]) if "rfmin" in args else 1e4
+                    freq_max = float(args["rfmax"]) if "rfmax" in args else 6e9
+                    sample_rates = (250_000, 1_000_000, 2_000_000, 2_400_000)
+                    gains = ("LNA", "VGA")
+                    results.append({
+                        "id": id_,
+                        "driver": driver,
+                        "label": label,
+                        "freq_min_hz": freq_min,
+                        "freq_max_hz": freq_max,
+                        "sample_rates": sample_rates,
+                        "gains": gains,
+                    })
+                queue.put(("success", results))
+            except Exception as e:
+                queue.put(("error", str(e)))
+
+        # Use multiprocessing to isolate and timeout the enumeration
+        queue: multiprocessing.Queue = multiprocessing.Queue()
+        process = multiprocessing.Process(target=enumerate_worker, args=(driver_name, queue))
+        process.start()
+        process.join(timeout=timeout)
+
+        results = []
+        if process.is_alive():
+            # Timeout - kill the process
+            process.terminate()
+            process.join(timeout=1.0)
+            if process.is_alive():
+                process.kill()
+                process.join()
+            print(f"Warning: Enumeration for driver '{driver_name}' timed out after {timeout}s", flush=True)
+        else:
+            # Check results
+            if not queue.empty():
+                status, data = queue.get()
+                if status == "success":
+                    results = [DeviceInfo(**d) for d in data]
+                else:
+                    print(f"Warning: Enumeration for driver '{driver_name}' failed: {data}", flush=True)
+
+        return results
+
     def enumerate(self) -> Iterable[DeviceInfo]:
         # Check cache first
         now = time.time()
@@ -146,41 +219,16 @@ class SoapyDriver(DeviceDriver):
             if now - cache_time < self._enumerate_cache_ttl:
                 return cached_results
 
-        SoapySDR = self._SoapySDR
+        # Enumerate specific drivers we support, with timeout protection
+        # This prevents hangs from problematic drivers (audio, uhd, etc.)
         results = []
-        for args in SoapySDR.Device.enumerate():  # type: ignore[attr-defined]
-            # args is SoapySDRKwargs, dict-like but use [] instead of .get()
-            driver = str(args["driver"]) if "driver" in args else "unknown"
-            label = str(args["label"]) if "label" in args else "SDR"
-            # Build a canonical args string suitable for SoapySDR.Device(open_args)
+        for driver_name in ["rtlsdr", "sdrplay"]:
             try:
-                items = []
-                for k in sorted(args.keys()):
-                    v = args[k] if k in args else None
-                    if v is None:
-                        continue
-                    items.append(f"{k}={v}")
-                id_ = ",".join(items) if items else driver
-            except Exception:
-                id_ = driver
+                driver_results = self._enumerate_driver(driver_name, timeout=5.0)
+                results.extend(driver_results)
+            except Exception as e:
+                print(f"Warning: Failed to enumerate driver '{driver_name}': {e}", flush=True)
 
-            # Capability probing is device-specific; provide broad ranges if unavailable
-            freq_min = float(args["rfmin"]) if "rfmin" in args else 1e4
-            freq_max = float(args["rfmax"]) if "rfmax" in args else 6e9
-            # Sample rates often not listed here; expose common rates
-            sample_rates: tuple[int, ...] = (250_000, 1_000_000, 2_000_000, 2_400_000)
-            gains: tuple[str, ...] = ("LNA", "VGA")
-            results.append(
-                DeviceInfo(
-                    id=id_,
-                    driver=driver,
-                    label=label,
-                    freq_min_hz=freq_min,
-                    freq_max_hz=freq_max,
-                    sample_rates=sample_rates,
-                    gains=gains,
-                )
-            )
         # Cache the results
         self._enumerate_cache = (now, results)
         return results
