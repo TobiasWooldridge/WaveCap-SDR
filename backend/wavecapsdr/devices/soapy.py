@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
 from typing import Iterable, Optional, Tuple
 
 import numpy as np
@@ -134,8 +135,17 @@ class SoapyDriver(DeviceDriver):
     def __init__(self, cfg: DeviceConfig):
         self._cfg = cfg
         self._SoapySDR = _import_soapy()
+        self._enumerate_cache: Optional[tuple[float, list[DeviceInfo]]] = None
+        self._enumerate_cache_ttl = 30.0  # seconds
 
     def enumerate(self) -> Iterable[DeviceInfo]:
+        # Check cache first
+        now = time.time()
+        if self._enumerate_cache is not None:
+            cache_time, cached_results = self._enumerate_cache
+            if now - cache_time < self._enumerate_cache_ttl:
+                return cached_results
+
         SoapySDR = self._SoapySDR
         results = []
         for args in SoapySDR.Device.enumerate():  # type: ignore[attr-defined]
@@ -171,6 +181,8 @@ class SoapyDriver(DeviceDriver):
                     gains=gains,
                 )
             )
+        # Cache the results
+        self._enumerate_cache = (now, results)
         return results
 
     def open(self, id_or_args: Optional[str] = None) -> Device:
