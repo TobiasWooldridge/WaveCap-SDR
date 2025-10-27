@@ -6,7 +6,7 @@ stream:
   default_transport: ws
   default_format: iq16
 limits:
-  max_concurrent_sessions: 2
+  max_concurrent_captures: 2
   # max_sample_rate: 2400000
 device:
   driver: soapy  # use 'fake' for tests

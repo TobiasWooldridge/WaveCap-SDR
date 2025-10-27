@@ -30,6 +30,13 @@ def pack_pcm16(samples: np.ndarray) -> bytes:
     return (np.clip(samples, -1.0, 1.0) * 32767.0).astype(np.int16).tobytes()
 
 
+def pack_f32(samples: np.ndarray) -> bytes:
+    """Pack samples as 32-bit float (little-endian)."""
+    if samples.size == 0:
+        return b""
+    return np.clip(samples, -1.0, 1.0).astype(np.float32).tobytes()
+
+
 def freq_shift(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray:
     if offset_hz == 0.0 or iq.size == 0:
         return iq
@@ -52,8 +59,8 @@ class ChannelConfig:
 class Channel:
     cfg: ChannelConfig
     state: str = "created"
-    # Store (queue, loop) to support cross-event-loop broadcasting safely
-    _audio_sinks: Set[Tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop]] = field(
+    # Store (queue, loop, format) to support cross-event-loop broadcasting safely
+    _audio_sinks: Set[Tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop, str]] = field(
         default_factory=set
     )
 
@@ -63,10 +70,15 @@ class Channel:
     def stop(self) -> None:
         self.state = "stopped"
 
-    async def subscribe_audio(self) -> asyncio.Queue[bytes]:
+    async def subscribe_audio(self, format: str = "pcm16") -> asyncio.Queue[bytes]:
+        """Subscribe to audio stream with specified format.
+
+        Args:
+            format: Audio format - "pcm16" (16-bit signed PCM) or "f32" (32-bit float)
+        """
         q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=8)
         loop = asyncio.get_running_loop()
-        self._audio_sinks.add((q, loop))
+        self._audio_sinks.add((q, loop, format))
         return q
 
     def unsubscribe(self, q: asyncio.Queue[bytes]) -> None:
@@ -74,7 +86,8 @@ class Channel:
             if item[0] is q:
                 self._audio_sinks.discard(item)
 
-    async def _broadcast(self, payload: bytes) -> None:
+    async def _broadcast(self, audio: np.ndarray) -> None:
+        """Broadcast audio to all subscribers, converting to their requested format."""
         if not self._audio_sinks:
             return
         current_loop = None
@@ -82,7 +95,14 @@ class Channel:
             current_loop = asyncio.get_running_loop()
         except RuntimeError:
             current_loop = None
-        for (q, loop) in list(self._audio_sinks):
+
+        for (q, loop, fmt) in list(self._audio_sinks):
+            # Convert audio to requested format
+            if fmt == "f32":
+                payload = pack_f32(audio)
+            else:  # Default to pcm16
+                payload = pack_pcm16(audio)
+
             if current_loop is loop:
                 try:
                     q.put_nowait(payload)
@@ -115,7 +135,7 @@ class Channel:
                 except Exception:
                     # If loop is closed or unavailable, drop sink
                     try:
-                        self._audio_sinks.discard((q, loop))
+                        self._audio_sinks.discard((q, loop, fmt))
                     except Exception:
                         pass
 
@@ -125,7 +145,7 @@ class Channel:
         if self.cfg.mode == "wbfm":
             base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
             audio = wbfm_demod(base, sample_rate, self.cfg.audio_rate)
-            await self._broadcast(pack_pcm16(audio))
+            await self._broadcast(audio)
         else:
             # Unknown mode: ignore for now
             return
@@ -303,23 +323,32 @@ class Capture:
             # Dispatch to channels by scheduling their processing on their loops
             chans = list(self._channels.values())
             for ch in chans:
-                # Capture channel reference vars for closure
-                coro = ch.process_iq_chunk(samples.copy(), self.cfg.sample_rate)
-                # Try to schedule on any one sink loop if available, otherwise skip
+                # Skip if channel has no audio sinks
+                if not ch._audio_sinks:
+                    continue
+
+                # Get event loop from an audio sink
                 target_loop = None
                 try:
-                    # Prefer a sink loop if exists; else, try any loop from audio sinks
-                    if self._iq_sinks:
-                        target_loop = next(iter(self._iq_sinks))[1]
-                    elif ch._audio_sinks:
-                        target_loop = next(iter(ch._audio_sinks))[1]
-                except Exception:
-                    target_loop = None
-                if target_loop is not None:
+                    # Get loop from first audio sink (tuple is (q, loop, format))
+                    target_loop = next(iter(ch._audio_sinks))[1]
+                except (StopIteration, IndexError):
+                    # Try to get from IQ sinks as fallback
                     try:
-                        asyncio.run_coroutine_threadsafe(coro, target_loop)
+                        if self._iq_sinks:
+                            target_loop = next(iter(self._iq_sinks))[1]
                     except Exception:
                         pass
+
+                if target_loop is not None:
+                    # Capture channel reference vars for closure
+                    coro = ch.process_iq_chunk(samples.copy(), self.cfg.sample_rate)
+                    try:
+                        fut = asyncio.run_coroutine_threadsafe(coro, target_loop)
+                        # Don't wait for result, just schedule it
+                    except Exception as e:
+                        import sys
+                        print(f"Error scheduling audio processing: {e}", file=sys.stderr, flush=True)
 
 
 class CaptureManager:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from .models import (
     DeviceModel,
@@ -281,8 +281,66 @@ async def stream_capture_iq(websocket: WebSocket, cid: str):
         cap.unsubscribe(q)
 
 
+@router.get("/stream/channels/{chan_id}.pcm")
+async def stream_channel_http(
+    request: Request,
+    chan_id: str,
+    format: str = "pcm16",
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Stream channel audio over HTTP for VLC and other players.
+
+    Query parameters:
+        format: Audio format - "pcm16" (16-bit signed PCM) or "f32" (32-bit float). Default: pcm16
+    """
+    # Validate format parameter
+    if format not in ["pcm16", "f32"]:
+        raise HTTPException(status_code=400, detail="Invalid format. Use 'pcm16' or 'f32'")
+
+    ch = state.captures.get_channel(chan_id)
+    if ch is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    # Get channel config to set proper content-type header
+    audio_rate = ch.cfg.audio_rate
+
+    async def audio_generator():
+        q = await ch.subscribe_audio(format=format)
+        try:
+            while True:
+                data = await q.get()
+                yield data
+        except Exception:
+            pass
+        finally:
+            ch.unsubscribe(q)
+
+    # Set appropriate content-type for raw PCM audio
+    if format == "f32":
+        media_type = "audio/x-raw"
+    else:
+        media_type = "audio/x-raw"
+
+    return StreamingResponse(
+        audio_generator(),
+        media_type=media_type,
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Audio-Format": format,
+            "X-Audio-Rate": str(audio_rate),
+            "X-Audio-Channels": "1",
+        },
+    )
+
+
 @router.websocket("/stream/channels/{chan_id}")
-async def stream_channel_audio(websocket: WebSocket, chan_id: str):
+async def stream_channel_audio(websocket: WebSocket, chan_id: str, format: str = "pcm16"):
+    """Stream channel audio with configurable format.
+
+    Query parameters:
+        format: Audio format - "pcm16" (16-bit signed PCM) or "f32" (32-bit float). Default: pcm16
+    """
     app_state: AppState = getattr(websocket.app.state, "app_state")
     token = app_state.config.server.auth_token
     if token is not None:
@@ -296,12 +354,18 @@ async def stream_channel_audio(websocket: WebSocket, chan_id: str):
             await websocket.close(code=4403)
             return
 
+    # Validate format parameter
+    format_param = websocket.query_params.get("format", "pcm16")
+    if format_param not in ["pcm16", "f32"]:
+        await websocket.close(code=4400)  # Bad request
+        return
+
     await websocket.accept()
     ch = app_state.captures.get_channel(chan_id)
     if ch is None:
         await websocket.close(code=4404)
         return
-    q = await ch.subscribe_audio()
+    q = await ch.subscribe_audio(format=format_param)
 
     try:
         while True:

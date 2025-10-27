@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SDR Stream Catalog</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+            text-align: left;
+        }
+        h1 {
+            margin: 0 0 20px 0;
+            color: #333;
+            text-align: left;
+        }
+        .device-section {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            border: 2px solid #ddd;
+            text-align: left;
+        }
+        .device-header {
+            background: #e3f2fd;
+            padding: 15px;
+            margin: -20px -20px 20px -20px;
+            border-radius: 5px 5px 0 0;
+        }
+        .device-name {
+            font-size: 20px;
+            font-weight: bold;
+            color: #1976d2;
+            text-align: left;
+        }
+        .device-info {
+            font-size: 14px;
+            color: #666;
+            margin-top: 8px;
+            text-align: left;
+        }
+        .channel-card {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 15px;
+            background: #fafafa;
+            text-align: left;
+        }
+        .channel-header {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+            text-align: left;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .status-running {
+            background: #4caf50;
+            color: white;
+        }
+        .status-created {
+            background: #ff9800;
+            color: white;
+        }
+        .detail-table {
+            width: 100%;
+            margin: 15px 0;
+            border-collapse: collapse;
+        }
+        .detail-table td {
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+            text-align: left;
+        }
+        .detail-table td:first-child {
+            font-weight: bold;
+            width: 180px;
+            color: #666;
+        }
+        .url-box {
+            background: #f0f0f0;
+            padding: 8px;
+            border-radius: 3px;
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+            margin: 5px 0;
+        }
+        .player-controls {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 2px solid #ddd;
+            text-align: left;
+        }
+        button {
+            background: #2196f3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #1976d2;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .player-status {
+            display: inline-block;
+            margin-left: 10px;
+            color: #666;
+        }
+        .refresh-btn {
+            background: #4caf50;
+            margin-bottom: 20px;
+        }
+        .refresh-btn:hover {
+            background: #45a049;
+        }
+        .loading {
+            text-align: left;
+            padding: 40px;
+            color: #666;
+        }
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <h1>SDR Stream Catalog</h1>
+    <button class="refresh-btn" onclick="loadStreams()">Refresh</button>
+    <div id="content" class="loading">Loading streams...</div>
+
+    <script>
+        const players = {};
+
+        async function loadStreams() {
+            const content = document.getElementById('content');
+            content.innerHTML = '<div class="loading">Loading streams...</div>';
+
+            try {
+                const [devices, captures] = await Promise.all([
+                    fetch('/api/v1/devices').then(r => r.json()),
+                    fetch('/api/v1/captures').then(r => r.json())
+                ]);
+
+                const channelPromises = captures.map(cap =>
+                    fetch(`/api/v1/captures/${cap.id}/channels`).then(r => r.json())
+                );
+                const channelArrays = await Promise.all(channelPromises);
+                const channels = channelArrays.flat();
+
+                const channelsByCapture = {};
+                channels.forEach(ch => {
+                    if (!channelsByCapture[ch.captureId]) {
+                        channelsByCapture[ch.captureId] = [];
+                    }
+                    channelsByCapture[ch.captureId].push(ch);
+                });
+
+                const capturesByDevice = {};
+                captures.forEach(cap => {
+                    if (!capturesByDevice[cap.deviceId]) {
+                        capturesByDevice[cap.deviceId] = [];
+                    }
+                    capturesByDevice[cap.deviceId].push(cap);
+                });
+
+                let html = '';
+
+                devices.forEach((device) => {
+                    const deviceCaptures = capturesByDevice[device.id] || [];
+
+                    html += `
+                        <div class="device-section">
+                            <div class="device-header">
+                                <div class="device-name">${escapeHtml(device.label)}</div>
+                                <div class="device-info">
+                                    <strong>Driver:</strong> ${device.driver} |
+                                    <strong>Serial:</strong> ${device.serial || 'N/A'} |
+                                    <strong>Frequency Range:</strong> ${(device.freq_min_hz / 1e6).toFixed(1)} - ${(device.freq_max_hz / 1e6).toFixed(0)} MHz
+                                </div>
+                            </div>
+                    `;
+
+                    if (deviceCaptures.length === 0) {
+                        html += '<p>No active captures</p>';
+                    } else {
+                        deviceCaptures.forEach(capture => {
+                            const captureChannels = channelsByCapture[capture.id] || [];
+
+                            captureChannels.forEach(channel => {
+                                const freqMHz = (capture.centerHz / 1e6).toFixed(3);
+                                const statusClass = channel.state === 'running' ? 'status-running' : 'status-created';
+                                const streamUrl = `/api/v1/stream/channels/${channel.id}.pcm`;
+                                const fullStreamUrl = `http://${window.location.host}${streamUrl}`;
+
+                                html += `
+                                    <div class="channel-card">
+                                        <div class="channel-header">
+                                            Channel ${channel.id}
+                                            <span class="status-badge ${statusClass}">${channel.state}</span>
+                                        </div>
+
+                                        <table class="detail-table">
+                                            <tr>
+                                                <td>Frequency</td>
+                                                <td>${freqMHz} MHz</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Mode</td>
+                                                <td>${channel.mode.toUpperCase()}</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Audio Sample Rate</td>
+                                                <td>${(channel.audioRate / 1000).toFixed(0)} kHz (${channel.audioRate} Hz)</td>
+                                            </tr>
+                                            <tr>
+                                                <td>SDR Sample Rate</td>
+                                                <td>${(capture.sampleRate / 1e6).toFixed(2)} MHz (${capture.sampleRate} Hz)</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Offset</td>
+                                                <td>${channel.offsetHz} Hz</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Capture ID</td>
+                                                <td>${capture.id}</td>
+                                            </tr>
+                                            <tr>
+                                                <td>PCM16 Stream URL</td>
+                                                <td><div class="url-box">${fullStreamUrl}</div></td>
+                                            </tr>
+                                        </table>
+
+                                        <div class="player-controls">
+                                            <button id="play-${channel.id}" onclick="startPlayer('${channel.id}', '${streamUrl}')">▶ Play</button>
+                                            <button id="stop-${channel.id}" onclick="stopPlayer('${channel.id}')" disabled>⏹ Stop</button>
+                                            <span class="player-status" id="status-${channel.id}">Ready</span>
+                                        </div>
+                                    </div>
+                                `;
+                            });
+                        });
+                    }
+
+                    html += '</div>';
+                });
+
+                if (devices.length === 0) {
+                    html = '<div class="error">No SDR devices found</div>';
+                }
+
+                content.innerHTML = html;
+
+            } catch (error) {
+                content.innerHTML = `<div class="error">Error loading streams: ${escapeHtml(error.message)}</div>`;
+            }
+        }
+
+        async function startPlayer(channelId, streamUrl) {
+            const playBtn = document.getElementById(`play-${channelId}`);
+            const stopBtn = document.getElementById(`stop-${channelId}`);
+            const status = document.getElementById(`status-${channelId}`);
+
+            if (players[channelId]) {
+                stopPlayer(channelId);
+            }
+
+            playBtn.disabled = true;
+            stopBtn.disabled = false;
+            status.textContent = 'Connecting...';
+
+            try {
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 48000
+                });
+
+                const response = await fetch(streamUrl);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                status.textContent = 'Playing';
+
+                const reader = response.body.getReader();
+                let nextPlayTime = audioContext.currentTime + 0.5;
+                let isPlaying = true;
+
+                players[channelId] = {
+                    audioContext,
+                    reader,
+                    stop: () => { isPlaying = false; }
+                };
+
+                const chunkSize = 9600;
+                let buffer = new Uint8Array(0);
+
+                while (isPlaying) {
+                    const {done, value} = await reader.read();
+
+                    if (done) {
+                        status.textContent = 'Stream ended';
+                        break;
+                    }
+
+                    const newBuffer = new Uint8Array(buffer.length + value.length);
+                    newBuffer.set(buffer);
+                    newBuffer.set(value, buffer.length);
+                    buffer = newBuffer;
+
+                    while (buffer.length >= chunkSize && isPlaying) {
+                        const chunk = buffer.slice(0, chunkSize);
+                        buffer = buffer.slice(chunkSize);
+
+                        const samples = new Int16Array(chunk.buffer, chunk.byteOffset, chunk.byteLength / 2);
+                        const floatSamples = new Float32Array(samples.length);
+                        for (let i = 0; i < samples.length; i++) {
+                            floatSamples[i] = samples[i] / 32768.0;
+                        }
+
+                        const audioBuffer = audioContext.createBuffer(1, floatSamples.length, 48000);
+                        audioBuffer.getChannelData(0).set(floatSamples);
+
+                        const source = audioContext.createBufferSource();
+                        source.buffer = audioBuffer;
+                        source.connect(audioContext.destination);
+
+                        if (nextPlayTime < audioContext.currentTime) {
+                            nextPlayTime = audioContext.currentTime;
+                        }
+
+                        source.start(nextPlayTime);
+                        nextPlayTime += audioBuffer.duration;
+                    }
+                }
+
+            } catch (error) {
+                status.textContent = 'Error: ' + error.message;
+                stopPlayer(channelId);
+            }
+        }
+
+        function stopPlayer(channelId) {
+            const playBtn = document.getElementById(`play-${channelId}`);
+            const stopBtn = document.getElementById(`stop-${channelId}`);
+            const status = document.getElementById(`status-${channelId}`);
+
+            if (players[channelId]) {
+                players[channelId].stop();
+                if (players[channelId].reader) {
+                    players[channelId].reader.cancel();
+                }
+                if (players[channelId].audioContext) {
+                    players[channelId].audioContext.close();
+                }
+                delete players[channelId];
+            }
+
+            playBtn.disabled = false;
+            stopBtn.disabled = true;
+            status.textContent = 'Stopped';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        loadStreams();
+    </script>
+</body>
+</html>

@@ -15,14 +15,20 @@ def quadrature_demod(iq: np.ndarray) -> np.ndarray:
 
 
 def deemphasis_filter(x: np.ndarray, sample_rate: int, tau: float = 75e-6) -> np.ndarray:
-    # Single-pole IIR: y[n] = y[n-1] + alpha * (x[n] - y[n-1])
-    alpha = 1.0 / (1.0 + (1.0 / (2.0 * np.pi * tau * sample_rate)))
-    y = np.empty_like(x, dtype=np.float32)
-    acc = np.float32(0.0)
-    for i in range(x.shape[0]):
-        acc = acc + np.float32(alpha) * (np.float32(x[i]) - acc)
-        y[i] = acc
-    return y
+    # Single-pole IIR using scipy for speed: y[n] = y[n-1] + alpha * (x[n] - y[n-1])
+    # This is equivalent to a lowpass filter with cutoff = 1/(2*pi*tau)
+    try:
+        from scipy import signal
+        # Convert IIR params to filter coefficients
+        alpha = 1.0 / (1.0 + (1.0 / (2.0 * np.pi * tau * sample_rate)))
+        # b = [alpha], a = [1, -(1-alpha)] in direct form II
+        b = [alpha]
+        a = [1.0, -(1.0 - alpha)]
+        y = signal.lfilter(b, a, x).astype(np.float32)
+        return y
+    except ImportError:
+        # Fallback: skip deemphasis if scipy not available
+        return x.astype(np.float32, copy=False)
 
 
 def resample_linear(x: np.ndarray, in_rate: int, out_rate: int) -> np.ndarray:
