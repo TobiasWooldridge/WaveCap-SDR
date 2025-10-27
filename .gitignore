@@ -56,4 +56,9 @@ harness_out/
 logs/
 *.pid
 
+# Test and development scripts
+make_wav.py
+record_test.py
+test_stream.py
+
 # Do not ignore audio fixtures in tests; avoid global *.wav ignores

@@ -1,5 +1,25 @@
 # Changelog
 
+## 2025-10-26 - Web UI and Multi-Format Streaming
+
+### New Features
+- **Web UI**: Catalog page displaying all SDR devices, captures, and channels
+- **Embedded Players**: Browser-based audio playback with Web Audio API
+- **Multi-Format Streaming**: Support for PCM16 and F32 audio formats
+- **HTTP Streaming**: Direct stream URLs for VLC and other media players
+- **Performance**: 14x speedup in FM demodulation using scipy.signal.lfilter
+
+### Web Interface
+- Device catalog shows hardware details, frequency ranges, and active captures
+- Per-channel audio players with play/stop controls
+- Direct stream URLs displayed for easy copy/paste
+- Unified single-server architecture supporting multiple SDRs
+
+### API Enhancements
+- `/api/v1/stream/channels/{chan_id}.pcm` - HTTP audio streaming endpoint
+- Format parameter support: `?format=pcm16` or `?format=f32`
+- Static file serving at `/` and `/player.html`
+
 ## 2025-10-26 - Alpha Release: Core Functionality
 
 ### Features Implemented

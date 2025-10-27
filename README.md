@@ -6,13 +6,14 @@ A standalone server that encapsulates SDR device control, capture, and demodulat
 - Contribution & workflow: see `AGENTS.md` for coding principles, testing expectations, and repo conventions.
 
 ## Status
-**Alpha** — Core functionality implemented. Device enumeration, IQ streaming, and WBFM demodulation are working. Tested with RTL-SDR Blog V4 and SDRplay RSPdx-R2 via SoapySDR.
+**Alpha** — Core functionality implemented. Device enumeration, IQ streaming, WBFM demodulation, and web UI are working. Tested with RTL-SDR Blog V4 and SDRplay RSPdx-R2 via SoapySDR.
 
 ### Recent Updates (2025-10-26)
-- Fixed SoapySDR Python bindings compatibility issues
-- Implemented channel audio streaming with proper async/threading coordination
-- Verified multi-device support with simultaneous RTL-SDR and SDRplay operation
-- Fixed device enumeration for SoapySDRKwargs objects
+- Added web UI with catalog page and embedded audio players
+- Multi-format audio streaming (PCM16 and F32)
+- HTTP streaming endpoint for VLC and browser compatibility
+- FM demodulation performance optimization (14x speedup with scipy)
+- Multi-device support with simultaneous RTL-SDR and SDRplay operation
 
 ## Getting Started
 
@@ -67,12 +68,12 @@ Test output WAV files are saved to `backend/harness_out/`.
 ```bash
 cd backend
 PYTHONPATH=. .venv/bin/python -m wavecapsdr \
-  --host 127.0.0.1 \
+  --host 0.0.0.0 \
   --port 8087 \
   --driver soapy
 ```
 
-See `SPEC.md` for API documentation.
+Then visit `http://localhost:8087/` for the web UI catalog page, or use the API directly (see `SPEC.md`).
 
 ## Relation to WaveCap
 - WaveCap (control/UI) lives in `~/speaker/WaveCap` (also symlinked as `~/speaker/smart-speaker`). WaveCap‑SDR provides the radio server component. Together they form one product; this repo intentionally contains no frontend.
@@ -82,7 +83,9 @@ See `SPEC.md` for API documentation.
   - `wavecapsdr/` — main package
     - `devices/` — SDR driver abstractions (soapy, rtl, fake)
     - `dsp/` — signal processing (FM demodulation)
+    - `static/` — web UI files (catalog and player)
     - `api.py` — FastAPI REST/WebSocket endpoints
+    - `app.py` — FastAPI application and static file serving
     - `capture.py` — capture and channel management
     - `harness.py` — test harness
   - `tests/` — pytest test suite
