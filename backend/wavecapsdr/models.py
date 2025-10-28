@@ -38,6 +38,9 @@ class CaptureModel(BaseModel):
     state: Literal["created", "running", "stopped"]
     centerHz: float
     sampleRate: int
+    gain: Optional[float] = None
+    bandwidth: Optional[float] = None
+    ppm: Optional[float] = None
     antenna: Optional[str] = None
 
 

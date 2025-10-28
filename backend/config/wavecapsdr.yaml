@@ -29,3 +29,18 @@ presets:
     sample_rate: 2000000
     offsets: [0.0]
     antenna: "Ant B"  # Use Ant B for FM broadcast
+  kexp_rspdx:
+    center_hz: 90300000
+    sample_rate: 2000000  # Optimal - device doesn't support 1.8 MHz
+    offsets: [0.0]
+    gain: 20  # Optimal gain - best balance of signal vs noise
+    bandwidth: 200000  # 200 kHz bandwidth for FM broadcast
+    antenna: "Ant B"  # Use Ant B for FM broadcast (88-108 MHz)
+    # squelch_db: Not useful for continuous music broadcasts
+
+# Auto-start captures on server startup
+captures:
+  - preset: kexp
+    device_id: "driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog V4,serial=00000001,tuner=Rafael Micro R828D"
+  - preset: kexp_rspdx
+    device_id: "driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070"

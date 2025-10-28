@@ -145,6 +145,17 @@ class Channel:
         if self.cfg.mode == "wbfm":
             base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
             audio = wbfm_demod(base, sample_rate, self.cfg.audio_rate)
+
+            # Apply squelch if configured
+            if self.cfg.squelch_db is not None and audio.size > 0:
+                # Calculate signal power in dB
+                power = np.mean(audio ** 2)
+                power_db = 10.0 * np.log10(power + 1e-10)  # Add small value to avoid log(0)
+
+                # Mute audio if below threshold
+                if power_db < self.cfg.squelch_db:
+                    audio = np.zeros_like(audio)
+
             await self._broadcast(audio)
         else:
             # Unknown mode: ignore for now

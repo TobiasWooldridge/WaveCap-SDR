@@ -51,6 +51,9 @@ def list_captures(_: None = Depends(auth_check), state: AppState = Depends(get_s
             state=c.state,  # type: ignore[arg-type]
             centerHz=c.cfg.center_hz,
             sampleRate=c.cfg.sample_rate,
+            gain=c.cfg.gain,
+            bandwidth=c.cfg.bandwidth,
+            ppm=c.cfg.ppm,
             antenna=c.antenna,
         )
         for c in state.captures.list_captures()
@@ -78,6 +81,9 @@ def create_capture(
         state=cap.state,  # type: ignore[arg-type]
         centerHz=cap.cfg.center_hz,
         sampleRate=cap.cfg.sample_rate,
+        gain=cap.cfg.gain,
+        bandwidth=cap.cfg.bandwidth,
+        ppm=cap.cfg.ppm,
         antenna=cap.antenna,
     )
 
@@ -98,6 +104,9 @@ async def start_capture(
         state=cap.state,  # type: ignore[arg-type]
         centerHz=cap.cfg.center_hz,
         sampleRate=cap.cfg.sample_rate,
+        gain=cap.cfg.gain,
+        bandwidth=cap.cfg.bandwidth,
+        ppm=cap.cfg.ppm,
         antenna=cap.antenna,
     )
 
@@ -118,6 +127,9 @@ async def stop_capture(
         state=cap.state,  # type: ignore[arg-type]
         centerHz=cap.cfg.center_hz,
         sampleRate=cap.cfg.sample_rate,
+        gain=cap.cfg.gain,
+        bandwidth=cap.cfg.bandwidth,
+        ppm=cap.cfg.ppm,
         antenna=cap.antenna,
     )
 
@@ -137,6 +149,9 @@ def get_capture(
         state=cap.state,  # type: ignore[arg-type]
         centerHz=cap.cfg.center_hz,
         sampleRate=cap.cfg.sample_rate,
+        gain=cap.cfg.gain,
+        bandwidth=cap.cfg.bandwidth,
+        ppm=cap.cfg.ppm,
         antenna=cap.antenna,
     )
 

@@ -240,13 +240,25 @@
                                                 <td>${(capture.sampleRate / 1e6).toFixed(2)} MHz (${capture.sampleRate} Hz)</td>
                                             </tr>
                                             <tr>
+                                                <td>Gain</td>
+                                                <td>${capture.gain !== null && capture.gain !== undefined ? `${capture.gain} dB` : '<em>Automatic</em>'}</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Bandwidth</td>
+                                                <td>${capture.bandwidth !== null && capture.bandwidth !== undefined ? `${(capture.bandwidth / 1e6).toFixed(2)} MHz (${capture.bandwidth} Hz)` : '<em>Automatic</em>'}</td>
+                                            </tr>
+                                            <tr>
+                                                <td>PPM Correction</td>
+                                                <td>${capture.ppm !== null && capture.ppm !== undefined ? `${capture.ppm} ppm` : '<em>None</em>'}</td>
+                                            </tr>
+                                            <tr>
+                                                <td>Antenna</td>
+                                                <td>${capture.antenna ? `<strong>${escapeHtml(capture.antenna)}</strong>` : '<em>Default</em>'}</td>
+                                            </tr>
+                                            <tr>
                                                 <td>Offset</td>
                                                 <td>${channel.offsetHz} Hz</td>
                                             </tr>
-                                            ${capture.antenna ? `<tr>
-                                                <td>Antenna</td>
-                                                <td><strong>${escapeHtml(capture.antenna)}</strong></td>
-                                            </tr>` : ''}
                                             <tr>
                                                 <td>Capture ID</td>
                                                 <td>${capture.id}</td>

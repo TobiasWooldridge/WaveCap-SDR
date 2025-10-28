@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import yaml
 
@@ -39,11 +39,33 @@ class DeviceConfig:
 
 
 @dataclass
+class PresetConfig:
+    """A preset configuration for a capture."""
+    center_hz: float
+    sample_rate: int
+    offsets: List[float] = field(default_factory=list)
+    gain: Optional[float] = None
+    bandwidth: Optional[float] = None
+    ppm: Optional[float] = None
+    antenna: Optional[str] = None
+    squelch_db: Optional[float] = None
+
+
+@dataclass
+class CaptureStartConfig:
+    """Configuration for a capture to auto-start."""
+    preset: str  # Name of preset to use
+    device_id: Optional[str] = None  # If None, use any available device
+
+
+@dataclass
 class AppConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     stream: StreamConfig = field(default_factory=StreamConfig)
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     device: DeviceConfig = field(default_factory=DeviceConfig)
+    presets: Dict[str, PresetConfig] = field(default_factory=dict)
+    captures: List[CaptureStartConfig] = field(default_factory=list)
 
 
 def _read_yaml(path: Path) -> Dict[str, Any]:
@@ -90,7 +112,31 @@ def load_config(path_str: str) -> AppConfig:
     stream = StreamConfig(**raw.get("stream", {}))
     limits = LimitsConfig(**raw.get("limits", {}))
     device = DeviceConfig(**raw.get("device", {}))
-    return AppConfig(server=server, stream=stream, limits=limits, device=device)
+
+    # Parse presets
+    presets: Dict[str, PresetConfig] = {}
+    presets_raw = raw.get("presets", {})
+    if isinstance(presets_raw, dict):
+        for name, preset_data in presets_raw.items():
+            if isinstance(preset_data, dict):
+                presets[name] = PresetConfig(**preset_data)
+
+    # Parse captures list
+    captures: List[CaptureStartConfig] = []
+    captures_raw = raw.get("captures", [])
+    if isinstance(captures_raw, list):
+        for cap_data in captures_raw:
+            if isinstance(cap_data, dict):
+                captures.append(CaptureStartConfig(**cap_data))
+
+    return AppConfig(
+        server=server,
+        stream=stream,
+        limits=limits,
+        device=device,
+        presets=presets,
+        captures=captures,
+    )
 
 
 def coerce_env_value(val: str) -> Any:
