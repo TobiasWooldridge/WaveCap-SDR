@@ -115,7 +115,7 @@ def auth_check(request: Request, state: AppState = Depends(get_state)) -> None:
         raise HTTPException(status_code=403, detail="Invalid token")
 
 
-@router.get("/devices", response_model=List[DeviceModel])
+@router.get("/devices", response_model=List[DeviceModel], response_model_by_alias=False)
 def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)):
     devices = state.captures.list_devices()
     return [DeviceModel(**d) for d in devices]
