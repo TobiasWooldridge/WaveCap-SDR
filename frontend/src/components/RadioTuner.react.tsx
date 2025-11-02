@@ -34,10 +34,10 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   }, [capture]);
 
   // Debounce values for API calls
-  const debouncedFreq = useDebounce(localFreq, 500);
-  const debouncedGain = useDebounce(localGain, 500);
-  const debouncedBandwidth = useDebounce(localBandwidth, 500);
-  const debouncedPpm = useDebounce(localPpm, 500);
+  const debouncedFreq = useDebounce(localFreq, 100);
+  const debouncedGain = useDebounce(localGain, 100);
+  const debouncedBandwidth = useDebounce(localBandwidth, 100);
+  const debouncedPpm = useDebounce(localPpm, 100);
 
   const updateMutation = useUpdateCapture();
   const startMutation = useStartCapture();
