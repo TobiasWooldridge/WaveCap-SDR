@@ -19,6 +19,13 @@ class DeviceModel(BaseModel):
     freqMaxHz: float = Field(..., alias="freq_max_hz")
     sampleRates: list[int] = Field(..., alias="sample_rates")
     gains: list[str]
+    gainMin: Optional[float] = Field(None, alias="gain_min")
+    gainMax: Optional[float] = Field(None, alias="gain_max")
+    bandwidthMin: Optional[float] = Field(None, alias="bandwidth_min")
+    bandwidthMax: Optional[float] = Field(None, alias="bandwidth_max")
+    ppmMin: Optional[float] = Field(None, alias="ppm_min")
+    ppmMax: Optional[float] = Field(None, alias="ppm_max")
+    antennas: list[str]
     model_config = ConfigDict(populate_by_name=True)
 
 
@@ -32,21 +39,38 @@ class CreateCaptureRequest(BaseModel):
     antenna: Optional[str] = None
 
 
-class CaptureModel(BaseModel):
-    id: str
-    deviceId: str
-    state: Literal["created", "running", "stopped"]
-    centerHz: float
-    sampleRate: int
+class UpdateCaptureRequest(BaseModel):
+    centerHz: Optional[float] = None
+    sampleRate: Optional[int] = None
     gain: Optional[float] = None
     bandwidth: Optional[float] = None
     ppm: Optional[float] = None
     antenna: Optional[str] = None
 
 
+class CaptureModel(BaseModel):
+    id: str
+    deviceId: str
+    state: Literal["created", "running", "stopped", "failed"]
+    centerHz: float
+    sampleRate: int
+    gain: Optional[float] = None
+    bandwidth: Optional[float] = None
+    ppm: Optional[float] = None
+    antenna: Optional[str] = None
+    errorMessage: Optional[str] = None
+
+
 class CreateChannelRequest(BaseModel):
     mode: Literal["wbfm"] = "wbfm"
     offsetHz: Optional[float] = 0.0
+    audioRate: Optional[int] = None
+    squelchDb: Optional[float] = None
+
+
+class UpdateChannelRequest(BaseModel):
+    mode: Optional[Literal["wbfm"]] = None
+    offsetHz: Optional[float] = None
     audioRate: Optional[int] = None
     squelchDb: Optional[float] = None
 
@@ -58,3 +82,4 @@ class ChannelModel(BaseModel):
     state: Literal["created", "running", "stopped"]
     offsetHz: float
     audioRate: int
+    squelchDb: Optional[float] = None

@@ -14,6 +14,13 @@ class DeviceInfo:
     freq_max_hz: float
     sample_rates: tuple[int, ...]
     gains: tuple[str, ...]
+    gain_min: Optional[float] = None
+    gain_max: Optional[float] = None
+    bandwidth_min: Optional[float] = None
+    bandwidth_max: Optional[float] = None
+    ppm_min: Optional[float] = None
+    ppm_max: Optional[float] = None
+    antennas: tuple[str, ...] = ()
 
 
 class StreamHandle(Protocol):
@@ -43,6 +50,27 @@ class Device(Protocol):
 
     def get_antenna(self) -> Optional[str]:
         """Return the currently configured antenna, if any."""
+        ...
+
+    def reconfigure_running(
+        self,
+        center_hz: Optional[float] = None,
+        gain: Optional[float] = None,
+        bandwidth: Optional[float] = None,
+        ppm: Optional[float] = None,
+    ) -> None:
+        """Reconfigure device while stream is running (hot reconfiguration).
+
+        This method allows updating certain parameters without stopping/restarting
+        the stream. Not all parameters can be changed without restart (sample_rate
+        and antenna typically require restart).
+
+        Args:
+            center_hz: New center frequency (if provided)
+            gain: New gain setting (if provided)
+            bandwidth: New bandwidth (if provided)
+            ppm: New PPM correction (if provided)
+        """
         ...
 
     def close(self) -> None:

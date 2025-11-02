@@ -1,15 +1,60 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import threading
+import time
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Set, Tuple
+from typing import Any, Callable, Dict, Optional, Set, Tuple, TypeVar
 
 import numpy as np
 
 from .config import AppConfig
 from .devices.base import Device, DeviceDriver, StreamHandle
 from .dsp.fm import wbfm_demod
+
+
+F = TypeVar('F', bound=Callable[..., Any])
+
+
+def with_retry(max_attempts: int = 3, backoff_factor: float = 2.0) -> Callable[[F], F]:
+    """Decorator to add retry logic with exponential backoff.
+
+    Args:
+        max_attempts: Maximum number of attempts (default: 3)
+        backoff_factor: Multiplier for delay between attempts (default: 2.0)
+
+    Returns:
+        Decorated function that will retry on failure
+    """
+    def decorator(func: F) -> F:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            last_exception = None
+            delay = 0.5  # Start with 0.5 second delay
+
+            for attempt in range(max_attempts):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    if attempt < max_attempts - 1:
+                        print(
+                            f"[RETRY] {func.__name__} failed (attempt {attempt + 1}/{max_attempts}): {e}",
+                            flush=True
+                        )
+                        time.sleep(delay)
+                        delay *= backoff_factor
+
+            # All attempts failed
+            print(
+                f"[ERROR] {func.__name__} failed after {max_attempts} attempts",
+                flush=True
+            )
+            raise last_exception  # type: ignore[misc]
+
+        return wrapper  # type: ignore[return-value]
+    return decorator
 
 
 def pack_iq16(samples: np.ndarray) -> bytes:
@@ -178,8 +223,9 @@ class CaptureConfig:
 class Capture:
     cfg: CaptureConfig
     device: Device
-    state: str = "created"
+    state: str = "created"  # created, running, stopped, failed
     antenna: Optional[str] = None  # Actual antenna in use
+    error_message: Optional[str] = None  # Error message if state is "failed"
     _stream: Optional[StreamHandle] = None
     _thread: Optional[threading.Thread] = None
     _iq_sinks: Set[Tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop]] = field(
@@ -195,9 +241,11 @@ class Capture:
         self._channels.pop(chan_id, None)
 
     def start(self) -> None:
+        """Start capture with error handling."""
         if self._thread is not None and self._thread.is_alive():
             return
         self.state = "running"
+        self.error_message = None
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_thread, name=f"Capture-{self.cfg.id}", daemon=True)
         self._thread.start()
@@ -218,6 +266,60 @@ class Capture:
         except Exception:
             pass
         self.state = "stopped"
+
+    async def reconfigure(
+        self,
+        center_hz: Optional[float] = None,
+        sample_rate: Optional[int] = None,
+        gain: Optional[float] = None,
+        bandwidth: Optional[float] = None,
+        ppm: Optional[float] = None,
+        antenna: Optional[str] = None,
+    ) -> None:
+        """Reconfigure capture, using hot reconfiguration when possible.
+
+        If only hot-reconfigurable parameters are changed (center_hz, gain,
+        bandwidth, ppm), the capture will be updated without restarting.
+        If sample_rate or antenna changes, a full restart is required.
+        """
+        # Update config
+        if center_hz is not None:
+            self.cfg.center_hz = center_hz
+        if sample_rate is not None:
+            self.cfg.sample_rate = sample_rate
+        if gain is not None:
+            self.cfg.gain = gain
+        if bandwidth is not None:
+            self.cfg.bandwidth = bandwidth
+        if ppm is not None:
+            self.cfg.ppm = ppm
+        if antenna is not None:
+            self.cfg.antenna = antenna
+
+        # Check if we need full restart
+        needs_restart = sample_rate is not None or antenna is not None
+
+        was_running = self.state == "running"
+
+        if needs_restart and was_running:
+            # Full restart required
+            await self.stop()
+            self.start()
+        elif was_running:
+            # Try hot reconfiguration
+            try:
+                self.device.reconfigure_running(
+                    center_hz=center_hz,
+                    gain=gain,
+                    bandwidth=bandwidth,
+                    ppm=ppm,
+                )
+                self.error_message = None
+            except Exception as e:
+                # Hot reconfiguration failed, do full restart
+                print(f"[WARNING] Hot reconfiguration failed: {e}, restarting capture", flush=True)
+                await self.stop()
+                self.start()
 
     async def subscribe_iq(self) -> asyncio.Queue[bytes]:
         q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=8)
@@ -274,8 +376,9 @@ class Capture:
                         pass
 
     def _run_thread(self) -> None:
-        # Configure device and start streaming
-        try:
+        # Configure device and start streaming with retry logic
+        @with_retry(max_attempts=3, backoff_factor=2.0)
+        def _configure_and_start() -> StreamHandle:
             self.device.configure(
                 center_hz=self.cfg.center_hz,
                 sample_rate=self.cfg.sample_rate,
@@ -284,10 +387,18 @@ class Capture:
                 ppm=self.cfg.ppm,
                 antenna=self.cfg.antenna,
             )
-            self._stream = self.device.start_stream()
+            stream = self.device.start_stream()
             # Store the actual antenna being used
             self.antenna = self.device.get_antenna()
-        except Exception:
+            return stream
+
+        try:
+            self._stream = _configure_and_start()
+        except Exception as e:
+            # Set failed state with error message
+            self.state = "failed"
+            self.error_message = f"Failed to start capture: {str(e)}"
+            print(f"[ERROR] Capture {self.cfg.id} failed: {e}", flush=True)
             return
         chunk = 4096
         while not self._stop_event.is_set():

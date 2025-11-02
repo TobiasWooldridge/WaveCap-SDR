@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -9,13 +10,91 @@ from .models import (
     DeviceModel,
     CaptureModel,
     CreateCaptureRequest,
+    UpdateCaptureRequest,
     ChannelModel,
     CreateChannelRequest,
+    UpdateChannelRequest,
 )
 from .state import AppState
 
 
 router = APIRouter()
+
+
+@router.get("/health")
+def health_check(request: Request):
+    """Comprehensive health check endpoint that tests all major API components."""
+    state = getattr(request.app.state, "app_state", None)
+    if state is None:
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": "AppState not initialized"}
+        )
+
+    health_status = {
+        "status": "ok",
+        "timestamp": __import__("time").time(),
+        "checks": {}
+    }
+
+    try:
+        # Check devices
+        devices = state.captures.list_devices()
+        health_status["checks"]["devices"] = {
+            "status": "ok",
+            "count": len(devices),
+            "devices": [{"id": d["id"], "driver": d["driver"], "label": d["label"]} for d in devices]
+        }
+    except Exception as e:
+        health_status["checks"]["devices"] = {"status": "error", "error": str(e)}
+        health_status["status"] = "degraded"
+
+    try:
+        # Check captures
+        captures = state.captures.list_captures()
+        health_status["checks"]["captures"] = {
+            "status": "ok",
+            "count": len(captures),
+            "captures": [{
+                "id": c.cfg.id,
+                "state": c.state,
+                "device_id": c.cfg.device_id[:50] + "..." if len(c.cfg.device_id) > 50 else c.cfg.device_id,
+                "center_hz": c.cfg.center_hz,
+                "sample_rate": c.cfg.sample_rate,
+                "antenna": c.antenna
+            } for c in captures]
+        }
+    except Exception as e:
+        health_status["checks"]["captures"] = {"status": "error", "error": str(e)}
+        health_status["status"] = "degraded"
+
+    try:
+        # Check channels for each capture
+        all_channels = []
+        for cap in state.captures.list_captures():
+            channels = state.captures.list_channels(cap.cfg.id)
+            for ch in channels:
+                all_channels.append({
+                    "id": ch.cfg.id,
+                    "capture_id": ch.cfg.capture_id,
+                    "mode": ch.cfg.mode,
+                    "state": ch.state
+                })
+        health_status["checks"]["channels"] = {
+            "status": "ok",
+            "count": len(all_channels),
+            "channels": all_channels
+        }
+    except Exception as e:
+        health_status["checks"]["channels"] = {"status": "error", "error": str(e)}
+        health_status["status"] = "degraded"
+
+    # Overall status
+    if any(check.get("status") == "error" for check in health_status["checks"].values()):
+        health_status["status"] = "degraded"
+
+    status_code = 200 if health_status["status"] in ["ok", "degraded"] else 500
+    return JSONResponse(status_code=status_code, content=health_status)
 
 
 def get_state(request: Request) -> AppState:
@@ -55,6 +134,7 @@ def list_captures(_: None = Depends(auth_check), state: AppState = Depends(get_s
             bandwidth=c.cfg.bandwidth,
             ppm=c.cfg.ppm,
             antenna=c.antenna,
+            errorMessage=c.error_message,
         )
         for c in state.captures.list_captures()
     ]
@@ -84,7 +164,8 @@ def create_capture(
         gain=cap.cfg.gain,
         bandwidth=cap.cfg.bandwidth,
         ppm=cap.cfg.ppm,
-        antenna=cap.antenna,
+        antenna=cap.cfg.antenna,
+        errorMessage=cap.error_message,
     )
 
 
@@ -107,7 +188,8 @@ async def start_capture(
         gain=cap.cfg.gain,
         bandwidth=cap.cfg.bandwidth,
         ppm=cap.cfg.ppm,
-        antenna=cap.antenna,
+        antenna=cap.cfg.antenna,
+        errorMessage=cap.error_message,
     )
 
 
@@ -130,7 +212,8 @@ async def stop_capture(
         gain=cap.cfg.gain,
         bandwidth=cap.cfg.bandwidth,
         ppm=cap.cfg.ppm,
-        antenna=cap.antenna,
+        antenna=cap.cfg.antenna,
+        errorMessage=cap.error_message,
     )
 
 
@@ -152,7 +235,58 @@ def get_capture(
         gain=cap.cfg.gain,
         bandwidth=cap.cfg.bandwidth,
         ppm=cap.cfg.ppm,
-        antenna=cap.antenna,
+        antenna=cap.cfg.antenna,
+        errorMessage=cap.error_message,
+    )
+
+
+@router.patch("/captures/{cid}", response_model=CaptureModel)
+async def update_capture(
+    cid: str,
+    req: UpdateCaptureRequest,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    cap = state.captures.get_capture(cid)
+    if cap is None:
+        raise HTTPException(status_code=404, detail="Capture not found")
+
+    # Use reconfigure method with timeout protection
+    try:
+        # Add timeout to prevent hanging
+        await asyncio.wait_for(
+            cap.reconfigure(
+                center_hz=req.centerHz,
+                sample_rate=req.sampleRate,
+                gain=req.gain,
+                bandwidth=req.bandwidth,
+                ppm=req.ppm,
+                antenna=req.antenna,
+            ),
+            timeout=30.0  # 30 second timeout for reconfiguration
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=503,
+            detail="Capture reconfiguration timed out. The SDRplay service may be stuck. Try restarting the service."
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reconfigure capture: {str(e)}"
+        )
+
+    return CaptureModel(
+        id=cap.cfg.id,
+        deviceId=cap.cfg.device_id,
+        state=cap.state,  # type: ignore[arg-type]
+        centerHz=cap.cfg.center_hz,
+        sampleRate=cap.cfg.sample_rate,
+        gain=cap.cfg.gain,
+        bandwidth=cap.cfg.bandwidth,
+        ppm=cap.cfg.ppm,
+        antenna=cap.cfg.antenna,
+        errorMessage=cap.error_message,
     )
 
 
@@ -181,6 +315,7 @@ def list_channels(
             state=ch.state,  # type: ignore[arg-type]
             offsetHz=ch.cfg.offset_hz,
             audioRate=ch.cfg.audio_rate,
+            squelchDb=ch.cfg.squelch_db,
         )
         for ch in chans
     ]
@@ -207,6 +342,7 @@ def create_channel(
         state=ch.state,  # type: ignore[arg-type]
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
+        squelchDb=ch.cfg.squelch_db,
     )
 
 
@@ -227,6 +363,7 @@ def start_channel(
         state=ch.state,  # type: ignore[arg-type]
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
+        squelchDb=ch.cfg.squelch_db,
     )
 
 
@@ -247,6 +384,7 @@ def stop_channel(
         state=ch.state,  # type: ignore[arg-type]
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
+        squelchDb=ch.cfg.squelch_db,
     )
 
 
@@ -266,7 +404,50 @@ def get_channel(
         state=ch.state,  # type: ignore[arg-type]
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
+        squelchDb=ch.cfg.squelch_db,
     )
+
+
+@router.patch("/channels/{chan_id}", response_model=ChannelModel)
+def update_channel(
+    chan_id: str,
+    req: UpdateChannelRequest,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    ch = state.captures.get_channel(chan_id)
+    if ch is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    # Update channel configuration
+    if req.mode is not None:
+        ch.cfg.mode = req.mode
+    if req.offsetHz is not None:
+        ch.cfg.offset_hz = req.offsetHz
+    if req.audioRate is not None:
+        ch.cfg.audio_rate = req.audioRate
+    if req.squelchDb is not None:
+        ch.cfg.squelch_db = req.squelchDb
+
+    return ChannelModel(
+        id=ch.cfg.id,
+        captureId=ch.cfg.capture_id,
+        mode=ch.cfg.mode,  # type: ignore[arg-type]
+        state=ch.state,  # type: ignore[arg-type]
+        offsetHz=ch.cfg.offset_hz,
+        audioRate=ch.cfg.audio_rate,
+        squelchDb=ch.cfg.squelch_db,
+    )
+
+
+@router.delete("/channels/{chan_id}")
+def delete_channel(
+    chan_id: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    state.captures.delete_channel(chan_id)
+    return JSONResponse(status_code=204, content={})
 
 
 @router.websocket("/stream/captures/{cid}/iq")
