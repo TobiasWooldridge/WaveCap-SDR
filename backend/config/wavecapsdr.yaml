@@ -1,5 +1,5 @@
 server:
-  bind_address: 127.0.0.1
+  bind_address: 0.0.0.0
   port: 8087
   # auth_token: ""
 stream:
@@ -28,14 +28,14 @@ presets:
     center_hz: 90300000
     sample_rate: 2000000
     offsets: [0.0]
-    antenna: "Ant B"  # Use Ant B for FM broadcast
+    # No antenna specified - RTL-SDR only has one antenna (RX)
   kexp_rspdx:
     center_hz: 90300000
     sample_rate: 2000000  # Optimal - device doesn't support 1.8 MHz
     offsets: [0.0]
     gain: 20  # Optimal gain - best balance of signal vs noise
     bandwidth: 200000  # 200 kHz bandwidth for FM broadcast
-    antenna: "Ant B"  # Use Ant B for FM broadcast (88-108 MHz)
+    antenna: "Antenna B"  # Use Antenna B for FM broadcast (88-108 MHz)
     # squelch_db: Not useful for continuous music broadcasts
 
 # Auto-start captures on server startup

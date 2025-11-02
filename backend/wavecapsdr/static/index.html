@@ -16,6 +16,9 @@
             color: #333;
             text-align: left;
         }
+        .top-controls {
+            margin-bottom: 20px;
+        }
         .device-section {
             background: white;
             padding: 20px;
@@ -42,10 +45,22 @@
             margin-top: 8px;
             text-align: left;
         }
+        .capture-card {
+            border: 2px solid #2196f3;
+            padding: 15px;
+            margin-bottom: 20px;
+            background: #f8f8f8;
+            border-radius: 5px;
+        }
+        .capture-controls {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 2px solid #ddd;
+        }
         .channel-card {
             border: 1px solid #ddd;
             padding: 15px;
-            margin-bottom: 15px;
+            margin: 15px 0;
             background: #fafafa;
             text-align: left;
         }
@@ -70,6 +85,10 @@
         }
         .status-created {
             background: #ff9800;
+            color: white;
+        }
+        .status-stopped {
+            background: #f44336;
             color: white;
         }
         .detail-table {
@@ -111,6 +130,7 @@
             cursor: pointer;
             font-size: 14px;
             margin-right: 10px;
+            margin-bottom: 5px;
         }
         button:hover {
             background: #1976d2;
@@ -118,6 +138,18 @@
         button:disabled {
             background: #ccc;
             cursor: not-allowed;
+        }
+        button.danger {
+            background: #f44336;
+        }
+        button.danger:hover {
+            background: #d32f2f;
+        }
+        button.success {
+            background: #4caf50;
+        }
+        button.success:hover {
+            background: #45a049;
         }
         .player-status {
             display: inline-block;
@@ -144,15 +176,269 @@
             margin-bottom: 20px;
             text-align: left;
         }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            border-radius: 5px;
+            width: 80%;
+            max-width: 600px;
+        }
+        .modal-header {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover,
+        .close:focus {
+            color: black;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            box-sizing: border-box;
+        }
+        .form-group small {
+            display: block;
+            margin-top: 3px;
+            color: #666;
+            font-size: 12px;
+        }
+        .form-actions {
+            margin-top: 20px;
+            text-align: right;
+        }
+        .no-captures {
+            padding: 20px;
+            text-align: center;
+            color: #666;
+            background: #f9f9f9;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
     </style>
 </head>
 <body>
     <h1>SDR Stream Catalog</h1>
-    <button class="refresh-btn" onclick="loadStreams()">Refresh</button>
+    <div class="top-controls">
+        <button class="refresh-btn" onclick="loadStreams()">Refresh</button>
+        <button onclick="showNewCaptureModal()">+ New Capture</button>
+    </div>
     <div id="content" class="loading">Loading streams...</div>
+
+    <!-- New Capture Modal -->
+    <div id="newCaptureModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeNewCaptureModal()">&times;</span>
+            <div class="modal-header">Create New Capture</div>
+            <form id="newCaptureForm" onsubmit="createCapture(event)">
+                <div class="form-group">
+                    <label for="captureDevice">Device</label>
+                    <select id="captureDevice" required>
+                        <option value="">Select a device...</option>
+                    </select>
+                    <small>Select the SDR device to use</small>
+                </div>
+                <div class="form-group">
+                    <label for="captureFreq">Frequency (Hz)</label>
+                    <input type="number" id="captureFreq" required placeholder="90300000">
+                    <small>Center frequency in Hz (e.g., 90300000 for 90.3 MHz)</small>
+                </div>
+                <div class="form-group">
+                    <label for="captureSampleRate">Sample Rate (Hz)</label>
+                    <input type="number" id="captureSampleRate" required placeholder="2000000">
+                    <small>Sample rate in Hz (e.g., 2000000 for 2 MHz)</small>
+                </div>
+                <div class="form-group">
+                    <label for="captureGain">Gain (dB)</label>
+                    <input type="number" step="0.1" id="captureGain" placeholder="20">
+                    <small>RF gain in dB (leave empty for automatic)</small>
+                </div>
+                <div class="form-group">
+                    <label for="captureBandwidth">Bandwidth (Hz)</label>
+                    <input type="number" id="captureBandwidth" placeholder="200000">
+                    <small>IF bandwidth in Hz (leave empty for automatic)</small>
+                </div>
+                <div class="form-group">
+                    <label for="capturePPM">PPM Correction</label>
+                    <input type="number" step="0.1" id="capturePPM" placeholder="0">
+                    <small>Frequency correction in ppm (leave empty for none)</small>
+                </div>
+                <div class="form-group">
+                    <label for="captureAntenna">Antenna</label>
+                    <input type="text" id="captureAntenna" placeholder="Ant B">
+                    <small>Antenna port name (leave empty for default)</small>
+                </div>
+                <div class="form-actions">
+                    <button type="button" onclick="closeNewCaptureModal()">Cancel</button>
+                    <button type="submit" class="success">Create Capture</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- New Channel Modal -->
+    <div id="newChannelModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeNewChannelModal()">&times;</span>
+            <div class="modal-header">Create New Channel</div>
+            <form id="newChannelForm" onsubmit="createChannel(event)">
+                <input type="hidden" id="channelCaptureId">
+                <div class="form-group">
+                    <label for="channelMode">Mode</label>
+                    <select id="channelMode" required>
+                        <option value="wbfm">WBFM (Wideband FM)</option>
+                    </select>
+                    <small>Demodulation mode</small>
+                </div>
+                <div class="form-group">
+                    <label for="channelOffset">Offset (Hz)</label>
+                    <input type="number" id="channelOffset" value="0" placeholder="0">
+                    <small>Frequency offset from capture center (Hz)</small>
+                </div>
+                <div class="form-group">
+                    <label for="channelAudioRate">Audio Sample Rate (Hz)</label>
+                    <input type="number" id="channelAudioRate" placeholder="48000">
+                    <small>Audio output sample rate (leave empty for default 48000 Hz)</small>
+                </div>
+                <div class="form-group">
+                    <label for="channelSquelch">Squelch (dB)</label>
+                    <input type="number" step="0.1" id="channelSquelch" placeholder="-35">
+                    <small>Squelch threshold in dB (leave empty for no squelch)</small>
+                </div>
+                <div class="form-actions">
+                    <button type="button" onclick="closeNewChannelModal()">Cancel</button>
+                    <button type="submit" class="success">Create Channel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Channel Modal -->
+    <div id="editChannelModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEditChannelModal()">&times;</span>
+            <div class="modal-header">Edit Channel</div>
+            <form id="editChannelForm" onsubmit="updateChannel(event)">
+                <input type="hidden" id="editChannelId">
+                <div class="form-group">
+                    <label for="editChannelMode">Mode</label>
+                    <select id="editChannelMode" required>
+                        <option value="wbfm">WBFM (Wideband FM)</option>
+                    </select>
+                    <small>Demodulation mode</small>
+                </div>
+                <div class="form-group">
+                    <label for="editChannelOffset">Offset (Hz)</label>
+                    <input type="number" id="editChannelOffset" required placeholder="0">
+                    <small>Frequency offset from capture center (Hz)</small>
+                </div>
+                <div class="form-group">
+                    <label for="editChannelAudioRate">Audio Sample Rate (Hz)</label>
+                    <input type="number" id="editChannelAudioRate" required placeholder="48000">
+                    <small>Audio output sample rate</small>
+                </div>
+                <div class="form-group">
+                    <label for="editChannelSquelch">Squelch (dB)</label>
+                    <input type="number" step="0.1" id="editChannelSquelch" placeholder="-35">
+                    <small>Squelch threshold in dB (leave empty for no squelch)</small>
+                </div>
+                <div class="form-actions">
+                    <button type="button" onclick="closeEditChannelModal()">Cancel</button>
+                    <button type="submit" class="success">Update Channel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Edit Capture Modal -->
+    <div id="editCaptureModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEditCaptureModal()">&times;</span>
+            <div class="modal-header">Edit Capture Settings</div>
+            <form id="editCaptureForm" onsubmit="updateCapture(event)">
+                <input type="hidden" id="editCaptureId">
+                <div class="form-group">
+                    <label for="editCaptureCenterHz">Center Frequency (Hz)</label>
+                    <input type="number" id="editCaptureCenterHz" required placeholder="90300000">
+                    <small>Center frequency in Hz (e.g., 90.3 MHz = 90300000)</small>
+                </div>
+                <div class="form-group">
+                    <label for="editCaptureSampleRate">Sample Rate (Hz)</label>
+                    <input type="number" id="editCaptureSampleRate" required placeholder="2000000">
+                    <small>Sample rate in Hz (e.g., 2 MHz = 2000000)</small>
+                </div>
+                <div class="form-group">
+                    <label for="editCaptureGain">Gain (dB)</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="range" step="0.1" id="editCaptureGainSlider" style="flex: 1;">
+                        <input type="number" step="0.1" id="editCaptureGain" placeholder="20" style="width: 80px;">
+                    </div>
+                    <small>Receiver gain in dB (leave empty for auto)</small>
+                </div>
+                <div class="form-group">
+                    <label for="editCaptureBandwidth">Bandwidth (Hz)</label>
+                    <input type="number" id="editCaptureBandwidth" placeholder="200000">
+                    <small>IF filter bandwidth in Hz (leave empty for auto)</small>
+                </div>
+                <div class="form-group">
+                    <label for="editCapturePpm">PPM Correction</label>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <input type="range" step="0.1" id="editCapturePpmSlider" style="flex: 1;">
+                        <input type="number" step="0.1" id="editCapturePpm" placeholder="0" style="width: 80px;">
+                    </div>
+                    <small>Frequency correction in parts per million (leave empty for 0)</small>
+                </div>
+                <div class="form-group">
+                    <label for="editCaptureAntenna">Antenna</label>
+                    <select id="editCaptureAntenna">
+                        <option value="">Auto (default)</option>
+                    </select>
+                    <small>Select antenna port</small>
+                </div>
+                <div class="form-actions">
+                    <button type="button" onclick="closeEditCaptureModal()">Cancel</button>
+                    <button type="submit" class="success">Update Capture</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <script>
         const players = {};
+        let allDevices = [];
 
         async function loadStreams() {
             const content = document.getElementById('content');
@@ -163,6 +449,8 @@
                     fetch('/api/v1/devices').then(r => r.json()),
                     fetch('/api/v1/captures').then(r => r.json())
                 ]);
+
+                allDevices = devices;
 
                 const channelPromises = captures.map(cap =>
                     fetch(`/api/v1/captures/${cap.id}/channels`).then(r => r.json())
@@ -198,89 +486,121 @@
                                 <div class="device-info">
                                     <strong>Driver:</strong> ${device.driver} |
                                     <strong>Serial:</strong> ${device.serial || 'N/A'} |
-                                    <strong>Frequency Range:</strong> ${(device.freq_min_hz / 1e6).toFixed(1)} - ${(device.freq_max_hz / 1e6).toFixed(0)} MHz
+                                    <strong>Frequency Range:</strong> ${(device.freqMinHz / 1e6).toFixed(1)} - ${(device.freqMaxHz / 1e6).toFixed(0)} MHz
                                 </div>
                             </div>
                     `;
 
                     if (deviceCaptures.length === 0) {
-                        html += '<p>No active captures</p>';
+                        html += '<div class="no-captures">No active captures on this device</div>';
                     } else {
                         deviceCaptures.forEach(capture => {
+                            const statusClass = capture.state === 'running' ? 'status-running' : capture.state === 'stopped' ? 'status-stopped' : 'status-created';
                             const captureChannels = channelsByCapture[capture.id] || [];
 
-                            captureChannels.forEach(channel => {
-                                const freqMHz = (capture.centerHz / 1e6).toFixed(3);
-                                const statusClass = channel.state === 'running' ? 'status-running' : 'status-created';
-                                const streamUrl = `/api/v1/stream/channels/${channel.id}.pcm`;
-                                const fullStreamUrl = `http://${window.location.host}${streamUrl}`;
-
-                                html += `
-                                    <div class="channel-card">
-                                        <div class="channel-header">
-                                            Channel ${channel.id}
-                                            <span class="status-badge ${statusClass}">${channel.state}</span>
-                                        </div>
-
-                                        <table class="detail-table">
-                                            <tr>
-                                                <td>Frequency</td>
-                                                <td>${freqMHz} MHz</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Mode</td>
-                                                <td>${channel.mode.toUpperCase()}</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Audio Sample Rate</td>
-                                                <td>${(channel.audioRate / 1000).toFixed(0)} kHz (${channel.audioRate} Hz)</td>
-                                            </tr>
-                                            <tr>
-                                                <td>SDR Sample Rate</td>
-                                                <td>${(capture.sampleRate / 1e6).toFixed(2)} MHz (${capture.sampleRate} Hz)</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Gain</td>
-                                                <td>${capture.gain !== null && capture.gain !== undefined ? `${capture.gain} dB` : '<em>Automatic</em>'}</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Bandwidth</td>
-                                                <td>${capture.bandwidth !== null && capture.bandwidth !== undefined ? `${(capture.bandwidth / 1e6).toFixed(2)} MHz (${capture.bandwidth} Hz)` : '<em>Automatic</em>'}</td>
-                                            </tr>
-                                            <tr>
-                                                <td>PPM Correction</td>
-                                                <td>${capture.ppm !== null && capture.ppm !== undefined ? `${capture.ppm} ppm` : '<em>None</em>'}</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Antenna</td>
-                                                <td>${capture.antenna ? `<strong>${escapeHtml(capture.antenna)}</strong>` : '<em>Default</em>'}</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Offset</td>
-                                                <td>${channel.offsetHz} Hz</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Capture ID</td>
-                                                <td>${capture.id}</td>
-                                            </tr>
-                                            <tr>
-                                                <td>PCM16 Stream URL</td>
-                                                <td><div class="url-box">${fullStreamUrl}</div></td>
-                                            </tr>
-                                        </table>
-
-                                        <div class="player-controls">
-                                            <button id="play-${channel.id}" onclick="startPlayer('${channel.id}', '${streamUrl}')">▶ Play</button>
-                                            <button id="stop-${channel.id}" onclick="stopPlayer('${channel.id}')" disabled>⏹ Stop</button>
-                                            <span class="player-status" id="status-${channel.id}">Ready</span>
-                                        </div>
+                            html += `
+                                <div class="capture-card">
+                                    <div style="font-size: 18px; font-weight: bold; margin-bottom: 10px;">
+                                        Capture ${capture.id}
+                                        <span class="status-badge ${statusClass}">${capture.state}</span>
                                     </div>
-                                `;
-                            });
+
+                                    <table class="detail-table">
+                                        <tr>
+                                            <td>Center Frequency</td>
+                                            <td>${(capture.centerHz / 1e6).toFixed(3)} MHz (${capture.centerHz} Hz)</td>
+                                        </tr>
+                                        <tr>
+                                            <td>SDR Sample Rate</td>
+                                            <td>${(capture.sampleRate / 1e6).toFixed(2)} MHz (${capture.sampleRate} Hz)</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Gain</td>
+                                            <td>${capture.gain !== null && capture.gain !== undefined ? `${capture.gain} dB` : '<em>Automatic</em>'}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Bandwidth</td>
+                                            <td>${capture.bandwidth !== null && capture.bandwidth !== undefined ? `${(capture.bandwidth / 1e6).toFixed(2)} MHz (${capture.bandwidth} Hz)` : '<em>Automatic</em>'}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>PPM Correction</td>
+                                            <td>${capture.ppm !== null && capture.ppm !== undefined ? `${capture.ppm} ppm` : '<em>None</em>'}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Antenna</td>
+                                            <td>${capture.antenna ? `<strong>${escapeHtml(capture.antenna)}</strong>` : '<em>Default</em>'}</td>
+                                        </tr>
+                                    </table>
+
+                                    <div class="capture-controls">
+                                        ${capture.state === 'running'
+                                            ? `<button onclick="stopCapture('${capture.id}')">⏹ Stop Capture</button>`
+                                            : `<button class="success" onclick="startCapture('${capture.id}')">▶ Start Capture</button>`
+                                        }
+                                        <button onclick="showEditCaptureModal('${capture.id}')">✏ Edit Capture</button>
+                                        <button class="danger" onclick="deleteCapture('${capture.id}')">🗑 Delete Capture</button>
+                                        <button onclick="showNewChannelModal('${capture.id}')">+ Add Channel</button>
+                                    </div>
+                            `;
+
+                            if (captureChannels.length > 0) {
+                                captureChannels.forEach(channel => {
+                                    const freqMHz = (capture.centerHz / 1e6).toFixed(3);
+                                    const chanStatusClass = channel.state === 'running' ? 'status-running' : channel.state === 'stopped' ? 'status-stopped' : 'status-created';
+                                    const streamUrl = `/api/v1/stream/channels/${channel.id}.pcm`;
+                                    const fullStreamUrl = `http://${window.location.host}${streamUrl}`;
+
+                                    html += `
+                                        <div class="channel-card">
+                                            <div class="channel-header">
+                                                Channel ${channel.id}
+                                                <span class="status-badge ${chanStatusClass}">${channel.state}</span>
+                                            </div>
+
+                                            <table class="detail-table">
+                                                <tr>
+                                                    <td>Frequency</td>
+                                                    <td>${freqMHz} MHz</td>
+                                                </tr>
+                                                <tr>
+                                                    <td>Mode</td>
+                                                    <td>${channel.mode.toUpperCase()}</td>
+                                                </tr>
+                                                <tr>
+                                                    <td>Audio Sample Rate</td>
+                                                    <td>${(channel.audioRate / 1000).toFixed(0)} kHz (${channel.audioRate} Hz)</td>
+                                                </tr>
+                                                <tr>
+                                                    <td>Offset</td>
+                                                    <td>${channel.offsetHz} Hz</td>
+                                                </tr>
+                                                <tr>
+                                                    <td>PCM16 Stream URL</td>
+                                                    <td><div class="url-box">${fullStreamUrl}</div></td>
+                                                </tr>
+                                            </table>
+
+                                            <div class="player-controls">
+                                                <button id="play-${channel.id}" onclick="startPlayer('${channel.id}', '${streamUrl}')">▶ Play</button>
+                                                <button id="stop-${channel.id}" onclick="stopPlayer('${channel.id}')" disabled>⏹ Stop</button>
+                                                <span class="player-status" id="status-${channel.id}">Ready</span>
+                                                ${channel.state === 'running'
+                                                    ? `<button onclick="stopChannel('${channel.id}')">⏹ Stop Channel</button>`
+                                                    : `<button class="success" onclick="startChannel('${channel.id}')">▶ Start Channel</button>`
+                                                }
+                                                <button onclick="showEditChannelModal('${channel.id}')">✏ Edit Channel</button>
+                                                <button class="danger" onclick="deleteChannel('${channel.id}')">🗑 Delete Channel</button>
+                                            </div>
+                                        </div>
+                                    `;
+                                });
+                            }
+
+                            html += '</div>'; // close capture-card
                         });
                     }
 
-                    html += '</div>';
+                    html += '</div>'; // close device-section
                 });
 
                 if (devices.length === 0) {
@@ -291,6 +611,423 @@
 
             } catch (error) {
                 content.innerHTML = `<div class="error">Error loading streams: ${escapeHtml(error.message)}</div>`;
+            }
+        }
+
+        function showNewCaptureModal() {
+            const modal = document.getElementById('newCaptureModal');
+            const select = document.getElementById('captureDevice');
+
+            // Populate device dropdown
+            select.innerHTML = '<option value="">Select a device...</option>';
+            allDevices.forEach(dev => {
+                const option = document.createElement('option');
+                option.value = dev.id;
+                option.textContent = dev.label;
+                select.appendChild(option);
+            });
+
+            modal.style.display = 'block';
+        }
+
+        function closeNewCaptureModal() {
+            document.getElementById('newCaptureModal').style.display = 'none';
+            document.getElementById('newCaptureForm').reset();
+        }
+
+        async function createCapture(event) {
+            event.preventDefault();
+
+            const deviceId = document.getElementById('captureDevice').value;
+            const freq = parseFloat(document.getElementById('captureFreq').value);
+            const sampleRate = parseInt(document.getElementById('captureSampleRate').value);
+            const gain = document.getElementById('captureGain').value ? parseFloat(document.getElementById('captureGain').value) : null;
+            const bandwidth = document.getElementById('captureBandwidth').value ? parseFloat(document.getElementById('captureBandwidth').value) : null;
+            const ppm = document.getElementById('capturePPM').value ? parseFloat(document.getElementById('capturePPM').value) : null;
+            const antenna = document.getElementById('captureAntenna').value || null;
+
+            try {
+                const response = await fetch('/api/v1/captures', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        deviceId,
+                        centerHz: freq,
+                        sampleRate,
+                        gain,
+                        bandwidth,
+                        ppm,
+                        antenna
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const capture = await response.json();
+
+                // Start the capture
+                await startCapture(capture.id);
+
+                closeNewCaptureModal();
+                await loadStreams();
+            } catch (error) {
+                alert(`Failed to create capture: ${error.message}`);
+            }
+        }
+
+        function showNewChannelModal(captureId) {
+            const modal = document.getElementById('newChannelModal');
+            document.getElementById('channelCaptureId').value = captureId;
+            modal.style.display = 'block';
+        }
+
+        function closeNewChannelModal() {
+            document.getElementById('newChannelModal').style.display = 'none';
+            document.getElementById('newChannelForm').reset();
+        }
+
+        async function showEditChannelModal(channelId) {
+            try {
+                // Fetch the channel data
+                const response = await fetch(`/api/v1/channels/${channelId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const channel = await response.json();
+
+                // Populate the form
+                document.getElementById('editChannelId').value = channel.id;
+                document.getElementById('editChannelMode').value = channel.mode;
+                document.getElementById('editChannelOffset').value = channel.offsetHz;
+                document.getElementById('editChannelAudioRate').value = channel.audioRate;
+                document.getElementById('editChannelSquelch').value = channel.squelchDb || '';
+
+                // Show the modal
+                document.getElementById('editChannelModal').style.display = 'block';
+            } catch (error) {
+                alert(`Failed to load channel: ${error.message}`);
+            }
+        }
+
+        function closeEditChannelModal() {
+            document.getElementById('editChannelModal').style.display = 'none';
+            document.getElementById('editChannelForm').reset();
+        }
+
+        async function updateChannel(event) {
+            event.preventDefault();
+
+            const channelId = document.getElementById('editChannelId').value;
+            const mode = document.getElementById('editChannelMode').value;
+            const offsetHz = parseFloat(document.getElementById('editChannelOffset').value);
+            const audioRate = parseInt(document.getElementById('editChannelAudioRate').value);
+            const squelchDb = document.getElementById('editChannelSquelch').value ? parseFloat(document.getElementById('editChannelSquelch').value) : null;
+
+            try {
+                const response = await fetch(`/api/v1/channels/${channelId}`, {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        mode,
+                        offsetHz,
+                        audioRate,
+                        squelchDb
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                closeEditChannelModal();
+                await loadStreams();
+            } catch (error) {
+                alert(`Failed to update channel: ${error.message}`);
+            }
+        }
+
+        async function showEditCaptureModal(captureId) {
+            try {
+                // Fetch the capture data
+                const response = await fetch(`/api/v1/captures/${captureId}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const capture = await response.json();
+
+                // Fetch devices to get limits for this capture's device
+                const devicesResponse = await fetch('/api/v1/devices');
+                if (!devicesResponse.ok) {
+                    throw new Error(`Failed to fetch devices: HTTP ${devicesResponse.status}`);
+                }
+                const devices = await devicesResponse.json();
+                const device = devices.find(d => d.id === capture.deviceId);
+
+                // Populate the form
+                document.getElementById('editCaptureId').value = capture.id;
+                document.getElementById('editCaptureCenterHz').value = capture.centerHz;
+                document.getElementById('editCaptureSampleRate').value = capture.sampleRate;
+                document.getElementById('editCaptureGain').value = capture.gain || '';
+                document.getElementById('editCaptureGainSlider').value = capture.gain || '';
+                document.getElementById('editCaptureBandwidth').value = capture.bandwidth || '';
+                document.getElementById('editCapturePpm').value = capture.ppm || '';
+                document.getElementById('editCapturePpmSlider').value = capture.ppm || '';
+
+                // Apply device-specific limits to form inputs
+                if (device) {
+                    // Frequency limits
+                    if (device.freqMinHz != null) {
+                        document.getElementById('editCaptureCenterHz').setAttribute('min', device.freqMinHz);
+                    }
+                    if (device.freqMaxHz != null) {
+                        document.getElementById('editCaptureCenterHz').setAttribute('max', device.freqMaxHz);
+                    }
+
+                    // Gain limits
+                    const gainInput = document.getElementById('editCaptureGain');
+                    const gainSlider = document.getElementById('editCaptureGainSlider');
+                    if (device.gainMin != null) {
+                        gainInput.setAttribute('min', device.gainMin);
+                        gainSlider.setAttribute('min', device.gainMin);
+                    }
+                    if (device.gainMax != null) {
+                        gainInput.setAttribute('max', device.gainMax);
+                        gainSlider.setAttribute('max', device.gainMax);
+                    }
+                    if (device.gainMin != null && device.gainMax != null) {
+                        const gainHelp = gainInput.parentElement.nextElementSibling;
+                        gainHelp.textContent = `Receiver gain in dB (${device.gainMin}-${device.gainMax} dB, leave empty for auto)`;
+                    }
+                    // Sync slider and input
+                    gainSlider.addEventListener('input', (e) => { gainInput.value = e.target.value; });
+                    gainInput.addEventListener('input', (e) => { if (e.target.value) gainSlider.value = e.target.value; });
+
+                    // Bandwidth limits
+                    const bwInput = document.getElementById('editCaptureBandwidth');
+                    if (device.bandwidthMin != null) {
+                        bwInput.setAttribute('min', device.bandwidthMin);
+                    }
+                    if (device.bandwidthMax != null) {
+                        bwInput.setAttribute('max', device.bandwidthMax);
+                    }
+                    if (device.bandwidthMin != null && device.bandwidthMax != null) {
+                        const bwHelp = bwInput.nextElementSibling;
+                        bwHelp.textContent = `IF filter bandwidth in Hz (${device.bandwidthMin/1e6}-${device.bandwidthMax/1e6} MHz, leave empty for auto)`;
+                    }
+
+                    // PPM limits
+                    const ppmInput = document.getElementById('editCapturePpm');
+                    const ppmSlider = document.getElementById('editCapturePpmSlider');
+                    if (device.ppmMin != null) {
+                        ppmInput.setAttribute('min', device.ppmMin);
+                        ppmSlider.setAttribute('min', device.ppmMin);
+                    }
+                    if (device.ppmMax != null) {
+                        ppmInput.setAttribute('max', device.ppmMax);
+                        ppmSlider.setAttribute('max', device.ppmMax);
+                    }
+                    if (device.ppmMin != null && device.ppmMax != null) {
+                        const ppmHelp = ppmInput.parentElement.nextElementSibling;
+                        ppmHelp.textContent = `Frequency correction in ppm (${device.ppmMin}-${device.ppmMax} ppm, leave empty for 0)`;
+                    }
+                    // Sync slider and input
+                    ppmSlider.addEventListener('input', (e) => { ppmInput.value = e.target.value; });
+                    ppmInput.addEventListener('input', (e) => { if (e.target.value) ppmSlider.value = e.target.value; });
+
+                    // Populate antenna dropdown
+                    const antennaSelect = document.getElementById('editCaptureAntenna');
+                    // Clear existing options except the default
+                    antennaSelect.innerHTML = '<option value="">Auto (default)</option>';
+                    if (device.antennas && device.antennas.length > 0) {
+                        device.antennas.forEach(antenna => {
+                            const option = document.createElement('option');
+                            option.value = antenna;
+                            option.textContent = antenna;
+                            antennaSelect.appendChild(option);
+                        });
+                    }
+                    // Set current selection
+                    if (capture.antenna) {
+                        antennaSelect.value = capture.antenna;
+                    }
+                }
+
+                // Show the modal
+                document.getElementById('editCaptureModal').style.display = 'block';
+            } catch (error) {
+                alert(`Failed to load capture: ${error.message}`);
+            }
+        }
+
+        function closeEditCaptureModal() {
+            document.getElementById('editCaptureModal').style.display = 'none';
+            document.getElementById('editCaptureForm').reset();
+        }
+
+        async function updateCapture(event) {
+            event.preventDefault();
+
+            const captureId = document.getElementById('editCaptureId').value;
+            const centerHz = parseFloat(document.getElementById('editCaptureCenterHz').value);
+            const sampleRate = parseInt(document.getElementById('editCaptureSampleRate').value);
+            const gain = document.getElementById('editCaptureGain').value ? parseFloat(document.getElementById('editCaptureGain').value) : null;
+            const bandwidth = document.getElementById('editCaptureBandwidth').value ? parseFloat(document.getElementById('editCaptureBandwidth').value) : null;
+            const ppm = document.getElementById('editCapturePpm').value ? parseFloat(document.getElementById('editCapturePpm').value) : null;
+            const antenna = document.getElementById('editCaptureAntenna').value || null;
+
+            try {
+                const response = await fetch(`/api/v1/captures/${captureId}`, {
+                    method: 'PATCH',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        centerHz,
+                        sampleRate,
+                        gain,
+                        bandwidth,
+                        ppm,
+                        antenna
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                closeEditCaptureModal();
+                await loadStreams();
+            } catch (error) {
+                alert(`Failed to update capture: ${error.message}`);
+            }
+        }
+
+        async function createChannel(event) {
+            event.preventDefault();
+
+            const captureId = document.getElementById('channelCaptureId').value;
+            const mode = document.getElementById('channelMode').value;
+            const offsetHz = parseFloat(document.getElementById('channelOffset').value) || 0;
+            const audioRate = document.getElementById('channelAudioRate').value ? parseInt(document.getElementById('channelAudioRate').value) : null;
+            const squelchDb = document.getElementById('channelSquelch').value ? parseFloat(document.getElementById('channelSquelch').value) : null;
+
+            try {
+                const response = await fetch(`/api/v1/captures/${captureId}/channels`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        mode,
+                        offsetHz,
+                        audioRate,
+                        squelchDb
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const channel = await response.json();
+
+                // Start the channel
+                await startChannel(channel.id);
+
+                closeNewChannelModal();
+                await loadStreams();
+            } catch (error) {
+                alert(`Failed to create channel: ${error.message}`);
+            }
+        }
+
+        async function startCapture(captureId) {
+            try {
+                const response = await fetch(`/api/v1/captures/${captureId}/start`, {
+                    method: 'POST'
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                await loadStreams();
+            } catch (error) {
+                alert(`Failed to start capture: ${error.message}`);
+            }
+        }
+
+        async function stopCapture(captureId) {
+            try {
+                const response = await fetch(`/api/v1/captures/${captureId}/stop`, {
+                    method: 'POST'
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                await loadStreams();
+            } catch (error) {
+                alert(`Failed to stop capture: ${error.message}`);
+            }
+        }
+
+        async function deleteCapture(captureId) {
+            if (!confirm('Are you sure you want to delete this capture? All channels will be deleted too.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/v1/captures/${captureId}`, {
+                    method: 'DELETE'
+                });
+                if (!response.ok && response.status !== 204) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                await loadStreams();
+            } catch (error) {
+                alert(`Failed to delete capture: ${error.message}`);
+            }
+        }
+
+        async function startChannel(channelId) {
+            try {
+                const response = await fetch(`/api/v1/channels/${channelId}/start`, {
+                    method: 'POST'
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                await loadStreams();
+            } catch (error) {
+                alert(`Failed to start channel: ${error.message}`);
+            }
+        }
+
+        async function stopChannel(channelId) {
+            try {
+                const response = await fetch(`/api/v1/channels/${channelId}/stop`, {
+                    method: 'POST'
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                await loadStreams();
+            } catch (error) {
+                alert(`Failed to stop channel: ${error.message}`);
+            }
+        }
+
+        async function deleteChannel(channelId) {
+            if (!confirm('Are you sure you want to delete this channel?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/v1/channels/${channelId}`, {
+                    method: 'DELETE'
+                });
+                if (!response.ok && response.status !== 204) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                await loadStreams();
+            } catch (error) {
+                alert(`Failed to delete channel: ${error.message}`);
             }
         }
 
@@ -402,6 +1139,26 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // Close modals when clicking outside
+        window.onclick = function(event) {
+            const captureModal = document.getElementById('newCaptureModal');
+            const channelModal = document.getElementById('newChannelModal');
+            const editChannelModal = document.getElementById('editChannelModal');
+            const editCaptureModal = document.getElementById('editCaptureModal');
+            if (event.target === captureModal) {
+                closeNewCaptureModal();
+            }
+            if (event.target === channelModal) {
+                closeNewChannelModal();
+            }
+            if (event.target === editChannelModal) {
+                closeEditChannelModal();
+            }
+            if (event.target === editCaptureModal) {
+                closeEditCaptureModal();
+            }
         }
 
         loadStreams();
