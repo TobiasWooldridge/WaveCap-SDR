@@ -65,23 +65,21 @@ def create_app(config: AppConfig) -> FastAPI:
     # Serve static files
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
+        # Mount assets directory at /assets/ for React build
+        assets_dir = static_dir / "assets"
+        if assets_dir.exists():
+            app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+        # Keep /static mount for backward compatibility
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     @app.get("/")
     def root():
-        """Serve the index/catalog page."""
+        """Serve the React app."""
         index_path = static_dir / "index.html"
         if index_path.exists():
             return FileResponse(index_path)
         return {"message": "WaveCap-SDR API", "docs": "/docs"}
-
-    @app.get("/player.html")
-    def player():
-        """Serve the player page."""
-        player_path = static_dir / "player.html"
-        if player_path.exists():
-            return FileResponse(player_path)
-        return {"message": "Player not found"}
 
     @app.get("/health")
     def health() -> dict[str, str]:
