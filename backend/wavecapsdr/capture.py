@@ -261,10 +261,9 @@ class Capture:
             except Exception:
                 pass
             self._stream = None
-        try:
-            self.device.close()
-        except Exception:
-            pass
+        # Note: We do NOT close the device here - the device should stay open
+        # for the lifetime of the Capture. We only close the stream.
+        # The device will be closed when the Capture is deleted.
         self.state = "stopped"
 
     async def reconfigure(
@@ -527,6 +526,11 @@ class CaptureManager:
         cap = self._captures.pop(cid, None)
         if cap is not None:
             await cap.stop()
+            # Close the device when deleting the capture
+            try:
+                cap.device.close()
+            except Exception:
+                pass
         # Remove channels owned by this capture
         for k in list(self._channels.keys()):
             if self._channels[k].cfg.capture_id == cid:
