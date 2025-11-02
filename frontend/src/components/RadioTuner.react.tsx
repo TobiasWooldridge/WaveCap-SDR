@@ -183,6 +183,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             min={freqMin}
             max={freqMax}
             step={10000}
+            coarseStep={1000000}
             unit="MHz"
             formatValue={(hz) => formatFrequencyMHz(hz)}
             onChange={setLocalFreq}
@@ -196,6 +197,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             min={gainMin}
             max={gainMax}
             step={0.1}
+            coarseStep={1}
             unit="dB"
             onChange={setLocalGain}
             disabled={!isRunning}
@@ -233,6 +235,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             min={bwMin}
             max={bwMax}
             step={10000}
+            coarseStep={100000}
             unit="Hz"
             formatValue={(hz) => `${(hz / 1000).toFixed(0)} k`}
             onChange={setLocalBandwidth}
@@ -246,6 +249,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             min={ppmMin}
             max={ppmMax}
             step={0.1}
+            coarseStep={1}
             unit="ppm"
             onChange={setLocalPpm}
             disabled={!isRunning}
