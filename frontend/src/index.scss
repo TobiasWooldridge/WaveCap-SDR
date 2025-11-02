@@ -49,3 +49,17 @@ code {
   padding-left: 0.5rem;
   padding-right: 0.5rem;
 }
+
+// Fix vertical alignment for badges and buttons
+.badge {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
