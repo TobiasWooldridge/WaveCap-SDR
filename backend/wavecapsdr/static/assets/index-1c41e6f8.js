@@ -11188,11 +11188,12 @@ const RadioTuner = ({ capture, device }) => {
             className: "form-select",
             value: localSampleRate,
             onChange: (e) => handleSampleRateChange(parseInt(e.target.value)),
-            disabled: isRunning,
+            disabled: !isRunning,
             children: ((device == null ? void 0 : device.sampleRates) || []).map((rate) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: rate, children: formatSampleRate(rate) }, rate))
           }
         ),
-        isRunning && /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-warning", children: "Stop capture to change sample rate" })
+        isRunning && /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-warning", children: "⚠ Changing sample rate will briefly interrupt the stream while the radio restarts" }),
+        !isRunning && /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: "Start capture to change sample rate" })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(
         Slider,
@@ -11231,11 +11232,12 @@ const RadioTuner = ({ capture, device }) => {
             className: "form-select",
             value: localAntenna,
             onChange: (e) => handleAntennaChange(e.target.value),
-            disabled: isRunning,
+            disabled: !isRunning,
             children: device.antennas.map((ant) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: ant, children: ant }, ant))
           }
         ),
-        isRunning && /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-warning", children: "Stop capture to change antenna" })
+        isRunning && /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-warning", children: "⚠ Changing antenna will briefly interrupt the stream while the radio restarts" }),
+        !isRunning && /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: "Start capture to change antenna" })
       ] })
     ] }) })
   ] });
@@ -11778,4 +11780,4 @@ const index = "";
 client.createRoot(document.getElementById("root")).render(
   /* @__PURE__ */ jsxRuntimeExports.jsx(React.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(App, {}) })
 );
-//# sourceMappingURL=index-83bd8937.js.map
+//# sourceMappingURL=index-1c41e6f8.js.map

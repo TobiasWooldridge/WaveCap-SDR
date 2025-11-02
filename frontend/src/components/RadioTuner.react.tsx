@@ -213,7 +213,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
               className="form-select"
               value={localSampleRate}
               onChange={(e) => handleSampleRateChange(parseInt(e.target.value))}
-              disabled={isRunning}
+              disabled={!isRunning}
             >
               {(device?.sampleRates || []).map((rate) => (
                 <option key={rate} value={rate}>
@@ -223,7 +223,12 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             </select>
             {isRunning && (
               <small className="text-warning">
-                Stop capture to change sample rate
+                ⚠ Changing sample rate will briefly interrupt the stream while the radio restarts
+              </small>
+            )}
+            {!isRunning && (
+              <small className="text-muted">
+                Start capture to change sample rate
               </small>
             )}
           </Flex>
@@ -263,7 +268,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
                 className="form-select"
                 value={localAntenna}
                 onChange={(e) => handleAntennaChange(e.target.value)}
-                disabled={isRunning}
+                disabled={!isRunning}
               >
                 {device.antennas.map((ant) => (
                   <option key={ant} value={ant}>
@@ -273,7 +278,12 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
               </select>
               {isRunning && (
                 <small className="text-warning">
-                  Stop capture to change antenna
+                  ⚠ Changing antenna will briefly interrupt the stream while the radio restarts
+                </small>
+              )}
+              {!isRunning && (
+                <small className="text-muted">
+                  Start capture to change antenna
                 </small>
               )}
             </Flex>
