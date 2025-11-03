@@ -17,6 +17,7 @@ interface RadioTunerProps {
 export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   // UI state
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [frequencyUnit, setFrequencyUnit] = useState<"kHz" | "MHz" | "GHz">("MHz");
 
   // Local state for immediate UI updates
   const [localFreq, setLocalFreq] = useState(capture.centerHz);
@@ -149,14 +150,51 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   const isUpdating = updateMutation.isPending;
 
   // Get device constraints
-  const freqMin = device?.freqMinHz ?? 24_000_000;
-  const freqMax = device?.freqMaxHz ?? 1_800_000_000;
+  const deviceFreqMin = device?.freqMinHz ?? 24_000_000;
+  const deviceFreqMax = device?.freqMaxHz ?? 1_800_000_000;
   const gainMin = device?.gainMin ?? 0;
   const gainMax = device?.gainMax ?? 60;
   const bwMin = device?.bandwidthMin ?? 200_000;
   const bwMax = device?.bandwidthMax ?? 8_000_000;
   const ppmMin = device?.ppmMin ?? -100;
   const ppmMax = device?.ppmMax ?? 100;
+
+  // Calculate frequency slider range based on selected unit
+  const getFrequencyRange = () => {
+    const unitMultiplier = frequencyUnit === "kHz" ? 1_000 : frequencyUnit === "MHz" ? 1_000_000 : 1_000_000_000;
+    const rangeWindow = frequencyUnit === "kHz" ? 1_000_000 : frequencyUnit === "MHz" ? 100_000_000 : 1_000_000_000; // ±500 kHz, ±50 MHz, or ±500 MHz
+
+    // Calculate range centered on current frequency
+    const centerFreq = localFreq;
+    let sliderMin = Math.max(deviceFreqMin, centerFreq - rangeWindow);
+    let sliderMax = Math.min(deviceFreqMax, centerFreq + rangeWindow);
+
+    // Ensure we don't go below device minimum
+    if (sliderMin < deviceFreqMin) {
+      sliderMin = deviceFreqMin;
+      sliderMax = Math.min(deviceFreqMax, sliderMin + 2 * rangeWindow);
+    }
+
+    // Ensure we don't go above device maximum
+    if (sliderMax > deviceFreqMax) {
+      sliderMax = deviceFreqMax;
+      sliderMin = Math.max(deviceFreqMin, sliderMax - 2 * rangeWindow);
+    }
+
+    // Step sizes based on unit
+    const fineStep = frequencyUnit === "kHz" ? 1_000 : frequencyUnit === "MHz" ? 10_000 : 1_000_000; // 1 kHz, 10 kHz, or 1 MHz
+    const coarseStep = frequencyUnit === "kHz" ? 100_000 : frequencyUnit === "MHz" ? 1_000_000 : 100_000_000; // 100 kHz, 1 MHz, or 100 MHz
+
+    return { min: sliderMin, max: sliderMax, step: fineStep, coarseStep, unitMultiplier };
+  };
+
+  const { min: freqMin, max: freqMax, step: freqStep, coarseStep: freqCoarseStep, unitMultiplier } = getFrequencyRange();
+
+  // Format frequency value in the selected unit
+  const formatFreqValue = (hz: number) => {
+    const value = hz / unitMultiplier;
+    return value.toFixed(frequencyUnit === "kHz" ? 0 : frequencyUnit === "MHz" ? 3 : 6);
+  };
 
   return (
     <div className="card shadow-sm">
@@ -215,19 +253,39 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
 
           <hr className="my-2" />
 
-          {/* Frequency Slider */}
-          <Slider
-            label="Frequency"
-            value={localFreq}
-            min={freqMin}
-            max={freqMax}
-            step={10000}
-            coarseStep={1000000}
-            unit="MHz"
-            formatValue={(hz) => formatFrequencyMHz(hz)}
-            onChange={setLocalFreq}
-            disabled={!isRunning}
-          />
+          {/* Frequency Slider with Unit Selector */}
+          <Flex direction="column" gap={2}>
+            <Flex justify="between" align="center">
+              <label className="form-label mb-0 fw-semibold">Frequency</label>
+              <select
+                className="form-select form-select-sm"
+                style={{ width: "auto" }}
+                value={frequencyUnit}
+                onChange={(e) => setFrequencyUnit(e.target.value as "kHz" | "MHz" | "GHz")}
+              >
+                <option value="kHz">kHz</option>
+                <option value="MHz">MHz</option>
+                <option value="GHz">GHz</option>
+              </select>
+            </Flex>
+            <Slider
+              label=""
+              value={localFreq}
+              min={freqMin}
+              max={freqMax}
+              step={freqStep}
+              coarseStep={freqCoarseStep}
+              unit={frequencyUnit}
+              formatValue={formatFreqValue}
+              onChange={setLocalFreq}
+              disabled={!isRunning}
+            />
+            <small className="text-muted">
+              Range: {formatFreqValue(freqMin)} - {formatFreqValue(freqMax)} {frequencyUnit}
+              {" • "}
+              Device limits: {formatFrequencyMHz(deviceFreqMin)} - {formatFrequencyMHz(deviceFreqMax)} MHz
+            </small>
+          </Flex>
 
           {/* Gain Slider */}
           <Slider
