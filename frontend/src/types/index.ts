@@ -25,6 +25,11 @@ export interface Capture {
   bandwidth: number | null;
   ppm: number | null;
   antenna: string | null;
+  deviceSettings?: Record<string, string>;
+  elementGains?: Record<string, number>;
+  streamFormat?: string | null;
+  dcOffsetAuto?: boolean;
+  iqBalanceAuto?: boolean;
   errorMessage: string | null;
 }
 
@@ -55,6 +60,11 @@ export interface CreateCaptureRequest {
   bandwidth?: number;
   ppm?: number;
   antenna?: string;
+  deviceSettings?: Record<string, string>;
+  elementGains?: Record<string, number>;
+  streamFormat?: string;
+  dcOffsetAuto?: boolean;
+  iqBalanceAuto?: boolean;
 }
 
 export interface CreateChannelRequest {

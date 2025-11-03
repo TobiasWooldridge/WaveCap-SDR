@@ -104,6 +104,27 @@ def get_state(request: Request) -> AppState:
     return state
 
 
+def _to_capture_model(cap) -> CaptureModel:
+    """Helper to convert a Capture to CaptureModel consistently."""
+    return CaptureModel(
+        id=cap.cfg.id,
+        deviceId=cap.cfg.device_id,
+        state=cap.state,  # type: ignore[arg-type]
+        centerHz=cap.cfg.center_hz,
+        sampleRate=cap.cfg.sample_rate,
+        gain=cap.cfg.gain,
+        bandwidth=cap.cfg.bandwidth,
+        ppm=cap.cfg.ppm,
+        antenna=cap.antenna,
+        deviceSettings=cap.cfg.device_settings,
+        elementGains=cap.cfg.element_gains,
+        streamFormat=cap.cfg.stream_format,
+        dcOffsetAuto=cap.cfg.dc_offset_auto,
+        iqBalanceAuto=cap.cfg.iq_balance_auto,
+        errorMessage=cap.error_message,
+    )
+
+
 def auth_check(request: Request, state: AppState = Depends(get_state)) -> None:
     token = state.config.server.auth_token
     if token is None:
@@ -123,21 +144,7 @@ def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_st
 
 @router.get("/captures", response_model=List[CaptureModel])
 def list_captures(_: None = Depends(auth_check), state: AppState = Depends(get_state)):
-    return [
-        CaptureModel(
-            id=c.cfg.id,
-            deviceId=c.cfg.device_id,
-            state=c.state,  # type: ignore[arg-type]
-            centerHz=c.cfg.center_hz,
-            sampleRate=c.cfg.sample_rate,
-            gain=c.cfg.gain,
-            bandwidth=c.cfg.bandwidth,
-            ppm=c.cfg.ppm,
-            antenna=c.antenna,
-            errorMessage=c.error_message,
-        )
-        for c in state.captures.list_captures()
-    ]
+    return [_to_capture_model(c) for c in state.captures.list_captures()]
 
 
 @router.post("/captures", response_model=CaptureModel)
@@ -154,19 +161,13 @@ def create_capture(
         bandwidth=req.bandwidth,
         ppm=req.ppm,
         antenna=req.antenna,
+        device_settings=req.deviceSettings,
+        element_gains=req.elementGains,
+        stream_format=req.streamFormat,
+        dc_offset_auto=req.dcOffsetAuto,
+        iq_balance_auto=req.iqBalanceAuto,
     )
-    return CaptureModel(
-        id=cap.cfg.id,
-        deviceId=cap.cfg.device_id,
-        state=cap.state,  # type: ignore[arg-type]
-        centerHz=cap.cfg.center_hz,
-        sampleRate=cap.cfg.sample_rate,
-        gain=cap.cfg.gain,
-        bandwidth=cap.cfg.bandwidth,
-        ppm=cap.cfg.ppm,
-        antenna=cap.cfg.antenna,
-        errorMessage=cap.error_message,
-    )
+    return _to_capture_model(cap)
 
 
 @router.post("/captures/{cid}/start", response_model=CaptureModel)
@@ -179,18 +180,7 @@ async def start_capture(
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
     cap.start()
-    return CaptureModel(
-        id=cap.cfg.id,
-        deviceId=cap.cfg.device_id,
-        state=cap.state,  # type: ignore[arg-type]
-        centerHz=cap.cfg.center_hz,
-        sampleRate=cap.cfg.sample_rate,
-        gain=cap.cfg.gain,
-        bandwidth=cap.cfg.bandwidth,
-        ppm=cap.cfg.ppm,
-        antenna=cap.cfg.antenna,
-        errorMessage=cap.error_message,
-    )
+    return _to_capture_model(cap)
 
 
 @router.post("/captures/{cid}/stop", response_model=CaptureModel)
@@ -203,18 +193,7 @@ async def stop_capture(
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
     await cap.stop()
-    return CaptureModel(
-        id=cap.cfg.id,
-        deviceId=cap.cfg.device_id,
-        state=cap.state,  # type: ignore[arg-type]
-        centerHz=cap.cfg.center_hz,
-        sampleRate=cap.cfg.sample_rate,
-        gain=cap.cfg.gain,
-        bandwidth=cap.cfg.bandwidth,
-        ppm=cap.cfg.ppm,
-        antenna=cap.cfg.antenna,
-        errorMessage=cap.error_message,
-    )
+    return _to_capture_model(cap)
 
 
 @router.get("/captures/{cid}", response_model=CaptureModel)
@@ -226,18 +205,7 @@ def get_capture(
     cap = state.captures.get_capture(cid)
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
-    return CaptureModel(
-        id=cap.cfg.id,
-        deviceId=cap.cfg.device_id,
-        state=cap.state,  # type: ignore[arg-type]
-        centerHz=cap.cfg.center_hz,
-        sampleRate=cap.cfg.sample_rate,
-        gain=cap.cfg.gain,
-        bandwidth=cap.cfg.bandwidth,
-        ppm=cap.cfg.ppm,
-        antenna=cap.cfg.antenna,
-        errorMessage=cap.error_message,
-    )
+    return _to_capture_model(cap)
 
 
 @router.patch("/captures/{cid}", response_model=CaptureModel)
@@ -369,18 +337,7 @@ async def update_capture(
                 # Log error but don't fail the request - the settings are already applied in memory
                 print(f"Warning: Failed to persist config changes to file: {e}")
 
-    return CaptureModel(
-        id=cap.cfg.id,
-        deviceId=cap.cfg.device_id,
-        state=cap.state,  # type: ignore[arg-type]
-        centerHz=cap.cfg.center_hz,
-        sampleRate=cap.cfg.sample_rate,
-        gain=cap.cfg.gain,
-        bandwidth=cap.cfg.bandwidth,
-        ppm=cap.cfg.ppm,
-        antenna=cap.cfg.antenna,
-        errorMessage=cap.error_message,
-    )
+    return _to_capture_model(cap)
 
 
 @router.delete("/captures/{cid}")
