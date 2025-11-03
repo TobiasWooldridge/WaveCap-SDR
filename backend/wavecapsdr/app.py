@@ -39,6 +39,11 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
                     bandwidth=preset.bandwidth,
                     ppm=preset.ppm,
                     antenna=preset.antenna,
+                    device_settings=preset.device_settings,
+                    element_gains=preset.element_gains,
+                    stream_format=preset.stream_format,
+                    dc_offset_auto=preset.dc_offset_auto,
+                    iq_balance_auto=preset.iq_balance_auto,
                 )
 
                 # Create channels for each offset

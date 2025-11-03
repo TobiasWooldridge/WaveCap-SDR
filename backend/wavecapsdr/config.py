@@ -49,6 +49,16 @@ class PresetConfig:
     ppm: Optional[float] = None
     antenna: Optional[str] = None
     squelch_db: Optional[float] = None
+    # SoapySDR device settings (key-value pairs passed to writeSetting)
+    device_settings: Dict[str, Any] = field(default_factory=dict)
+    # Per-element gains (e.g., {"LNA": 20, "VGA": 15})
+    element_gains: Dict[str, float] = field(default_factory=dict)
+    # Stream format preference ("CF32", "CS16", "CS8")
+    stream_format: Optional[str] = None
+    # Enable automatic DC offset correction
+    dc_offset_auto: bool = True
+    # Enable automatic IQ balance correction
+    iq_balance_auto: bool = True
 
 
 @dataclass

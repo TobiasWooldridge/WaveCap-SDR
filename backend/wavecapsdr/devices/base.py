@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Optional, Protocol
+from typing import Any, Iterable, Optional, Protocol
 import numpy as np
 
 
@@ -42,6 +42,11 @@ class Device(Protocol):
         bandwidth: Optional[float] = None,
         ppm: Optional[float] = None,
         antenna: Optional[str] = None,
+        device_settings: Optional[dict[str, Any]] = None,
+        element_gains: Optional[dict[str, float]] = None,
+        stream_format: Optional[str] = None,
+        dc_offset_auto: bool = True,
+        iq_balance_auto: bool = True,
     ) -> None:
         ...
 

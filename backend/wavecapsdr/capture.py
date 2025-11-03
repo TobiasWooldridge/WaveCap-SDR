@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from enum import Enum
 import functools
 import threading
 import time
@@ -15,6 +16,15 @@ from .dsp.fm import wbfm_demod
 
 
 F = TypeVar('F', bound=Callable[..., Any])
+
+
+class CaptureState(Enum):
+    """Capture lifecycle states."""
+    STOPPED = "stopped"
+    STARTING = "starting"
+    RUNNING = "running"
+    STOPPING = "stopping"
+    FAILED = "failed"
 
 
 def with_retry(max_attempts: int = 3, backoff_factor: float = 2.0) -> Callable[[F], F]:
@@ -217,22 +227,36 @@ class CaptureConfig:
     bandwidth: Optional[float] = None
     ppm: Optional[float] = None
     antenna: Optional[str] = None
+    # SoapySDR advanced features
+    device_settings: Dict[str, Any] = field(default_factory=dict)
+    element_gains: Dict[str, float] = field(default_factory=dict)
+    stream_format: Optional[str] = None
+    dc_offset_auto: bool = True
+    iq_balance_auto: bool = True
 
 
 @dataclass
 class Capture:
     cfg: CaptureConfig
     device: Device
-    state: str = "created"  # created, running, stopped, failed
+    state: str = "stopped"  # Use string for backwards compatibility with API
     antenna: Optional[str] = None  # Actual antenna in use
     error_message: Optional[str] = None  # Error message if state is "failed"
     _stream: Optional[StreamHandle] = None
     _thread: Optional[threading.Thread] = None
+    _health_monitor: Optional[threading.Thread] = None
     _iq_sinks: Set[Tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop]] = field(
         default_factory=set
     )
     _stop_event: threading.Event = field(default_factory=threading.Event)
     _channels: Dict[str, Channel] = field(default_factory=dict)
+    # Retry tracking (inspired by OpenWebRX)
+    _retry_count: int = 0
+    _max_retries: int = 10  # OpenWebRX uses 10
+    _retry_delay: float = 15.0  # OpenWebRX uses 15 seconds
+    _retry_timer: Optional[threading.Timer] = None
+    _auto_restart_enabled: bool = True  # Enable automatic restart on failure
+    _last_run_time: float = 0.0  # Track when the thread was last running
 
     def create_channel(self, chan: Channel) -> None:
         self._channels[chan.cfg.id] = chan
@@ -240,31 +264,116 @@ class Capture:
     def remove_channel(self, chan_id: str) -> None:
         self._channels.pop(chan_id, None)
 
+    def _cancel_retry_timer(self) -> None:
+        """Cancel any pending retry timer."""
+        if self._retry_timer is not None:
+            self._retry_timer.cancel()
+            self._retry_timer = None
+
+    def _schedule_restart(self) -> None:
+        """Schedule automatic restart after delay (OpenWebRX pattern)."""
+        if not self._auto_restart_enabled:
+            return
+
+        self._retry_count += 1
+        if self._retry_count > self._max_retries:
+            print(
+                f"[ERROR] Capture {self.cfg.id} failed after {self._max_retries} retries, giving up",
+                flush=True
+            )
+            self.state = "failed"
+            return
+
+        print(
+            f"[RETRY] Capture {self.cfg.id} will retry in {self._retry_delay}s (attempt {self._retry_count}/{self._max_retries})",
+            flush=True
+        )
+        self._cancel_retry_timer()
+        self._retry_timer = threading.Timer(self._retry_delay, self.start)
+        self._retry_timer.daemon = True
+        self._retry_timer.start()
+
+    def _health_monitor_thread(self) -> None:
+        """Monitor capture thread health and restart if crashed (OpenWebRX pattern)."""
+        while not self._stop_event.is_set():
+            try:
+                # Check if thread is alive
+                if self._thread is not None and not self._thread.is_alive():
+                    # Thread died unexpectedly
+                    if self.state == "running":
+                        print(
+                            f"[WARNING] Capture {self.cfg.id} thread died unexpectedly, scheduling restart",
+                            flush=True
+                        )
+                        self._schedule_restart()
+                        return  # Health monitor exits, will be restarted by new start()
+                # Update last run time
+                if self._thread is not None and self._thread.is_alive():
+                    self._last_run_time = time.time()
+                # Sleep for a bit before next check
+                self._stop_event.wait(1.0)  # Check every second
+            except Exception as e:
+                print(f"[ERROR] Health monitor error: {e}", flush=True)
+                break
+
     def start(self) -> None:
-        """Start capture with error handling."""
+        """Start capture with error handling and automatic retry."""
         if self._thread is not None and self._thread.is_alive():
             return
-        self.state = "running"
+
+        # Cancel any pending retry timer
+        self._cancel_retry_timer()
+
+        self.state = "starting"
         self.error_message = None
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_thread, name=f"Capture-{self.cfg.id}", daemon=True)
         self._thread.start()
 
+        # Start health monitor if not already running
+        if self._health_monitor is None or not self._health_monitor.is_alive():
+            self._health_monitor = threading.Thread(
+                target=self._health_monitor_thread,
+                name=f"HealthMon-{self.cfg.id}",
+                daemon=True
+            )
+            self._health_monitor.start()
+
     async def stop(self) -> None:
+        """Stop capture with graceful shutdown (OpenWebRX pattern)."""
+        # Disable auto-restart while stopping
+        self._auto_restart_enabled = False
+        self._cancel_retry_timer()
+
+        self.state = "stopping"
         self._stop_event.set()
+
+        # Wait for threads to finish gracefully
         if self._thread is not None:
-            self._thread.join(timeout=1.0)
+            self._thread.join(timeout=2.0)
+            if self._thread.is_alive():
+                print(f"[WARNING] Capture {self.cfg.id} thread did not stop gracefully", flush=True)
             self._thread = None
+
+        if self._health_monitor is not None:
+            self._health_monitor.join(timeout=1.0)
+            self._health_monitor = None
+
+        # Close stream
         if self._stream is not None:
             try:
                 self._stream.close()
             except Exception:
                 pass
             self._stream = None
+
         # Note: We do NOT close the device here - the device should stay open
         # for the lifetime of the Capture. We only close the stream.
         # The device will be closed when the Capture is deleted.
         self.state = "stopped"
+
+        # Re-enable auto-restart for next start()
+        self._auto_restart_enabled = True
 
     async def reconfigure(
         self,
@@ -385,6 +494,11 @@ class Capture:
                 bandwidth=self.cfg.bandwidth,
                 ppm=self.cfg.ppm,
                 antenna=self.cfg.antenna,
+                device_settings=self.cfg.device_settings,
+                element_gains=self.cfg.element_gains,
+                stream_format=self.cfg.stream_format,
+                dc_offset_auto=self.cfg.dc_offset_auto,
+                iq_balance_auto=self.cfg.iq_balance_auto,
             )
             stream = self.device.start_stream()
             # Store the actual antenna being used
@@ -393,11 +507,14 @@ class Capture:
 
         try:
             self._stream = _configure_and_start()
+            # Successfully started!
+            self.state = "running"
+            self._retry_count = 0  # Reset retry counter on success
         except Exception as e:
-            # Set failed state with error message
-            self.state = "failed"
+            # Failed to start - schedule automatic restart
             self.error_message = f"Failed to start capture: {str(e)}"
-            print(f"[ERROR] Capture {self.cfg.id} failed: {e}", flush=True)
+            print(f"[ERROR] Capture {self.cfg.id} failed to start: {e}", flush=True)
+            self._schedule_restart()
             return
         chunk = 4096
         while not self._stop_event.is_set():
@@ -504,6 +621,11 @@ class CaptureManager:
         bandwidth: Optional[float] = None,
         ppm: Optional[float] = None,
         antenna: Optional[str] = None,
+        device_settings: Optional[Dict[str, Any]] = None,
+        element_gains: Optional[Dict[str, float]] = None,
+        stream_format: Optional[str] = None,
+        dc_offset_auto: bool = True,
+        iq_balance_auto: bool = True,
     ) -> Capture:
         cid = f"c{self._next_cap_id}"
         self._next_cap_id += 1
@@ -517,6 +639,11 @@ class CaptureManager:
             bandwidth=bandwidth,
             ppm=ppm,
             antenna=antenna,
+            device_settings=device_settings or {},
+            element_gains=element_gains or {},
+            stream_format=stream_format,
+            dc_offset_auto=dc_offset_auto,
+            iq_balance_auto=iq_balance_auto,
         )
         cap = Capture(cfg=cfg, device=dev)
         self._captures[cid] = cap

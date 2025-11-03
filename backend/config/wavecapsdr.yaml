@@ -1,46 +1,37 @@
 server:
   bind_address: 0.0.0.0
   port: 8087
-  # auth_token: ""
 stream:
   default_transport: ws
   default_format: iq16
 limits:
   max_concurrent_captures: 2
-  # max_sample_rate: 2400000
 device:
-  driver: soapy  # use 'fake' for tests
-  # device_args: "driver=rtlsdr"  # or: driver=sdrplay,serial=...
-
-# Antenna configuration for specific devices
-# RSPdx-R2 (serial: 240309F070) has three antenna ports:
-#   Ant A: TW-777BNC (fixed stub, 2m/70cm dual-band VHF/UHF, 144/440 MHz)
-#   Ant B: GRA-RH795 (telescoping, wideband, best for FM broadcast 88-108 MHz)
-#   Ant C: SRH789 (telescoping, 2m/70cm dual-band, 144/440 MHz)
+  driver: soapy
 antennas:
   sdrplay_240309F070:
-    fm_broadcast: "Ant B"  # Best for 88-108 MHz
-    vhf_amateur: "Ant C"   # Best for 2m (144 MHz)
-    uhf_amateur: "Ant A"   # Best for 70cm (440 MHz)
-
+    fm_broadcast: Ant B
+    vhf_amateur: Ant C
+    uhf_amateur: Ant A
 presets:
   kexp:
     center_hz: 90300000
     sample_rate: 2000000
-    offsets: [0.0]
-    # No antenna specified - RTL-SDR only has one antenna (RX)
+    offsets:
+    - 0.0
+    bandwidth: 200000.0
+    ppm: 0.0
   kexp_rspdx:
     center_hz: 90300000
-    sample_rate: 2000000  # Optimal - device doesn't support 1.8 MHz
-    offsets: [0.0]
-    gain: 20  # Optimal gain - best balance of signal vs noise
-    bandwidth: 200000  # 200 kHz bandwidth for FM broadcast
-    antenna: "Antenna B"  # Use Antenna B for FM broadcast (88-108 MHz)
-    # squelch_db: Not useful for continuous music broadcasts
-
-# Auto-start captures on server startup
+    sample_rate: 2000000
+    offsets:
+    - 0.0
+    gain: 20
+    bandwidth: 200000
+    antenna: Antenna B
 captures:
-  - preset: kexp
-    device_id: "driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog V4,serial=00000001,tuner=Rafael Micro R828D"
-  - preset: kexp_rspdx
-    device_id: "driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070"
+- preset: kexp
+  device_id: 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
+    V4,serial=00000001,tuner=Rafael Micro R828D'
+- preset: kexp_rspdx
+  device_id: driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070

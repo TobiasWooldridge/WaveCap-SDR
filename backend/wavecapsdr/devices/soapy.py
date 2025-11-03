@@ -134,6 +134,7 @@ class _SoapyDevice(Device):
     info: DeviceInfo
     sdr: "SoapySDR.Device"
     _antenna: Optional[str] = None
+    _stream_format: Optional[str] = None  # Store stream format for start_stream()
 
     def configure(
         self,
@@ -143,15 +144,82 @@ class _SoapyDevice(Device):
         bandwidth: Optional[float] = None,
         ppm: Optional[float] = None,
         antenna: Optional[str] = None,
+        device_settings: Optional[dict[str, Any]] = None,
+        element_gains: Optional[dict[str, float]] = None,
+        stream_format: Optional[str] = None,
+        dc_offset_auto: bool = True,
+        iq_balance_auto: bool = True,
     ) -> None:
         """Configure device with timeout protection."""
+        # Store stream format for use in start_stream()
+        self._stream_format = stream_format
+
         @with_timeout(10.0)
         def _do_configure() -> None:
             import SoapySDR  # type: ignore
 
+            # Basic configuration
             self.sdr.setSampleRate(SoapySDR.SOAPY_SDR_RX, 0, float(sample_rate))
             self.sdr.setFrequency(SoapySDR.SOAPY_SDR_RX, 0, center_hz)
-            if gain is not None:
+
+            # Apply device-specific settings via SoapySDR writeSetting API
+            # Examples: bias_tee, rf_notch, dab_notch, agc_setpoint, etc.
+            if device_settings:
+                # Query available settings for validation
+                available_settings = set()
+                try:
+                    settings_info = self.sdr.getSettingInfo()
+                    for setting in settings_info:
+                        setting_key = setting.key if hasattr(setting, 'key') else str(setting)
+                        available_settings.add(setting_key)
+                except Exception:
+                    pass
+
+                for key, value in device_settings.items():
+                    # Validate setting exists (if we got the list)
+                    if available_settings and key not in available_settings:
+                        print(f"[WARNING] Setting '{key}' may not be supported by this device", flush=True)
+
+                    try:
+                        # Convert value to string as required by writeSetting
+                        self.sdr.writeSetting(key, str(value))
+                        print(f"[SOAPY] Applied device setting: {key}={value}", flush=True)
+                    except Exception as e:
+                        print(f"[WARNING] Failed to apply device setting {key}={value}: {e}", flush=True)
+
+            # Per-element gain control (e.g., LNA, VGA, TIA)
+            if element_gains:
+                # Query available gain elements for validation
+                available_gains = []
+                try:
+                    available_gains = list(self.sdr.listGains(SoapySDR.SOAPY_SDR_RX, 0))
+                except Exception:
+                    pass
+
+                for element_name, element_gain in element_gains.items():
+                    # Validate element exists
+                    if available_gains and element_name not in available_gains:
+                        print(f"[WARNING] Gain element '{element_name}' may not be supported by this device. Available: {available_gains}", flush=True)
+
+                    # Validate gain value is in range
+                    try:
+                        gain_range = self.sdr.getGainRange(SoapySDR.SOAPY_SDR_RX, 0, element_name)
+                        if gain_range:
+                            gain_min = float(gain_range.minimum())
+                            gain_max = float(gain_range.maximum())
+                            if element_gain < gain_min or element_gain > gain_max:
+                                print(f"[WARNING] {element_name} gain {element_gain} dB is outside valid range [{gain_min}, {gain_max}] dB", flush=True)
+                    except Exception:
+                        pass
+
+                    try:
+                        self.sdr.setGain(SoapySDR.SOAPY_SDR_RX, 0, element_name, element_gain)
+                        print(f"[SOAPY] Set {element_name} gain to {element_gain} dB", flush=True)
+                    except Exception as e:
+                        print(f"[WARNING] Failed to set {element_name} gain: {e}", flush=True)
+
+            # Overall gain (only if no per-element gains specified)
+            if gain is not None and not element_gains:
                 # Manual gain
                 try:
                     try:
@@ -161,13 +229,30 @@ class _SoapyDevice(Device):
                     self.sdr.setGain(SoapySDR.SOAPY_SDR_RX, 0, gain)
                 except Exception:
                     pass
-            else:
+            elif gain is None and not element_gains:
                 # Prefer automatic gain control when supported
                 try:
                     self.sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, True)  # auto
                 except Exception:
                     # Not all drivers support automatic gain; skip
                     pass
+
+            # DC offset auto-correction
+            try:
+                self.sdr.setDCOffsetMode(SoapySDR.SOAPY_SDR_RX, 0, dc_offset_auto)
+                print(f"[SOAPY] DC offset auto-correction: {dc_offset_auto}", flush=True)
+            except Exception as e:
+                # Not all devices support DC offset correction
+                pass
+
+            # IQ balance auto-correction
+            try:
+                self.sdr.setIQBalanceMode(SoapySDR.SOAPY_SDR_RX, 0, iq_balance_auto)
+                print(f"[SOAPY] IQ balance auto-correction: {iq_balance_auto}", flush=True)
+            except Exception as e:
+                # Not all devices support IQ balance correction
+                pass
+
             if bandwidth is not None:
                 try:
                     self.sdr.setBandwidth(SoapySDR.SOAPY_SDR_RX, 0, bandwidth)
@@ -205,7 +290,35 @@ class _SoapyDevice(Device):
             # Update _antenna to reflect what was actually set
             self._antenna = actual_antenna
 
-            stream = self.sdr.setupStream(SoapySDR.SOAPY_SDR_RX, SoapySDR.SOAPY_SDR_CF32, [0])
+            # Select stream format based on configuration
+            # Default to CF32 (complex float32) if not specified
+            format_map = {
+                "CF32": SoapySDR.SOAPY_SDR_CF32,  # Complex float32 (default)
+                "CS16": SoapySDR.SOAPY_SDR_CS16,  # Complex int16
+                "CS8": SoapySDR.SOAPY_SDR_CS8,    # Complex int8
+            }
+            stream_fmt = format_map.get(self._stream_format or "CF32", SoapySDR.SOAPY_SDR_CF32)
+            print(f"[SOAPY] Using stream format: {self._stream_format or 'CF32'}", flush=True)
+
+            # Setup stream with optimized buffer configuration
+            stream = self.sdr.setupStream(SoapySDR.SOAPY_SDR_RX, stream_fmt, [0])
+
+            # Query and log buffer information
+            try:
+                mtu = self.sdr.getStreamMTU(stream)
+                print(f"[SOAPY] Stream MTU: {mtu} samples", flush=True)
+            except Exception:
+                pass
+
+            try:
+                num_direct_bufs = self.sdr.getNumDirectAccessBuffers(stream)
+                if num_direct_bufs > 0:
+                    print(f"[SOAPY] Direct access buffers: {num_direct_bufs}", flush=True)
+            except Exception:
+                pass
+
+            # Activate stream with optional buffer size hint
+            # Most drivers will use sensible defaults if not specified
             self.sdr.activateStream(stream)
             return _SoapyStream(self.sdr, stream)
 
@@ -214,6 +327,152 @@ class _SoapyDevice(Device):
     def get_antenna(self) -> Optional[str]:
         """Return the currently configured antenna, if any."""
         return self._antenna
+
+    def get_capabilities(self) -> dict[str, Any]:
+        """Query and return device capabilities dynamically.
+
+        This provides runtime information about what the device supports,
+        useful for validation and debugging.
+        """
+        import SoapySDR  # type: ignore
+
+        caps = {}
+
+        try:
+            # Query available gain elements
+            gain_elements = self.sdr.listGains(SoapySDR.SOAPY_SDR_RX, 0)
+            caps["gain_elements"] = list(gain_elements) if gain_elements else []
+
+            # Query gain ranges for each element
+            caps["gain_ranges"] = {}
+            for elem in caps["gain_elements"]:
+                try:
+                    gain_range = self.sdr.getGainRange(SoapySDR.SOAPY_SDR_RX, 0, elem)
+                    if gain_range:
+                        caps["gain_ranges"][elem] = {
+                            "min": float(gain_range.minimum()),
+                            "max": float(gain_range.maximum())
+                        }
+                except Exception:
+                    pass
+
+            # Query overall gain range
+            try:
+                overall_gain = self.sdr.getGainRange(SoapySDR.SOAPY_SDR_RX, 0)
+                if overall_gain:
+                    caps["overall_gain_range"] = {
+                        "min": float(overall_gain.minimum()),
+                        "max": float(overall_gain.maximum())
+                    }
+            except Exception:
+                pass
+
+            # Query available settings
+            try:
+                settings_info = self.sdr.getSettingInfo()
+                caps["settings"] = {}
+                for setting in settings_info:
+                    setting_key = setting.key if hasattr(setting, 'key') else str(setting)
+                    caps["settings"][setting_key] = {
+                        "description": setting.description if hasattr(setting, 'description') else "",
+                        "type": setting.type if hasattr(setting, 'type') else "unknown"
+                    }
+            except Exception:
+                caps["settings"] = {}
+
+            # Query available antennas
+            try:
+                antennas = self.sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0)
+                caps["antennas"] = list(antennas) if antennas else []
+            except Exception:
+                caps["antennas"] = []
+
+            # Query frequency ranges
+            try:
+                freq_ranges = self.sdr.getFrequencyRange(SoapySDR.SOAPY_SDR_RX, 0)
+                caps["frequency_ranges"] = []
+                for fr in freq_ranges:
+                    caps["frequency_ranges"].append({
+                        "min": float(fr.minimum()),
+                        "max": float(fr.maximum())
+                    })
+            except Exception:
+                caps["frequency_ranges"] = []
+
+            # Query sample rate ranges
+            try:
+                rate_ranges = self.sdr.getSampleRateRange(SoapySDR.SOAPY_SDR_RX, 0)
+                caps["sample_rate_ranges"] = []
+                for rr in rate_ranges:
+                    caps["sample_rate_ranges"].append({
+                        "min": float(rr.minimum()),
+                        "max": float(rr.maximum())
+                    })
+            except Exception:
+                # Try discrete sample rates instead
+                try:
+                    rates = self.sdr.listSampleRates(SoapySDR.SOAPY_SDR_RX, 0)
+                    caps["sample_rates"] = [int(r) for r in rates] if rates else []
+                except Exception:
+                    caps["sample_rates"] = []
+
+            # Query bandwidth ranges
+            try:
+                bw_ranges = self.sdr.getBandwidthRange(SoapySDR.SOAPY_SDR_RX, 0)
+                caps["bandwidth_ranges"] = []
+                for bw in bw_ranges:
+                    caps["bandwidth_ranges"].append({
+                        "min": float(bw.minimum()),
+                        "max": float(bw.maximum())
+                    })
+            except Exception:
+                caps["bandwidth_ranges"] = []
+
+            # Query available stream formats
+            try:
+                formats = self.sdr.getStreamFormats(SoapySDR.SOAPY_SDR_RX, 0)
+                caps["stream_formats"] = list(formats) if formats else []
+            except Exception:
+                caps["stream_formats"] = ["CF32"]  # Default
+
+            # Query available sensors
+            try:
+                sensors = self.sdr.listSensors()
+                caps["sensors"] = list(sensors) if sensors else []
+            except Exception:
+                caps["sensors"] = []
+
+        except Exception as e:
+            caps["error"] = str(e)
+
+        return caps
+
+    def read_sensors(self) -> dict[str, Any]:
+        """Read all available sensors from the device.
+
+        Returns a dict mapping sensor names to their current values.
+        Common sensors include temperature, voltage, current, etc.
+        """
+        import SoapySDR  # type: ignore
+
+        sensor_values = {}
+
+        try:
+            # Get list of available sensors
+            sensors = self.sdr.listSensors()
+
+            for sensor_name in sensors:
+                try:
+                    # Read sensor value
+                    value = self.sdr.readSensor(sensor_name)
+                    sensor_values[sensor_name] = value
+                except Exception as e:
+                    sensor_values[sensor_name] = f"Error: {e}"
+
+        except Exception as e:
+            sensor_values["_error"] = str(e)
+
+        return sensor_values
 
     def reconfigure_running(
         self,
