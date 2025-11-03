@@ -296,6 +296,11 @@ async def update_capture(
                 bandwidth=req.bandwidth,
                 ppm=req.ppm,
                 antenna=req.antenna,
+                device_settings=req.deviceSettings,
+                element_gains=req.elementGains,
+                stream_format=req.streamFormat,
+                dc_offset_auto=req.dcOffsetAuto,
+                iq_balance_auto=req.iqBalanceAuto,
             ),
             timeout=30.0  # 30 second timeout for reconfiguration
         )

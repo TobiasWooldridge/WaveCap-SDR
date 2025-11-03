@@ -51,6 +51,11 @@ class UpdateCaptureRequest(BaseModel):
     bandwidth: Optional[float] = None
     ppm: Optional[float] = None
     antenna: Optional[str] = None
+    deviceSettings: Optional[dict[str, str]] = None
+    elementGains: Optional[dict[str, float]] = None
+    streamFormat: Optional[str] = None
+    dcOffsetAuto: Optional[bool] = None
+    iqBalanceAuto: Optional[bool] = None
 
 
 class CaptureModel(BaseModel):

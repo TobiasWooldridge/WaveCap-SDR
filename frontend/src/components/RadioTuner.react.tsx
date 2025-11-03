@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Radio, Settings } from "lucide-react";
+import { Radio, Settings, ChevronDown, ChevronUp } from "lucide-react";
 import type { Capture, Device } from "../types";
 import { useUpdateCapture, useStartCapture, useStopCapture } from "../hooks/useCaptures";
 import { useDebounce } from "../hooks/useDebounce";
@@ -15,6 +15,9 @@ interface RadioTunerProps {
 }
 
 export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
+  // UI state
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
   // Local state for immediate UI updates
   const [localFreq, setLocalFreq] = useState(capture.centerHz);
   const [localGain, setLocalGain] = useState(capture.gain ?? 0);
@@ -22,6 +25,13 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   const [localPpm, setLocalPpm] = useState(capture.ppm ?? 0);
   const [localSampleRate, setLocalSampleRate] = useState(capture.sampleRate);
   const [localAntenna, setLocalAntenna] = useState(capture.antenna ?? "");
+
+  // Advanced settings state
+  const [localDcOffsetAuto, setLocalDcOffsetAuto] = useState(capture.dcOffsetAuto ?? true);
+  const [localIqBalanceAuto, setLocalIqBalanceAuto] = useState(capture.iqBalanceAuto ?? true);
+  const [localStreamFormat, setLocalStreamFormat] = useState(capture.streamFormat ?? "");
+  const [localElementGains, setLocalElementGains] = useState<Record<string, number>>(capture.elementGains ?? {});
+  const [localDeviceSettings, setLocalDeviceSettings] = useState<Record<string, string>>(capture.deviceSettings ?? {});
 
   // Sync local state when capture updates from backend
   useEffect(() => {
@@ -31,6 +41,11 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
     setLocalPpm(capture.ppm ?? 0);
     setLocalSampleRate(capture.sampleRate);
     setLocalAntenna(capture.antenna ?? "");
+    setLocalDcOffsetAuto(capture.dcOffsetAuto ?? true);
+    setLocalIqBalanceAuto(capture.iqBalanceAuto ?? true);
+    setLocalStreamFormat(capture.streamFormat ?? "");
+    setLocalElementGains(capture.elementGains ?? {});
+    setLocalDeviceSettings(capture.deviceSettings ?? {});
   }, [capture]);
 
   // Debounce values for API calls
@@ -94,6 +109,30 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
     updateMutation.mutate({
       captureId: capture.id,
       request: { antenna: newAntenna },
+    });
+  };
+
+  const handleDcOffsetAutoChange = (enabled: boolean) => {
+    setLocalDcOffsetAuto(enabled);
+    updateMutation.mutate({
+      captureId: capture.id,
+      request: { dcOffsetAuto: enabled },
+    });
+  };
+
+  const handleIqBalanceAutoChange = (enabled: boolean) => {
+    setLocalIqBalanceAuto(enabled);
+    updateMutation.mutate({
+      captureId: capture.id,
+      request: { iqBalanceAuto: enabled },
+    });
+  };
+
+  const handleStreamFormatChange = (format: string) => {
+    setLocalStreamFormat(format);
+    updateMutation.mutate({
+      captureId: capture.id,
+      request: { streamFormat: format || undefined },
     });
   };
 
@@ -284,6 +323,142 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
               {!isRunning && (
                 <small className="text-muted">
                   Start capture to change antenna
+                </small>
+              )}
+            </Flex>
+          )}
+
+          <hr className="my-3" />
+
+          {/* Advanced Settings Toggle */}
+          <Button
+            use="secondary"
+            size="sm"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+          >
+            <Flex align="center" gap={1}>
+              <Settings size={16} />
+              <span>Advanced Settings</span>
+              {showAdvanced ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </Flex>
+          </Button>
+
+          {/* Advanced Settings Panel */}
+          {showAdvanced && (
+            <Flex direction="column" gap={3} className="mt-3 p-3 bg-light rounded">
+              {/* DC Offset Auto Correction */}
+              <div className="form-check">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  id="dcOffsetAuto"
+                  checked={localDcOffsetAuto}
+                  onChange={(e) => handleDcOffsetAutoChange(e.target.checked)}
+                  disabled={isRunning}
+                />
+                <label className="form-check-label" htmlFor="dcOffsetAuto">
+                  DC Offset Auto-Correction
+                </label>
+                <div className="form-text">
+                  Automatically remove DC bias from IQ samples
+                </div>
+              </div>
+
+              {/* IQ Balance Auto Correction */}
+              <div className="form-check">
+                <input
+                  className="form-check-input"
+                  type="checkbox"
+                  id="iqBalanceAuto"
+                  checked={localIqBalanceAuto}
+                  onChange={(e) => handleIqBalanceAutoChange(e.target.checked)}
+                  disabled={isRunning}
+                />
+                <label className="form-check-label" htmlFor="iqBalanceAuto">
+                  IQ Balance Auto-Correction
+                </label>
+                <div className="form-text">
+                  Automatically correct IQ imbalance
+                </div>
+              </div>
+
+              {/* Stream Format Selector */}
+              <Flex direction="column" gap={2}>
+                <label className="form-label mb-0 fw-semibold">Stream Format</label>
+                <select
+                  className="form-select form-select-sm"
+                  value={localStreamFormat}
+                  onChange={(e) => handleStreamFormatChange(e.target.value)}
+                  disabled={isRunning}
+                >
+                  <option value="">Auto (CF32)</option>
+                  <option value="CF32">CF32 (Complex Float32)</option>
+                  <option value="CS16">CS16 (Complex Int16)</option>
+                  <option value="CS8">CS8 (Complex Int8)</option>
+                </select>
+                <small className="text-muted">
+                  Stream format affects bandwidth and precision
+                </small>
+              </Flex>
+
+              {/* Element Gains */}
+              {Object.keys(localElementGains).length > 0 && (
+                <Flex direction="column" gap={2}>
+                  <label className="form-label mb-0 fw-semibold">Element Gains</label>
+                  {Object.entries(localElementGains).map(([key, value]) => (
+                    <Flex key={key} direction="column" gap={1}>
+                      <label className="form-label mb-0 small">{key}</label>
+                      <input
+                        type="number"
+                        className="form-control form-control-sm"
+                        value={value}
+                        onChange={(e) =>
+                          setLocalElementGains({
+                            ...localElementGains,
+                            [key]: parseFloat(e.target.value),
+                          })
+                        }
+                        disabled={isRunning}
+                        step="0.1"
+                      />
+                    </Flex>
+                  ))}
+                  <small className="text-muted">
+                    Per-element gain control (LNA, VGA, TIA, etc.)
+                  </small>
+                </Flex>
+              )}
+
+              {/* Device Settings */}
+              {Object.keys(localDeviceSettings).length > 0 && (
+                <Flex direction="column" gap={2}>
+                  <label className="form-label mb-0 fw-semibold">Device Settings</label>
+                  {Object.entries(localDeviceSettings).map(([key, value]) => (
+                    <Flex key={key} direction="column" gap={1}>
+                      <label className="form-label mb-0 small">{key}</label>
+                      <input
+                        type="text"
+                        className="form-control form-control-sm"
+                        value={value}
+                        onChange={(e) =>
+                          setLocalDeviceSettings({
+                            ...localDeviceSettings,
+                            [key]: e.target.value,
+                          })
+                        }
+                        disabled={isRunning}
+                      />
+                    </Flex>
+                  ))}
+                  <small className="text-muted">
+                    Device-specific configuration settings
+                  </small>
+                </Flex>
+              )}
+
+              {!isRunning && (
+                <small className="text-muted">
+                  Start capture to apply advanced settings changes
                 </small>
               )}
             </Flex>

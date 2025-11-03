@@ -50,6 +50,11 @@ export interface UpdateCaptureRequest {
   bandwidth?: number;
   ppm?: number;
   antenna?: string;
+  deviceSettings?: Record<string, string>;
+  elementGains?: Record<string, number>;
+  streamFormat?: string;
+  dcOffsetAuto?: boolean;
+  iqBalanceAuto?: boolean;
 }
 
 export interface CreateCaptureRequest {
