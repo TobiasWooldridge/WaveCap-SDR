@@ -62,14 +62,14 @@ class CaptureModel(BaseModel):
 
 
 class CreateChannelRequest(BaseModel):
-    mode: Literal["wbfm"] = "wbfm"
+    mode: Mode = "wbfm"
     offsetHz: Optional[float] = 0.0
     audioRate: Optional[int] = None
     squelchDb: Optional[float] = None
 
 
 class UpdateChannelRequest(BaseModel):
-    mode: Optional[Literal["wbfm"]] = None
+    mode: Optional[Mode] = None
     offsetHz: Optional[float] = None
     audioRate: Optional[int] = None
     squelchDb: Optional[float] = None
@@ -78,7 +78,7 @@ class UpdateChannelRequest(BaseModel):
 class ChannelModel(BaseModel):
     id: str
     captureId: str
-    mode: Literal["wbfm"]
+    mode: Mode
     state: Literal["created", "running", "stopped"]
     offsetHz: float
     audioRate: int
