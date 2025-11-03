@@ -155,3 +155,75 @@ def os_environ_items() -> list[tuple[str, str]]:
     from os import environ
 
     return [(k, v) for k, v in environ.items()]
+
+
+def save_config(config: AppConfig, path_str: str) -> None:
+    """Save the AppConfig back to a YAML file, preserving structure and comments where possible."""
+    path = Path(path_str)
+
+    # Read existing file to preserve comments and structure
+    existing_data: Dict[str, Any] = _read_yaml(path) if path.exists() else {}
+
+    # Update the config data
+    # Server config
+    server_data = {
+        "bind_address": config.server.bind_address,
+        "port": config.server.port,
+    }
+    if config.server.auth_token is not None:
+        server_data["auth_token"] = config.server.auth_token
+    existing_data["server"] = server_data
+
+    # Stream config
+    existing_data["stream"] = {
+        "default_transport": config.stream.default_transport,
+        "default_format": config.stream.default_format,
+    }
+
+    # Limits config
+    limits_data = {
+        "max_concurrent_captures": config.limits.max_concurrent_captures,
+    }
+    if config.limits.max_sample_rate is not None:
+        limits_data["max_sample_rate"] = config.limits.max_sample_rate
+    existing_data["limits"] = limits_data
+
+    # Device config
+    device_data = {"driver": config.device.driver}
+    if config.device.device_args is not None:
+        device_data["device_args"] = config.device.device_args
+    existing_data["device"] = device_data
+
+    # Presets
+    presets_data = {}
+    for name, preset in config.presets.items():
+        preset_dict = {
+            "center_hz": int(preset.center_hz),
+            "sample_rate": preset.sample_rate,
+            "offsets": preset.offsets,
+        }
+        if preset.gain is not None:
+            preset_dict["gain"] = preset.gain
+        if preset.bandwidth is not None:
+            preset_dict["bandwidth"] = preset.bandwidth
+        if preset.ppm is not None:
+            preset_dict["ppm"] = preset.ppm
+        if preset.antenna is not None:
+            preset_dict["antenna"] = preset.antenna
+        if preset.squelch_db is not None:
+            preset_dict["squelch_db"] = preset.squelch_db
+        presets_data[name] = preset_dict
+    existing_data["presets"] = presets_data
+
+    # Captures list
+    captures_data = []
+    for cap in config.captures:
+        cap_dict = {"preset": cap.preset}
+        if cap.device_id is not None:
+            cap_dict["device_id"] = cap.device_id
+        captures_data.append(cap_dict)
+    existing_data["captures"] = captures_data
+
+    # Write to file with nice formatting
+    with path.open("w", encoding="utf-8") as f:
+        yaml.dump(existing_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)

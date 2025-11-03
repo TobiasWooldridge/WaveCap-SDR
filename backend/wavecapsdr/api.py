@@ -251,6 +251,72 @@ async def update_capture(
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
 
+    # Validate changes against device constraints before applying
+    devices = state.captures.list_devices()
+    device_info = next((d for d in devices if d["id"] == cap.cfg.device_id), None)
+
+    if device_info:
+        # Validate frequency range
+        if req.centerHz is not None:
+            freq_min = device_info.get("freq_min_hz", 0)
+            freq_max = device_info.get("freq_max_hz", 6e9)
+            if not (freq_min <= req.centerHz <= freq_max):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Frequency {req.centerHz} Hz is out of range [{freq_min}, {freq_max}] for this device"
+                )
+
+        # Validate sample rate
+        if req.sampleRate is not None:
+            valid_rates = device_info.get("sample_rates", [])
+            if valid_rates and req.sampleRate not in valid_rates:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Sample rate {req.sampleRate} is not supported. Valid rates: {valid_rates}"
+                )
+
+        # Validate gain range
+        if req.gain is not None:
+            gain_min = device_info.get("gain_min")
+            gain_max = device_info.get("gain_max")
+            if gain_min is not None and gain_max is not None:
+                if not (gain_min <= req.gain <= gain_max):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Gain {req.gain} dB is out of range [{gain_min}, {gain_max}] for this device"
+                    )
+
+        # Validate bandwidth range
+        if req.bandwidth is not None:
+            bw_min = device_info.get("bandwidth_min")
+            bw_max = device_info.get("bandwidth_max")
+            if bw_min is not None and bw_max is not None:
+                if not (bw_min <= req.bandwidth <= bw_max):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Bandwidth {req.bandwidth} Hz is out of range [{bw_min}, {bw_max}] for this device"
+                    )
+
+        # Validate PPM range
+        if req.ppm is not None:
+            ppm_min = device_info.get("ppm_min")
+            ppm_max = device_info.get("ppm_max")
+            if ppm_min is not None and ppm_max is not None:
+                if not (ppm_min <= req.ppm <= ppm_max):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"PPM {req.ppm} is out of range [{ppm_min}, {ppm_max}] for this device"
+                    )
+
+        # Validate antenna
+        if req.antenna is not None:
+            valid_antennas = device_info.get("antennas", [])
+            if valid_antennas and req.antenna not in valid_antennas:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Antenna '{req.antenna}' is not supported. Valid antennas: {valid_antennas}"
+                )
+
     # Use reconfigure method with timeout protection
     try:
         # Add timeout to prevent hanging
@@ -275,6 +341,33 @@ async def update_capture(
             status_code=500,
             detail=f"Failed to reconfigure capture: {str(e)}"
         )
+
+    # Persist changes to config file if this capture is associated with a preset
+    preset_name = state.capture_presets.get(cid)
+    if preset_name and state.config_path:
+        preset = state.config.presets.get(preset_name)
+        if preset:
+            # Update the preset with new values
+            if req.centerHz is not None:
+                preset.center_hz = req.centerHz
+            if req.sampleRate is not None:
+                preset.sample_rate = req.sampleRate
+            if req.gain is not None:
+                preset.gain = req.gain
+            if req.bandwidth is not None:
+                preset.bandwidth = req.bandwidth
+            if req.ppm is not None:
+                preset.ppm = req.ppm
+            if req.antenna is not None:
+                preset.antenna = req.antenna
+
+            # Save the updated config to file
+            try:
+                from .config import save_config
+                save_config(state.config, state.config_path)
+            except Exception as e:
+                # Log error but don't fail the request - the settings are already applied in memory
+                print(f"Warning: Failed to persist config changes to file: {e}")
 
     return CaptureModel(
         id=cap.cfg.id,

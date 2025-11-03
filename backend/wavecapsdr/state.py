@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Dict, Optional
 
 from .config import AppConfig
 from .devices.base import DeviceDriver
@@ -20,9 +21,12 @@ class AppState:
     config: AppConfig
     driver: DeviceDriver
     captures: CaptureManager
+    config_path: Optional[str] = None
+    # Map capture_id -> preset_name for persistence
+    capture_presets: Dict[str, str] = field(default_factory=dict)
 
     @classmethod
-    def from_config(cls, cfg: AppConfig) -> "AppState":
+    def from_config(cls, cfg: AppConfig, config_path: Optional[str] = None) -> "AppState":
         driver: DeviceDriver
         if cfg.device.driver == "fake":
             driver = FakeDriver()
@@ -43,4 +47,4 @@ class AppState:
                     driver = FakeDriver()
 
         captures = CaptureManager(cfg, driver)
-        return cls(config=cfg, driver=driver, captures=captures)
+        return cls(config=cfg, driver=driver, captures=captures, config_path=config_path)

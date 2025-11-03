@@ -11,10 +11,10 @@ from .api import router as api_router
 from .state import AppState
 
 
-def create_app(config: AppConfig) -> FastAPI:
+def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
     app = FastAPI(title="WaveCap-SDR", version="0.1.0")
 
-    app.state.app_state = AppState.from_config(config)
+    app.state.app_state = AppState.from_config(config, config_path)
 
     @app.on_event("startup")
     async def startup_event():
@@ -54,6 +54,9 @@ def create_app(config: AppConfig) -> FastAPI:
 
                 # Start the capture
                 cap.start()
+
+                # Track the preset for this capture for persistence
+                app_state.capture_presets[cap.cfg.id] = preset_name
 
                 device_info = cap_cfg.device_id or "any device"
                 print(f"Auto-started capture '{cap.cfg.id}' with preset '{preset_name}' on {device_info}")

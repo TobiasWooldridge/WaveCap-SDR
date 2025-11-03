@@ -317,19 +317,28 @@ class SoapyDriver(DeviceDriver):
 
                     freq_min = float(args["rfmin"]) if "rfmin" in args else 1e4
                     freq_max = float(args["rfmax"]) if "rfmax" in args else 6e9
-                    sample_rates = (250_000, 1_000_000, 2_000_000, 2_400_000)
                     gains = ("LNA", "VGA")
 
                     # Set device-specific limits based on driver
                     if driver == "rtlsdr":
+                        # RTL-SDR common sample rates
+                        sample_rates = (250_000, 1_000_000, 1_024_000, 1_800_000, 1_920_000, 2_000_000, 2_048_000, 2_400_000, 2_560_000)
                         gain_min, gain_max = 0.0, 49.6
                         bandwidth_min, bandwidth_max = 200_000.0, 3_200_000.0
                         antennas = ("RX",)
                     elif driver == "sdrplay":
+                        # SDRplay supports a wide range of sample rates from 200 kHz to 10 MHz
+                        sample_rates = (
+                            200_000, 250_000, 500_000, 1_000_000, 2_000_000,
+                            3_000_000, 4_000_000, 5_000_000, 6_000_000,
+                            7_000_000, 8_000_000, 9_000_000, 10_000_000
+                        )
                         gain_min, gain_max = 0.0, 59.0
                         bandwidth_min, bandwidth_max = 200_000.0, 8_000_000.0
                         antennas = ("Antenna A", "Antenna B", "Antenna C")
                     else:
+                        # Default for unknown devices
+                        sample_rates = (250_000, 1_000_000, 2_000_000, 2_400_000)
                         gain_min, gain_max = None, None
                         bandwidth_min, bandwidth_max = None, None
                         antennas = ()

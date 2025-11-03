@@ -43,7 +43,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     if args.port is not None:
         cfg.server.port = args.port
 
-    app = create_app(cfg)
+    app = create_app(cfg, config_path=args.config)
 
     # Keep default of loopback unless explicitly configured otherwise.
     uvicorn.run(
