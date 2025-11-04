@@ -56,6 +56,13 @@ harness_out/
 logs/
 *.pid
 
+# Frontend build artifacts (generated from frontend/ via Vite)
+# These are copied to backend/wavecapsdr/static/ during build
+backend/wavecapsdr/static/assets/*.js
+backend/wavecapsdr/static/assets/*.js.map
+backend/wavecapsdr/static/assets/*.css
+backend/wavecapsdr/static/assets/*.css.map
+
 # Test and development scripts
 make_wav.py
 record_test.py
