@@ -65,6 +65,44 @@ Test output WAV files are saved to `backend/harness_out/`.
 
 ### Running the Server
 
+#### Quick Start (Recommended)
+
+Use the startup script from the root directory:
+
+```bash
+# Linux/macOS
+./start-app.sh
+
+# Windows (PowerShell)
+.\start-app.ps1
+```
+
+The scripts automatically set up the virtual environment, install dependencies, and start the server with sensible defaults (host: 0.0.0.0, port: 8087).
+
+#### Custom Configuration
+
+Use environment variables to customize the server:
+
+```bash
+# Custom host/port
+HOST=127.0.0.1 PORT=8088 ./start-app.sh
+
+# Specific device
+DEVICE_ARGS="driver=rtlsdr" ./start-app.sh
+
+# All options
+HOST=0.0.0.0 PORT=8087 DRIVER=soapy CONFIG=backend/config/wavecapsdr.yaml ./start-app.sh
+```
+
+For Windows PowerShell:
+```powershell
+$env:HOST="127.0.0.1"; $env:PORT=8088; .\start-app.ps1
+```
+
+#### Manual Start
+
+If you prefer to run the server manually:
+
 ```bash
 cd backend
 PYTHONPATH=. .venv/bin/python -m wavecapsdr \

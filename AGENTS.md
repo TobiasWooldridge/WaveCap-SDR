@@ -50,13 +50,26 @@ Scope: applies to the entire repo.
 - Prefer surgical, minimal diffs. Avoid renames or broad refactors unless explicitly requested.
 - Do not create commits or branches unless the user asks. Prepare changes as patches when collaborating in tooling.
 
+## Running the Server
+For development and testing, use the startup scripts from the repository root:
+
+- Linux/macOS: `./start-app.sh`
+- Windows PowerShell: `.\start-app.ps1`
+
+These scripts handle virtual environment setup, dependency installation, and start the server with sensible defaults. Environment variables can customize behavior:
+- `HOST` (default: `0.0.0.0`)
+- `PORT` (default: `8087`)
+- `DRIVER` (default: `soapy`)
+- `DEVICE_ARGS` (optional, e.g., `"driver=rtlsdr"`)
+- `CONFIG` (optional, path to config file)
+
 ## Test Harness (for agentic tools)
 Use the built‑in harness to spin up a local server, create a capture, add channels, stream audio, and validate levels. It works with the fake driver (offline) and SoapySDR (RTL‑SDR, SDRplay RSPdx‑r2).
 
 - Quick start (offline):
   - `cd ~/speaker/WaveCap-SDR/backend`
   - `python -m venv .venv && . .venv/bin/activate`
-  - `pip install fastapi uvicorn httpx websockets pyyaml numpy`
+  - `pip install fastapi uvicorn httpx websockets pyyaml numpy scipy`
   - `PYTHONPATH=. python -m wavecapsdr.harness --start-server --driver fake --preset marine --duration 3 --out ./harness_out`
   - Output JSON includes per‑channel RMS/peak; WAV files saved under `harness_out/`.
 

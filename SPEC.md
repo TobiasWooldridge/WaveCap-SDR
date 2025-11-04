@@ -84,6 +84,24 @@ Error handling:
 - Channel: `{ id, captureId, mode, targetHz|offsetHz, state, audioRate, squelchDb?, stats }`
 - Stats: `{ startedAt, bytesOut, framesOut, overruns, underruns, dropped, snr?, squelch? }`
 
+## Deployment & Running
+WaveCap-SDR provides convenient startup scripts for all platforms:
+
+- **Linux/macOS**: `./start-app.sh` from repository root
+- **Windows**: `.\start-app.ps1` from repository root (PowerShell)
+
+These scripts automatically:
+- Create and configure Python virtual environment with system SoapySDR integration
+- Install required dependencies (FastAPI, uvicorn, httpx, websockets, pyyaml, numpy, scipy)
+- Start the server with sensible defaults
+
+Configuration via environment variables:
+- `HOST`: bind address (default: `0.0.0.0`)
+- `PORT`: port number (default: `8087`)
+- `DRIVER`: SDR driver backend (default: `soapy`)
+- `DEVICE_ARGS`: specific device selection (optional, e.g., `"driver=rtlsdr,serial=00000001"`)
+- `CONFIG`: path to YAML configuration file (optional)
+
 ## Configuration
 - File: `config/wavecapsdr.yaml` (or environment variables). Document all options in `docs/configuration.md`.
 - Examples:
