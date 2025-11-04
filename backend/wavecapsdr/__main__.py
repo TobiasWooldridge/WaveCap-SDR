@@ -45,12 +45,16 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     app = create_app(cfg, config_path=args.config)
 
-    # Keep default of loopback unless explicitly configured otherwise.
+    # Configure uvicorn with appropriate timeouts for streaming
+    # timeout_keep_alive: How long to wait for HTTP keep-alive between requests (default: 5)
+    # We set this higher to support long-running streaming connections
     uvicorn.run(
         app,
         host=cfg.server.bind_address,
         port=cfg.server.port,
         log_level="info",
+        timeout_keep_alive=300,  # 5 minutes for streaming connections
+        timeout_graceful_shutdown=10,  # 10 seconds for graceful shutdown
     )
 
 

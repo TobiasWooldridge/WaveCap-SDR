@@ -3,12 +3,15 @@ from __future__ import annotations
 import asyncio
 from enum import Enum
 import functools
+import logging
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional, Set, Tuple, TypeVar
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 from .config import AppConfig
 from .devices.base import Device, DeviceDriver, StreamHandle
@@ -134,12 +137,14 @@ class Channel:
         q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=8)
         loop = asyncio.get_running_loop()
         self._audio_sinks.add((q, loop, format))
+        logger.info(f"Channel {self.id}: Audio subscriber added, format={format}, total_subscribers={len(self._audio_sinks)}")
         return q
 
     def unsubscribe(self, q: asyncio.Queue[bytes]) -> None:
         for item in list(self._audio_sinks):
             if item[0] is q:
                 self._audio_sinks.discard(item)
+                logger.info(f"Channel {self.id}: Audio subscriber removed, format={item[2]}, total_subscribers={len(self._audio_sinks)}")
 
     async def _broadcast(self, audio: np.ndarray) -> None:
         """Broadcast audio to all subscribers, converting to their requested format."""
@@ -162,6 +167,8 @@ class Channel:
                 try:
                     q.put_nowait(payload)
                 except asyncio.QueueFull:
+                    # Queue full - try to drop oldest and retry
+                    logger.warning(f"Channel {self.id}: Audio queue full for format={fmt}, dropping oldest packet")
                     try:
                         _ = q.get_nowait()
                     except asyncio.QueueEmpty:
@@ -169,13 +176,15 @@ class Channel:
                     try:
                         q.put_nowait(payload)
                     except asyncio.QueueFull:
-                        pass
+                        logger.warning(f"Channel {self.id}: Audio queue still full for format={fmt}, dropping packet")
             else:
                 # Schedule put on the queue's owning loop to avoid cross-loop errors
                 def _try_put() -> None:
                     try:
                         q.put_nowait(payload)
                     except asyncio.QueueFull:
+                        # Queue full - try to drop oldest and retry
+                        logger.warning(f"Channel {self.id}: Audio queue full (cross-loop) for format={fmt}, dropping oldest packet")
                         try:
                             _ = q.get_nowait()
                         except asyncio.QueueEmpty:
@@ -183,12 +192,13 @@ class Channel:
                         try:
                             q.put_nowait(payload)
                         except asyncio.QueueFull:
-                            pass
+                            logger.warning(f"Channel {self.id}: Audio queue still full (cross-loop) for format={fmt}, dropping packet")
 
                 try:
                     loop.call_soon_threadsafe(_try_put)
-                except Exception:
+                except Exception as e:
                     # If loop is closed or unavailable, drop sink
+                    logger.warning(f"Channel {self.id}: Removing audio sink for format={fmt} due to loop error: {type(e).__name__}: {e}")
                     try:
                         self._audio_sinks.discard((q, loop, fmt))
                     except Exception:

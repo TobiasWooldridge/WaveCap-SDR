@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
+
+logger = logging.getLogger(__name__)
 
 from .models import (
     DeviceModel,
@@ -564,14 +567,25 @@ async def stream_channel_http(
 
     async def audio_generator():
         q = await ch.subscribe_audio(format=format)
+        logger.info(f"HTTP stream started for channel {chan_id}, format={format}, client={request.client}")
         try:
             while True:
+                # Check if client disconnected
+                if await request.is_disconnected():
+                    logger.info(f"HTTP stream client disconnected for channel {chan_id}")
+                    break
+
                 data = await q.get()
                 yield data
-        except Exception:
-            pass
+        except asyncio.CancelledError:
+            logger.info(f"HTTP stream cancelled for channel {chan_id}")
+            raise  # Re-raise to properly handle cancellation
+        except Exception as e:
+            logger.error(f"HTTP stream error for channel {chan_id}: {type(e).__name__}: {e}", exc_info=True)
+            raise  # Re-raise to notify client of error
         finally:
             ch.unsubscribe(q)
+            logger.info(f"HTTP stream ended for channel {chan_id}")
 
     # Set appropriate content-type for raw PCM audio
     if format == "f32":
@@ -624,11 +638,19 @@ async def stream_channel_audio(websocket: WebSocket, chan_id: str, format: str =
         return
     q = await ch.subscribe_audio(format=format_param)
 
+    logger.info(f"WebSocket stream started for channel {chan_id}, format={format_param}, client={websocket.client}")
     try:
         while True:
             data = await q.get()
             await websocket.send_bytes(data)
     except WebSocketDisconnect:
-        pass
+        logger.info(f"WebSocket stream disconnected for channel {chan_id}")
+    except asyncio.CancelledError:
+        logger.info(f"WebSocket stream cancelled for channel {chan_id}")
+        raise
+    except Exception as e:
+        logger.error(f"WebSocket stream error for channel {chan_id}: {type(e).__name__}: {e}", exc_info=True)
+        raise
     finally:
         ch.unsubscribe(q)
+        logger.info(f"WebSocket stream ended for channel {chan_id}")
