@@ -204,6 +204,12 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             <Flex align="center" gap={2}>
               <Radio size={20} />
               <h2 className="h5 mb-0">Radio Tuner</h2>
+              {updateMutation.isPending && (
+                <Flex align="center" gap={1}>
+                  <Spinner size="sm" />
+                  <span className="small text-muted">Updating...</span>
+                </Flex>
+              )}
             </Flex>
             <div className="small text-muted">
               <strong>Capture:</strong> {capture.id}
