@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Radio, Plus } from "lucide-react";
 import { useDevices } from "./hooks/useDevices";
@@ -23,12 +23,29 @@ function AppContent() {
   const { data: captures, isLoading: capturesLoading } = useCaptures();
   const createCapture = useCreateCapture();
 
-  const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(null);
+  // Initialize from URL query parameter
+  const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('capture');
+  });
   const [showNewCapture, setShowNewCapture] = useState(false);
   const [newCaptureDeviceId, setNewCaptureDeviceId] = useState<string>("");
   const [newCaptureFreq, setNewCaptureFreq] = useState<number>(100_000_000);
 
-  // Auto-select first capture
+  // Update URL when capture selection changes
+  useEffect(() => {
+    if (selectedCaptureId) {
+      const params = new URLSearchParams(window.location.search);
+      params.set('capture', selectedCaptureId);
+      const newUrl = `${window.location.pathname}?${params.toString()}`;
+      window.history.pushState({}, '', newUrl);
+    } else if (captures?.[0]) {
+      // Auto-select first capture if none selected
+      setSelectedCaptureId(captures[0].id);
+    }
+  }, [selectedCaptureId, captures]);
+
+  // Find the selected capture, or use first available
   const selectedCapture = captures?.find((c) => c.id === selectedCaptureId) ?? captures?.[0];
 
   // Find device for selected capture

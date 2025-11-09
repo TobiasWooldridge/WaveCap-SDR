@@ -1,7 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { Radio, Plus, Trash2, Copy, CheckCircle, Play, Pause } from "lucide-react";
 import type { Capture, Channel } from "../types";
-import { useChannels, useCreateChannel, useDeleteChannel } from "../hooks/useChannels";
+import {
+  useChannels,
+  useCreateChannel,
+  useDeleteChannel,
+  useStartChannel,
+  useStopChannel,
+} from "../hooks/useChannels";
 import { formatFrequencyMHz } from "../utils/frequency";
 import Button from "./primitives/Button.react";
 import Flex from "./primitives/Flex.react";
@@ -15,6 +21,8 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
   const { data: channels, isLoading } = useChannels(capture.id);
   const createChannel = useCreateChannel();
   const deleteChannel = useDeleteChannel();
+  const startChannel = useStartChannel(capture.id);
+  const stopChannel = useStopChannel(capture.id);
 
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [newChannelOffset, setNewChannelOffset] = useState<number>(0);
@@ -120,9 +128,11 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
           if (done) break;
 
           // Convert PCM16 to Float32
-          const dataView = new DataView(value.buffer);
-          for (let i = 0; i < value.length; i += 2) {
-            const sample = dataView.getInt16(i, true) / 32768.0;
+          const dataView = new DataView(value.buffer, value.byteOffset, value.byteLength);
+          // Only read complete 16-bit samples (need 2 bytes per sample)
+          const sampleCount = Math.floor(value.length / 2);
+          for (let i = 0; i < sampleCount; i++) {
+            const sample = dataView.getInt16(i * 2, true) / 32768.0;
             pcmBuffer.push(sample);
           }
 
@@ -159,17 +169,28 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
     }
   };
 
-  const togglePlay = (channelId: string) => {
-    if (playingChannel === channelId) {
+  const togglePlay = async (channel: Channel) => {
+    if (playingChannel === channel.id) {
       stopAudio();
       setPlayingChannel(null);
-    } else {
-      // Stop any currently playing audio
-      if (playingChannel) {
-        stopAudio();
+      stopChannel.mutate(channel.id);
+      return;
+    }
+
+    if (playingChannel) {
+      stopAudio();
+      setPlayingChannel(null);
+    }
+
+    try {
+      if (channel.state !== "running") {
+        await startChannel.mutateAsync(channel.id);
       }
-      setPlayingChannel(channelId);
-      playPCMAudio(channelId);
+      setPlayingChannel(channel.id);
+      playPCMAudio(channel.id);
+    } catch (error) {
+      console.error("Unable to start channel for playback:", error);
+      setPlayingChannel(null);
     }
   };
 
@@ -290,8 +311,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
                           use={isPlaying ? "warning" : "success"}
                           size="sm"
                           appearance="outline"
-                          onClick={() => togglePlay(channel.id)}
-                          disabled={channel.state !== "running"}
+                          onClick={() => togglePlay(channel)}
                           title={isPlaying ? "Pause" : "Play"}
                           aria-label={isPlaying ? "Pause" : "Play"}
                           className="px-2"
