@@ -62,6 +62,7 @@ These scripts handle virtual environment setup, dependency installation, and sta
 - `DRIVER` (default: `soapy`)
 - `DEVICE_ARGS` (optional, e.g., `"driver=rtlsdr"`)
 - `CONFIG` (optional, path to config file)
+- Use `./restart-sdrplay.sh` whenever the SDRplay systemd service needs a manual restart (script wraps `sudo systemctl restart sdrplay`). `start-app.sh` automatically attempts a non-interactive restart via this helper, but if sudo prompts for a password you'll need to run the helper yourself before starting the app.
 
 ## Test Harness (for agentic tools)
 Use the built‑in harness to spin up a local server, create a capture, add channels, stream audio, and validate levels. It works with the fake driver (offline) and SoapySDR (RTL‑SDR, SDRplay RSPdx‑r2).

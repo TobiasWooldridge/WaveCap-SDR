@@ -61,7 +61,7 @@ class UpdateCaptureRequest(BaseModel):
 class CaptureModel(BaseModel):
     id: str
     deviceId: str
-    state: Literal["created", "running", "stopped", "failed"]
+    state: Literal["created", "starting", "running", "stopping", "stopped", "failed"]
     centerHz: float
     sampleRate: int
     gain: Optional[float] = None

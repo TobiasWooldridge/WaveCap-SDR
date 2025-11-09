@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
@@ -173,6 +174,12 @@ def save_config(config: AppConfig, path_str: str) -> None:
 
     # Read existing file to preserve comments and structure
     existing_data: Dict[str, Any] = _read_yaml(path) if path.exists() else {}
+    if path.exists():
+        backup_path = path.with_suffix(path.suffix + ".bak")
+        try:
+            shutil.copy2(path, backup_path)
+        except Exception as exc:
+            print(f"Warning: Failed to write config backup to {backup_path}: {exc}", flush=True)
 
     # Update the config data
     # Server config
@@ -188,12 +195,14 @@ def save_config(config: AppConfig, path_str: str) -> None:
     existing_data["stream"] = {
         "default_transport": config.stream.default_transport,
         "default_format": config.stream.default_format,
+        "default_audio_rate": config.stream.default_audio_rate,
     }
 
     # Limits config
     limits_data = {
         "max_concurrent_captures": config.limits.max_concurrent_captures,
     }
+    limits_data["max_channels_per_capture"] = config.limits.max_channels_per_capture
     if config.limits.max_sample_rate is not None:
         limits_data["max_sample_rate"] = config.limits.max_sample_rate
     existing_data["limits"] = limits_data
@@ -222,6 +231,16 @@ def save_config(config: AppConfig, path_str: str) -> None:
             preset_dict["antenna"] = preset.antenna
         if preset.squelch_db is not None:
             preset_dict["squelch_db"] = preset.squelch_db
+        if preset.device_settings:
+            preset_dict["device_settings"] = preset.device_settings
+        if preset.element_gains:
+            preset_dict["element_gains"] = preset.element_gains
+        if preset.stream_format is not None:
+            preset_dict["stream_format"] = preset.stream_format
+        if not preset.dc_offset_auto:
+            preset_dict["dc_offset_auto"] = preset.dc_offset_auto
+        if not preset.iq_balance_auto:
+            preset_dict["iq_balance_auto"] = preset.iq_balance_auto
         presets_data[name] = preset_dict
     existing_data["presets"] = presets_data
 
@@ -232,7 +251,17 @@ def save_config(config: AppConfig, path_str: str) -> None:
         if cap.device_id is not None:
             cap_dict["device_id"] = cap.device_id
         captures_data.append(cap_dict)
-    existing_data["captures"] = captures_data
+    if captures_data:
+        existing_data["captures"] = captures_data
+    else:
+        original = existing_data.get("captures")
+        if original:
+            print(
+                "Warning: Config save skipped overwriting existing captures to avoid accidental deletion.",
+                flush=True,
+            )
+        else:
+            existing_data["captures"] = []
 
     # Write to file with nice formatting
     with path.open("w", encoding="utf-8") as f:

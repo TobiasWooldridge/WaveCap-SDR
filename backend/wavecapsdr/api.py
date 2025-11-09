@@ -183,6 +183,10 @@ async def start_capture(
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
     cap.start()
+    # Auto-start any existing channels so playback works immediately
+    for ch in state.captures.list_channels(cid):
+        if ch.state != "running":
+            ch.start()
     return _to_capture_model(cap)
 
 
@@ -393,6 +397,10 @@ def create_channel(
         audio_rate=req.audioRate,
         squelch_db=req.squelchDb,
     )
+    # Auto-start channel if capture is already running so audio begins immediately
+    cap = state.captures.get_capture(cid)
+    if cap is not None and cap.state == "running" and ch.state != "running":
+        ch.start()
     return ChannelModel(
         id=ch.cfg.id,
         captureId=ch.cfg.capture_id,
@@ -568,15 +576,23 @@ async def stream_channel_http(
     async def audio_generator():
         q = await ch.subscribe_audio(format=format)
         logger.info(f"HTTP stream started for channel {chan_id}, format={format}, client={request.client}")
+        packet_count = 0
         try:
             while True:
-                # Check if client disconnected
-                if await request.is_disconnected():
-                    logger.info(f"HTTP stream client disconnected for channel {chan_id}")
-                    break
+                # Check disconnect every 10 packets (~200ms) even if queue has data
+                if packet_count % 10 == 0:
+                    if await request.is_disconnected():
+                        logger.info(f"HTTP stream client disconnected for channel {chan_id}")
+                        break
 
-                data = await q.get()
-                yield data
+                # Get data with shorter timeout to check disconnect more frequently
+                try:
+                    data = await asyncio.wait_for(q.get(), timeout=0.5)
+                    yield data
+                    packet_count += 1
+                except asyncio.TimeoutError:
+                    # No data available, will check disconnect on next iteration
+                    continue
         except asyncio.CancelledError:
             logger.info(f"HTTP stream cancelled for channel {chan_id}")
             raise  # Re-raise to properly handle cancellation
@@ -585,7 +601,7 @@ async def stream_channel_http(
             raise  # Re-raise to notify client of error
         finally:
             ch.unsubscribe(q)
-            logger.info(f"HTTP stream ended for channel {chan_id}")
+            logger.info(f"HTTP stream ended for channel {chan_id}, packets sent: {packet_count}")
 
     # Set appropriate content-type for raw PCM audio
     if format == "f32":

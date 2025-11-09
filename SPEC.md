@@ -95,6 +95,13 @@ These scripts automatically:
 - Install required dependencies (FastAPI, uvicorn, httpx, websockets, pyyaml, numpy, scipy)
 - Start the server with sensible defaults
 
+Behavior on startup:
+- If `device.driver=soapy` and no SoapySDR devices are detected at runtime, the server falls back to the built‑in Fake driver so the app remains usable without hardware.
+- If no captures are configured in `config/wavecapsdr.yaml`, the server initializes a single default capture (using the first preset if present) but does not auto‑start it. This ensures the UI/API display a capture immediately while avoiding hardware hangs.
+- Capture definitions are materialized even when the requested SDR cannot be opened (USB permissions, unplugged hardware, etc.). Such captures surface with `state=failed` and automatically retry acquisition so configs never vanish simply because the radio was offline during boot.
+- The fallback/default capture seeds channel entries from the preset offsets so the UI always shows at least one channel to start/stop even before any manual configuration.
+- When a capture transitions to `running`, any existing channels auto-start so streaming clients can immediately subscribe. Channels created while a capture is running also auto-start.
+
 Configuration via environment variables:
 - `HOST`: bind address (default: `0.0.0.0`)
 - `PORT`: port number (default: `8087`)
@@ -109,6 +116,7 @@ Configuration via environment variables:
   - `auth.token` for simple bearer auth (optional, disabled by default).
   - `recording.rootDir` and filename pattern.
   - `limits.maxConcurrentCaptures`, `limits.maxChannelsPerCapture`, `limits.maxSampleRate`.
+- Each successful save creates/refreshes a sibling `wavecapsdr.yaml.bak` so operators can recover if a UI action overwrote capture configs unexpectedly.
 
 ## Security
 - Default bind is loopback only. Provide opt‑in network exposure with explicit config.

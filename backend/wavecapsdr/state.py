@@ -41,6 +41,15 @@ class AppState:
             else:
                 try:
                     driver = SoapyDriver(cfg.device)
+                    # If Soapy is available but no devices are found, fall back to Fake
+                    try:
+                        devices = list(driver.enumerate())
+                        if not devices:
+                            print("[INFO] No SoapySDR devices found; falling back to Fake driver for development.", flush=True)
+                            driver = FakeDriver()
+                    except Exception:
+                        # Enumeration failed; use Fake to keep the app usable
+                        driver = FakeDriver()
                 except Exception:
                     # If Soapy Python bindings are missing or initialization fails,
                     # fall back to the fake driver so the app remains operable.

@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 import numpy as np
 
@@ -41,6 +41,12 @@ class _FakeDevice(Device):
         gain: Optional[float] = None,
         bandwidth: Optional[float] = None,
         ppm: Optional[float] = None,
+        antenna: Optional[str] = None,
+        device_settings: Optional[dict[str, Any]] = None,
+        element_gains: Optional[dict[str, float]] = None,
+        stream_format: Optional[str] = None,
+        dc_offset_auto: bool = True,
+        iq_balance_auto: bool = True,
     ) -> None:
         self.center_hz = center_hz
         self.sample_rate = sample_rate
@@ -50,6 +56,20 @@ class _FakeDevice(Device):
 
     def close(self) -> None:
         pass
+
+    # Optional interfaces for parity with real drivers
+    def get_antenna(self) -> Optional[str]:
+        return None
+
+    def reconfigure_running(
+        self,
+        center_hz: Optional[float] = None,
+        gain: Optional[float] = None,
+        bandwidth: Optional[float] = None,
+        ppm: Optional[float] = None,
+    ) -> None:
+        if center_hz is not None:
+            self.center_hz = center_hz
 
 
 class FakeDriver(DeviceDriver):

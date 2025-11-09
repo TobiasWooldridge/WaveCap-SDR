@@ -134,17 +134,17 @@ class Channel:
         Args:
             format: Audio format - "pcm16" (16-bit signed PCM) or "f32" (32-bit float)
         """
-        q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=8)
+        q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=32)
         loop = asyncio.get_running_loop()
         self._audio_sinks.add((q, loop, format))
-        logger.info(f"Channel {self.id}: Audio subscriber added, format={format}, total_subscribers={len(self._audio_sinks)}")
+        logger.info(f"Channel {self.cfg.id}: Audio subscriber added, format={format}, total_subscribers={len(self._audio_sinks)}")
         return q
 
     def unsubscribe(self, q: asyncio.Queue[bytes]) -> None:
         for item in list(self._audio_sinks):
             if item[0] is q:
                 self._audio_sinks.discard(item)
-                logger.info(f"Channel {self.id}: Audio subscriber removed, format={item[2]}, total_subscribers={len(self._audio_sinks)}")
+                logger.info(f"Channel {self.cfg.id}: Audio subscriber removed, format={item[2]}, total_subscribers={len(self._audio_sinks)}")
 
     async def _broadcast(self, audio: np.ndarray) -> None:
         """Broadcast audio to all subscribers, converting to their requested format."""
@@ -168,7 +168,7 @@ class Channel:
                     q.put_nowait(payload)
                 except asyncio.QueueFull:
                     # Queue full - try to drop oldest and retry
-                    logger.warning(f"Channel {self.id}: Audio queue full for format={fmt}, dropping oldest packet")
+                    logger.warning(f"Channel {self.cfg.id}: Audio queue full for format={fmt}, dropping oldest packet")
                     try:
                         _ = q.get_nowait()
                     except asyncio.QueueEmpty:
@@ -176,7 +176,7 @@ class Channel:
                     try:
                         q.put_nowait(payload)
                     except asyncio.QueueFull:
-                        logger.warning(f"Channel {self.id}: Audio queue still full for format={fmt}, dropping packet")
+                        logger.warning(f"Channel {self.cfg.id}: Audio queue still full for format={fmt}, dropping packet")
             else:
                 # Schedule put on the queue's owning loop to avoid cross-loop errors
                 def _try_put() -> None:
@@ -184,7 +184,7 @@ class Channel:
                         q.put_nowait(payload)
                     except asyncio.QueueFull:
                         # Queue full - try to drop oldest and retry
-                        logger.warning(f"Channel {self.id}: Audio queue full (cross-loop) for format={fmt}, dropping oldest packet")
+                        logger.warning(f"Channel {self.cfg.id}: Audio queue full (cross-loop) for format={fmt}, dropping oldest packet")
                         try:
                             _ = q.get_nowait()
                         except asyncio.QueueEmpty:
@@ -192,13 +192,13 @@ class Channel:
                         try:
                             q.put_nowait(payload)
                         except asyncio.QueueFull:
-                            logger.warning(f"Channel {self.id}: Audio queue still full (cross-loop) for format={fmt}, dropping packet")
+                            logger.warning(f"Channel {self.cfg.id}: Audio queue still full (cross-loop) for format={fmt}, dropping packet")
 
                 try:
                     loop.call_soon_threadsafe(_try_put)
                 except Exception as e:
                     # If loop is closed or unavailable, drop sink
-                    logger.warning(f"Channel {self.id}: Removing audio sink for format={fmt} due to loop error: {type(e).__name__}: {e}")
+                    logger.warning(f"Channel {self.cfg.id}: Removing audio sink for format={fmt} due to loop error: {type(e).__name__}: {e}")
                     try:
                         self._audio_sinks.discard((q, loop, fmt))
                     except Exception:
@@ -248,8 +248,10 @@ class CaptureConfig:
 @dataclass
 class Capture:
     cfg: CaptureConfig
-    device: Device
+    driver: DeviceDriver
+    requested_device_id: Optional[str] = None
     state: str = "stopped"  # Use string for backwards compatibility with API
+    device: Optional[Device] = None
     antenna: Optional[str] = None  # Actual antenna in use
     error_message: Optional[str] = None  # Error message if state is "failed"
     _stream: Optional[StreamHandle] = None
@@ -267,6 +269,30 @@ class Capture:
     _retry_timer: Optional[threading.Timer] = None
     _auto_restart_enabled: bool = True  # Enable automatic restart on failure
     _last_run_time: float = 0.0  # Track when the thread was last running
+
+    def _ensure_device(self) -> Device:
+        """Lazily open the device when the capture actually starts."""
+        if self.device is None:
+            dev = self.driver.open(self.requested_device_id)
+            self.device = dev
+            # Update config with the concrete device id so the UI shows it
+            try:
+                self.cfg.device_id = dev.info.id
+            except Exception:
+                pass
+        return self.device
+
+    def release_device(self) -> None:
+        """Close and drop the device reference (used on deletion/failure)."""
+        if self.device is None:
+            return
+        try:
+            self.device.close()
+        except Exception:
+            pass
+        finally:
+            self.device = None
+            self.antenna = None
 
     def create_channel(self, chan: Channel) -> None:
         self._channels[chan.cfg.id] = chan
@@ -393,12 +419,17 @@ class Capture:
         bandwidth: Optional[float] = None,
         ppm: Optional[float] = None,
         antenna: Optional[str] = None,
+        device_settings: Optional[Dict[str, Any]] = None,
+        element_gains: Optional[Dict[str, float]] = None,
+        stream_format: Optional[str] = None,
+        dc_offset_auto: Optional[bool] = None,
+        iq_balance_auto: Optional[bool] = None,
     ) -> None:
         """Reconfigure capture, using hot reconfiguration when possible.
 
         If only hot-reconfigurable parameters are changed (center_hz, gain,
         bandwidth, ppm), the capture will be updated without restarting.
-        If sample_rate or antenna changes, a full restart is required.
+        If sample_rate, antenna, or advanced settings change, a full restart is required.
         """
         # Update config
         if center_hz is not None:
@@ -413,9 +444,28 @@ class Capture:
             self.cfg.ppm = ppm
         if antenna is not None:
             self.cfg.antenna = antenna
+        if device_settings is not None:
+            self.cfg.device_settings = device_settings
+        if element_gains is not None:
+            self.cfg.element_gains = element_gains
+        if stream_format is not None:
+            self.cfg.stream_format = stream_format
+        if dc_offset_auto is not None:
+            self.cfg.dc_offset_auto = dc_offset_auto
+        if iq_balance_auto is not None:
+            self.cfg.iq_balance_auto = iq_balance_auto
 
         # Check if we need full restart
-        needs_restart = sample_rate is not None or antenna is not None
+        # Advanced settings require restart as they affect device initialization
+        needs_restart = (
+            sample_rate is not None
+            or antenna is not None
+            or device_settings is not None
+            or element_gains is not None
+            or stream_format is not None
+            or dc_offset_auto is not None
+            or iq_balance_auto is not None
+        )
 
         was_running = self.state == "running"
 
@@ -497,7 +547,8 @@ class Capture:
         # Configure device and start streaming with retry logic
         @with_retry(max_attempts=3, backoff_factor=2.0)
         def _configure_and_start() -> StreamHandle:
-            self.device.configure(
+            device = self._ensure_device()
+            device.configure(
                 center_hz=self.cfg.center_hz,
                 sample_rate=self.cfg.sample_rate,
                 gain=self.cfg.gain,
@@ -510,9 +561,9 @@ class Capture:
                 dc_offset_auto=self.cfg.dc_offset_auto,
                 iq_balance_auto=self.cfg.iq_balance_auto,
             )
-            stream = self.device.start_stream()
+            stream = device.start_stream()
             # Store the actual antenna being used
-            self.antenna = self.device.get_antenna()
+            self.antenna = device.get_antenna()
             return stream
 
         try:
@@ -524,6 +575,7 @@ class Capture:
             # Failed to start - schedule automatic restart
             self.error_message = f"Failed to start capture: {str(e)}"
             print(f"[ERROR] Capture {self.cfg.id} failed to start: {e}", flush=True)
+            self.release_device()
             self._schedule_restart()
             return
         chunk = 4096
@@ -639,10 +691,9 @@ class CaptureManager:
     ) -> Capture:
         cid = f"c{self._next_cap_id}"
         self._next_cap_id += 1
-        dev = self._driver.open(device_id)
         cfg = CaptureConfig(
             id=cid,
-            device_id=device_id or "device0",
+            device_id=device_id or "auto",
             center_hz=center_hz,
             sample_rate=sample_rate,
             gain=gain,
@@ -655,7 +706,11 @@ class CaptureManager:
             dc_offset_auto=dc_offset_auto,
             iq_balance_auto=iq_balance_auto,
         )
-        cap = Capture(cfg=cfg, device=dev)
+        cap = Capture(
+            cfg=cfg,
+            driver=self._driver,
+            requested_device_id=device_id,
+        )
         self._captures[cid] = cap
         return cap
 
@@ -664,10 +719,7 @@ class CaptureManager:
         if cap is not None:
             await cap.stop()
             # Close the device when deleting the capture
-            try:
-                cap.device.close()
-            except Exception:
-                pass
+            cap.release_device()
         # Remove channels owned by this capture
         for k in list(self._channels.keys()):
             if self._channels[k].cfg.capture_id == cid:

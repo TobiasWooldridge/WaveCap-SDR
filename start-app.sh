@@ -66,6 +66,16 @@ echo "  Driver: $DRIVER"
 [ -n "${DEVICE_ARGS:-}" ] && echo "  Device: $DEVICE_ARGS"
 [ -n "${CONFIG:-}" ] && echo "  Config: $CONFIG"
 echo ""
+
+# Attempt to refresh SDRplay service so devices enumerate cleanly.
+if [ -x "$SCRIPT_DIR/restart-sdrplay.sh" ]; then
+  if "$SCRIPT_DIR/restart-sdrplay.sh" --non-interactive; then
+    echo "Refreshed sdrplay service."
+  else
+    echo "Warning: Could not auto-restart sdrplay (sudo password likely required). Run ./restart-sdrplay.sh manually if needed."
+  fi
+fi
+
 echo -e "${GREEN}Starting WaveCap-SDR server...${NC}"
 echo "Web UI will be available at: http://$HOST:$PORT/"
 echo "Press Ctrl+C to stop"

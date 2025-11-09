@@ -52,6 +52,9 @@ export const AudioPlayer = ({ channelId, captureState }: AudioPlayerProps) => {
       const audio = audioRef.current;
       if (!audio || userPaused) return;
 
+      // Explicitly abort existing stream before loading new one
+      audio.src = "";
+
       // Update stream URL with new timestamp to avoid caching
       const newUrl = `/api/v1/stream/channels/${channelId}.pcm?t=${Date.now()}`;
       audio.src = newUrl;
@@ -155,11 +158,16 @@ export const AudioPlayer = ({ channelId, captureState }: AudioPlayerProps) => {
       setRetryCount(0);
       clearRetryTimeout();
       audio.pause();
+      // Explicitly close the stream
+      audio.src = "";
     } else {
       // User explicitly played
       setUserPaused(false);
       setConnectionState("connected");
       setRetryCount(0);
+
+      // Explicitly abort any existing stream before loading new one
+      audio.src = "";
 
       // Reload the stream with a new timestamp to avoid caching
       const newUrl = `/api/v1/stream/channels/${channelId}.pcm?t=${Date.now()}`;
@@ -181,6 +189,9 @@ export const AudioPlayer = ({ channelId, captureState }: AudioPlayerProps) => {
 
     const audio = audioRef.current;
     if (!audio) return;
+
+    // Explicitly abort existing stream before loading new one
+    audio.src = "";
 
     const newUrl = `/api/v1/stream/channels/${channelId}.pcm?t=${Date.now()}`;
     audio.src = newUrl;

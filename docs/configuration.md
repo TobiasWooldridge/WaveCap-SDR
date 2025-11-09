@@ -1,6 +1,7 @@
 Configuration — WaveCap‑SDR
 
 Location: `config/wavecapsdr.yaml` by default. Overrides via env vars with prefix `WAVECAPSDR__SECTION__KEY`.
+Whenever the server persists changes (e.g., when tuning a preset through the UI) it first writes a sibling backup `wavecapsdr.yaml.bak`, so you can recover prior settings if a save goes sideways.
 
 Server
 - `server.bind_address` (string, default `127.0.0.1`): Bind address.
@@ -20,6 +21,13 @@ Limits
 Device
 - `device.driver` (enum `soapy`|`fake`, default `soapy`): Driver selection. Use `soapy` for RTL‑SDR and RSPdx‑r2 via SoapySDR; `fake` for tests.
 - `device.device_args` (string, optional): Soapy device args, e.g. `driver=rtlsdr` or `driver=sdrplay,serial=...`.
+
+Driver fallback
+- When `device.driver` is `soapy` but no devices are detected (or Soapy fails to initialize), the server automatically falls back to the Fake driver so you can exercise the UI/API without hardware.
+- Capture entries stay resident even if the requested SDR cannot be opened at startup (permissions, unplugged device, etc.). They surface with state `failed` and will retry automatically once the radio is available, so configs are never discarded silently.
+
+Startup captures
+- On startup, any entries under `captures:` are created and auto‑started (with any preset offsets turned into channels). If no captures are configured, the server initializes a single default capture (using the first configured preset if present) but does not auto‑start it. This keeps the UI functional out of the box and avoids hardware auto‑start hangs.
 
 Presets (for harness and quick start)
 - `presets.<name>.center_hz` (float): RF center frequency in Hz.

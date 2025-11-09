@@ -18,11 +18,11 @@ antennas:
 presets:
   kexp:
     center_hz: 90300000
-    sample_rate: 2048000
+    sample_rate: 250000
     offsets:
     - 0.0
-    gain: 30.4
-    bandwidth: 200000.0
+    gain: 36.2
+    bandwidth: 220000.0
     ppm: 0.0
   kexp_rspdx:
     center_hz: 90300000

@@ -37,6 +37,28 @@ async function deleteChannel(channelId: string): Promise<void> {
   }
 }
 
+async function startChannel(channelId: string): Promise<Channel> {
+  const response = await fetch(`/api/v1/channels/${channelId}/start`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to start channel");
+  }
+  return response.json();
+}
+
+async function stopChannel(channelId: string): Promise<Channel> {
+  const response = await fetch(`/api/v1/channels/${channelId}/stop`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to stop channel");
+  }
+  return response.json();
+}
+
 export function useChannels(captureId: string | undefined) {
   return useQuery({
     queryKey: ["channels", captureId],
@@ -65,6 +87,28 @@ export function useDeleteChannel() {
     mutationFn: (channelId: string) => deleteChannel(channelId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["channels"] });
+    },
+  });
+}
+
+export function useStartChannel(captureId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (channelId: string) => startChannel(channelId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channels", captureId] });
+    },
+  });
+}
+
+export function useStopChannel(captureId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (channelId: string) => stopChannel(channelId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channels", captureId] });
     },
   });
 }
