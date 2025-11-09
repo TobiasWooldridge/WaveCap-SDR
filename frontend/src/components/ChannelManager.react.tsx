@@ -11,6 +11,7 @@ import {
 import { formatFrequencyMHz } from "../utils/frequency";
 import Button from "./primitives/Button.react";
 import Flex from "./primitives/Flex.react";
+import Slider from "./primitives/Slider.react";
 import Spinner from "./primitives/Spinner.react";
 
 interface ChannelManagerProps {
@@ -31,7 +32,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
   const stopChannel = useStopChannel(capture.id);
 
   const [showNewChannel, setShowNewChannel] = useState(false);
-  const [newChannelOffset, setNewChannelOffset] = useState<number>(0);
+  const [newChannelFrequency, setNewChannelFrequency] = useState<number>(capture.centerHz);
   const [newChannelMode, setNewChannelMode] = useState<"wbfm" | "nfm" | "am">("wbfm");
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [playingChannel, setPlayingChannel] = useState<string | null>(null);
@@ -65,25 +66,29 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
     }
   };
 
-  // Stop audio when capture changes
+  // Stop audio and reset frequency when capture changes
   useEffect(() => {
+    setNewChannelFrequency(capture.centerHz);
     return () => {
       stopAudio();
     };
   }, [capture.id]);
 
   const handleCreateChannel = () => {
+    // Calculate offset from absolute frequency
+    const offsetHz = newChannelFrequency - capture.centerHz;
+
     createChannel.mutate({
       captureId: capture.id,
       request: {
         mode: newChannelMode,
-        offsetHz: newChannelOffset,
+        offsetHz,
         audioRate: 48000,
       },
     }, {
       onSuccess: () => {
         setShowNewChannel(false);
-        setNewChannelOffset(0);
+        setNewChannelFrequency(capture.centerHz);
       },
     });
   };
@@ -246,19 +251,20 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
               </select>
             </Flex>
 
-            <Flex direction="column" gap={1}>
-              <label className="form-label small mb-1">Offset (Hz)</label>
-              <input
-                type="number"
-                className="form-control form-control-sm"
-                value={newChannelOffset}
-                onChange={(e) => setNewChannelOffset(parseInt(e.target.value) || 0)}
-                step="1000"
-              />
-              <small className="text-muted">
-                Frequency: {formatFrequencyMHz(capture.centerHz + newChannelOffset)} MHz
-              </small>
-            </Flex>
+            <Slider
+              label="Frequency"
+              value={newChannelFrequency}
+              min={capture.centerHz - (capture.sampleRate / 2)}
+              max={capture.centerHz + (capture.sampleRate / 2)}
+              step={1000}
+              coarseStep={100000}
+              unit="MHz"
+              formatValue={(hz) => formatFrequencyMHz(hz)}
+              onChange={setNewChannelFrequency}
+            />
+            <small className="text-muted">
+              Offset: {((newChannelFrequency - capture.centerHz) / 1000).toFixed(0)} kHz
+            </small>
 
             <Flex gap={2}>
               <Button
