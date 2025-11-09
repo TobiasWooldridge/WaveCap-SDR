@@ -143,6 +143,14 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
         # Keep /static mount for backward compatibility
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
+    @app.get("/favicon.svg")
+    def favicon():
+        """Serve the favicon."""
+        favicon_path = static_dir / "favicon.svg"
+        if favicon_path.exists():
+            return FileResponse(favicon_path, media_type="image/svg+xml")
+        return {"message": "Favicon not found"}
+
     @app.get("/")
     def root():
         """Serve the React app."""
