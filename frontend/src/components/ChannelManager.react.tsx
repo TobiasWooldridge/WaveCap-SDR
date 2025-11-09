@@ -303,8 +303,6 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
         {channels && channels.length > 0 && (
           <Flex direction="column" gap={3}>
             {channels.map((channel) => {
-              const streamUrl = getStreamUrl(channel.id);
-              const isCopied = copiedUrl === streamUrl;
               const isPlaying = playingChannel === channel.id;
 
               return (
@@ -347,29 +345,43 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
                       </Flex>
                     </Flex>
 
-                    {/* Stream URL */}
+                    {/* Stream URLs */}
                     <Flex direction="column" gap={1}>
-                      <label className="small text-muted mb-0">Stream URL</label>
-                      <Flex gap={1}>
-                        <input
-                          type="text"
-                          className="form-control form-control-sm font-monospace small"
-                          value={streamUrl}
-                          readOnly
-                          onClick={(e) => (e.target as HTMLInputElement).select()}
-                        />
-                        <Button
-                          use={isCopied ? "success" : "secondary"}
-                          size="sm"
-                          appearance="outline"
-                          onClick={() => copyToClipboard(streamUrl, streamUrl)}
-                          title={isCopied ? "Copied!" : "Copy URL"}
-                          aria-label={isCopied ? "Copied!" : "Copy URL"}
-                          className="px-2"
-                        >
-                          {isCopied ? <CheckCircle size={14} /> : <Copy size={14} />}
-                        </Button>
-                      </Flex>
+                      <label className="small text-muted mb-0">Stream URLs</label>
+                      {[
+                        { format: 'PCM', ext: '.pcm', label: 'Raw PCM' },
+                        { format: 'MP3', ext: '.mp3', label: 'MP3 (128k)' },
+                        { format: 'Opus', ext: '.opus', label: 'Opus' },
+                        { format: 'AAC', ext: '.aac', label: 'AAC' },
+                      ].map(({ format, ext, label }) => {
+                        const formatUrl = `${window.location.origin}/api/v1/stream/channels/${channel.id}${ext}`;
+                        const isFormatCopied = copiedUrl === formatUrl;
+                        return (
+                          <Flex key={format} gap={1} align="center">
+                            <span className="badge bg-secondary text-nowrap" style={{ width: '80px', fontSize: '10px' }}>
+                              {label}
+                            </span>
+                            <input
+                              type="text"
+                              className="form-control form-control-sm font-monospace small"
+                              value={formatUrl}
+                              readOnly
+                              onClick={(e) => (e.target as HTMLInputElement).select()}
+                            />
+                            <Button
+                              use={isFormatCopied ? "success" : "secondary"}
+                              size="sm"
+                              appearance="outline"
+                              onClick={() => copyToClipboard(formatUrl, formatUrl)}
+                              title={isFormatCopied ? "Copied!" : "Copy URL"}
+                              aria-label={isFormatCopied ? "Copied!" : "Copy URL"}
+                              className="px-2"
+                            >
+                              {isFormatCopied ? <CheckCircle size={14} /> : <Copy size={14} />}
+                            </Button>
+                          </Flex>
+                        );
+                      })}
                     </Flex>
 
                     {/* Channel Details */}
