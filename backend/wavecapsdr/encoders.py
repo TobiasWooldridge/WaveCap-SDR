@@ -63,12 +63,22 @@ class AudioEncoder(ABC):
         # Terminate process
         if self.process:
             try:
+                # Close stdin first to avoid BrokenPipeError
+                if self.process.stdin:
+                    try:
+                        self.process.stdin.close()
+                    except (BrokenPipeError, OSError):
+                        pass  # Already closed or broken
+
                 self.process.terminate()
                 self.process.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 self.process.kill()
                 self.process.wait()
-            self.process = None
+            except Exception as e:
+                logger.debug(f"Exception during encoder process cleanup: {e}")
+            finally:
+                self.process = None
 
         logger.info(f"Stopped {self.config.format} encoder")
 

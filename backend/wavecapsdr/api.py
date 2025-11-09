@@ -621,6 +621,153 @@ async def stream_channel_http(
     )
 
 
+@router.get("/stream/channels/{chan_id}.mp3")
+async def stream_channel_mp3(
+    request: Request,
+    chan_id: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Stream channel audio as MP3."""
+    ch = state.captures.get_channel(chan_id)
+    if ch is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    async def audio_generator():
+        q = await ch.subscribe_audio(format="mp3")
+        logger.info(f"MP3 stream started for channel {chan_id}, client={request.client}")
+        packet_count = 0
+        try:
+            while True:
+                if packet_count % 10 == 0:
+                    if await request.is_disconnected():
+                        logger.info(f"MP3 stream client disconnected for channel {chan_id}")
+                        break
+
+                try:
+                    data = await asyncio.wait_for(q.get(), timeout=0.5)
+                    yield data
+                    packet_count += 1
+                except asyncio.TimeoutError:
+                    continue
+        except asyncio.CancelledError:
+            logger.info(f"MP3 stream cancelled for channel {chan_id}")
+            raise
+        except Exception as e:
+            logger.error(f"MP3 stream error for channel {chan_id}: {type(e).__name__}: {e}", exc_info=True)
+            raise
+        finally:
+            ch.unsubscribe(q)
+            logger.info(f"MP3 stream ended for channel {chan_id}, packets sent: {packet_count}")
+
+    return StreamingResponse(
+        audio_generator(),
+        media_type="audio/mpeg",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Audio-Rate": str(ch.cfg.audio_rate),
+        },
+    )
+
+
+@router.get("/stream/channels/{chan_id}.opus")
+async def stream_channel_opus(
+    request: Request,
+    chan_id: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Stream channel audio as Opus."""
+    ch = state.captures.get_channel(chan_id)
+    if ch is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    async def audio_generator():
+        q = await ch.subscribe_audio(format="opus")
+        logger.info(f"Opus stream started for channel {chan_id}, client={request.client}")
+        packet_count = 0
+        try:
+            while True:
+                if packet_count % 10 == 0:
+                    if await request.is_disconnected():
+                        logger.info(f"Opus stream client disconnected for channel {chan_id}")
+                        break
+
+                try:
+                    data = await asyncio.wait_for(q.get(), timeout=0.5)
+                    yield data
+                    packet_count += 1
+                except asyncio.TimeoutError:
+                    continue
+        except asyncio.CancelledError:
+            logger.info(f"Opus stream cancelled for channel {chan_id}")
+            raise
+        except Exception as e:
+            logger.error(f"Opus stream error for channel {chan_id}: {type(e).__name__}: {e}", exc_info=True)
+            raise
+        finally:
+            ch.unsubscribe(q)
+            logger.info(f"Opus stream ended for channel {chan_id}, packets sent: {packet_count}")
+
+    return StreamingResponse(
+        audio_generator(),
+        media_type="audio/opus",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Audio-Rate": str(ch.cfg.audio_rate),
+        },
+    )
+
+
+@router.get("/stream/channels/{chan_id}.aac")
+async def stream_channel_aac(
+    request: Request,
+    chan_id: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Stream channel audio as AAC."""
+    ch = state.captures.get_channel(chan_id)
+    if ch is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    async def audio_generator():
+        q = await ch.subscribe_audio(format="aac")
+        logger.info(f"AAC stream started for channel {chan_id}, client={request.client}")
+        packet_count = 0
+        try:
+            while True:
+                if packet_count % 10 == 0:
+                    if await request.is_disconnected():
+                        logger.info(f"AAC stream client disconnected for channel {chan_id}")
+                        break
+
+                try:
+                    data = await asyncio.wait_for(q.get(), timeout=0.5)
+                    yield data
+                    packet_count += 1
+                except asyncio.TimeoutError:
+                    continue
+        except asyncio.CancelledError:
+            logger.info(f"AAC stream cancelled for channel {chan_id}")
+            raise
+        except Exception as e:
+            logger.error(f"AAC stream error for channel {chan_id}: {type(e).__name__}: {e}", exc_info=True)
+            raise
+        finally:
+            ch.unsubscribe(q)
+            logger.info(f"AAC stream ended for channel {chan_id}, packets sent: {packet_count}")
+
+    return StreamingResponse(
+        audio_generator(),
+        media_type="audio/aac",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Audio-Rate": str(ch.cfg.audio_rate),
+        },
+    )
+
+
 @router.websocket("/stream/channels/{chan_id}")
 async def stream_channel_audio(websocket: WebSocket, chan_id: str, format: str = "pcm16"):
     """Stream channel audio with configurable format.

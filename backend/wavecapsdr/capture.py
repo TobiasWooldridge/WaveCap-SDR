@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 from .config import AppConfig
 from .devices.base import Device, DeviceDriver, StreamHandle
 from .dsp.fm import wbfm_demod
+from .encoders import create_encoder, AudioEncoder
 
 
 F = TypeVar('F', bound=Callable[..., Any])
@@ -121,6 +122,10 @@ class Channel:
     _audio_sinks: Set[Tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop, str]] = field(
         default_factory=set
     )
+    # Encoders for compressed formats (mp3, opus, aac) - created on demand
+    _encoders: Dict[str, AudioEncoder] = field(default_factory=dict)
+    # Subscriber counts for encoded formats
+    _encoder_subscribers: Dict[str, int] = field(default_factory=dict)
 
     def start(self) -> None:
         self.state = "running"
@@ -132,10 +137,26 @@ class Channel:
         """Subscribe to audio stream with specified format.
 
         Args:
-            format: Audio format - "pcm16" (16-bit signed PCM) or "f32" (32-bit float)
+            format: Audio format - "pcm16", "f32", "mp3", "opus", or "aac"
         """
         q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=32)
         loop = asyncio.get_running_loop()
+
+        # Handle encoded formats (mp3, opus, aac)
+        if format in ("mp3", "opus", "aac"):
+            # Start encoder if this is the first subscriber
+            if format not in self._encoders:
+                logger.info(f"Channel {self.cfg.id}: Starting {format} encoder")
+                encoder = create_encoder(format, sample_rate=self.cfg.audio_rate)
+                self._encoders[format] = encoder
+                await encoder.start()
+                # Start encoder reader task
+                asyncio.create_task(self._read_encoder_output(format))
+
+            # Increment subscriber count
+            self._encoder_subscribers[format] = self._encoder_subscribers.get(format, 0) + 1
+            logger.info(f"Channel {self.cfg.id}: Encoder subscriber added, format={format}, subscribers={self._encoder_subscribers[format]}")
+
         self._audio_sinks.add((q, loop, format))
         logger.info(f"Channel {self.cfg.id}: Audio subscriber added, format={format}, total_subscribers={len(self._audio_sinks)}")
         return q
@@ -143,8 +164,48 @@ class Channel:
     def unsubscribe(self, q: asyncio.Queue[bytes]) -> None:
         for item in list(self._audio_sinks):
             if item[0] is q:
+                fmt = item[2]
                 self._audio_sinks.discard(item)
-                logger.info(f"Channel {self.cfg.id}: Audio subscriber removed, format={item[2]}, total_subscribers={len(self._audio_sinks)}")
+                logger.info(f"Channel {self.cfg.id}: Audio subscriber removed, format={fmt}, total_subscribers={len(self._audio_sinks)}")
+
+                # Stop encoder if this was the last subscriber for an encoded format
+                if fmt in ("mp3", "opus", "aac"):
+                    self._encoder_subscribers[fmt] = max(0, self._encoder_subscribers.get(fmt, 1) - 1)
+                    if self._encoder_subscribers[fmt] == 0 and fmt in self._encoders:
+                        logger.info(f"Channel {self.cfg.id}: Stopping {fmt} encoder (no more subscribers)")
+                        encoder = self._encoders.pop(fmt)
+                        asyncio.create_task(encoder.stop())
+                        del self._encoder_subscribers[fmt]
+
+    async def _read_encoder_output(self, format: str) -> None:
+        """Read encoded output and broadcast to subscribers of this format."""
+        encoder = self._encoders.get(format)
+        if not encoder:
+            return
+
+        try:
+            while format in self._encoders:
+                # Get encoded data from encoder
+                data = await encoder.get_encoded()
+
+                # Broadcast to all subscribers of this format
+                for (q, loop, fmt) in list(self._audio_sinks):
+                    if fmt != format:
+                        continue
+
+                    try:
+                        current_loop = asyncio.get_running_loop()
+                        if current_loop is loop:
+                            q.put_nowait(data)
+                        else:
+                            loop.call_soon_threadsafe(q.put_nowait, data)
+                    except asyncio.QueueFull:
+                        # Drop packet if queue is full
+                        pass
+                    except Exception as e:
+                        logger.error(f"Error broadcasting {format} to subscriber: {e}")
+        except Exception as e:
+            logger.error(f"Error reading {format} encoder output: {e}")
 
     async def _broadcast(self, audio: np.ndarray) -> None:
         """Broadcast audio to all subscribers, converting to their requested format."""
@@ -156,12 +217,21 @@ class Channel:
         except RuntimeError:
             current_loop = None
 
+        # Feed PCM audio to active encoders
+        pcm_data = pack_pcm16(audio)
+        for format, encoder in self._encoders.items():
+            await encoder.encode(pcm_data)
+
         for (q, loop, fmt) in list(self._audio_sinks):
+            # Skip encoded formats - they get data from _read_encoder_output
+            if fmt in ("mp3", "opus", "aac"):
+                continue
+
             # Convert audio to requested format
             if fmt == "f32":
                 payload = pack_f32(audio)
             else:  # Default to pcm16
-                payload = pack_pcm16(audio)
+                payload = pcm_data
 
             if current_loop is loop:
                 try:
