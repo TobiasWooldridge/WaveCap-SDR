@@ -3,8 +3,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Radio, Plus } from "lucide-react";
 import { useDevices } from "./hooks/useDevices";
 import { useCaptures, useCreateCapture } from "./hooks/useCaptures";
+import { useChannels } from "./hooks/useChannels";
 import { RadioTuner } from "./components/RadioTuner.react";
 import { ChannelManager } from "./components/ChannelManager.react";
+import { formatFrequencyMHz } from "./utils/frequency";
 import Flex from "./components/primitives/Flex.react";
 import Spinner from "./components/primitives/Spinner.react";
 import Button from "./components/primitives/Button.react";
@@ -17,6 +19,59 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// Format capture ID for display (e.g., "c1" -> "Capture 1")
+function formatCaptureId(id: string): string {
+  const match = id.match(/^c(\d+)$/);
+  return match ? `Capture ${match[1]}` : id;
+}
+
+interface CaptureListItemProps {
+  capture: any;
+  captureDevice: any;
+  isSelected: boolean;
+  onClick: () => void;
+}
+
+function CaptureListItem({ capture, captureDevice, isSelected, onClick }: CaptureListItemProps) {
+  const { data: channels } = useChannels(capture.id);
+
+  return (
+    <button
+      className={`list-group-item list-group-item-action ${isSelected ? "active" : ""}`}
+      onClick={onClick}
+    >
+      <Flex direction="column" gap={1}>
+        <div className="fw-semibold">{formatCaptureId(capture.id)}</div>
+        {captureDevice && (
+          <div className="small opacity-75">
+            {captureDevice.driver.toUpperCase()}
+          </div>
+        )}
+        <div className="small">
+          {formatFrequencyMHz(capture.centerHz)} MHz
+        </div>
+        {channels && channels.length > 0 && (
+          <div className="small opacity-75">
+            {channels.length} channel{channels.length !== 1 ? "s" : ""}
+            {channels.length > 0 && (
+              <div className="mt-1">
+                {channels.map((ch) => (
+                  <div key={ch.id}>
+                    {formatFrequencyMHz(capture.centerHz + ch.offsetHz)} MHz
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        <span className={`badge bg-${capture.state === "running" ? "success" : capture.state === "failed" ? "danger" : "secondary"} w-auto`}>
+          {capture.state}
+        </span>
+      </Flex>
+    </button>
+  );
+}
 
 function AppContent() {
   const { data: devices, isLoading: devicesLoading } = useDevices();
@@ -176,28 +231,13 @@ function AppContent() {
                   captures.map((capture) => {
                     const captureDevice = devices?.find((d) => d.id === capture.deviceId);
                     return (
-                      <button
+                      <CaptureListItem
                         key={capture.id}
-                        className={`list-group-item list-group-item-action ${
-                          selectedCapture?.id === capture.id ? "active" : ""
-                        }`}
+                        capture={capture}
+                        captureDevice={captureDevice}
+                        isSelected={selectedCapture?.id === capture.id}
                         onClick={() => setSelectedCaptureId(capture.id)}
-                      >
-                        <Flex direction="column" gap={1}>
-                          <div className="fw-semibold">{capture.id}</div>
-                          {captureDevice && (
-                            <div className="small opacity-75">
-                              {captureDevice.driver.toUpperCase()}
-                            </div>
-                          )}
-                          <div className="small">
-                            {(capture.centerHz / 1_000_000).toFixed(3)} MHz
-                          </div>
-                          <span className={`badge bg-${capture.state === "running" ? "success" : capture.state === "failed" ? "danger" : "secondary"} w-auto`}>
-                            {capture.state}
-                          </span>
-                        </Flex>
-                      </button>
+                      />
                     );
                   })
                 ) : (

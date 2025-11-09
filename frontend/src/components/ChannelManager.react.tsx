@@ -17,6 +17,12 @@ interface ChannelManagerProps {
   capture: Capture;
 }
 
+// Format channel ID for display (e.g., "ch1" -> "Channel 1")
+function formatChannelId(id: string): string {
+  const match = id.match(/^ch(\d+)$/);
+  return match ? `Channel ${match[1]}` : id;
+}
+
 export const ChannelManager = ({ capture }: ChannelManagerProps) => {
   const { data: channels, isLoading } = useChannels(capture.id);
   const createChannel = useCreateChannel();
@@ -301,7 +307,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
                     {/* Channel Header */}
                     <Flex justify="between" align="center">
                       <div>
-                        <div className="fw-semibold">{channel.id}</div>
+                        <div className="fw-semibold">{formatChannelId(channel.id)}</div>
                         <div className="small text-muted">
                           {formatFrequencyMHz(getChannelFrequency(channel))} MHz • {channel.mode.toUpperCase()}
                         </div>
