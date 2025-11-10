@@ -326,7 +326,6 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
                 max={deviceFreqMax}
                 step={1000}
                 onChange={setLocalFreq}
-                disabled={!isRunning}
                 info="The center frequency your SDR will tune to. All channels are offset from this frequency."
               />
             </div>
@@ -342,7 +341,6 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
                 units={gainUnits}
                 info="Signal amplification in decibels. Higher gain increases sensitivity but may introduce noise. Start around 20-30 dB and adjust for best signal-to-noise ratio."
                 onChange={setLocalGain}
-                disabled={!isRunning}
               />
             </div>
 
@@ -357,7 +355,6 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
                 units={bandwidthUnits}
                 info="Filter bandwidth. Wider bandwidth allows more spectrum but may include unwanted signals. Match to your signal type: FM broadcast ~200 kHz, narrowband ~10-25 kHz."
                 onChange={setLocalBandwidth}
-                disabled={!isRunning}
               />
             </div>
 
@@ -372,7 +369,6 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
                   className="form-select"
                   value={localSampleRate}
                   onChange={(e) => handleSampleRateChange(parseInt(e.target.value))}
-                  disabled={!isRunning}
                 >
                   {(device?.sampleRates || []).map((rate) => (
                     <option key={rate} value={rate}>
@@ -400,7 +396,6 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
                 unit="ppm"
                 info="Corrects frequency offset in parts-per-million caused by crystal oscillator inaccuracy. If signals appear slightly off-frequency, adjust this. Most devices need 0-5 ppm correction."
                 onChange={setLocalPpm}
-                disabled={!isRunning}
               />
             </div>
 
@@ -413,7 +408,6 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
                     className="form-select"
                     value={localAntenna}
                     onChange={(e) => handleAntennaChange(e.target.value)}
-                    disabled={!isRunning}
                   >
                     {device.antennas.map((ant) => (
                       <option key={ant} value={ant}>
