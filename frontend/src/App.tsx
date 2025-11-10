@@ -158,7 +158,7 @@ function AppContent() {
       <div className="container-fluid">
         <div className="row g-4">
           {/* Capture Selector Sidebar */}
-          <div className="col-lg-3">
+          <div className="col-lg-4 col-xl-3">
             <div className="card shadow-sm">
               <div className="card-header bg-body-tertiary">
                 <Flex justify="between" align="center">
@@ -249,51 +249,17 @@ function AppContent() {
             </div>
           </div>
 
-          {/* Main Content */}
-          <div className="col-lg-6">
+          {/* Main Content - Radio Tuner + Channels */}
+          <div className="col-lg-8 col-xl-9">
             {selectedCapture ? (
-              <RadioTuner capture={selectedCapture} device={selectedDevice} />
+              <Flex direction="column" gap={4}>
+                <RadioTuner capture={selectedCapture} device={selectedDevice} />
+                <ChannelManager capture={selectedCapture} />
+              </Flex>
             ) : (
               <div className="card shadow-sm">
                 <div className="card-body text-center py-5">
                   <p className="text-muted">No capture selected. Create a new capture to get started.</p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Channels Sidebar */}
-          <div className="col-lg-3">
-            {selectedCapture ? (
-              <ChannelManager capture={selectedCapture} />
-            ) : (
-              <div className="card shadow-sm">
-                <div className="card-body text-center text-muted py-4">
-                  Select a capture to manage channels
-                </div>
-              </div>
-            )}
-
-            {/* Device Info */}
-            {selectedDevice && (
-              <div className="card shadow-sm mt-4">
-                <div className="card-header bg-body-tertiary">
-                  <h3 className="h6 mb-0">Device Info</h3>
-                </div>
-                <div className="card-body">
-                  <dl className="mb-0">
-                    <dt className="small text-muted">Driver</dt>
-                    <dd className="mb-2">{selectedDevice.driver}</dd>
-
-                    <dt className="small text-muted">Label</dt>
-                    <dd className="mb-2 small">{selectedDevice.label}</dd>
-
-                    <dt className="small text-muted">Frequency Range</dt>
-                    <dd className="mb-0 small">
-                      {(selectedDevice.freqMinHz / 1_000_000).toFixed(1)} -{" "}
-                      {(selectedDevice.freqMaxHz / 1_000_000).toFixed(0)} MHz
-                    </dd>
-                  </dl>
                 </div>
               </div>
             )}

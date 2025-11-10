@@ -8,6 +8,7 @@ import Button from "./primitives/Button.react";
 import Flex from "./primitives/Flex.react";
 import Slider from "./primitives/Slider.react";
 import Spinner from "./primitives/Spinner.react";
+import InfoTooltip from "./primitives/InfoTooltip.react";
 
 interface RadioTunerProps {
   capture: Capture;
@@ -262,7 +263,10 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
           {/* Frequency Slider with Unit Selector */}
           <Flex direction="column" gap={2}>
             <Flex justify="between" align="center">
-              <label className="form-label mb-0 fw-semibold">Frequency</label>
+              <label className="form-label mb-0 fw-semibold">
+                Frequency
+                <InfoTooltip content="The center frequency your SDR will tune to. All channels are offset from this frequency." />
+              </label>
               <select
                 className="form-select form-select-sm"
                 style={{ width: "auto" }}
@@ -302,6 +306,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             step={0.1}
             coarseStep={1}
             unit="dB"
+            info="Signal amplification in decibels. Higher gain increases sensitivity but may introduce noise. Start around 20-30 dB and adjust for best signal-to-noise ratio."
             onChange={setLocalGain}
             disabled={!isRunning}
           />
@@ -345,6 +350,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             step={10000}
             coarseStep={100000}
             unit="Hz"
+            info="Filter bandwidth in Hz. Wider bandwidth allows more spectrum but may include unwanted signals. Match to your signal type: FM broadcast ~200 kHz, narrowband ~10-25 kHz."
             formatValue={(hz) => `${(hz / 1000).toFixed(0)} k`}
             onChange={setLocalBandwidth}
             disabled={!isRunning}
@@ -359,6 +365,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             step={0.1}
             coarseStep={1}
             unit="ppm"
+            info="Corrects frequency offset in parts-per-million caused by crystal oscillator inaccuracy. If signals appear slightly off-frequency, adjust this. Most devices need 0-5 ppm correction."
             onChange={setLocalPpm}
             disabled={!isRunning}
           />
@@ -366,7 +373,10 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
           {/* Antenna Selector */}
           {device?.antennas && device.antennas.length > 0 && (
             <Flex direction="column" gap={2}>
-              <label className="form-label mb-0 fw-semibold">Antenna</label>
+              <label className="form-label mb-0 fw-semibold">
+                Antenna
+                <InfoTooltip content="Select which antenna port to use. Different ports may have different characteristics (frequency range, impedance). Refer to your device manual for specifics." />
+              </label>
               <select
                 className="form-select"
                 value={localAntenna}
@@ -468,7 +478,10 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
               {/* Element Gains */}
               {Object.keys(localElementGains).length > 0 && (
                 <Flex direction="column" gap={2}>
-                  <label className="form-label mb-0 fw-semibold">Element Gains</label>
+                  <label className="form-label mb-0 fw-semibold">
+                    Element Gains
+                    <InfoTooltip content="Individual gain controls for specific RF stages in your SDR. LNA (Low Noise Amplifier), IF, etc. Adjust these for fine-tuned control over different signal paths." />
+                  </label>
                   {Object.entries(localElementGains).map(([key, value]) => (
                     <Flex key={key} direction="column" gap={1}>
                       <label className="form-label mb-0 small">{key}</label>
