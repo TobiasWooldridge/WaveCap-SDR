@@ -309,8 +309,9 @@ async def update_capture(
                 detail=f"Device '{req.deviceId}' not found"
             )
 
-        # Update device in config
+        # Update device in config and requested_device_id (used when opening device)
         cap.cfg.device_id = req.deviceId
+        cap.requested_device_id = req.deviceId
         logger.info(f"Changed capture {cid} device to {req.deviceId}")
 
     # Validate changes against device constraints before applying
