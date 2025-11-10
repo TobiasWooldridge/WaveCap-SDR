@@ -15,18 +15,21 @@ const MAX_RETRY_DELAY = 30000; // 30 seconds
 const INITIAL_RETRY_DELAY = 1000; // 1 second
 const MAX_RETRIES = 10;
 
+type AudioFormat = "pcm" | "mp3" | "opus" | "aac";
+
 export const AudioPlayer = ({ channelId, captureState }: AudioPlayerProps) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(0.7);
   const [isMuted, setIsMuted] = useState(false);
+  const [audioFormat, setAudioFormat] = useState<AudioFormat>("mp3");
   const [connectionState, setConnectionState] = useState<ConnectionState>("connected");
   const [retryCount, setRetryCount] = useState(0);
   const [userPaused, setUserPaused] = useState(false);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastPlayAttemptRef = useRef<number>(0);
 
-  const streamUrl = channelId ? `/api/v1/stream/channels/${channelId}.pcm?t=${Date.now()}` : null;
+  const streamUrl = channelId ? `/api/v1/stream/channels/${channelId}.${audioFormat}?t=${Date.now()}` : null;
 
   const clearRetryTimeout = useCallback(() => {
     if (retryTimeoutRef.current) {
@@ -56,7 +59,7 @@ export const AudioPlayer = ({ channelId, captureState }: AudioPlayerProps) => {
       audio.src = "";
 
       // Update stream URL with new timestamp to avoid caching
-      const newUrl = `/api/v1/stream/channels/${channelId}.pcm?t=${Date.now()}`;
+      const newUrl = `/api/v1/stream/channels/${channelId}.${audioFormat}?t=${Date.now()}`;
       audio.src = newUrl;
       audio.load();
 
@@ -79,7 +82,7 @@ export const AudioPlayer = ({ channelId, captureState }: AudioPlayerProps) => {
           }
         });
     }, delay);
-  }, [streamUrl, channelId, retryCount, userPaused, clearRetryTimeout]);
+  }, [streamUrl, channelId, audioFormat, retryCount, userPaused, clearRetryTimeout]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -170,7 +173,7 @@ export const AudioPlayer = ({ channelId, captureState }: AudioPlayerProps) => {
       audio.src = "";
 
       // Reload the stream with a new timestamp to avoid caching
-      const newUrl = `/api/v1/stream/channels/${channelId}.pcm?t=${Date.now()}`;
+      const newUrl = `/api/v1/stream/channels/${channelId}.${audioFormat}?t=${Date.now()}`;
       audio.src = newUrl;
       audio.load();
 
@@ -193,7 +196,7 @@ export const AudioPlayer = ({ channelId, captureState }: AudioPlayerProps) => {
     // Explicitly abort existing stream before loading new one
     audio.src = "";
 
-    const newUrl = `/api/v1/stream/channels/${channelId}.pcm?t=${Date.now()}`;
+    const newUrl = `/api/v1/stream/channels/${channelId}.${audioFormat}?t=${Date.now()}`;
     audio.src = newUrl;
     audio.load();
 
@@ -254,6 +257,24 @@ export const AudioPlayer = ({ channelId, captureState }: AudioPlayerProps) => {
             showMinMax={false}
             formatValue={(v) => `${Math.round(v * 100)}%`}
           />
+
+          <Flex direction="column" gap={1}>
+            <label className="form-label small mb-1">Audio Quality</label>
+            <select
+              className="form-select form-select-sm"
+              value={audioFormat}
+              onChange={(e) => setAudioFormat(e.target.value as AudioFormat)}
+              disabled={isDisabled || isPlaying}
+            >
+              <option value="mp3">MP3 (Compressed, Low Latency)</option>
+              <option value="opus">Opus (Best Quality, Low Bandwidth)</option>
+              <option value="aac">AAC (Balanced Quality)</option>
+              <option value="pcm">PCM (Uncompressed, High Bandwidth)</option>
+            </select>
+            <small className="text-muted">
+              Change quality when stopped. Format affects bandwidth and latency.
+            </small>
+          </Flex>
 
           {!channelId && (
             <div className="alert alert-info mb-0">
