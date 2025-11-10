@@ -51,6 +51,11 @@ bands:
       157300000: {channel: "26", name: "Public Correspondence (Duplex)"}
       157350000: {channel: "27", name: "Public Correspondence (Duplex)"}
       157400000: {channel: "28", name: "Public Correspondence (Duplex)"}
+      161550000: {channel: "60", name: "Public Correspondence (Duplex)"}
+      161600000: {channel: "61", name: "Public Correspondence (Duplex)"}
+      161625000: {channel: "62", name: "Public Correspondence (Duplex)"}
+      161625000: {channel: "63", name: "Port Operations"}
+      161650000: {channel: "64", name: "Port Operations"}
       161650000: {channel: "65", name: "Port Operations"}
       161700000: {channel: "66", name: "Port Operations"}
       161750000: {channel: "67", name: "Commercial (Bridge)"}
@@ -70,6 +75,11 @@ bands:
       157075000: {channel: "81", name: "US Government"}
       157125000: {channel: "82", name: "US Government"}
       157175000: {channel: "83", name: "US Coast Guard"}
+      157225000: {channel: "84", name: "Public Correspondence (Duplex)"}
+      157275000: {channel: "85", name: "Public Correspondence (Duplex)"}
+      157325000: {channel: "86", name: "Public Correspondence (Duplex)"}
+      157375000: {channel: "87", name: "Public Correspondence (Duplex)"}
+      157425000: {channel: "88", name: "Public Correspondence (Duplex)"}
 
   # Aviation VHF (118-137 MHz)
   aviation_vhf:
