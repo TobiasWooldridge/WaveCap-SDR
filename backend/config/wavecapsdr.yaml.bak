@@ -1,0 +1,41 @@
+server:
+  bind_address: 0.0.0.0
+  port: 8087
+stream:
+  default_transport: ws
+  default_format: iq16
+  default_audio_rate: 48000
+limits:
+  max_concurrent_captures: 2
+  max_channels_per_capture: 8
+device:
+  driver: soapy
+antennas:
+  sdrplay_240309F070:
+    fm_broadcast: Ant B
+    vhf_amateur: Ant C
+    uhf_amateur: Ant A
+presets:
+  kexp:
+    center_hz: 90300000
+    sample_rate: 250000
+    offsets:
+    - 0.0
+    gain: 36.2
+    bandwidth: 220000.0
+    ppm: 0.0
+  kexp_rspdx:
+    center_hz: 90300000
+    sample_rate: 500000
+    offsets:
+    - 0.0
+    gain: 25.000000000000004
+    bandwidth: 410000.0
+    ppm: -2.7755575615628914e-17
+    antenna: Antenna A
+captures:
+- preset: kexp
+  device_id: 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
+    V4,serial=00000001,tuner=Rafael Micro R828D'
+- preset: kexp_rspdx
+  device_id: driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070

@@ -98,3 +98,24 @@ class ChannelModel(BaseModel):
     offsetHz: float
     audioRate: int
     squelchDb: Optional[float] = None
+
+
+class RecipeChannelModel(BaseModel):
+    offsetHz: float
+    name: str
+    mode: str = "wbfm"
+    squelchDb: float = -60
+
+
+class RecipeModel(BaseModel):
+    id: str
+    name: str
+    description: str
+    category: str
+    centerHz: float
+    sampleRate: int
+    gain: Optional[float] = None
+    bandwidth: Optional[float] = None
+    channels: list[RecipeChannelModel] = []
+    allowFrequencyInput: bool = False
+    frequencyLabel: Optional[str] = None

@@ -40,6 +40,34 @@ class DeviceConfig:
 
 
 @dataclass
+class RecipeChannel:
+    """Definition of a channel to create from a recipe."""
+    offset_hz: float
+    name: str  # Display name like "Channel 16 - Emergency"
+    mode: str = "wbfm"
+    squelch_db: float = -60
+
+
+@dataclass
+class RecipeConfig:
+    """A recipe/wizard template for creating captures."""
+    name: str  # Display name
+    description: str  # Help text
+    category: str  # "Marine", "Aviation", "Broadcast", etc.
+    # Template values
+    center_hz: float
+    sample_rate: int
+    gain: Optional[float] = None
+    bandwidth: Optional[float] = None
+    # Channels to create
+    channels: List[RecipeChannel] = field(default_factory=list)
+    # Whether user can customize frequency
+    allow_frequency_input: bool = False
+    # Frequency input label (e.g., "Station Frequency")
+    frequency_label: Optional[str] = None
+
+
+@dataclass
 class PresetConfig:
     """A preset configuration for a capture."""
     center_hz: float
@@ -76,6 +104,7 @@ class AppConfig:
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     device: DeviceConfig = field(default_factory=DeviceConfig)
     presets: Dict[str, PresetConfig] = field(default_factory=dict)
+    recipes: Dict[str, RecipeConfig] = field(default_factory=dict)
     captures: List[CaptureStartConfig] = field(default_factory=list)
 
 
@@ -132,6 +161,25 @@ def load_config(path_str: str) -> AppConfig:
             if isinstance(preset_data, dict):
                 presets[name] = PresetConfig(**preset_data)
 
+    # Parse recipes
+    recipes: Dict[str, RecipeConfig] = {}
+    recipes_raw = raw.get("recipes", {})
+    if isinstance(recipes_raw, dict):
+        for name, recipe_data in recipes_raw.items():
+            if isinstance(recipe_data, dict):
+                # Parse channels if present
+                channels = []
+                channels_raw = recipe_data.get("channels", [])
+                if isinstance(channels_raw, list):
+                    for ch_data in channels_raw:
+                        if isinstance(ch_data, dict):
+                            channels.append(RecipeChannel(**ch_data))
+
+                # Create recipe with parsed channels
+                recipe_dict = dict(recipe_data)
+                recipe_dict["channels"] = channels
+                recipes[name] = RecipeConfig(**recipe_dict)
+
     # Parse captures list
     captures: List[CaptureStartConfig] = []
     captures_raw = raw.get("captures", [])
@@ -146,6 +194,7 @@ def load_config(path_str: str) -> AppConfig:
         limits=limits,
         device=device,
         presets=presets,
+        recipes=recipes,
         captures=captures,
     )
 

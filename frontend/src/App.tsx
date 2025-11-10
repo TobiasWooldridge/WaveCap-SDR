@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Radio, Plus } from "lucide-react";
+import { Radio, Plus, Wand2 } from "lucide-react";
 import { useDevices } from "./hooks/useDevices";
 import { useCaptures, useCreateCapture } from "./hooks/useCaptures";
 import { useChannels } from "./hooks/useChannels";
 import { RadioTuner } from "./components/RadioTuner.react";
 import { ChannelManager } from "./components/ChannelManager.react";
+import { CreateCaptureWizard } from "./components/CreateCaptureWizard.react";
 import { formatFrequencyMHz } from "./utils/frequency";
 import Flex from "./components/primitives/Flex.react";
 import Spinner from "./components/primitives/Spinner.react";
@@ -84,6 +85,7 @@ function AppContent() {
     return params.get('capture');
   });
   const [showNewCapture, setShowNewCapture] = useState(false);
+  const [showWizard, setShowWizard] = useState(false);
   const [newCaptureDeviceId, setNewCaptureDeviceId] = useState<string>("");
   const [newCaptureFreq, setNewCaptureFreq] = useState<number>(100_000_000);
 
@@ -163,13 +165,24 @@ function AppContent() {
               <div className="card-header bg-body-tertiary">
                 <Flex justify="between" align="center">
                   <h3 className="h6 mb-0">Captures</h3>
-                  <Button
-                    use="primary"
-                    size="sm"
-                    onClick={() => setShowNewCapture(!showNewCapture)}
-                  >
-                    <Plus size={16} />
-                  </Button>
+                  <Flex gap={1}>
+                    <Button
+                      use="success"
+                      size="sm"
+                      onClick={() => setShowWizard(true)}
+                      title="Use Recipe Wizard"
+                    >
+                      <Wand2 size={16} />
+                    </Button>
+                    <Button
+                      use="primary"
+                      size="sm"
+                      onClick={() => setShowNewCapture(!showNewCapture)}
+                      title="Manual Setup"
+                    >
+                      <Plus size={16} />
+                    </Button>
+                  </Flex>
                 </Flex>
               </div>
 
@@ -266,6 +279,17 @@ function AppContent() {
           </div>
         </div>
       </div>
+
+      {/* Wizard Modal */}
+      {showWizard && (
+        <CreateCaptureWizard
+          onClose={() => setShowWizard(false)}
+          onSuccess={(captureId) => {
+            setSelectedCaptureId(captureId);
+            setShowWizard(false);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -78,3 +78,24 @@ export interface CreateChannelRequest {
   audioRate?: number;
   squelchDb?: number | null;
 }
+
+export interface RecipeChannel {
+  offsetHz: number;
+  name: string;
+  mode: string;
+  squelchDb: number;
+}
+
+export interface Recipe {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  centerHz: number;
+  sampleRate: number;
+  gain?: number | null;
+  bandwidth?: number | null;
+  channels: RecipeChannel[];
+  allowFrequencyInput: boolean;
+  frequencyLabel?: string | null;
+}

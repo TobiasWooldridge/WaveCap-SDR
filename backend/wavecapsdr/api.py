@@ -17,6 +17,8 @@ from .models import (
     ChannelModel,
     CreateChannelRequest,
     UpdateChannelRequest,
+    RecipeModel,
+    RecipeChannelModel,
 )
 from .state import AppState
 
@@ -143,6 +145,38 @@ def auth_check(request: Request, state: AppState = Depends(get_state)) -> None:
 def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)):
     devices = state.captures.list_devices()
     return [DeviceModel(**d) for d in devices]
+
+
+@router.get("/recipes", response_model=List[RecipeModel])
+def list_recipes(_: None = Depends(auth_check), state: AppState = Depends(get_state)):
+    """Get all available capture creation recipes."""
+    recipes = []
+    for recipe_id, recipe_cfg in state.config.recipes.items():
+        channels = [
+            RecipeChannelModel(
+                offsetHz=ch.offset_hz,
+                name=ch.name,
+                mode=ch.mode,
+                squelchDb=ch.squelch_db,
+            )
+            for ch in recipe_cfg.channels
+        ]
+        recipes.append(
+            RecipeModel(
+                id=recipe_id,
+                name=recipe_cfg.name,
+                description=recipe_cfg.description,
+                category=recipe_cfg.category,
+                centerHz=recipe_cfg.center_hz,
+                sampleRate=recipe_cfg.sample_rate,
+                gain=recipe_cfg.gain,
+                bandwidth=recipe_cfg.bandwidth,
+                channels=channels,
+                allowFrequencyInput=recipe_cfg.allow_frequency_input,
+                frequencyLabel=recipe_cfg.frequency_label,
+            )
+        )
+    return recipes
 
 
 @router.get("/captures", response_model=List[CaptureModel])
