@@ -1,38 +1,26 @@
 import { useState, useRef, useEffect } from "react";
-import { Radio, Plus, Trash2, Copy, CheckCircle, Play, Pause } from "lucide-react";
-import type { Capture, Channel } from "../types";
+import { Radio, Plus } from "lucide-react";
+import type { Capture } from "../types";
 import {
   useChannels,
   useCreateChannel,
-  useDeleteChannel,
-  useUpdateChannel,
   useStartChannel,
   useStopChannel,
 } from "../hooks/useChannels";
-import { formatFrequencyMHz } from "../utils/frequency";
 import Button from "./primitives/Button.react";
 import Flex from "./primitives/Flex.react";
 import Slider from "./primitives/Slider.react";
 import FrequencySelector from "./primitives/FrequencySelector.react";
 import Spinner from "./primitives/Spinner.react";
-import SignalMeter from "./primitives/SignalMeter.react";
-import { FrequencyLabel } from "./FrequencyLabel.react";
+import { CompactChannelCard } from "./CompactChannelCard.react";
 
 interface ChannelManagerProps {
   capture: Capture;
 }
 
-// Format channel ID for display (e.g., "ch1" -> "Channel 1")
-function formatChannelId(id: string): string {
-  const match = id.match(/^ch(\d+)$/);
-  return match ? `Channel ${match[1]}` : id;
-}
-
 export const ChannelManager = ({ capture }: ChannelManagerProps) => {
   const { data: channels, isLoading } = useChannels(capture.id);
   const createChannel = useCreateChannel();
-  const deleteChannel = useDeleteChannel();
-  const updateChannel = useUpdateChannel(capture.id);
   const startChannel = useStartChannel(capture.id);
   const stopChannel = useStopChannel(capture.id);
 
@@ -45,35 +33,20 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
   const [playingChannel, setPlayingChannel] = useState<string | null>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
-  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const audioWorkletRef = useRef<AudioWorkletNode | null>(null);
   const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const shouldPlayRef = useRef<boolean>(false);
   const nextStartTimeRef = useRef<number>(0);
 
   const stopAudio = () => {
-    // Signal to stop playback
     shouldPlayRef.current = false;
 
-    // Stop any ongoing stream
     if (streamReaderRef.current) {
       streamReaderRef.current.cancel();
       streamReaderRef.current = null;
     }
-
-    // Disconnect audio nodes
-    if (audioWorkletRef.current) {
-      audioWorkletRef.current.disconnect();
-      audioWorkletRef.current = null;
-    }
-
-    if (audioSourceRef.current) {
-      audioSourceRef.current.stop();
-      audioSourceRef.current = null;
-    }
   };
 
-  // Stop audio and reset frequency when capture changes
+  // Stop audio when capture changes
   useEffect(() => {
     setNewChannelFrequency(capture.centerHz);
     return () => {
@@ -82,7 +55,6 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
   }, [capture.id]);
 
   const handleCreateChannel = () => {
-    // Calculate offset from absolute frequency
     const offsetHz = newChannelFrequency - capture.centerHz;
 
     createChannel.mutate({
@@ -103,14 +75,8 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
     });
   };
 
-  const handleDeleteChannel = (channelId: string) => {
-    if (confirm("Delete this channel?")) {
-      deleteChannel.mutate(channelId);
-    }
-  };
-
-  const copyToClipboard = (text: string, url: string) => {
-    navigator.clipboard.writeText(text).then(() => {
+  const copyToClipboard = (url: string) => {
+    navigator.clipboard.writeText(url).then(() => {
       setCopiedUrl(url);
       setTimeout(() => setCopiedUrl(null), 2000);
     });
@@ -118,18 +84,15 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
 
   const playPCMAudio = async (channelId: string) => {
     try {
-      // Initialize AudioContext if needed
       if (!audioContextRef.current) {
         audioContextRef.current = new AudioContext({ sampleRate: 48000 });
       }
 
       const audioContext = audioContextRef.current;
-
-      // Initialize playback timing
       shouldPlayRef.current = true;
       nextStartTimeRef.current = audioContext.currentTime;
 
-      const streamUrl = getStreamUrl(channelId);
+      const streamUrl = `${window.location.origin}/api/v1/stream/channels/${channelId}.pcm`;
       const response = await fetch(streamUrl);
 
       if (!response.ok || !response.body) {
@@ -148,16 +111,13 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
 
           if (done) break;
 
-          // Convert PCM16 to Float32
           const dataView = new DataView(value.buffer, value.byteOffset, value.byteLength);
-          // Only read complete 16-bit samples (need 2 bytes per sample)
           const sampleCount = Math.floor(value.length / 2);
           for (let i = 0; i < sampleCount; i++) {
             const sample = dataView.getInt16(i * 2, true) / 32768.0;
             pcmBuffer.push(sample);
           }
 
-          // When we have enough samples, play them
           while (pcmBuffer.length >= bufferSize && shouldPlayRef.current) {
             const chunk = pcmBuffer.splice(0, bufferSize);
             const audioBuffer = audioContext.createBuffer(1, chunk.length, 48000);
@@ -171,7 +131,6 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
             source.buffer = audioBuffer;
             source.connect(audioContext.destination);
 
-            // Schedule this buffer to play at the right time
             const startTime = Math.max(nextStartTimeRef.current, audioContext.currentTime);
             source.start(startTime);
             nextStartTimeRef.current = startTime + audioBuffer.duration;
@@ -190,11 +149,11 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
     }
   };
 
-  const togglePlay = async (channel: Channel) => {
-    if (playingChannel === channel.id) {
+  const togglePlay = async (channelId: string) => {
+    if (playingChannel === channelId) {
       stopAudio();
       setPlayingChannel(null);
-      stopChannel.mutate(channel.id);
+      stopChannel.mutate(channelId);
       return;
     }
 
@@ -204,23 +163,16 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
     }
 
     try {
-      if (channel.state !== "running") {
-        await startChannel.mutateAsync(channel.id);
+      const channel = channels?.find(ch => ch.id === channelId);
+      if (channel && channel.state !== "running") {
+        await startChannel.mutateAsync(channelId);
       }
-      setPlayingChannel(channel.id);
-      playPCMAudio(channel.id);
+      setPlayingChannel(channelId);
+      playPCMAudio(channelId);
     } catch (error) {
       console.error("Unable to start channel for playback:", error);
       setPlayingChannel(null);
     }
-  };
-
-  const getStreamUrl = (channelId: string) => {
-    return `${window.location.origin}/api/v1/stream/channels/${channelId}.pcm`;
-  };
-
-  const getChannelFrequency = (channel: Channel) => {
-    return capture.centerHz + channel.offsetHz;
   };
 
   return (
@@ -230,6 +182,9 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
           <Flex align="center" gap={2}>
             <Radio size={20} />
             <h3 className="h6 mb-0">Channels</h3>
+            {channels && channels.length > 0 && (
+              <span className="badge bg-secondary">{channels.length}</span>
+            )}
           </Flex>
           <Button
             use="primary"
@@ -340,209 +295,22 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
           </div>
         )}
 
+        {/* Grid Layout for Channels */}
         {channels && channels.length > 0 && (
-          <Flex direction="column" gap={3}>
-            {channels.map((channel) => {
-              const isPlaying = playingChannel === channel.id;
-
-              return (
-                <div key={channel.id} className="border rounded p-3">
-                  <Flex direction="column" gap={3}>
-                    {/* Channel Header */}
-                    <Flex justify="between" align="center">
-                      <div>
-                        <div className="fw-semibold">{formatChannelId(channel.id)}</div>
-                        <div className="small text-muted">
-                          {formatFrequencyMHz(getChannelFrequency(channel))} MHz • {channel.mode.toUpperCase()}
-                        </div>
-                        <FrequencyLabel frequencyHz={getChannelFrequency(channel)} autoName={channel.autoName} />
-                      </div>
-                      <Flex gap={1}>
-                        <Button
-                          use={isPlaying ? "warning" : "success"}
-                          size="sm"
-                          appearance="outline"
-                          onClick={() => togglePlay(channel)}
-                          title={isPlaying ? "Pause" : "Play"}
-                          aria-label={isPlaying ? "Pause" : "Play"}
-                          className="px-2"
-                        >
-                          {isPlaying ? <Pause size={14} /> : <Play size={14} />}
-                        </Button>
-                        <span className={`badge bg-${channel.state === "running" ? "success" : "secondary"}`}>
-                          {channel.state}
-                        </span>
-                        <Button
-                          use="danger"
-                          size="sm"
-                          appearance="outline"
-                          onClick={() => handleDeleteChannel(channel.id)}
-                          title="Delete"
-                          aria-label="Delete"
-                          className="px-2"
-                        >
-                          <Trash2 size={14} />
-                        </Button>
-                      </Flex>
-                    </Flex>
-
-                    {/* Signal Metrics Visualization (Server-Side) */}
-                    <div className="border rounded p-2 bg-light">
-                      <Flex direction="column" gap={2}>
-                        <label className="form-label small mb-0 fw-semibold">
-                          Signal Metrics <span className="badge bg-success text-white ms-1" style={{fontSize: "9px"}}>LIVE</span>
-                        </label>
-                        <Flex direction="column" gap={1}>
-                          <Flex direction="row" gap={1} align="center">
-                            <span className="text-muted" style={{fontSize: "10px", width: "50px"}}>RSSI:</span>
-                            <SignalMeter signalPowerDb={channel.rssiDb} width={200} height={20} />
-                          </Flex>
-                          <Flex direction="row" gap={1} align="center">
-                            <span className="text-muted" style={{fontSize: "10px", width: "50px"}}>SNR:</span>
-                            <SignalMeter signalPowerDb={channel.snrDb} width={200} height={20} />
-                          </Flex>
-                        </Flex>
-                      </Flex>
-                    </div>
-
-                    {/* Channel Settings - Always Visible */}
-                    <Flex direction="column" gap={3}>
-                      {/* Mode Selector */}
-                      <Flex direction="column" gap={1}>
-                        <label className="form-label small mb-1">Demodulation Mode</label>
-                        <select
-                          className="form-select form-select-sm"
-                          value={channel.mode}
-                          onChange={(e) =>
-                            updateChannel.mutate({
-                              channelId: channel.id,
-                              request: { mode: e.target.value as any },
-                            })
-                          }
-                        >
-                          <option value="wbfm">WBFM (Wideband FM)</option>
-                          <option value="nbfm">NBFM (Narrowband FM)</option>
-                          <option value="am">AM</option>
-                          <option value="ssb">SSB</option>
-                          <option value="raw">Raw IQ</option>
-                          <option value="p25">P25 (Trunked)</option>
-                          <option value="dmr">DMR (Trunked)</option>
-                        </select>
-                      </Flex>
-
-                      {/* Squelch Slider */}
-                      <Slider
-                        label="Squelch"
-                        value={channel.squelchDb ?? -60}
-                        min={-80}
-                        max={0}
-                        step={1}
-                        coarseStep={10}
-                        unit="dB"
-                        formatValue={(val) => `${val.toFixed(0)} dB`}
-                        onChange={(val) =>
-                          updateChannel.mutate({
-                            channelId: channel.id,
-                            request: { squelchDb: val },
-                          })
-                        }
-                        info="Signal strength threshold for audio output. Lower values (more negative) allow weaker signals."
-                      />
-
-                      {/* Audio Rate Selector */}
-                      <Flex direction="column" gap={1}>
-                        <label className="form-label small mb-1">Audio Rate</label>
-                        <select
-                          className="form-select form-select-sm"
-                          value={channel.audioRate}
-                          onChange={(e) =>
-                            updateChannel.mutate({
-                              channelId: channel.id,
-                              request: { audioRate: parseInt(e.target.value) },
-                            })
-                          }
-                        >
-                          <option value={8000}>8 kHz</option>
-                          <option value={16000}>16 kHz</option>
-                          <option value={24000}>24 kHz</option>
-                          <option value={48000}>48 kHz (CD quality)</option>
-                        </select>
-                      </Flex>
-
-                      {/* Frequency Selector */}
-                      <Flex direction="column" gap={1}>
-                        <FrequencySelector
-                          label="Frequency"
-                          value={getChannelFrequency(channel)}
-                          min={capture.centerHz - (capture.sampleRate / 2)}
-                          max={capture.centerHz + (capture.sampleRate / 2)}
-                          step={1000}
-                          onChange={(hz) =>
-                            updateChannel.mutate({
-                              channelId: channel.id,
-                              request: { offsetHz: hz - capture.centerHz },
-                            })
-                          }
-                          info="Channel frequency within the capture bandwidth"
-                        />
-                        <small className="text-muted">
-                          Offset: {(channel.offsetHz / 1000).toFixed(0)} kHz
-                        </small>
-                      </Flex>
-                    </Flex>
-
-                    {/* Stream URLs */}
-                    <Flex direction="column" gap={1}>
-                      <label className="small text-muted mb-0">Stream URLs</label>
-                      {[
-                        { format: 'PCM', ext: '.pcm', label: 'Raw PCM' },
-                        { format: 'MP3', ext: '.mp3', label: 'MP3 (128k)' },
-                        { format: 'Opus', ext: '.opus', label: 'Opus' },
-                        { format: 'AAC', ext: '.aac', label: 'AAC' },
-                      ].map(({ format, ext, label }) => {
-                        const formatUrl = `${window.location.origin}/api/v1/stream/channels/${channel.id}${ext}`;
-                        const isFormatCopied = copiedUrl === formatUrl;
-                        return (
-                          <Flex key={format} gap={1} align="center">
-                            <span className="badge bg-secondary text-nowrap" style={{ width: '80px', fontSize: '10px' }}>
-                              {label}
-                            </span>
-                            <input
-                              type="text"
-                              className="form-control form-control-sm font-monospace small"
-                              value={formatUrl}
-                              readOnly
-                              onClick={(e) => (e.target as HTMLInputElement).select()}
-                            />
-                            <Button
-                              use={isFormatCopied ? "success" : "secondary"}
-                              size="sm"
-                              appearance="outline"
-                              onClick={() => copyToClipboard(formatUrl, formatUrl)}
-                              title={isFormatCopied ? "Copied!" : "Copy URL"}
-                              aria-label={isFormatCopied ? "Copied!" : "Copy URL"}
-                              className="px-2"
-                            >
-                              {isFormatCopied ? <CheckCircle size={14} /> : <Copy size={14} />}
-                            </Button>
-                          </Flex>
-                        );
-                      })}
-                    </Flex>
-
-                    {/* Channel Details */}
-                    <div className="small text-muted">
-                      <strong>Offset:</strong> {channel.offsetHz.toLocaleString()} Hz •{" "}
-                      <strong>Audio Rate:</strong> {channel.audioRate} Hz
-                      {channel.squelchDb !== null && (
-                        <> • <strong>Squelch:</strong> {channel.squelchDb} dB</>
-                      )}
-                    </div>
-                  </Flex>
-                </div>
-              );
-            })}
-          </Flex>
+          <div className="row g-3">
+            {channels.map((channel) => (
+              <div key={channel.id} className="col-12 col-md-6 col-lg-4 col-xl-3">
+                <CompactChannelCard
+                  channel={channel}
+                  capture={capture}
+                  isPlaying={playingChannel === channel.id}
+                  onTogglePlay={() => togglePlay(channel.id)}
+                  onCopyUrl={copyToClipboard}
+                  copiedUrl={copiedUrl}
+                />
+              </div>
+            ))}
+          </div>
         )}
       </div>
 
