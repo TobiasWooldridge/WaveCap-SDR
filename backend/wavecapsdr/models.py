@@ -99,6 +99,9 @@ class ChannelModel(BaseModel):
     offsetHz: float
     audioRate: int
     squelchDb: Optional[float] = None
+    signalPowerDb: Optional[float] = None
+    rssiDb: Optional[float] = None  # Server-side RSSI from IQ samples
+    snrDb: Optional[float] = None  # Server-side SNR estimate
 
 
 class RecipeChannelModel(BaseModel):

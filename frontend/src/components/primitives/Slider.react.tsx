@@ -3,7 +3,6 @@ import clsx from "clsx";
 import { ChevronUp, ChevronDown, ChevronsUp, ChevronsDown } from "lucide-react";
 import Flex from "./Flex.react";
 import Button from "./Button.react";
-import InfoTooltip from "./InfoTooltip.react";
 
 export type SliderProps = {
   label: string;
@@ -102,10 +101,10 @@ const Slider = forwardRef<HTMLInputElement, SliderProps>(
     return (
       <Flex direction="column" gap={2} className={clsx("slider-container", className)}>
         <Flex justify="between" align="center">
-          <label className="form-label mb-0 fw-semibold">
-            {label}
-            {info && <InfoTooltip content={info} />}
-          </label>
+          <Flex direction="column" gap={0}>
+            <label className="form-label mb-0 fw-semibold">{label}</label>
+            {info && <small className="text-muted">{info}</small>}
+          </Flex>
 
           <Flex align="center" gap={1}>
             {/* Coarse decrement */}

@@ -15,6 +15,7 @@ import Flex from "./primitives/Flex.react";
 import Slider from "./primitives/Slider.react";
 import FrequencySelector from "./primitives/FrequencySelector.react";
 import Spinner from "./primitives/Spinner.react";
+import SignalMeter from "./primitives/SignalMeter.react";
 
 interface ChannelManagerProps {
   capture: Capture;
@@ -378,6 +379,25 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
                         </Button>
                       </Flex>
                     </Flex>
+
+                    {/* Signal Metrics Visualization (Server-Side) */}
+                    <div className="border rounded p-2 bg-light">
+                      <Flex direction="column" gap={2}>
+                        <label className="form-label small mb-0 fw-semibold">
+                          Signal Metrics <span className="badge bg-success text-white ms-1" style={{fontSize: "9px"}}>LIVE</span>
+                        </label>
+                        <Flex direction="column" gap={1}>
+                          <Flex direction="row" gap={1} align="center">
+                            <span className="text-muted" style={{fontSize: "10px", width: "50px"}}>RSSI:</span>
+                            <SignalMeter signalPowerDb={channel.rssiDb} width={200} height={20} />
+                          </Flex>
+                          <Flex direction="row" gap={1} align="center">
+                            <span className="text-muted" style={{fontSize: "10px", width: "50px"}}>SNR:</span>
+                            <SignalMeter signalPowerDb={channel.snrDb} width={200} height={20} />
+                          </Flex>
+                        </Flex>
+                      </Flex>
+                    </div>
 
                     {/* Channel Settings - Always Visible */}
                     <Flex direction="column" gap={3}>

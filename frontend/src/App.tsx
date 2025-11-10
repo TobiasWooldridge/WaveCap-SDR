@@ -7,6 +7,7 @@ import { useChannels } from "./hooks/useChannels";
 import { RadioTuner } from "./components/RadioTuner.react";
 import { ChannelManager } from "./components/ChannelManager.react";
 import { CreateCaptureWizard } from "./components/CreateCaptureWizard.react";
+import SpectrumAnalyzer from "./components/primitives/SpectrumAnalyzer.react";
 import { formatFrequencyMHz } from "./utils/frequency";
 import Flex from "./components/primitives/Flex.react";
 import Spinner from "./components/primitives/Spinner.react";
@@ -128,6 +129,9 @@ function AppContent() {
 
   // Find device for selected capture
   const selectedDevice = devices?.find((d) => d.id === selectedCapture?.deviceId);
+
+  // Get channels for selected capture
+  const { data: selectedCaptureChannels } = useChannels(selectedCapture?.id);
 
   const handleCreateCapture = () => {
     if (!newCaptureDeviceId) return;
@@ -290,10 +294,11 @@ function AppContent() {
             </div>
           </div>
 
-          {/* Main Content - Radio Tuner + Channels */}
+          {/* Main Content - Radio Tuner + Spectrum + Channels */}
           <div className="col-lg-8 col-xl-9">
             {selectedCapture ? (
               <Flex direction="column" gap={4}>
+                <SpectrumAnalyzer capture={selectedCapture} channels={selectedCaptureChannels} height={200} />
                 <RadioTuner capture={selectedCapture} device={selectedDevice} />
                 <ChannelManager capture={selectedCapture} />
               </Flex>

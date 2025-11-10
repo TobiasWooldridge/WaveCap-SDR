@@ -10,7 +10,6 @@ import Slider from "./primitives/Slider.react";
 import FrequencySelector from "./primitives/FrequencySelector.react";
 import NumericSelector, { type UnitConfig } from "./primitives/NumericSelector.react";
 import Spinner from "./primitives/Spinner.react";
-import InfoTooltip from "./primitives/InfoTooltip.react";
 
 interface RadioTunerProps {
   capture: Capture;
@@ -309,7 +308,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             </select>
             {isRunning && (
               <small className="text-warning">
-                ⚠ Changing sample rate will briefly interrupt the stream while the radio restarts
+                Warning: Changing sample rate will briefly interrupt the stream while the radio restarts
               </small>
             )}
             {!isRunning && (
@@ -349,10 +348,12 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
           {/* Antenna Selector */}
           {device?.antennas && device.antennas.length > 0 && (
             <Flex direction="column" gap={2}>
-              <label className="form-label mb-0 fw-semibold">
-                Antenna
-                <InfoTooltip content="Select which antenna port to use. Different ports may have different characteristics (frequency range, impedance). Refer to your device manual for specifics." />
-              </label>
+              <Flex direction="column" gap={0}>
+                <label className="form-label mb-0 fw-semibold">Antenna</label>
+                <small className="text-muted">
+                  Select which antenna port to use. Different ports may have different characteristics (frequency range, impedance). Refer to your device manual for specifics.
+                </small>
+              </Flex>
               <select
                 className="form-select"
                 value={localAntenna}
@@ -367,7 +368,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
               </select>
               {isRunning && (
                 <small className="text-warning">
-                  ⚠ Changing antenna will briefly interrupt the stream while the radio restarts
+                  Warning: Changing antenna will briefly interrupt the stream while the radio restarts
                 </small>
               )}
               {!isRunning && (
@@ -454,10 +455,12 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
               {/* Element Gains */}
               {Object.keys(localElementGains).length > 0 && (
                 <Flex direction="column" gap={2}>
-                  <label className="form-label mb-0 fw-semibold">
-                    Element Gains
-                    <InfoTooltip content="Individual gain controls for specific RF stages in your SDR. LNA (Low Noise Amplifier), IF, etc. Adjust these for fine-tuned control over different signal paths." />
-                  </label>
+                  <Flex direction="column" gap={0}>
+                    <label className="form-label mb-0 fw-semibold">Element Gains</label>
+                    <small className="text-muted">
+                      Individual gain controls for specific RF stages in your SDR. LNA (Low Noise Amplifier), IF, etc. Adjust these for fine-tuned control over different signal paths.
+                    </small>
+                  </Flex>
                   {Object.entries(localElementGains).map(([key, value]) => (
                     <Flex key={key} direction="column" gap={1}>
                       <label className="form-label mb-0 small">{key}</label>

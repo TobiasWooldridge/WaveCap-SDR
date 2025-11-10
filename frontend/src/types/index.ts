@@ -41,6 +41,9 @@ export interface Channel {
   offsetHz: number;
   audioRate: number;
   squelchDb: number | null;
+  signalPowerDb: number | null;
+  rssiDb: number | null;  // Server-side RSSI from IQ
+  snrDb: number | null;   // Server-side SNR estimate
 }
 
 export interface UpdateCaptureRequest {

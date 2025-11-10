@@ -126,12 +126,42 @@ class Channel:
     _encoders: Dict[str, AudioEncoder] = field(default_factory=dict)
     # Subscriber counts for encoded formats
     _encoder_subscribers: Dict[str, int] = field(default_factory=dict)
+    # Signal strength metrics (calculated server-side)
+    signal_power_db: Optional[float] = None  # Current signal power in dB
+    rssi_db: Optional[float] = None  # Received Signal Strength Indicator from IQ
+    snr_db: Optional[float] = None  # Signal-to-Noise Ratio estimate
 
     def start(self) -> None:
         self.state = "running"
 
     def stop(self) -> None:
         self.state = "stopped"
+
+    def update_signal_metrics(self, iq: np.ndarray, sample_rate: int) -> None:
+        """Calculate signal metrics from IQ samples (server-side, no audio needed)."""
+        if self.state != "running" or iq.size == 0:
+            return
+
+        # Frequency shift to channel offset
+        shifted_iq = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+
+        # Calculate RSSI (power of IQ samples in dB)
+        power = np.mean(np.abs(shifted_iq) ** 2)
+        self.rssi_db = float(10.0 * np.log10(power + 1e-10))
+
+        # Estimate SNR using percentile-based noise floor estimation
+        # Sort by magnitude and use lower percentile as noise estimate
+        magnitudes = np.abs(shifted_iq)
+        noise_floor = np.percentile(magnitudes, 10)  # Bottom 10% as noise
+        signal_peak = np.percentile(magnitudes, 90)  # Top 10% as signal
+
+        noise_power = noise_floor ** 2
+        signal_power = signal_peak ** 2
+
+        if noise_power > 1e-10:
+            self.snr_db = float(10.0 * np.log10(signal_power / noise_power))
+        else:
+            self.snr_db = None
 
     async def subscribe_audio(self, format: str = "pcm16") -> asyncio.Queue[bytes]:
         """Subscribe to audio stream with specified format.
@@ -281,14 +311,19 @@ class Channel:
             base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
             audio = wbfm_demod(base, sample_rate, self.cfg.audio_rate)
 
-            # Apply squelch if configured
-            if self.cfg.squelch_db is not None and audio.size > 0:
-                # Calculate signal power in dB
+            # Calculate signal power in dB (always, for metrics)
+            if audio.size > 0:
                 power = np.mean(audio ** 2)
                 power_db = 10.0 * np.log10(power + 1e-10)  # Add small value to avoid log(0)
+                self.signal_power_db = float(power_db)
+                logger.debug(f"Channel {self.cfg.id}: signal_power_db={power_db:.2f}")
+            else:
+                self.signal_power_db = None
 
+            # Apply squelch if configured
+            if self.cfg.squelch_db is not None and audio.size > 0:
                 # Mute audio if below threshold
-                if power_db < self.cfg.squelch_db:
+                if self.signal_power_db is not None and self.signal_power_db < self.cfg.squelch_db:
                     audio = np.zeros_like(audio)
 
             await self._broadcast(audio)
@@ -330,6 +365,9 @@ class Capture:
     _iq_sinks: Set[Tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop]] = field(
         default_factory=set
     )
+    _fft_sinks: Set[Tuple[asyncio.Queue[dict], asyncio.AbstractEventLoop]] = field(
+        default_factory=set
+    )  # Spectrum/FFT subscribers (only calculated when needed for efficiency)
     _stop_event: threading.Event = field(default_factory=threading.Event)
     _channels: Dict[str, Channel] = field(default_factory=dict)
     # Retry tracking (inspired by OpenWebRX)
@@ -339,6 +377,9 @@ class Capture:
     _retry_timer: Optional[threading.Timer] = None
     _auto_restart_enabled: bool = True  # Enable automatic restart on failure
     _last_run_time: float = 0.0  # Track when the thread was last running
+    # FFT data (server-side spectrum analyzer)
+    _fft_power: Optional[np.ndarray] = None  # Power spectrum in dB
+    _fft_freqs: Optional[np.ndarray] = None  # Frequency bins in Hz
 
     def _ensure_device(self) -> Device:
         """Lazily open the device when the capture actually starts."""
@@ -570,6 +611,100 @@ class Capture:
             if item[0] is q:
                 self._iq_sinks.discard(item)
 
+    async def subscribe_fft(self) -> asyncio.Queue[dict]:
+        """Subscribe to FFT/spectrum data. Only calculated when there are active subscribers."""
+        q: asyncio.Queue[dict] = asyncio.Queue(maxsize=4)
+        loop = asyncio.get_running_loop()
+        self._fft_sinks.add((q, loop))
+        return q
+
+    def unsubscribe_fft(self, q: asyncio.Queue[dict]) -> None:
+        """Unsubscribe from FFT/spectrum data."""
+        for item in list(self._fft_sinks):
+            if item[0] is q:
+                self._fft_sinks.discard(item)
+
+    def _calculate_fft(self, samples: np.ndarray, sample_rate: int, fft_size: int = 2048) -> None:
+        """Calculate FFT for spectrum display. Only called when there are active subscribers."""
+        if samples.size < fft_size:
+            return
+
+        # Take a chunk of samples for FFT
+        chunk = samples[:fft_size]
+
+        # Apply Hanning window to reduce spectral leakage
+        window = np.hanning(fft_size)
+        windowed = chunk * window
+
+        # Perform FFT
+        fft_result = np.fft.fft(windowed)
+        fft_shifted = np.fft.fftshift(fft_result)
+
+        # Calculate power spectrum in dB
+        magnitude = np.abs(fft_shifted)
+        power_db = 20.0 * np.log10(magnitude + 1e-10)
+
+        # Calculate frequency bins
+        freqs = np.fft.fftshift(np.fft.fftfreq(fft_size, 1.0 / sample_rate))
+
+        # Store results
+        self._fft_power = power_db
+        self._fft_freqs = freqs
+
+    async def _broadcast_fft(self) -> None:
+        """Broadcast FFT data to all subscribers."""
+        if not self._fft_sinks or self._fft_power is None or self._fft_freqs is None:
+            return
+
+        # Create payload with FFT data
+        payload = {
+            "power": self._fft_power.tolist(),
+            "freqs": self._fft_freqs.tolist(),
+            "centerHz": self.cfg.center_hz,
+            "sampleRate": self.cfg.sample_rate,
+        }
+
+        current_loop = None
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+
+        for (q, loop) in list(self._fft_sinks):
+            if current_loop is loop:
+                try:
+                    q.put_nowait(payload)
+                except asyncio.QueueFull:
+                    try:
+                        _ = q.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                    try:
+                        q.put_nowait(payload)
+                    except asyncio.QueueFull:
+                        pass
+            else:
+                def _try_put() -> None:
+                    try:
+                        q.put_nowait(payload)
+                    except asyncio.QueueFull:
+                        try:
+                            _ = q.get_nowait()
+                        except asyncio.QueueEmpty:
+                            pass
+                        try:
+                            q.put_nowait(payload)
+                        except asyncio.QueueFull:
+                            pass
+
+                try:
+                    loop.call_soon_threadsafe(_try_put)
+                except Exception:
+                    try:
+                        self._fft_sinks.discard((q, loop))
+                    except Exception:
+                        pass
+
     async def _broadcast_iq(self, payload: bytes) -> None:
         if not self._iq_sinks:
             return
@@ -695,26 +830,65 @@ class Capture:
                         self._iq_sinks.discard((q, loop))
                     except Exception:
                         pass
-            # Dispatch to channels by scheduling their processing on their loops
+            # Calculate server-side metrics for all running channels (no async needed)
             chans = list(self._channels.values())
             for ch in chans:
-                # Skip if channel has no audio sinks
-                if not ch._audio_sinks:
-                    continue
+                if ch.state == "running":
+                    # Update signal metrics synchronously (RSSI, SNR)
+                    ch.update_signal_metrics(samples.copy(), self.cfg.sample_rate)
 
-                # Get event loop from an audio sink
+            # Calculate FFT for spectrum display (only if there are active subscribers)
+            if self._fft_sinks:
+                self._calculate_fft(samples.copy(), self.cfg.sample_rate)
+                # Broadcast FFT to subscribers
+                for (q, loop) in list(self._fft_sinks):
+                    if self._fft_power is not None and self._fft_freqs is not None:
+                        payload_fft = {
+                            "power": self._fft_power.tolist(),
+                            "freqs": self._fft_freqs.tolist(),
+                            "centerHz": self.cfg.center_hz,
+                            "sampleRate": self.cfg.sample_rate,
+                        }
+                        def _try_put_fft() -> None:
+                            try:
+                                q.put_nowait(payload_fft)
+                            except asyncio.QueueFull:
+                                try:
+                                    _ = q.get_nowait()
+                                except asyncio.QueueEmpty:
+                                    pass
+                                try:
+                                    q.put_nowait(payload_fft)
+                                except asyncio.QueueFull:
+                                    pass
+                        try:
+                            loop.call_soon_threadsafe(_try_put_fft)
+                        except Exception:
+                            try:
+                                self._fft_sinks.discard((q, loop))
+                            except Exception:
+                                pass
+
+            # Dispatch to channels for audio processing (requires event loop)
+            for ch in chans:
+                # Get event loop - try audio sinks first, then IQ sinks
                 target_loop = None
                 try:
                     # Get loop from first audio sink (tuple is (q, loop, format))
-                    target_loop = next(iter(ch._audio_sinks))[1]
+                    if ch._audio_sinks:
+                        target_loop = next(iter(ch._audio_sinks))[1]
                 except (StopIteration, IndexError):
-                    # Try to get from IQ sinks as fallback
+                    pass
+
+                # Fallback to IQ sinks if no audio sinks
+                if target_loop is None:
                     try:
                         if self._iq_sinks:
                             target_loop = next(iter(self._iq_sinks))[1]
                     except Exception:
                         pass
 
+                # Process channel if we have an event loop (always process for metrics)
                 if target_loop is not None:
                     # Capture channel reference vars for closure
                     coro = ch.process_iq_chunk(samples.copy(), self.cfg.sample_rate)

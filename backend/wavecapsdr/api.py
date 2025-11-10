@@ -423,6 +423,9 @@ def list_channels(
             offsetHz=ch.cfg.offset_hz,
             audioRate=ch.cfg.audio_rate,
             squelchDb=ch.cfg.squelch_db,
+            signalPowerDb=ch.signal_power_db,
+            rssiDb=ch.rssi_db,
+            snrDb=ch.snr_db,
         )
         for ch in chans
     ]
@@ -454,6 +457,9 @@ def create_channel(
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
         squelchDb=ch.cfg.squelch_db,
+        signalPowerDb=ch.signal_power_db,
+        rssiDb=ch.rssi_db,
+        snrDb=ch.snr_db,
     )
 
 
@@ -475,6 +481,9 @@ def start_channel(
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
         squelchDb=ch.cfg.squelch_db,
+        signalPowerDb=ch.signal_power_db,
+        rssiDb=ch.rssi_db,
+        snrDb=ch.snr_db,
     )
 
 
@@ -496,6 +505,9 @@ def stop_channel(
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
         squelchDb=ch.cfg.squelch_db,
+        signalPowerDb=ch.signal_power_db,
+        rssiDb=ch.rssi_db,
+        snrDb=ch.snr_db,
     )
 
 
@@ -516,6 +528,9 @@ def get_channel(
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
         squelchDb=ch.cfg.squelch_db,
+        signalPowerDb=ch.signal_power_db,
+        rssiDb=ch.rssi_db,
+        snrDb=ch.snr_db,
     )
 
 
@@ -548,6 +563,9 @@ def update_channel(
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
         squelchDb=ch.cfg.squelch_db,
+        signalPowerDb=ch.signal_power_db,
+        rssiDb=ch.rssi_db,
+        snrDb=ch.snr_db,
     )
 
 
@@ -592,6 +610,51 @@ async def stream_capture_iq(websocket: WebSocket, cid: str):
         pass
     finally:
         cap.unsubscribe(q)
+
+
+@router.websocket("/stream/captures/{cid}/spectrum")
+async def stream_capture_spectrum(websocket: WebSocket, cid: str):
+    """Stream FFT/spectrum data for waterfall/spectrum analyzer display.
+
+    Only calculates FFT when there are active subscribers for efficiency.
+    """
+    app_state: AppState = getattr(websocket.app.state, "app_state")
+    token = app_state.config.server.auth_token
+    if token is not None:
+        auth = websocket.headers.get("authorization") or websocket.query_params.get("token")
+        if not auth:
+            await websocket.close(code=4401)
+            return
+        if auth.startswith("Bearer "):
+            auth = auth.split(" ", 1)[1]
+        if auth != token:
+            await websocket.close(code=4403)
+            return
+
+    await websocket.accept()
+    cap = app_state.captures.get_capture(cid)
+    if cap is None:
+        await websocket.close(code=4404)
+        return
+    q = await cap.subscribe_fft()
+
+    logger.info(f"Spectrum WebSocket stream started for capture {cid}, client={websocket.client}")
+    try:
+        while True:
+            data = await q.get()
+            # Send as JSON for easy frontend processing
+            await websocket.send_json(data)
+    except WebSocketDisconnect:
+        logger.info(f"Spectrum WebSocket stream disconnected for capture {cid}")
+    except asyncio.CancelledError:
+        logger.info(f"Spectrum WebSocket stream cancelled for capture {cid}")
+        raise
+    except Exception as e:
+        logger.error(f"Spectrum WebSocket stream error for capture {cid}: {type(e).__name__}: {e}", exc_info=True)
+        raise
+    finally:
+        cap.unsubscribe_fft(q)
+        logger.info(f"Spectrum WebSocket stream ended for capture {cid}")
 
 
 @router.get("/stream/channels/{chan_id}.pcm")

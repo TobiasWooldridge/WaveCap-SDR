@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import Flex from "./Flex.react";
-import InfoTooltip from "./InfoTooltip.react";
 
 export interface PlaceValue {
   label: string;
@@ -95,10 +94,10 @@ export default function NumericSelector({
   return (
     <Flex direction="column" gap={2}>
       <Flex justify="between" align="center">
-        <label className="form-label mb-0 fw-semibold">
-          {label}
-          {info && <InfoTooltip content={info} />}
-        </label>
+        <Flex direction="column" gap={0}>
+          <label className="form-label mb-0 fw-semibold">{label}</label>
+          {info && <small className="text-muted">{info}</small>}
+        </Flex>
         {units && units.length > 1 && (
           <select
             className="form-select form-select-sm"
