@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Radio, Plus, Trash2, Copy, CheckCircle, Play, Pause, Settings } from "lucide-react";
+import { Radio, Plus, Trash2, Copy, CheckCircle, Play, Pause } from "lucide-react";
 import type { Capture, Channel } from "../types";
 import {
   useChannels,
@@ -40,7 +40,6 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
   const [newChannelSquelch, setNewChannelSquelch] = useState<number>(-60);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [playingChannel, setPlayingChannel] = useState<string | null>(null);
-  const [expandedChannel, setExpandedChannel] = useState<string | null>(null);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
@@ -321,11 +320,10 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
           <Flex direction="column" gap={3}>
             {channels.map((channel) => {
               const isPlaying = playingChannel === channel.id;
-              const isExpanded = expandedChannel === channel.id;
 
               return (
                 <div key={channel.id} className="border rounded p-3">
-                  <Flex direction="column" gap={2}>
+                  <Flex direction="column" gap={3}>
                     {/* Channel Header */}
                     <Flex justify="between" align="center">
                       <div>
@@ -350,17 +348,6 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
                           {channel.state}
                         </span>
                         <Button
-                          use={isExpanded ? "primary" : "secondary"}
-                          size="sm"
-                          appearance="outline"
-                          onClick={() => setExpandedChannel(isExpanded ? null : channel.id)}
-                          title="Settings"
-                          aria-label="Settings"
-                          className="px-2"
-                        >
-                          <Settings size={14} />
-                        </Button>
-                        <Button
                           use="danger"
                           size="sm"
                           appearance="outline"
@@ -374,68 +361,62 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
                       </Flex>
                     </Flex>
 
-                    {/* Channel Settings (Expandable) */}
-                    {isExpanded && (
-                      <div className="border-top pt-2 mt-1">
-                        <Flex direction="column" gap={3}>
-                          <h6 className="small text-muted mb-0">Channel Settings</h6>
+                    {/* Channel Settings - Always Visible */}
+                    <Flex direction="column" gap={3}>
+                      {/* Mode Selector */}
+                      <Flex direction="column" gap={1}>
+                        <label className="form-label small mb-1">Demodulation Mode</label>
+                        <select
+                          className="form-select form-select-sm"
+                          value={channel.mode}
+                          onChange={(e) =>
+                            updateChannel.mutate({
+                              channelId: channel.id,
+                              request: { mode: e.target.value as any },
+                            })
+                          }
+                        >
+                          <option value="wbfm">WBFM (Wideband FM)</option>
+                          <option value="nfm">NFM (Narrowband FM)</option>
+                          <option value="am">AM</option>
+                        </select>
+                      </Flex>
 
-                          {/* Mode Selector */}
-                          <Flex direction="column" gap={1}>
-                            <label className="form-label small mb-1">Demodulation Mode</label>
-                            <select
-                              className="form-select form-select-sm"
-                              value={channel.mode}
-                              onChange={(e) =>
-                                updateChannel.mutate({
-                                  channelId: channel.id,
-                                  request: { mode: e.target.value as any },
-                                })
-                              }
-                            >
-                              <option value="wbfm">WBFM (Wideband FM)</option>
-                              <option value="nfm">NFM (Narrowband FM)</option>
-                              <option value="am">AM</option>
-                            </select>
-                          </Flex>
+                      {/* Squelch Slider */}
+                      <Slider
+                        label="Squelch"
+                        value={channel.squelchDb ?? -60}
+                        min={-80}
+                        max={0}
+                        step={1}
+                        coarseStep={10}
+                        unit="dB"
+                        formatValue={(val) => `${val.toFixed(0)} dB`}
+                        onChange={(val) =>
+                          updateChannel.mutate({
+                            channelId: channel.id,
+                            request: { squelchDb: val },
+                          })
+                        }
+                        info="Signal strength threshold for audio output. Lower values (more negative) allow weaker signals."
+                      />
 
-                          {/* Squelch Slider */}
-                          <Slider
-                            label="Squelch"
-                            value={channel.squelchDb ?? -60}
-                            min={-80}
-                            max={0}
-                            step={1}
-                            coarseStep={10}
-                            unit="dB"
-                            formatValue={(val) => `${val.toFixed(0)} dB`}
-                            onChange={(val) =>
-                              updateChannel.mutate({
-                                channelId: channel.id,
-                                request: { squelchDb: val },
-                              })
-                            }
-                            info="Signal strength threshold for audio output. Lower values (more negative) allow weaker signals."
-                          />
-
-                          {/* Frequency Selector */}
-                          <FrequencySelector
-                            label="Frequency"
-                            value={getChannelFrequency(channel)}
-                            min={capture.centerHz - (capture.sampleRate / 2)}
-                            max={capture.centerHz + (capture.sampleRate / 2)}
-                            step={1000}
-                            onChange={(hz) =>
-                              updateChannel.mutate({
-                                channelId: channel.id,
-                                request: { offsetHz: hz - capture.centerHz },
-                              })
-                            }
-                            info="Channel frequency within the capture bandwidth"
-                          />
-                        </Flex>
-                      </div>
-                    )}
+                      {/* Frequency Selector */}
+                      <FrequencySelector
+                        label="Frequency"
+                        value={getChannelFrequency(channel)}
+                        min={capture.centerHz - (capture.sampleRate / 2)}
+                        max={capture.centerHz + (capture.sampleRate / 2)}
+                        step={1000}
+                        onChange={(hz) =>
+                          updateChannel.mutate({
+                            channelId: channel.id,
+                            request: { offsetHz: hz - capture.centerHz },
+                          })
+                        }
+                        info="Channel frequency within the capture bandwidth"
+                      />
+                    </Flex>
 
                     {/* Stream URLs */}
                     <Flex direction="column" gap={1}>
