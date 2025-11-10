@@ -292,6 +292,27 @@ async def update_capture(
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
 
+    # Handle device change if requested
+    if req.deviceId is not None and req.deviceId != cap.cfg.device_id:
+        if cap.state in ("running", "starting"):
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot change device while capture is running. Stop the capture first."
+            )
+
+        # Validate new device exists
+        devices = state.captures.list_devices()
+        new_device = next((d for d in devices if d["id"] == req.deviceId), None)
+        if new_device is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Device '{req.deviceId}' not found"
+            )
+
+        # Update device in config
+        cap.cfg.device_id = req.deviceId
+        logger.info(f"Changed capture {cid} device to {req.deviceId}")
+
     # Validate changes against device constraints before applying
     devices = state.captures.list_devices()
     device_info = next((d for d in devices if d["id"] == cap.cfg.device_id), None)

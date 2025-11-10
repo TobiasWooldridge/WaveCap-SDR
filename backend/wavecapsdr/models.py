@@ -46,6 +46,7 @@ class CreateCaptureRequest(BaseModel):
 
 
 class UpdateCaptureRequest(BaseModel):
+    deviceId: Optional[str] = None
     centerHz: Optional[float] = None
     sampleRate: Optional[int] = None
     gain: Optional[float] = None
