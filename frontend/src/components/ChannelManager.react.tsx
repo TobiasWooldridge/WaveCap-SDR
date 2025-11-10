@@ -13,6 +13,7 @@ import { formatFrequencyMHz } from "../utils/frequency";
 import Button from "./primitives/Button.react";
 import Flex from "./primitives/Flex.react";
 import Slider from "./primitives/Slider.react";
+import FrequencySelector from "./primitives/FrequencySelector.react";
 import Spinner from "./primitives/Spinner.react";
 
 interface ChannelManagerProps {
@@ -257,15 +258,12 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
               </select>
             </Flex>
 
-            <Slider
+            <FrequencySelector
               label="Frequency"
               value={newChannelFrequency}
               min={capture.centerHz - (capture.sampleRate / 2)}
               max={capture.centerHz + (capture.sampleRate / 2)}
               step={1000}
-              coarseStep={100000}
-              unit="MHz"
-              formatValue={(hz) => formatFrequencyMHz(hz)}
               onChange={setNewChannelFrequency}
             />
             <small className="text-muted">
@@ -420,16 +418,13 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
                             info="Signal strength threshold for audio output. Lower values (more negative) allow weaker signals."
                           />
 
-                          {/* Frequency Slider */}
-                          <Slider
+                          {/* Frequency Selector */}
+                          <FrequencySelector
                             label="Frequency"
                             value={getChannelFrequency(channel)}
                             min={capture.centerHz - (capture.sampleRate / 2)}
                             max={capture.centerHz + (capture.sampleRate / 2)}
                             step={1000}
-                            coarseStep={100000}
-                            unit="MHz"
-                            formatValue={(hz) => formatFrequencyMHz(hz)}
                             onChange={(hz) =>
                               updateChannel.mutate({
                                 channelId: channel.id,
