@@ -37,7 +37,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
 
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [newChannelFrequency, setNewChannelFrequency] = useState<number>(capture.centerHz);
-  const [newChannelMode, setNewChannelMode] = useState<"wbfm" | "nbfm" | "am" | "ssb" | "raw" | "p25">("wbfm");
+  const [newChannelMode, setNewChannelMode] = useState<"wbfm" | "nbfm" | "am" | "ssb" | "raw" | "p25" | "dmr">("wbfm");
   const [newChannelSquelch, setNewChannelSquelch] = useState<number>(-60);
   const [newChannelAudioRate, setNewChannelAudioRate] = useState<number>(48000);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
@@ -260,6 +260,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
                 <option value="ssb">SSB</option>
                 <option value="raw">Raw IQ</option>
                 <option value="p25">P25 (Trunked)</option>
+                <option value="dmr">DMR (Trunked)</option>
               </select>
             </Flex>
 
@@ -423,6 +424,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
                           <option value="ssb">SSB</option>
                           <option value="raw">Raw IQ</option>
                           <option value="p25">P25 (Trunked)</option>
+                          <option value="dmr">DMR (Trunked)</option>
                         </select>
                       </Flex>
 

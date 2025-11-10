@@ -17,6 +17,8 @@ from .config import AppConfig
 from .devices.base import Device, DeviceDriver, StreamHandle
 from .dsp.fm import wbfm_demod, nbfm_demod
 from .encoders import create_encoder, AudioEncoder
+from .decoders.p25 import P25Decoder
+from .decoders.dmr import DMRDecoder
 
 
 F = TypeVar('F', bound=Callable[..., Any])
@@ -130,6 +132,9 @@ class Channel:
     signal_power_db: Optional[float] = None  # Current signal power in dB
     rssi_db: Optional[float] = None  # Received Signal Strength Indicator from IQ
     snr_db: Optional[float] = None  # Signal-to-Noise Ratio estimate
+    # Digital voice decoders (lazily initialized)
+    _p25_decoder: Optional[P25Decoder] = None
+    _dmr_decoder: Optional[DMRDecoder] = None
 
     def start(self) -> None:
         self.state = "running"
@@ -333,8 +338,78 @@ class Channel:
 
             await self._broadcast(audio)
 
-        elif self.cfg.mode in ("raw", "p25"):
-            # Raw IQ output or P25 (for external decoding)
+        elif self.cfg.mode == "p25":
+            # P25 digital voice decoding with trunking support
+            # Initialize decoder if needed
+            if self._p25_decoder is None:
+                self._p25_decoder = P25Decoder(sample_rate)
+                self._p25_decoder.on_voice_frame = lambda voice_data: self._handle_p25_voice(voice_data)
+                self._p25_decoder.on_grant = lambda tgid, freq: self._handle_trunking_grant(tgid, freq)
+                logger.info(f"Channel {self.cfg.id}: P25 decoder initialized")
+
+            # Frequency shift to channel offset
+            base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+
+            # Calculate signal power for metrics
+            if base.size > 0:
+                power = np.mean(np.abs(base) ** 2)
+                power_db = 10.0 * np.log10(power + 1e-10)
+                self.signal_power_db = float(power_db)
+            else:
+                self.signal_power_db = None
+
+            # Decode P25 frames
+            try:
+                frames = self._p25_decoder.process_iq(base)
+
+                # Log decoded frames (for debugging)
+                for frame in frames:
+                    if frame.tgid is not None:
+                        logger.debug(f"Channel {self.cfg.id}: P25 frame type={frame.frame_type.value} TGID={frame.tgid}")
+                    elif frame.tsbk_data:
+                        logger.debug(f"Channel {self.cfg.id}: P25 TSBK: {frame.tsbk_data}")
+
+                # Note: Voice audio will be handled by the on_voice_frame callback
+                # For now, we don't have IMBE decoder, so voice remains silent
+                # Future: Add IMBE/codec2 decoder to convert voice_data to PCM
+            except Exception as e:
+                logger.error(f"Channel {self.cfg.id}: P25 decoding error: {e}")
+
+        elif self.cfg.mode == "dmr":
+            # DMR digital voice decoding with trunking support
+            # Initialize decoder if needed
+            if self._dmr_decoder is None:
+                self._dmr_decoder = DMRDecoder(sample_rate)
+                self._dmr_decoder.on_voice_frame = lambda slot, tgid, voice_data: self._handle_dmr_voice(slot, tgid, voice_data)
+                self._dmr_decoder.on_csbk_message = lambda msg: self._handle_dmr_csbk(msg)
+                logger.info(f"Channel {self.cfg.id}: DMR decoder initialized")
+
+            # Frequency shift to channel offset
+            base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+
+            # Calculate signal power for metrics
+            if base.size > 0:
+                power = np.mean(np.abs(base) ** 2)
+                power_db = 10.0 * np.log10(power + 1e-10)
+                self.signal_power_db = float(power_db)
+            else:
+                self.signal_power_db = None
+
+            # Decode DMR frames
+            try:
+                frames = self._dmr_decoder.process_iq(base)
+
+                # Log decoded frames
+                for frame in frames:
+                    logger.debug(f"Channel {self.cfg.id}: DMR frame type={frame.frame_type.value} slot={frame.slot.value} dst={frame.dst_id}")
+
+                # Note: Voice audio will be handled by the on_voice_frame callback
+                # Future: Add AMBE decoder to convert voice_data to PCM
+            except Exception as e:
+                logger.error(f"Channel {self.cfg.id}: DMR decoding error: {e}")
+
+        elif self.cfg.mode == "raw":
+            # Raw IQ output (for external decoding)
             # Frequency shift to extract the desired channel
             base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
 
@@ -357,6 +432,49 @@ class Channel:
         else:
             # Unknown mode: ignore
             return
+
+    def _handle_p25_voice(self, voice_data: bytes) -> None:
+        """Handle decoded P25 voice frames (IMBE codec).
+
+        Currently logs voice activity. Future implementation will:
+        - Decode IMBE voice frames to PCM audio
+        - Use mbelib or codec2 for voice synthesis
+        - Broadcast audio to subscribers
+        """
+        logger.debug(f"Channel {self.cfg.id}: P25 voice frame received ({len(voice_data)} bytes)")
+        # TODO: Implement IMBE decoder
+        # For now, voice is not output as audio (awaiting codec integration)
+
+    def _handle_dmr_voice(self, slot: int, tgid: int, voice_data: bytes) -> None:
+        """Handle decoded DMR voice frames (AMBE codec).
+
+        Currently logs voice activity. Future implementation will:
+        - Decode AMBE voice frames to PCM audio
+        - Use mbelib for voice synthesis
+        - Broadcast audio to subscribers
+        """
+        logger.debug(f"Channel {self.cfg.id}: DMR voice frame slot={slot} TGID={tgid} ({len(voice_data)} bytes)")
+        # TODO: Implement AMBE decoder
+
+    def _handle_trunking_grant(self, tgid: int, freq_hz: float) -> None:
+        """Handle P25 trunking voice channel grant.
+
+        This is called when a control channel broadcasts a voice grant.
+        Future implementation will:
+        - Automatically create voice channel following the grant
+        - Track talkgroup activity
+        - Integrate with TrunkingManager for priority-based following
+        """
+        logger.info(f"Channel {self.cfg.id}: P25 voice grant - TGID {tgid} on {freq_hz/1e6:.4f} MHz")
+        # TODO: Implement automatic voice channel following
+
+    def _handle_dmr_csbk(self, msg: dict) -> None:
+        """Handle DMR Control Signaling Block messages.
+
+        CSBK messages contain control information similar to P25 TSBK.
+        """
+        logger.debug(f"Channel {self.cfg.id}: DMR CSBK message: {msg}")
+        # TODO: Implement DMR trunking logic
 
 
 @dataclass

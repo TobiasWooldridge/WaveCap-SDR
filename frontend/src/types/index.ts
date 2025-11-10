@@ -36,7 +36,7 @@ export interface Capture {
 export interface Channel {
   id: string;
   captureId: string;
-  mode: "wbfm" | "nbfm" | "am" | "ssb" | "raw" | "p25";
+  mode: "wbfm" | "nbfm" | "am" | "ssb" | "raw" | "p25" | "dmr";
   state: "created" | "running" | "stopped";
   offsetHz: number;
   audioRate: number;
@@ -77,14 +77,14 @@ export interface CreateCaptureRequest {
 }
 
 export interface CreateChannelRequest {
-  mode: "wbfm" | "nbfm" | "am" | "ssb" | "raw" | "p25";
+  mode: "wbfm" | "nbfm" | "am" | "ssb" | "raw" | "p25" | "dmr";
   offsetHz?: number;
   audioRate?: number;
   squelchDb?: number | null;
 }
 
 export interface UpdateChannelRequest {
-  mode?: "wbfm" | "nbfm" | "am" | "ssb" | "raw" | "p25";
+  mode?: "wbfm" | "nbfm" | "am" | "ssb" | "raw" | "p25" | "dmr";
   offsetHz?: number;
   audioRate?: number;
   squelchDb?: number | null;
