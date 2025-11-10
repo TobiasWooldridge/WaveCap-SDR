@@ -80,6 +80,13 @@ export interface CreateChannelRequest {
   squelchDb?: number | null;
 }
 
+export interface UpdateChannelRequest {
+  mode?: "wbfm" | "nfm" | "am";
+  offsetHz?: number;
+  audioRate?: number;
+  squelchDb?: number | null;
+}
+
 export interface RecipeChannel {
   offsetHz: number;
   name: string;

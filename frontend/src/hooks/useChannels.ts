@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { Channel, CreateChannelRequest } from "../types";
+import type { Channel, CreateChannelRequest, UpdateChannelRequest } from "../types";
 
 async function fetchChannels(captureId: string): Promise<Channel[]> {
   const response = await fetch(`/api/v1/captures/${captureId}/channels`);
@@ -35,6 +35,24 @@ async function deleteChannel(channelId: string): Promise<void> {
   if (!response.ok) {
     throw new Error("Failed to delete channel");
   }
+}
+
+async function updateChannel(
+  channelId: string,
+  request: UpdateChannelRequest,
+): Promise<Channel> {
+  const response = await fetch(`/api/v1/channels/${channelId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to update channel");
+  }
+
+  return response.json();
 }
 
 async function startChannel(channelId: string): Promise<Channel> {
@@ -87,6 +105,18 @@ export function useDeleteChannel() {
     mutationFn: (channelId: string) => deleteChannel(channelId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["channels"] });
+    },
+  });
+}
+
+export function useUpdateChannel(captureId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ channelId, request }: { channelId: string; request: UpdateChannelRequest }) =>
+      updateChannel(channelId, request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["channels", captureId] });
     },
   });
 }
