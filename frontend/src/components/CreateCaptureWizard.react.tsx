@@ -48,18 +48,15 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
       : selectedRecipe.centerHz;
 
     try {
-      // Create the capture
+      // Create the capture without default channel since we'll create recipe-specific channels
       const newCapture = await createCapture.mutateAsync({
         deviceId: selectedDeviceId || undefined,
         centerHz,
         sampleRate: selectedRecipe.sampleRate,
         gain: selectedRecipe.gain || undefined,
         bandwidth: selectedRecipe.bandwidth || undefined,
+        createDefaultChannel: false,
       });
-
-      // Delete the default channel (offset 0) that was auto-created
-      // We'll create recipe-specific channels instead
-      // Note: We need to implement delete channel first, so for now we'll just create additional channels
 
       // Create channels from recipe
       for (const channelDef of selectedRecipe.channels) {

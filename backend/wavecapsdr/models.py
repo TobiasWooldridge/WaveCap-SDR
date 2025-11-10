@@ -42,6 +42,7 @@ class CreateCaptureRequest(BaseModel):
     streamFormat: Optional[str] = None
     dcOffsetAuto: bool = True
     iqBalanceAuto: bool = True
+    createDefaultChannel: bool = True
 
 
 class UpdateCaptureRequest(BaseModel):

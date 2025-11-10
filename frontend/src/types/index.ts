@@ -70,6 +70,7 @@ export interface CreateCaptureRequest {
   streamFormat?: string;
   dcOffsetAuto?: boolean;
   iqBalanceAuto?: boolean;
+  createDefaultChannel?: boolean;
 }
 
 export interface CreateChannelRequest {

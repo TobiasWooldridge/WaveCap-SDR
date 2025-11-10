@@ -205,14 +205,15 @@ def create_capture(
         iq_balance_auto=req.iqBalanceAuto,
     )
 
-    # Automatically create a default channel with offset 0
-    state.captures.create_channel(
-        cid=cap.cfg.id,
-        mode="wbfm",
-        offset_hz=0,
-        audio_rate=state.config.stream.default_audio_rate,
-        squelch_db=-60,
-    )
+    # Automatically create a default channel with offset 0 (unless disabled)
+    if req.createDefaultChannel:
+        state.captures.create_channel(
+            cid=cap.cfg.id,
+            mode="wbfm",
+            offset_hz=0,
+            audio_rate=state.config.stream.default_audio_rate,
+            squelch_db=-60,
+        )
 
     return _to_capture_model(cap)
 
