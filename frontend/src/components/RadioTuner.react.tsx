@@ -66,6 +66,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Local state for immediate UI updates
+  const [localDeviceId, setLocalDeviceId] = useState(capture.deviceId);
   const [localFreq, setLocalFreq] = useState(capture.centerHz);
   const [localGain, setLocalGain] = useState(capture.gain ?? 0);
   const [localBandwidth, setLocalBandwidth] = useState(capture.bandwidth ?? 200000);
@@ -82,6 +83,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
 
   // Sync local state when capture updates from backend
   useEffect(() => {
+    setLocalDeviceId(capture.deviceId);
     setLocalFreq(capture.centerHz);
     setLocalGain(capture.gain ?? 0);
     setLocalBandwidth(capture.bandwidth ?? 200000);
@@ -187,6 +189,10 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
     const newDevice = devices?.find((d) => d.id === deviceId);
     if (!newDevice) return;
 
+    // Update local state immediately for responsive UI
+    setLocalDeviceId(deviceId);
+    setLocalSampleRate(newDevice.sampleRates[0]);
+
     updateMutation.mutate({
       captureId: capture.id,
       request: {
@@ -254,7 +260,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
               </label>
               <select
                 className="form-select"
-                value={capture.deviceId}
+                value={localDeviceId}
                 onChange={(e) => handleDeviceChange(e.target.value)}
                 disabled={isRunning}
               >
