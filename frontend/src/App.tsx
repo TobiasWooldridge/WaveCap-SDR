@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Radio, Plus, Wand2 } from "lucide-react";
+import { Radio, Plus, Wand2, Trash2 } from "lucide-react";
 import { useDevices } from "./hooks/useDevices";
-import { useCaptures, useCreateCapture } from "./hooks/useCaptures";
+import { useCaptures, useCreateCapture, useDeleteCapture } from "./hooks/useCaptures";
 import { useChannels } from "./hooks/useChannels";
 import { RadioTuner } from "./components/RadioTuner.react";
 import { ChannelManager } from "./components/ChannelManager.react";
@@ -32,18 +32,38 @@ interface CaptureListItemProps {
   captureDevice: any;
   isSelected: boolean;
   onClick: () => void;
+  onDelete: () => void;
 }
 
-function CaptureListItem({ capture, captureDevice, isSelected, onClick }: CaptureListItemProps) {
+function CaptureListItem({ capture, captureDevice, isSelected, onClick, onDelete }: CaptureListItemProps) {
   const { data: channels } = useChannels(capture.id);
 
   return (
-    <button
+    <div
       className={`list-group-item list-group-item-action ${isSelected ? "active" : ""}`}
+      style={{ cursor: "pointer", position: "relative" }}
       onClick={onClick}
     >
       <Flex direction="column" gap={1}>
-        <div className="fw-semibold">{formatCaptureId(capture.id)}</div>
+        <Flex justify="between" align="start">
+          <div className="fw-semibold">{formatCaptureId(capture.id)}</div>
+          <button
+            className="btn btn-sm p-0 ms-2"
+            style={{
+              width: "20px",
+              height: "20px",
+              opacity: isSelected ? 0.8 : 0.5,
+              color: isSelected ? "white" : "inherit"
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            title="Delete capture"
+          >
+            <Trash2 size={14} />
+          </button>
+        </Flex>
         {captureDevice && (
           <div className="small opacity-75">
             {captureDevice.driver.toUpperCase()}
@@ -70,7 +90,7 @@ function CaptureListItem({ capture, captureDevice, isSelected, onClick }: Captur
           {capture.state}
         </span>
       </Flex>
-    </button>
+    </div>
   );
 }
 
@@ -78,6 +98,7 @@ function AppContent() {
   const { data: devices, isLoading: devicesLoading } = useDevices();
   const { data: captures, isLoading: capturesLoading } = useCaptures();
   const createCapture = useCreateCapture();
+  const deleteCapture = useDeleteCapture();
 
   // Initialize from URL query parameter
   const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(() => {
@@ -250,6 +271,13 @@ function AppContent() {
                         captureDevice={captureDevice}
                         isSelected={selectedCapture?.id === capture.id}
                         onClick={() => setSelectedCaptureId(capture.id)}
+                        onDelete={() => {
+                          deleteCapture.mutate(capture.id);
+                          // If we're deleting the currently selected capture, clear selection
+                          if (selectedCaptureId === capture.id) {
+                            setSelectedCaptureId(null);
+                          }
+                        }}
                       />
                     );
                   })

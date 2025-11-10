@@ -66,6 +66,16 @@ async function stopCapture(captureId: string): Promise<Capture> {
   return response.json();
 }
 
+async function deleteCapture(captureId: string): Promise<void> {
+  const response = await fetch(`/api/v1/captures/${captureId}`, {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to delete capture");
+  }
+}
+
 export function useCaptures() {
   return useQuery({
     queryKey: ["captures"],
@@ -115,6 +125,18 @@ export function useStopCapture() {
     mutationFn: (captureId: string) => stopCapture(captureId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["captures"] });
+    },
+  });
+}
+
+export function useDeleteCapture() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (captureId: string) => deleteCapture(captureId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["captures"] });
+      queryClient.invalidateQueries({ queryKey: ["channels"] });
     },
   });
 }
