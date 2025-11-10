@@ -293,6 +293,39 @@ def save_config(config: AppConfig, path_str: str) -> None:
         presets_data[name] = preset_dict
     existing_data["presets"] = presets_data
 
+    # Recipes
+    recipes_data = {}
+    for name, recipe in config.recipes.items():
+        # Serialize channels
+        channels_data = []
+        for ch in recipe.channels:
+            ch_dict = {
+                "offset_hz": ch.offset_hz,
+                "name": ch.name,
+                "mode": ch.mode,
+                "squelch_db": ch.squelch_db,
+            }
+            channels_data.append(ch_dict)
+
+        recipe_dict = {
+            "name": recipe.name,
+            "description": recipe.description,
+            "category": recipe.category,
+            "center_hz": int(recipe.center_hz),
+            "sample_rate": recipe.sample_rate,
+            "channels": channels_data,
+            "allow_frequency_input": recipe.allow_frequency_input,
+        }
+        if recipe.gain is not None:
+            recipe_dict["gain"] = recipe.gain
+        if recipe.bandwidth is not None:
+            recipe_dict["bandwidth"] = recipe.bandwidth
+        if recipe.frequency_label is not None:
+            recipe_dict["frequency_label"] = recipe.frequency_label
+
+        recipes_data[name] = recipe_dict
+    existing_data["recipes"] = recipes_data
+
     # Captures list
     captures_data = []
     for cap in config.captures:
