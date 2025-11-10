@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Radio, Plus, Wand2, Trash2 } from "lucide-react";
+import { Radio, Plus, Wand2, X } from "lucide-react";
 import { useDevices } from "./hooks/useDevices";
 import { useCaptures, useCreateCapture, useDeleteCapture } from "./hooks/useCaptures";
 import { useChannels } from "./hooks/useChannels";
@@ -12,7 +12,6 @@ import { formatFrequencyMHz } from "./utils/frequency";
 import Flex from "./components/primitives/Flex.react";
 import Spinner from "./components/primitives/Spinner.react";
 import Button from "./components/primitives/Button.react";
-import { FrequencyLabel } from "./components/FrequencyLabel.react";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -29,72 +28,46 @@ function formatCaptureId(id: string): string {
   return match ? `Capture ${match[1]}` : id;
 }
 
-interface CaptureListItemProps {
+interface CaptureTabProps {
   capture: any;
   captureDevice: any;
   isSelected: boolean;
   onClick: () => void;
   onDelete: () => void;
+  channelCount: number;
 }
 
-function CaptureListItem({ capture, captureDevice, isSelected, onClick, onDelete }: CaptureListItemProps) {
-  const { data: channels } = useChannels(capture.id);
+function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClick, onDelete, channelCount }: CaptureTabProps) {
+  const stateColor = capture.state === "running" ? "success" : capture.state === "failed" ? "danger" : "secondary";
 
   return (
-    <div
-      className={`list-group-item list-group-item-action ${isSelected ? "active" : ""}`}
-      style={{ cursor: "pointer", position: "relative" }}
+    <button
+      className={`btn btn-sm d-flex align-items-center gap-2 ${isSelected ? 'btn-primary' : 'btn-outline-primary'}`}
       onClick={onClick}
+      style={{
+        position: "relative",
+        borderRadius: "0.375rem 0.375rem 0 0",
+        borderBottom: isSelected ? "2px solid var(--bs-primary)" : "none",
+        whiteSpace: "nowrap",
+      }}
     >
-      <Flex direction="column" gap={1}>
-        <Flex justify="between" align="start">
-          <div className="fw-semibold">{formatCaptureId(capture.id)}</div>
-          <button
-            className="btn btn-sm p-0 ms-2"
-            style={{
-              width: "20px",
-              height: "20px",
-              opacity: isSelected ? 0.8 : 0.5,
-              color: isSelected ? "white" : "inherit"
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            title="Delete capture"
-          >
-            <Trash2 size={14} />
-          </button>
-        </Flex>
-        {captureDevice && (
-          <div className="small opacity-75">
-            {captureDevice.driver.toUpperCase()}
-          </div>
-        )}
-        <div className="small">
-          {formatFrequencyMHz(capture.centerHz)} MHz
-          <div><FrequencyLabel frequencyHz={capture.centerHz} /></div>
-        </div>
-        {channels && channels.length > 0 && (
-          <div className="small opacity-75">
-            {channels.length} channel{channels.length !== 1 ? "s" : ""}
-            {channels.length > 0 && (
-              <div className="mt-1">
-                {channels.map((ch) => (
-                  <div key={ch.id}>
-                    {formatFrequencyMHz(capture.centerHz + ch.offsetHz)} MHz
-                    <div><FrequencyLabel frequencyHz={capture.centerHz + ch.offsetHz} autoName={ch.autoName} /></div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        <span className={`badge bg-${capture.state === "running" ? "success" : capture.state === "failed" ? "danger" : "secondary"} w-auto`}>
-          {capture.state}
-        </span>
-      </Flex>
-    </div>
+      <span className={`badge bg-${stateColor}`} style={{ width: "8px", height: "8px", padding: 0, borderRadius: "50%" }}></span>
+      <span className="fw-semibold">{formatCaptureId(capture.id)}</span>
+      <span className="text-muted small">
+        {formatFrequencyMHz(capture.centerHz)} MHz • {channelCount} ch
+      </span>
+      <button
+        className="btn btn-sm p-0 ms-1"
+        style={{ width: "16px", height: "16px", lineHeight: 1 }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete();
+        }}
+        title="Delete capture"
+      >
+        <X size={12} />
+      </button>
+    </button>
   );
 }
 
@@ -109,7 +82,7 @@ function AppContent() {
     const params = new URLSearchParams(window.location.search);
     return params.get('capture');
   });
-  const [showNewCapture, setShowNewCapture] = useState(false);
+  const [showNewCaptureModal, setShowNewCaptureModal] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
   const [newCaptureDeviceId, setNewCaptureDeviceId] = useState<string>("");
   const [newCaptureFreq, setNewCaptureFreq] = useState<number>(100_000_000);
@@ -148,7 +121,7 @@ function AppContent() {
       sampleRate,
     }, {
       onSuccess: (newCapture) => {
-        setShowNewCapture(false);
+        setShowNewCaptureModal(false);
         setSelectedCaptureId(newCapture.id);
       },
     });
@@ -172,107 +145,27 @@ function AppContent() {
 
   return (
     <div className="min-vh-100 bg-light">
-      {/* Header */}
-      <nav className="navbar navbar-dark bg-primary shadow-sm mb-4">
+      {/* Header with Capture Tabs */}
+      <nav className="navbar navbar-dark bg-primary shadow-sm mb-0">
         <div className="container-fluid">
-          <Flex align="center" gap={2}>
-            <Radio size={28} />
-            <span className="navbar-brand mb-0 h1">WaveCap SDR</span>
-          </Flex>
-          <span className="badge bg-light text-dark">
-            {devices?.length ?? 0} device{devices?.length !== 1 ? "s" : ""} • {captures?.length ?? 0} capture{captures?.length !== 1 ? "s" : ""}
-          </span>
-        </div>
-      </nav>
+          <Flex align="center" gap={3} style={{ flex: 1 }}>
+            {/* Branding */}
+            <Flex align="center" gap={2}>
+              <Radio size={24} />
+              <span className="navbar-brand mb-0 h5">WaveCap SDR</span>
+            </Flex>
 
-      <div className="container-fluid">
-        <div className="row g-4">
-          {/* Capture Selector Sidebar */}
-          <div className="col-lg-4 col-xl-3">
-            <div className="card shadow-sm">
-              <div className="card-header bg-body-tertiary">
-                <Flex justify="between" align="center">
-                  <h3 className="h6 mb-0">Captures</h3>
-                  <Flex gap={1}>
-                    <Button
-                      use="success"
-                      size="sm"
-                      onClick={() => setShowWizard(true)}
-                      title="Use Recipe Wizard"
-                    >
-                      <Wand2 size={16} />
-                    </Button>
-                    <Button
-                      use="primary"
-                      size="sm"
-                      onClick={() => setShowNewCapture(!showNewCapture)}
-                      title="Manual Setup"
-                    >
-                      <Plus size={16} />
-                    </Button>
-                  </Flex>
-                </Flex>
-              </div>
-
-              {/* New Capture Form */}
-              {showNewCapture && (
-                <div className="card-body border-bottom">
-                  <Flex direction="column" gap={3}>
-                    <h6 className="mb-0">New Capture</h6>
-
-                    <Flex direction="column" gap={1}>
-                      <label className="form-label small mb-1">Device</label>
-                      <select
-                        className="form-select form-select-sm"
-                        value={newCaptureDeviceId}
-                        onChange={(e) => setNewCaptureDeviceId(e.target.value)}
-                      >
-                        {devices?.map((device) => (
-                          <option key={device.id} value={device.id}>
-                            {device.driver.toUpperCase()} - {device.label.substring(0, 40)}
-                          </option>
-                        ))}
-                      </select>
-                    </Flex>
-
-                    <Flex direction="column" gap={1}>
-                      <label className="form-label small mb-1">Frequency (MHz)</label>
-                      <input
-                        type="number"
-                        className="form-control form-control-sm"
-                        value={(newCaptureFreq / 1_000_000).toFixed(3)}
-                        onChange={(e) => setNewCaptureFreq(parseFloat(e.target.value) * 1_000_000)}
-                        step="0.1"
-                      />
-                    </Flex>
-
-                    <Flex gap={2}>
-                      <Button
-                        use="success"
-                        size="sm"
-                        onClick={handleCreateCapture}
-                        disabled={createCapture.isPending}
-                      >
-                        Create
-                      </Button>
-                      <Button
-                        use="secondary"
-                        size="sm"
-                        onClick={() => setShowNewCapture(false)}
-                      >
-                        Cancel
-                      </Button>
-                    </Flex>
-                  </Flex>
-                </div>
-              )}
-
-              <div className="list-group list-group-flush">
-                {captures && captures.length > 0 ? (
-                  captures.map((capture) => {
+            {/* Capture Tabs */}
+            <Flex align="center" gap={2} style={{ flex: 1 }}>
+              {captures && captures.length > 0 && (
+                <>
+                  {captures.map((capture) => {
                     const captureDevice = devices?.find((d) => d.id === capture.deviceId);
+                    const { data: channels } = useChannels(capture.id);
+                    const channelCount = channels?.length ?? 0;
+
                     return (
-                      <CaptureListItem
+                      <CaptureTab
                         key={capture.id}
                         capture={capture}
                         captureDevice={captureDevice}
@@ -280,41 +173,125 @@ function AppContent() {
                         onClick={() => setSelectedCaptureId(capture.id)}
                         onDelete={() => {
                           deleteCapture.mutate(capture.id);
-                          // If we're deleting the currently selected capture, clear selection
                           if (selectedCaptureId === capture.id) {
                             setSelectedCaptureId(null);
                           }
                         }}
+                        channelCount={channelCount}
                       />
                     );
-                  })
-                ) : (
-                  <div className="list-group-item text-muted small">
-                    No captures. Click + to create one.
-                  </div>
-                )}
+                  })}
+                </>
+              )}
+
+              {/* Add Capture Buttons */}
+              <Flex gap={1}>
+                <Button
+                  use="success"
+                  size="sm"
+                  onClick={() => setShowWizard(true)}
+                  title="Use Recipe Wizard"
+                >
+                  <Wand2 size={16} />
+                </Button>
+                <Button
+                  use="light"
+                  size="sm"
+                  onClick={() => setShowNewCaptureModal(true)}
+                  title="Manual Setup"
+                >
+                  <Plus size={16} />
+                </Button>
+              </Flex>
+            </Flex>
+          </Flex>
+
+          {/* Device Count Badge */}
+          <span className="badge bg-light text-dark">
+            {devices?.length ?? 0} device{devices?.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+      </nav>
+
+      {/* Main Content - Full Width */}
+      <div className="container-fluid px-4 py-3">
+        {selectedCapture ? (
+          <Flex direction="column" gap={4}>
+            {/* Sticky Spectrum Analyzer */}
+            <div style={{ position: "sticky", top: 0, zIndex: 100 }}>
+              <SpectrumAnalyzer capture={selectedCapture} channels={selectedCaptureChannels} height={250} />
+            </div>
+
+            {/* Radio Tuner and Channel Manager */}
+            <RadioTuner capture={selectedCapture} device={selectedDevice} />
+            <ChannelManager capture={selectedCapture} />
+          </Flex>
+        ) : (
+          <div className="card shadow-sm">
+            <div className="card-body text-center py-5">
+              <p className="text-muted">No captures available. Click + to create one or use the Wizard.</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* New Capture Modal */}
+      {showNewCaptureModal && (
+        <div className="modal d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setShowNewCaptureModal(false)}>
+          <div className="modal-dialog modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">New Capture</h5>
+                <button type="button" className="btn-close" onClick={() => setShowNewCaptureModal(false)}></button>
+              </div>
+              <div className="modal-body">
+                <Flex direction="column" gap={3}>
+                  <Flex direction="column" gap={1}>
+                    <label className="form-label">Device</label>
+                    <select
+                      className="form-select"
+                      value={newCaptureDeviceId}
+                      onChange={(e) => setNewCaptureDeviceId(e.target.value)}
+                    >
+                      {devices?.map((device) => (
+                        <option key={device.id} value={device.id}>
+                          {device.driver.toUpperCase()} - {device.label.substring(0, 60)}
+                        </option>
+                      ))}
+                    </select>
+                  </Flex>
+
+                  <Flex direction="column" gap={1}>
+                    <label className="form-label">Frequency (MHz)</label>
+                    <input
+                      type="number"
+                      className="form-control"
+                      value={(newCaptureFreq / 1_000_000).toFixed(3)}
+                      onChange={(e) => setNewCaptureFreq(parseFloat(e.target.value) * 1_000_000)}
+                      step="0.1"
+                    />
+                  </Flex>
+                </Flex>
+              </div>
+              <div className="modal-footer">
+                <Button
+                  use="secondary"
+                  onClick={() => setShowNewCaptureModal(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  use="success"
+                  onClick={handleCreateCapture}
+                  disabled={createCapture.isPending}
+                >
+                  Create
+                </Button>
               </div>
             </div>
           </div>
-
-          {/* Main Content - Radio Tuner + Spectrum + Channels */}
-          <div className="col-lg-8 col-xl-9">
-            {selectedCapture ? (
-              <Flex direction="column" gap={4}>
-                <SpectrumAnalyzer capture={selectedCapture} channels={selectedCaptureChannels} height={200} />
-                <RadioTuner capture={selectedCapture} device={selectedDevice} />
-                <ChannelManager capture={selectedCapture} />
-              </Flex>
-            ) : (
-              <div className="card shadow-sm">
-                <div className="card-body text-center py-5">
-                  <p className="text-muted">No capture selected. Create a new capture to get started.</p>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
-      </div>
+      )}
 
       {/* Wizard Modal */}
       {showWizard && (
