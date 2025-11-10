@@ -49,6 +49,7 @@ export interface Channel {
 }
 
 export interface UpdateCaptureRequest {
+  deviceId?: string;
   centerHz?: number;
   sampleRate?: number;
   gain?: number;
