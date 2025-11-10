@@ -53,7 +53,7 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
     >
       <span className={`badge bg-${stateColor}`} style={{ width: "8px", height: "8px", padding: 0, borderRadius: "50%" }}></span>
       <span className="fw-semibold">{formatCaptureId(capture.id)}</span>
-      <span className="text-muted small">
+      <span className={`small ${isSelected ? 'text-white-50' : 'text-muted'}`}>
         {formatFrequencyMHz(capture.centerHz)} MHz • {channelCount} ch
       </span>
       <button

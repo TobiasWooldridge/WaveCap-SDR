@@ -1,6 +1,6 @@
 import { forwardRef, useState, type InputHTMLAttributes } from "react";
 import clsx from "clsx";
-import { ChevronUp, ChevronDown, ChevronsUp, ChevronsDown } from "lucide-react";
+import { ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Info } from "lucide-react";
 import Flex from "./Flex.react";
 import Button from "./Button.react";
 
@@ -101,10 +101,16 @@ const Slider = forwardRef<HTMLInputElement, SliderProps>(
     return (
       <Flex direction="column" gap={2} className={clsx("slider-container", className)}>
         <Flex justify="between" align="center">
-          <Flex direction="column" gap={0}>
-            <label className="form-label mb-0 fw-semibold">{label}</label>
-            {info && <small className="text-muted">{info}</small>}
-          </Flex>
+          <label className="form-label mb-0 fw-semibold">
+            <Flex align="center" gap={1}>
+              <span>{label}</span>
+              {info && (
+                <span title={info} style={{ cursor: "help", display: "flex", alignItems: "center" }}>
+                  <Info size={14} className="text-muted" />
+                </span>
+              )}
+            </Flex>
+          </label>
 
           <Flex align="center" gap={1}>
             {/* Coarse decrement */}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronUp, ChevronDown } from "lucide-react";
+import { ChevronUp, ChevronDown, Info } from "lucide-react";
 import Flex from "./Flex.react";
 
 export interface PlaceValue {
@@ -94,10 +94,16 @@ export default function NumericSelector({
   return (
     <Flex direction="column" gap={2}>
       <Flex justify="between" align="center">
-        <Flex direction="column" gap={0}>
-          <label className="form-label mb-0 fw-semibold">{label}</label>
-          {info && <small className="text-muted">{info}</small>}
-        </Flex>
+        <label className="form-label mb-0 fw-semibold">
+          <Flex align="center" gap={1}>
+            <span>{label}</span>
+            {info && (
+              <span title={info} style={{ cursor: "help", display: "flex", alignItems: "center" }}>
+                <Info size={14} className="text-muted" />
+              </span>
+            )}
+          </Flex>
+        </label>
         {units && units.length > 1 && (
           <select
             className="form-select form-select-sm"

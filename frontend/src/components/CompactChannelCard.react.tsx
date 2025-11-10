@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Play, Pause, Trash2, Copy, CheckCircle, Settings, ChevronUp, ChevronDown } from "lucide-react";
+import { Volume2, VolumeX, Trash2, Copy, CheckCircle, Settings, ChevronUp, ChevronDown } from "lucide-react";
 import type { Capture, Channel } from "../types";
 import { useUpdateChannel, useDeleteChannel } from "../hooks/useChannels";
 import { formatFrequencyMHz } from "../utils/frequency";
@@ -66,10 +66,13 @@ export const CompactChannelCard = ({
               use={isPlaying ? "warning" : "success"}
               size="sm"
               onClick={onTogglePlay}
-              title={isPlaying ? "Pause" : "Play"}
-              className="p-1"
+              title={isPlaying ? "Stop Listening" : "Listen Now"}
+              className="px-2 py-1"
             >
-              {isPlaying ? <Pause size={14} /> : <Play size={14} />}
+              <Flex align="center" gap={1}>
+                {isPlaying ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                <span style={{ fontSize: "11px" }}>{isPlaying ? "Stop" : "Listen"}</span>
+              </Flex>
             </Button>
             <Button
               use="secondary"
