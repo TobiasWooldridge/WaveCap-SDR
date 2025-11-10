@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 from .config import AppConfig
 from .devices.base import Device, DeviceDriver, StreamHandle
-from .dsp.fm import wbfm_demod
+from .dsp.fm import wbfm_demod, nbfm_demod
 from .encoders import create_encoder, AudioEncoder
 
 
@@ -307,9 +307,14 @@ class Channel:
     async def process_iq_chunk(self, iq: np.ndarray, sample_rate: int) -> None:
         if self.state != "running":
             return
-        if self.cfg.mode == "wbfm":
+
+        if self.cfg.mode in ("wbfm", "nbfm"):
+            # FM demodulation (wide or narrow band)
             base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
-            audio = wbfm_demod(base, sample_rate, self.cfg.audio_rate)
+            if self.cfg.mode == "wbfm":
+                audio = wbfm_demod(base, sample_rate, self.cfg.audio_rate)
+            else:  # nbfm
+                audio = nbfm_demod(base, sample_rate, self.cfg.audio_rate)
 
             # Calculate signal power in dB (always, for metrics)
             if audio.size > 0:
@@ -327,8 +332,30 @@ class Channel:
                     audio = np.zeros_like(audio)
 
             await self._broadcast(audio)
+
+        elif self.cfg.mode in ("raw", "p25"):
+            # Raw IQ output or P25 (for external decoding)
+            # Frequency shift to extract the desired channel
+            base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+
+            # Calculate signal power for metrics
+            if base.size > 0:
+                power = np.mean(np.abs(base) ** 2)
+                power_db = 10.0 * np.log10(power + 1e-10)
+                self.signal_power_db = float(power_db)
+            else:
+                self.signal_power_db = None
+
+            # Convert IQ to interleaved I/Q float32 for streaming
+            # Format: [I0, Q0, I1, Q1, ...]
+            iq_interleaved = np.empty(base.size * 2, dtype=np.float32)
+            iq_interleaved[0::2] = base.real
+            iq_interleaved[1::2] = base.imag
+
+            await self._broadcast(iq_interleaved)
+
         else:
-            # Unknown mode: ignore for now
+            # Unknown mode: ignore
             return
 
 

@@ -37,7 +37,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
 
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [newChannelFrequency, setNewChannelFrequency] = useState<number>(capture.centerHz);
-  const [newChannelMode, setNewChannelMode] = useState<"wbfm" | "nfm" | "am">("wbfm");
+  const [newChannelMode, setNewChannelMode] = useState<"wbfm" | "nbfm" | "am" | "ssb" | "raw" | "p25">("wbfm");
   const [newChannelSquelch, setNewChannelSquelch] = useState<number>(-60);
   const [newChannelAudioRate, setNewChannelAudioRate] = useState<number>(48000);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
@@ -255,8 +255,11 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
                 onChange={(e) => setNewChannelMode(e.target.value as any)}
               >
                 <option value="wbfm">WBFM (Wideband FM)</option>
-                <option value="nfm">NFM (Narrowband FM)</option>
+                <option value="nbfm">NBFM (Narrowband FM)</option>
                 <option value="am">AM</option>
+                <option value="ssb">SSB</option>
+                <option value="raw">Raw IQ</option>
+                <option value="p25">P25 (Trunked)</option>
               </select>
             </Flex>
 
@@ -415,8 +418,11 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
                           }
                         >
                           <option value="wbfm">WBFM (Wideband FM)</option>
-                          <option value="nfm">NFM (Narrowband FM)</option>
+                          <option value="nbfm">NBFM (Narrowband FM)</option>
                           <option value="am">AM</option>
+                          <option value="ssb">SSB</option>
+                          <option value="raw">Raw IQ</option>
+                          <option value="p25">P25 (Trunked)</option>
                         </select>
                       </Flex>
 

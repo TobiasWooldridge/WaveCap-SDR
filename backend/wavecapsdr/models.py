@@ -6,7 +6,7 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field, ConfigDict
 
 
-Mode = Literal["wbfm", "am", "ssb"]
+Mode = Literal["wbfm", "nbfm", "am", "ssb", "raw", "p25"]
 StreamFormat = Literal["iq16", "f32", "pcm16"]
 Transport = Literal["ws", "http"]
 

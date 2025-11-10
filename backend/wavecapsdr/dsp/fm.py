@@ -54,3 +54,17 @@ def wbfm_demod(iq: np.ndarray, sample_rate: int, audio_rate: int = 48_000) -> np
     np.clip(audio, -1.0, 1.0, out=audio)
     return audio
 
+
+def nbfm_demod(iq: np.ndarray, sample_rate: int, audio_rate: int = 48_000) -> np.ndarray:
+    """Narrow band FM demodulation (used for voice communications, public safety, etc)."""
+    fm = quadrature_demod(iq)
+    # NBFM typically uses shorter deemphasis time constant than WBFM
+    # Or no deemphasis at all for some systems
+    # Normalize
+    if fm.size:
+        fm = fm / max(1e-6, np.max(np.abs(fm)))
+    audio = resample_linear(fm, sample_rate, audio_rate)
+    # Hard clip to [-1,1]
+    np.clip(audio, -1.0, 1.0, out=audio)
+    return audio
+
