@@ -71,6 +71,30 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
   );
 }
 
+// Wrapper component that can use hooks properly
+function CaptureTabWithData({ capture, devices, isSelected, onClick, onDelete }: {
+  capture: any;
+  devices: any[] | undefined;
+  isSelected: boolean;
+  onClick: () => void;
+  onDelete: () => void;
+}) {
+  const { data: channels } = useChannels(capture.id);
+  const captureDevice = devices?.find((d) => d.id === capture.deviceId);
+  const channelCount = channels?.length ?? 0;
+
+  return (
+    <CaptureTab
+      capture={capture}
+      captureDevice={captureDevice}
+      isSelected={isSelected}
+      onClick={onClick}
+      onDelete={onDelete}
+      channelCount={channelCount}
+    />
+  );
+}
+
 function AppContent() {
   const { data: devices, isLoading: devicesLoading } = useDevices();
   const { data: captures, isLoading: capturesLoading } = useCaptures();
@@ -159,28 +183,21 @@ function AppContent() {
             <Flex align="center" gap={2} style={{ flex: 1 }}>
               {captures && captures.length > 0 && (
                 <>
-                  {captures.map((capture) => {
-                    const captureDevice = devices?.find((d) => d.id === capture.deviceId);
-                    const { data: channels } = useChannels(capture.id);
-                    const channelCount = channels?.length ?? 0;
-
-                    return (
-                      <CaptureTab
-                        key={capture.id}
-                        capture={capture}
-                        captureDevice={captureDevice}
-                        isSelected={selectedCapture?.id === capture.id}
-                        onClick={() => setSelectedCaptureId(capture.id)}
-                        onDelete={() => {
-                          deleteCapture.mutate(capture.id);
-                          if (selectedCaptureId === capture.id) {
-                            setSelectedCaptureId(null);
-                          }
-                        }}
-                        channelCount={channelCount}
-                      />
-                    );
-                  })}
+                  {captures.map((capture) => (
+                    <CaptureTabWithData
+                      key={capture.id}
+                      capture={capture}
+                      devices={devices}
+                      isSelected={selectedCapture?.id === capture.id}
+                      onClick={() => setSelectedCaptureId(capture.id)}
+                      onDelete={() => {
+                        deleteCapture.mutate(capture.id);
+                        if (selectedCaptureId === capture.id) {
+                          setSelectedCaptureId(null);
+                        }
+                      }}
+                    />
+                  ))}
                 </>
               )}
 
