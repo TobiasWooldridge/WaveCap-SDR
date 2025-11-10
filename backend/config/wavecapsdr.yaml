@@ -227,7 +227,7 @@ recipes:
     bandwidth: 1800000
   sa_grn_p25:
     name: SA GRN P25 Trunking
-    description: South Australia Government Radio Network (P25 Phase 1). Configure control channel frequency for your area. Outputs raw IQ for external P25 decoder (OP25/trunk-recorder).
+    description: South Australia Government Radio Network (P25 Phase 1). Built-in soft trunking decoder monitors control channel for voice grants and decodes TSBK messages. Configure control channel frequency for your area.
     category: Public Safety
     center_hz: 406000000
     sample_rate: 2000000
@@ -242,7 +242,7 @@ recipes:
     bandwidth: 1800000
   wa_state_patrol_p25:
     name: WA State Patrol P25
-    description: Washington State Patrol P25 trunked system (700 MHz). Configure with local control channel. King Simulcast example 774.03125 MHz. Outputs raw IQ for external P25 decoder.
+    description: Washington State Patrol P25 trunked system (700 MHz). Built-in soft trunking decoder monitors control channel for voice grants. Configure with local control channel. King Simulcast example 774.03125 MHz.
     category: Public Safety
     center_hz: 774031250
     sample_rate: 2000000
