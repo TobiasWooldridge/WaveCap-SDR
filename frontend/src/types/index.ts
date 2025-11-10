@@ -41,6 +41,8 @@ export interface Channel {
   offsetHz: number;
   audioRate: number;
   squelchDb: number | null;
+  name: string | null;  // User-provided name
+  autoName: string | null;  // Auto-generated contextual name (e.g., "Marine Ch 16")
   signalPowerDb: number | null;
   rssiDb: number | null;  // Server-side RSSI from IQ
   snrDb: number | null;   // Server-side SNR estimate
@@ -81,6 +83,7 @@ export interface CreateChannelRequest {
   offsetHz?: number;
   audioRate?: number;
   squelchDb?: number | null;
+  name?: string | null;
 }
 
 export interface UpdateChannelRequest {
@@ -88,6 +91,7 @@ export interface UpdateChannelRequest {
   offsetHz?: number;
   audioRate?: number;
   squelchDb?: number | null;
+  name?: string | null;
 }
 
 export interface RecipeChannel {

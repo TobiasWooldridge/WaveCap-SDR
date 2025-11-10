@@ -82,6 +82,7 @@ class CreateChannelRequest(BaseModel):
     offsetHz: Optional[float] = 0.0
     audioRate: Optional[int] = None
     squelchDb: Optional[float] = None
+    name: Optional[str] = None  # User-provided name (optional)
 
 
 class UpdateChannelRequest(BaseModel):
@@ -89,6 +90,7 @@ class UpdateChannelRequest(BaseModel):
     offsetHz: Optional[float] = None
     audioRate: Optional[int] = None
     squelchDb: Optional[float] = None
+    name: Optional[str] = None  # User-provided name (optional)
 
 
 class ChannelModel(BaseModel):
@@ -99,6 +101,8 @@ class ChannelModel(BaseModel):
     offsetHz: float
     audioRate: int
     squelchDb: Optional[float] = None
+    name: Optional[str] = None  # User-provided name
+    autoName: Optional[str] = None  # Auto-generated contextual name (e.g., "Marine Ch 16")
     signalPowerDb: Optional[float] = None
     rssiDb: Optional[float] = None  # Server-side RSSI from IQ samples
     snrDb: Optional[float] = None  # Server-side SNR estimate

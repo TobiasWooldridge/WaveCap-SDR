@@ -1,0 +1,301 @@
+# Frequency Band Database for Automatic Channel Naming
+# This file defines radio services, frequency allocations, and channel numbering schemes
+# Used to automatically generate contextual names like "Marine Channel 16" or "FM 90.3"
+
+bands:
+  # FM Broadcast Radio (88-108 MHz)
+  fm_broadcast:
+    name: "FM Radio"
+    freq_min: 88000000  # 88 MHz
+    freq_max: 108000000  # 108 MHz
+    channel_spacing: 200000  # 200 kHz
+    mode: wbfm
+    naming_scheme: "frequency_mhz"  # Will show as "FM 90.3"
+    template: "FM {freq_mhz:.1f}"
+    description: "Commercial FM broadcast radio"
+
+  # Marine VHF Radio (156-162 MHz)
+  marine_vhf:
+    name: "Marine VHF"
+    freq_min: 156000000  # 156 MHz
+    freq_max: 162000000  # 162 MHz
+    mode: nbfm
+    naming_scheme: "fixed_channels"
+    description: "Marine VHF radio channels"
+    channels:
+      156050000: {channel: "01", name: "Port Operations"}
+      156100000: {channel: "02", name: "Port Operations"}
+      156150000: {channel: "03", name: "Port Operations"}
+      156200000: {channel: "04", name: "Port Operations"}
+      156250000: {channel: "05", name: "Port Operations"}
+      156300000: {channel: "06", name: "Intership Safety"}
+      156350000: {channel: "07", name: "Commercial"}
+      156400000: {channel: "08", name: "Commercial (Intership)"}
+      156450000: {channel: "09", name: "Boater Calling"}
+      156500000: {channel: "10", name: "Commercial"}
+      156550000: {channel: "11", name: "Commercial"}
+      156600000: {channel: "12", name: "Port Operations"}
+      156650000: {channel: "13", name: "Bridge to Bridge"}
+      156700000: {channel: "14", name: "Port Operations"}
+      156750000: {channel: "15", name: "Environmental"}
+      156800000: {channel: "16", name: "Distress/Safety/Calling"}
+      156850000: {channel: "17", name: "State Control"}
+      156900000: {channel: "18", name: "Commercial"}
+      156950000: {channel: "19", name: "Commercial"}
+      157000000: {channel: "20", name: "Port Operations (Duplex)"}
+      157050000: {channel: "21", name: "US Coast Guard"}
+      157100000: {channel: "22", name: "Coast Guard Liaison"}
+      157150000: {channel: "23", name: "US Coast Guard"}
+      157200000: {channel: "24", name: "Public Correspondence (Duplex)"}
+      157250000: {channel: "25", name: "Public Correspondence (Duplex)"}
+      157300000: {channel: "26", name: "Public Correspondence (Duplex)"}
+      157350000: {channel: "27", name: "Public Correspondence (Duplex)"}
+      157400000: {channel: "28", name: "Public Correspondence (Duplex)"}
+      161650000: {channel: "65", name: "Port Operations"}
+      161700000: {channel: "66", name: "Port Operations"}
+      161750000: {channel: "67", name: "Commercial (Bridge)"}
+      161800000: {channel: "68", name: "Non-Commercial"}
+      161850000: {channel: "69", name: "Non-Commercial"}
+      156525000: {channel: "70", name: "Digital Selective Calling (DSC)"}
+      156575000: {channel: "71", name: "Non-Commercial"}
+      156625000: {channel: "72", name: "Non-Commercial (Intership)"}
+      156675000: {channel: "73", name: "Port Operations"}
+      156725000: {channel: "74", name: "Port Operations"}
+      156775000: {channel: "75", name: "Port Operations"}
+      156825000: {channel: "76", name: "Port Operations"}
+      156875000: {channel: "77", name: "Port Operations (Intership)"}
+      156925000: {channel: "78", name: "Non-Commercial"}
+      156975000: {channel: "79", name: "Commercial"}
+      157025000: {channel: "80", name: "Commercial"}
+      157075000: {channel: "81", name: "US Government"}
+      157125000: {channel: "82", name: "US Government"}
+      157175000: {channel: "83", name: "US Coast Guard"}
+
+  # Aviation VHF (118-137 MHz)
+  aviation_vhf:
+    name: "Aviation VHF"
+    freq_min: 118000000  # 118 MHz
+    freq_max: 137000000  # 137 MHz
+    channel_spacing: 25000  # 25 kHz (8.33 kHz in some regions)
+    mode: am
+    naming_scheme: "frequency_mhz"
+    template: "Aviation {freq_mhz:.3f}"
+    description: "Aviation voice communications"
+    notable_frequencies:
+      121500000: "Emergency (121.5)"
+      123450000: "Air-to-air (123.45)"
+
+  # NOAA Weather Radio (162.4-162.55 MHz)
+  noaa_weather:
+    name: "NOAA Weather Radio"
+    freq_min: 162400000  # 162.4 MHz
+    freq_max: 162550000  # 162.55 MHz
+    mode: nbfm
+    naming_scheme: "fixed_channels"
+    description: "NOAA All Hazards Weather Radio"
+    channels:
+      162550000: {channel: "WX1", name: "162.550"}
+      162400000: {channel: "WX2", name: "162.400"}
+      162475000: {channel: "WX3", name: "162.475"}
+      162425000: {channel: "WX4", name: "162.425"}
+      162450000: {channel: "WX5", name: "162.450"}
+      162500000: {channel: "WX6", name: "162.500"}
+      162525000: {channel: "WX7", name: "162.525"}
+
+  # Citizens Band (CB) Radio (26.965-27.405 MHz)
+  cb_radio:
+    name: "CB Radio"
+    freq_min: 26965000  # 26.965 MHz
+    freq_max: 27405000  # 27.405 MHz
+    mode: am  # or ssb for sideband
+    naming_scheme: "calculated_channel"
+    channel_start: 1
+    channel_base_freq: 26965000  # Channel 1
+    channel_spacing: 10000  # 10 kHz
+    template: "CB Channel {channel}"
+    description: "Citizens Band 27 MHz (11 meter)"
+
+  # FRS (Family Radio Service) 462-467 MHz
+  frs:
+    name: "FRS"
+    freq_min: 462000000  # 462 MHz
+    freq_max: 467000000  # 467 MHz
+    mode: nbfm
+    naming_scheme: "fixed_channels"
+    description: "Family Radio Service"
+    channels:
+      462562500: {channel: "1", name: "FRS/GMRS"}
+      462587500: {channel: "2", name: "FRS/GMRS"}
+      462612500: {channel: "3", name: "FRS/GMRS"}
+      462637500: {channel: "4", name: "FRS/GMRS"}
+      462662500: {channel: "5", name: "FRS/GMRS"}
+      462687500: {channel: "6", name: "FRS/GMRS"}
+      462712500: {channel: "7", name: "FRS/GMRS"}
+      467562500: {channel: "8", name: "FRS"}
+      467587500: {channel: "9", name: "FRS"}
+      467612500: {channel: "10", name: "FRS"}
+      467637500: {channel: "11", name: "FRS"}
+      467662500: {channel: "12", name: "FRS"}
+      467687500: {channel: "13", name: "FRS"}
+      467712500: {channel: "14", name: "FRS"}
+      462550000: {channel: "15", name: "FRS/GMRS"}
+      462575000: {channel: "16", name: "FRS/GMRS"}
+      462600000: {channel: "17", name: "FRS/GMRS"}
+      462625000: {channel: "18", name: "FRS/GMRS"}
+      462650000: {channel: "19", name: "FRS/GMRS"}
+      462675000: {channel: "20", name: "FRS/GMRS"}
+      462700000: {channel: "21", name: "FRS/GMRS"}
+      462725000: {channel: "22", name: "FRS/GMRS"}
+
+  # GMRS (General Mobile Radio Service) repeater inputs
+  gmrs_repeater:
+    name: "GMRS Repeater"
+    freq_min: 467000000  # 467 MHz
+    freq_max: 470000000  # 470 MHz
+    mode: nbfm
+    naming_scheme: "fixed_channels"
+    description: "GMRS repeater outputs (inputs -5 MHz)"
+    channels:
+      467550000: {channel: "15R", name: "GMRS Repeater"}
+      467575000: {channel: "16R", name: "GMRS Repeater"}
+      467600000: {channel: "17R", name: "GMRS Repeater"}
+      467625000: {channel: "18R", name: "GMRS Repeater"}
+      467650000: {channel: "19R", name: "GMRS Repeater"}
+      467675000: {channel: "20R", name: "GMRS Repeater"}
+      467700000: {channel: "21R", name: "GMRS Repeater"}
+      467725000: {channel: "22R", name: "GMRS Repeater"}
+
+  # Amateur Radio 2 Meter Band (144-148 MHz)
+  amateur_2m:
+    name: "2 Meter Amateur"
+    freq_min: 144000000  # 144 MHz
+    freq_max: 148000000  # 148 MHz
+    mode: nbfm  # Also SSB, CW, etc.
+    naming_scheme: "frequency_mhz"
+    template: "2m {freq_mhz:.4f}"
+    description: "Amateur radio 2 meter band (VHF)"
+    notable_frequencies:
+      146520000: "National Simplex Calling"
+
+  # Amateur Radio 70 cm Band (420-450 MHz)
+  amateur_70cm:
+    name: "70cm Amateur"
+    freq_min: 420000000  # 420 MHz
+    freq_max: 450000000  # 450 MHz
+    mode: nbfm  # Also SSB, CW, etc.
+    naming_scheme: "frequency_mhz"
+    template: "70cm {freq_mhz:.4f}"
+    description: "Amateur radio 70 cm band (UHF)"
+    notable_frequencies:
+      446000000: "National Simplex"
+
+  # ISM Band 433 MHz
+  ism_433:
+    name: "ISM 433 MHz"
+    freq_min: 433050000  # 433.05 MHz
+    freq_max: 434790000  # 434.79 MHz
+    mode: raw
+    naming_scheme: "frequency_mhz"
+    template: "ISM {freq_mhz:.3f}"
+    description: "433 MHz ISM band (sensors, remotes, IoT)"
+
+  # ISM Band 915 MHz (US)
+  ism_915:
+    name: "ISM 915 MHz"
+    freq_min: 902000000  # 902 MHz
+    freq_max: 928000000  # 928 MHz
+    mode: raw
+    naming_scheme: "frequency_mhz"
+    template: "ISM {freq_mhz:.3f}"
+    description: "915 MHz ISM band (US) - sensors, LoRa, IoT"
+
+  # Public Safety 700 MHz
+  public_safety_700:
+    name: "Public Safety 700 MHz"
+    freq_min: 763000000  # 763 MHz
+    freq_max: 775000000  # 775 MHz
+    mode: p25  # or nbfm
+    naming_scheme: "frequency_mhz"
+    template: "700 MHz {freq_mhz:.4f}"
+    description: "Public safety 700 MHz band (P25 trunked)"
+
+  # Public Safety 800 MHz
+  public_safety_800:
+    name: "Public Safety 800 MHz"
+    freq_min: 806000000  # 806 MHz
+    freq_max: 869000000  # 869 MHz
+    mode: p25  # or nbfm, dmr
+    naming_scheme: "frequency_mhz"
+    template: "800 MHz {freq_mhz:.4f}"
+    description: "Public safety 800 MHz band (P25/APCO)"
+
+  # AM Broadcast (530-1700 kHz)
+  am_broadcast:
+    name: "AM Radio"
+    freq_min: 530000  # 530 kHz
+    freq_max: 1700000  # 1700 kHz
+    channel_spacing: 10000  # 10 kHz
+    mode: am
+    naming_scheme: "frequency_khz"
+    template: "AM {freq_khz}"
+    description: "AM broadcast radio"
+
+  # Shortwave Broadcast Bands
+  shortwave_broadcast:
+    name: "Shortwave Broadcast"
+    freq_min: 2300000  # 2.3 MHz (120m)
+    freq_max: 26100000  # 26.1 MHz (11m)
+    mode: am  # or ssb
+    naming_scheme: "frequency_mhz"
+    template: "SW {freq_mhz:.3f}"
+    description: "International shortwave broadcast bands"
+    bands:
+      - {min: 2300000, max: 2495000, name: "120m"}
+      - {min: 3200000, max: 3400000, name: "90m"}
+      - {min: 3900000, max: 4000000, name: "75m"}
+      - {min: 4750000, max: 5060000, name: "60m"}
+      - {min: 5900000, max: 6200000, name: "49m"}
+      - {min: 7200000, max: 7450000, name: "41m"}
+      - {min: 9400000, max: 9900000, name: "31m"}
+      - {min: 11600000, max: 12100000, name: "25m"}
+      - {min: 13570000, max: 13870000, name: "22m"}
+      - {min: 15100000, max: 15800000, name: "19m"}
+      - {min: 17480000, max: 17900000, name: "16m"}
+      - {min: 18900000, max: 19020000, name: "15m"}
+      - {min: 21450000, max: 21850000, name: "13m"}
+      - {min: 25670000, max: 26100000, name: "11m"}
+
+  # MURS (Multi-Use Radio Service) 151-154 MHz
+  murs:
+    name: "MURS"
+    freq_min: 151000000  # 151 MHz
+    freq_max: 155000000  # 155 MHz
+    mode: nbfm
+    naming_scheme: "fixed_channels"
+    description: "Multi-Use Radio Service"
+    channels:
+      151820000: {channel: "1", name: "Blue Dot"}
+      151880000: {channel: "2", name: "Green Dot"}
+      151940000: {channel: "3", name: "Brown Dot"}
+      154570000: {channel: "4", name: ""}
+      154600000: {channel: "5", name: ""}
+
+  # Business Band VHF (151-159 MHz)
+  business_vhf:
+    name: "Business VHF"
+    freq_min: 151000000  # 151 MHz
+    freq_max: 159000000  # 159 MHz
+    mode: nbfm
+    naming_scheme: "frequency_mhz"
+    template: "Business {freq_mhz:.4f}"
+    description: "VHF business and industrial radio"
+
+  # Business Band UHF (450-470 MHz)
+  business_uhf:
+    name: "Business UHF"
+    freq_min: 450000000  # 450 MHz
+    freq_max: 470000000  # 470 MHz
+    mode: nbfm
+    naming_scheme: "frequency_mhz"
+    template: "Business {freq_mhz:.4f}"
+    description: "UHF business and industrial radio"

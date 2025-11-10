@@ -21,6 +21,7 @@ from .models import (
     RecipeChannelModel,
 )
 from .state import AppState
+from .frequency_namer import get_frequency_namer
 
 
 router = APIRouter()
@@ -423,6 +424,8 @@ def list_channels(
             offsetHz=ch.cfg.offset_hz,
             audioRate=ch.cfg.audio_rate,
             squelchDb=ch.cfg.squelch_db,
+            name=ch.cfg.name,
+            autoName=ch.cfg.auto_name,
             signalPowerDb=ch.signal_power_db,
             rssiDb=ch.rssi_db,
             snrDb=ch.snr_db,
@@ -445,10 +448,20 @@ def create_channel(
         audio_rate=req.audioRate,
         squelch_db=req.squelchDb,
     )
-    # Auto-start channel if capture is already running so audio begins immediately
+
+    # Set user-provided name
+    ch.cfg.name = req.name
+
+    # Generate auto_name using frequency recognition
     cap = state.captures.get_capture(cid)
+    if cap is not None:
+        namer = get_frequency_namer()
+        ch.cfg.auto_name = namer.suggest_channel_name(cap.cfg.center_hz, ch.cfg.offset_hz)
+
+    # Auto-start channel if capture is already running so audio begins immediately
     if cap is not None and cap.state == "running" and ch.state != "running":
         ch.start()
+
     return ChannelModel(
         id=ch.cfg.id,
         captureId=ch.cfg.capture_id,
@@ -457,6 +470,8 @@ def create_channel(
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
         squelchDb=ch.cfg.squelch_db,
+        name=ch.cfg.name,
+        autoName=ch.cfg.auto_name,
         signalPowerDb=ch.signal_power_db,
         rssiDb=ch.rssi_db,
         snrDb=ch.snr_db,

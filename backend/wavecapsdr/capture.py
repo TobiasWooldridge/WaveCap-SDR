@@ -114,6 +114,8 @@ class ChannelConfig:
     offset_hz: float = 0.0
     audio_rate: int = 48_000
     squelch_db: Optional[float] = None
+    name: Optional[str] = None  # User-provided name
+    auto_name: Optional[str] = None  # Auto-generated contextual name
 
 
 @dataclass
