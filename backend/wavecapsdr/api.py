@@ -180,6 +180,26 @@ def list_recipes(_: None = Depends(auth_check), state: AppState = Depends(get_st
     return recipes
 
 
+@router.get("/frequency/identify")
+def identify_frequency(
+    frequency_hz: float,
+    _: None = Depends(auth_check),
+):
+    """Identify a frequency and return its auto-generated name."""
+    namer = get_frequency_namer()
+    freq_info = namer.identify_frequency(frequency_hz)
+
+    if freq_info:
+        return {
+            "frequency_hz": freq_info.frequency_hz,
+            "name": freq_info.suggested_name,
+            "band": freq_info.band_name,
+            "description": freq_info.description,
+        }
+
+    return None
+
+
 @router.get("/captures", response_model=List[CaptureModel])
 def list_captures(_: None = Depends(auth_check), state: AppState = Depends(get_state)):
     return [_to_capture_model(c) for c in state.captures.list_captures()]

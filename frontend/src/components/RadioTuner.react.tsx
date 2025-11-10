@@ -10,6 +10,7 @@ import Slider from "./primitives/Slider.react";
 import FrequencySelector from "./primitives/FrequencySelector.react";
 import NumericSelector, { type UnitConfig } from "./primitives/NumericSelector.react";
 import Spinner from "./primitives/Spinner.react";
+import { FrequencyLabel } from "./FrequencyLabel.react";
 
 interface RadioTunerProps {
   capture: Capture;
@@ -241,7 +242,10 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             <div className="display-4 fw-bold text-primary">
               {formatFrequencyMHz(localFreq)} MHz
             </div>
-            <div className="text-muted small">Center Frequency</div>
+            <div className="text-muted small">
+              Center Frequency
+              <FrequencyLabel frequencyHz={localFreq} />
+            </div>
           </div>
 
           {/* Start/Stop Button */}

@@ -12,6 +12,7 @@ import { formatFrequencyMHz } from "./utils/frequency";
 import Flex from "./components/primitives/Flex.react";
 import Spinner from "./components/primitives/Spinner.react";
 import Button from "./components/primitives/Button.react";
+import { FrequencyLabel } from "./components/FrequencyLabel.react";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -72,6 +73,7 @@ function CaptureListItem({ capture, captureDevice, isSelected, onClick, onDelete
         )}
         <div className="small">
           {formatFrequencyMHz(capture.centerHz)} MHz
+          <div><FrequencyLabel frequencyHz={capture.centerHz} /></div>
         </div>
         {channels && channels.length > 0 && (
           <div className="small opacity-75">
@@ -81,6 +83,7 @@ function CaptureListItem({ capture, captureDevice, isSelected, onClick, onDelete
                 {channels.map((ch) => (
                   <div key={ch.id}>
                     {formatFrequencyMHz(capture.centerHz + ch.offsetHz)} MHz
+                    <div><FrequencyLabel frequencyHz={capture.centerHz + ch.offsetHz} autoName={ch.autoName} /></div>
                   </div>
                 ))}
               </div>

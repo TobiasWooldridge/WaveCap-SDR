@@ -16,6 +16,7 @@ import Slider from "./primitives/Slider.react";
 import FrequencySelector from "./primitives/FrequencySelector.react";
 import Spinner from "./primitives/Spinner.react";
 import SignalMeter from "./primitives/SignalMeter.react";
+import { FrequencyLabel } from "./FrequencyLabel.react";
 
 interface ChannelManagerProps {
   capture: Capture;
@@ -354,6 +355,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
                         <div className="small text-muted">
                           {formatFrequencyMHz(getChannelFrequency(channel))} MHz • {channel.mode.toUpperCase()}
                         </div>
+                        <FrequencyLabel frequencyHz={getChannelFrequency(channel)} autoName={channel.autoName} />
                       </div>
                       <Flex gap={1}>
                         <Button
