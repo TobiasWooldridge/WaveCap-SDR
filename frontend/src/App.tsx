@@ -234,8 +234,8 @@ function AppContent() {
       <div className="container-fluid px-4 py-3">
         {selectedCapture ? (
           <div className="row g-4">
-            {/* Left Column: Radio Controls */}
-            <div className="col-12 col-lg-5 col-xl-4">
+            {/* Left Column: Radio Controls - 50% width */}
+            <div className="col-12 col-lg-6">
               <Flex direction="column" gap={4}>
                 {/* Spectrum Analyzer - Sticky */}
                 <div style={{ position: "sticky", top: 16, zIndex: 100 }}>
@@ -247,8 +247,8 @@ function AppContent() {
               </Flex>
             </div>
 
-            {/* Right Column: Channels */}
-            <div className="col-12 col-lg-7 col-xl-8">
+            {/* Right Column: Channels - 50% width */}
+            <div className="col-12 col-lg-6">
               <ChannelManager capture={selectedCapture} />
             </div>
           </div>
