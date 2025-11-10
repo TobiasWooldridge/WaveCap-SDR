@@ -299,7 +299,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
         {channels && channels.length > 0 && (
           <div className="row g-3">
             {channels.map((channel) => (
-              <div key={channel.id} className="col-12 col-md-6 col-lg-4 col-xl-3">
+              <div key={channel.id} className="col-12 col-sm-6 col-xl-4 col-xxl-3">
                 <CompactChannelCard
                   channel={channel}
                   capture={capture}

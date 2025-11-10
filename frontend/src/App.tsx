@@ -230,19 +230,28 @@ function AppContent() {
         </div>
       </nav>
 
-      {/* Main Content - Full Width */}
+      {/* Main Content - 2 Column Layout */}
       <div className="container-fluid px-4 py-3">
         {selectedCapture ? (
-          <Flex direction="column" gap={4}>
-            {/* Sticky Spectrum Analyzer */}
-            <div style={{ position: "sticky", top: 0, zIndex: 100 }}>
-              <SpectrumAnalyzer capture={selectedCapture} channels={selectedCaptureChannels} height={250} />
+          <div className="row g-4">
+            {/* Left Column: Radio Controls */}
+            <div className="col-12 col-lg-5 col-xl-4">
+              <Flex direction="column" gap={4}>
+                {/* Spectrum Analyzer - Sticky */}
+                <div style={{ position: "sticky", top: 16, zIndex: 100 }}>
+                  <SpectrumAnalyzer capture={selectedCapture} channels={selectedCaptureChannels} height={250} />
+                </div>
+
+                {/* Radio Tuner */}
+                <RadioTuner capture={selectedCapture} device={selectedDevice} />
+              </Flex>
             </div>
 
-            {/* Radio Tuner and Channel Manager */}
-            <RadioTuner capture={selectedCapture} device={selectedDevice} />
-            <ChannelManager capture={selectedCapture} />
-          </Flex>
+            {/* Right Column: Channels */}
+            <div className="col-12 col-lg-7 col-xl-8">
+              <ChannelManager capture={selectedCapture} />
+            </div>
+          </div>
         ) : (
           <div className="card shadow-sm">
             <div className="card-body text-center py-5">
