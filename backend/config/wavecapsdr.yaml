@@ -22,8 +22,9 @@ presets:
     offsets:
     - 0.0
     gain: 36.2
-    bandwidth: 220000.0
+    bandwidth: 200000.0
     ppm: 0.0
+    antenna: Antenna B
   kexp_rspdx:
     center_hz: 90300000
     sample_rate: 1000000
@@ -31,7 +32,7 @@ presets:
     - 0.0
     gain: 30.000000000000004
     bandwidth: 200000.0
-    ppm: -2.7755575615628914e-17
+    ppm: 1.3322676295501878e-15
     antenna: Antenna B
 recipes:
   fm_radio_station:
@@ -227,7 +228,9 @@ recipes:
     bandwidth: 1800000
   sa_grn_p25:
     name: SA GRN P25 Trunking
-    description: South Australia Government Radio Network (P25 Phase 1). Built-in soft trunking decoder monitors control channel for voice grants and decodes TSBK messages. Configure control channel frequency for your area.
+    description: South Australia Government Radio Network (P25 Phase 1). Built-in
+      soft trunking decoder monitors control channel for voice grants and decodes
+      TSBK messages. Configure control channel frequency for your area.
     category: Public Safety
     center_hz: 406000000
     sample_rate: 2000000
@@ -237,12 +240,14 @@ recipes:
       mode: p25
       squelch_db: -55
     allow_frequency_input: true
-    frequency_label: Control Channel Frequency (MHz)
     gain: 35
     bandwidth: 1800000
+    frequency_label: Control Channel Frequency (MHz)
   wa_state_patrol_p25:
     name: WA State Patrol P25
-    description: Washington State Patrol P25 trunked system (700 MHz). Built-in soft trunking decoder monitors control channel for voice grants. Configure with local control channel. King Simulcast example 774.03125 MHz.
+    description: Washington State Patrol P25 trunked system (700 MHz). Built-in soft
+      trunking decoder monitors control channel for voice grants. Configure with local
+      control channel. King Simulcast example 774.03125 MHz.
     category: Public Safety
     center_hz: 774031250
     sample_rate: 2000000
@@ -252,9 +257,9 @@ recipes:
       mode: p25
       squelch_db: -55
     allow_frequency_input: true
-    frequency_label: Control Channel Frequency (MHz)
     gain: 35
     bandwidth: 1800000
+    frequency_label: Control Channel Frequency (MHz)
 captures:
 - preset: kexp
   device_id: 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
