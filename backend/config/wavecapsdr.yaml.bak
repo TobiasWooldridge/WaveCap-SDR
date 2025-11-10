@@ -32,7 +32,202 @@ presets:
     gain: 25.000000000000004
     bandwidth: 410000.0
     ppm: -2.7755575615628914e-17
-    antenna: Antenna A
+    antenna: Antenna B
+
+# Recipes for quick capture creation
+recipes:
+  fm_radio_station:
+    name: FM Radio Station
+    description: Listen to a single FM broadcast radio station
+    category: Broadcast
+    center_hz: 100000000  # Default 100 MHz - user will customize
+    sample_rate: 250000
+    gain: 30
+    bandwidth: 220000
+    allow_frequency_input: true
+    frequency_label: Station Frequency (MHz)
+    channels:
+      - offset_hz: 0
+        name: FM Station
+        mode: wbfm
+        squelch_db: -60
+
+  vhf_marine:
+    name: VHF Marine
+    description: Monitor VHF marine channels including emergency frequencies
+    category: Marine
+    center_hz: 156800000  # Center on Ch 16 (156.8 MHz)
+    sample_rate: 2000000
+    gain: 30
+    bandwidth: 1800000
+    channels:
+      - offset_hz: 0  # Ch 16 - Distress, Safety, Calling
+        name: "Ch 16 - Emergency"
+        mode: nbfm
+        squelch_db: -50
+      - offset_hz: -575000  # Ch 9 - Calling (156.225 MHz)
+        name: "Ch 9 - Calling"
+        mode: nbfm
+        squelch_db: -50
+      - offset_hz: 525000  # Ch 70 - DSC (156.525 MHz)
+        name: "Ch 70 - DSC"
+        mode: nbfm
+        squelch_db: -50
+      - offset_hz: -350000  # Ch 13 - Bridge-to-bridge (156.65 MHz)
+        name: "Ch 13 - Bridge"
+        mode: nbfm
+        squelch_db: -50
+
+  vhf_aircraft:
+    name: VHF Aircraft
+    description: Monitor aviation frequencies including emergency and tower
+    category: Aviation
+    center_hz: 122000000  # Center around common frequencies
+    sample_rate: 2000000
+    gain: 30
+    bandwidth: 1800000
+    channels:
+      - offset_hz: -500000  # 121.5 MHz - Emergency
+        name: "121.5 - Emergency"
+        mode: am
+        squelch_db: -55
+      - offset_hz: 600000  # 122.6 MHz - Flight Service
+        name: "122.6 - Flight Service"
+        mode: am
+        squelch_db: -55
+      - offset_hz: 700000  # 122.7 MHz - Unicom
+        name: "122.7 - Unicom"
+        mode: am
+        squelch_db: -55
+      - offset_hz: 800000  # 122.8 MHz - Unicom
+        name: "122.8 - Unicom"
+        mode: am
+        squelch_db: -55
+
+  noaa_weather:
+    name: NOAA Weather Radio
+    description: Monitor all NOAA weather radio frequencies
+    category: Broadcast
+    center_hz: 162475000  # WX4 (162.475 MHz)
+    sample_rate: 1000000
+    gain: 30
+    bandwidth: 900000
+    channels:
+      - offset_hz: -925000  # WX1 - 162.550 MHz
+        name: "WX1 - 162.550"
+        mode: nbfm
+        squelch_db: -50
+      - offset_hz: -800000  # WX2 - 162.400 MHz
+        name: "WX2 - 162.400"
+        mode: nbfm
+        squelch_db: -50
+      - offset_hz: -675000  # WX3 - 162.475 MHz
+        name: "WX3 - 162.475"
+        mode: nbfm
+        squelch_db: -50
+      - offset_hz: 0  # WX4 - 162.475 MHz
+        name: "WX4 - 162.475"
+        mode: nbfm
+        squelch_db: -50
+      - offset_hz: 150000  # WX5 - 162.425 MHz
+        name: "WX5 - 162.425"
+        mode: nbfm
+        squelch_db: -50
+
+  amateur_2m:
+    name: 2 Meter Amateur Radio
+    description: Monitor common 2m ham radio repeaters and simplex
+    category: Amateur Radio
+    center_hz: 146000000  # 146 MHz
+    sample_rate: 2000000
+    gain: 30
+    bandwidth: 1800000
+    channels:
+      - offset_hz: -480000  # 145.52 MHz - Calling frequency
+        name: "145.52 - Calling"
+        mode: nbfm
+        squelch_db: -55
+      - offset_hz: 0  # 146.00 MHz
+        name: "146.00"
+        mode: nbfm
+        squelch_db: -55
+      - offset_hz: 520000  # 146.52 MHz - National Simplex
+        name: "146.52 - Simplex"
+        mode: nbfm
+        squelch_db: -55
+
+  amateur_70cm:
+    name: 70cm Amateur Radio
+    description: Monitor common 70cm ham radio frequencies
+    category: Amateur Radio
+    center_hz: 446000000  # 446 MHz
+    sample_rate: 2000000
+    gain: 30
+    bandwidth: 1800000
+    channels:
+      - offset_hz: 0  # 446.00 MHz - Common simplex
+        name: "446.00 - Simplex"
+        mode: nbfm
+        squelch_db: -55
+      - offset_hz: -500000  # 445.50 MHz
+        name: "445.50"
+        mode: nbfm
+        squelch_db: -55
+      - offset_hz: 500000  # 446.50 MHz
+        name: "446.50"
+        mode: nbfm
+        squelch_db: -55
+
+  gmrs_frs:
+    name: GMRS/FRS Radio
+    description: Monitor GMRS and FRS consumer radios
+    category: Personal Radio
+    center_hz: 462625000  # Ch 1 (462.5625 MHz)
+    sample_rate: 2000000
+    gain: 30
+    bandwidth: 1800000
+    channels:
+      - offset_hz: -62500  # FRS/GMRS Ch 1 - 462.5625 MHz
+        name: "Ch 1 - 462.5625"
+        mode: nbfm
+        squelch_db: -55
+      - offset_hz: 62500  # FRS/GMRS Ch 2 - 462.5875 MHz
+        name: "Ch 2 - 462.5875"
+        mode: nbfm
+        squelch_db: -55
+      - offset_hz: 187500  # FRS/GMRS Ch 3 - 462.6125 MHz
+        name: "Ch 3 - 462.6125"
+        mode: nbfm
+        squelch_db: -55
+
+  ism_433:
+    name: 433 MHz ISM Band
+    description: Monitor 433 MHz devices (sensors, remotes, etc.)
+    category: ISM/IoT
+    center_hz: 433920000  # 433.92 MHz - Common ISM frequency
+    sample_rate: 2000000
+    gain: 35
+    bandwidth: 1800000
+    channels:
+      - offset_hz: 0
+        name: "433.92 MHz"
+        mode: raw
+        squelch_db: -70
+
+  ism_915:
+    name: 915 MHz ISM Band
+    description: Monitor 915 MHz devices (US ISM band)
+    category: ISM/IoT
+    center_hz: 915000000  # 915 MHz
+    sample_rate: 2000000
+    gain: 35
+    bandwidth: 1800000
+    channels:
+      - offset_hz: 0
+        name: "915 MHz"
+        mode: raw
+        squelch_db: -70
+
 captures:
 - preset: kexp
   device_id: 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
