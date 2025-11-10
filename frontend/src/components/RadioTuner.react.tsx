@@ -236,14 +236,13 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
       </div>
 
       <div className="card-body">
-        <Flex direction="column" gap={4}>
-          {/* Frequency Display */}
-          <div className="text-center py-3 bg-primary bg-opacity-10 rounded">
-            <div className="display-4 fw-bold text-primary">
+        <Flex direction="column" gap={3}>
+          {/* Frequency Display - Compact */}
+          <div className="text-center py-2 bg-primary bg-opacity-10 rounded">
+            <div className="h3 fw-bold text-primary mb-1">
               {formatFrequencyMHz(localFreq)} MHz
             </div>
-            <div className="text-muted small">
-              Center Frequency
+            <div className="text-muted" style={{ fontSize: "0.8rem" }}>
               <FrequencyLabel frequencyHz={localFreq} />
             </div>
           </div>
@@ -251,7 +250,6 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
           {/* Start/Stop Button */}
           <Button
             use={isRunning ? "danger" : "success"}
-            size="lg"
             onClick={handleStartStop}
             disabled={startMutation.isPending || stopMutation.isPending}
           >
@@ -260,128 +258,133 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
 
           {/* Error Message */}
           {isFailed && capture.errorMessage && (
-            <div className="alert alert-danger mb-0">
+            <div className="alert alert-danger mb-0 py-2">
               <strong>Error:</strong> {capture.errorMessage}
             </div>
           )}
 
           <hr className="my-2" />
 
-          {/* Frequency Selector */}
-          <FrequencySelector
-            label="Frequency"
-            value={localFreq}
-            min={deviceFreqMin}
-            max={deviceFreqMax}
-            step={1000}
-            onChange={setLocalFreq}
-            disabled={!isRunning}
-            info="The center frequency your SDR will tune to. All channels are offset from this frequency."
-          />
-
-          {/* Gain Selector */}
-          <NumericSelector
-            label="Gain"
-            value={localGain}
-            min={gainMin}
-            max={gainMax}
-            step={0.1}
-            units={gainUnits}
-            info="Signal amplification in decibels. Higher gain increases sensitivity but may introduce noise. Start around 20-30 dB and adjust for best signal-to-noise ratio."
-            onChange={setLocalGain}
-            disabled={!isRunning}
-          />
-
-          {/* Sample Rate Dropdown */}
-          <Flex direction="column" gap={2}>
-            <label className="form-label mb-0 fw-semibold">
-              <Settings size={16} className="me-1" />
-              Sample Rate
-            </label>
-            <select
-              className="form-select"
-              value={localSampleRate}
-              onChange={(e) => handleSampleRateChange(parseInt(e.target.value))}
-              disabled={!isRunning}
-            >
-              {(device?.sampleRates || []).map((rate) => (
-                <option key={rate} value={rate}>
-                  {formatSampleRate(rate)}
-                </option>
-              ))}
-            </select>
-            {isRunning && (
-              <small className="text-warning">
-                Warning: Changing sample rate will briefly interrupt the stream while the radio restarts
-              </small>
-            )}
-            {!isRunning && (
-              <small className="text-muted">
-                Start capture to change sample rate
-              </small>
-            )}
-          </Flex>
-
-          {/* Bandwidth Selector */}
-          <NumericSelector
-            label="Bandwidth"
-            value={localBandwidth}
-            min={bwMin}
-            max={bwMax}
-            step={1000}
-            units={bandwidthUnits}
-            info="Filter bandwidth. Wider bandwidth allows more spectrum but may include unwanted signals. Match to your signal type: FM broadcast ~200 kHz, narrowband ~10-25 kHz."
-            onChange={setLocalBandwidth}
-            disabled={!isRunning}
-          />
-
-          {/* PPM Correction Slider */}
-          <Slider
-            label="PPM Correction"
-            value={localPpm}
-            min={ppmMin}
-            max={ppmMax}
-            step={0.1}
-            coarseStep={1}
-            unit="ppm"
-            info="Corrects frequency offset in parts-per-million caused by crystal oscillator inaccuracy. If signals appear slightly off-frequency, adjust this. Most devices need 0-5 ppm correction."
-            onChange={setLocalPpm}
-            disabled={!isRunning}
-          />
-
-          {/* Antenna Selector */}
-          {device?.antennas && device.antennas.length > 0 && (
-            <Flex direction="column" gap={2}>
-              <Flex direction="column" gap={0}>
-                <label className="form-label mb-0 fw-semibold">Antenna</label>
-                <small className="text-muted">
-                  Select which antenna port to use. Different ports may have different characteristics (frequency range, impedance). Refer to your device manual for specifics.
-                </small>
-              </Flex>
-              <select
-                className="form-select"
-                value={localAntenna}
-                onChange={(e) => handleAntennaChange(e.target.value)}
+          {/* 2-Column Grid Layout for Controls */}
+          <div className="row g-3">
+            {/* Frequency Selector */}
+            <div className="col-12">
+              <FrequencySelector
+                label="Frequency"
+                value={localFreq}
+                min={deviceFreqMin}
+                max={deviceFreqMax}
+                step={1000}
+                onChange={setLocalFreq}
                 disabled={!isRunning}
-              >
-                {device.antennas.map((ant) => (
-                  <option key={ant} value={ant}>
-                    {ant}
-                  </option>
-                ))}
-              </select>
-              {isRunning && (
-                <small className="text-warning">
-                  Warning: Changing antenna will briefly interrupt the stream while the radio restarts
-                </small>
-              )}
-              {!isRunning && (
-                <small className="text-muted">
-                  Start capture to change antenna
-                </small>
-              )}
-            </Flex>
-          )}
+                info="The center frequency your SDR will tune to. All channels are offset from this frequency."
+              />
+            </div>
+
+            {/* Gain Selector */}
+            <div className="col-12 col-xl-6">
+              <NumericSelector
+                label="Gain"
+                value={localGain}
+                min={gainMin}
+                max={gainMax}
+                step={0.1}
+                units={gainUnits}
+                info="Signal amplification in decibels. Higher gain increases sensitivity but may introduce noise. Start around 20-30 dB and adjust for best signal-to-noise ratio."
+                onChange={setLocalGain}
+                disabled={!isRunning}
+              />
+            </div>
+
+            {/* Bandwidth Selector */}
+            <div className="col-12 col-xl-6">
+              <NumericSelector
+                label="Bandwidth"
+                value={localBandwidth}
+                min={bwMin}
+                max={bwMax}
+                step={1000}
+                units={bandwidthUnits}
+                info="Filter bandwidth. Wider bandwidth allows more spectrum but may include unwanted signals. Match to your signal type: FM broadcast ~200 kHz, narrowband ~10-25 kHz."
+                onChange={setLocalBandwidth}
+                disabled={!isRunning}
+              />
+            </div>
+
+            {/* Sample Rate Dropdown */}
+            <div className="col-12 col-xl-6">
+              <Flex direction="column" gap={2}>
+                <label className="form-label mb-0 fw-semibold">
+                  <Settings size={16} className="me-1" />
+                  Sample Rate
+                </label>
+                <select
+                  className="form-select"
+                  value={localSampleRate}
+                  onChange={(e) => handleSampleRateChange(parseInt(e.target.value))}
+                  disabled={!isRunning}
+                >
+                  {(device?.sampleRates || []).map((rate) => (
+                    <option key={rate} value={rate}>
+                      {formatSampleRate(rate)}
+                    </option>
+                  ))}
+                </select>
+                {isRunning && (
+                  <small className="text-warning">
+                    Changing sample rate will briefly interrupt the stream
+                  </small>
+                )}
+              </Flex>
+            </div>
+
+            {/* PPM Correction Slider */}
+            <div className="col-12 col-xl-6">
+              <Slider
+                label="PPM Correction"
+                value={localPpm}
+                min={ppmMin}
+                max={ppmMax}
+                step={0.1}
+                coarseStep={1}
+                unit="ppm"
+                info="Corrects frequency offset in parts-per-million caused by crystal oscillator inaccuracy. If signals appear slightly off-frequency, adjust this. Most devices need 0-5 ppm correction."
+                onChange={setLocalPpm}
+                disabled={!isRunning}
+              />
+            </div>
+
+            {/* Antenna Selector */}
+            {device?.antennas && device.antennas.length > 0 && (
+              <div className="col-12">
+                <Flex direction="column" gap={2}>
+                  <Flex direction="column" gap={0}>
+                    <label className="form-label mb-0 fw-semibold">Antenna</label>
+                    <small className="text-muted">
+                      Select which antenna port to use
+                    </small>
+                  </Flex>
+                  <select
+                    className="form-select"
+                    value={localAntenna}
+                    onChange={(e) => handleAntennaChange(e.target.value)}
+                    disabled={!isRunning}
+                  >
+                    {device.antennas.map((ant) => (
+                      <option key={ant} value={ant}>
+                        {ant}
+                      </option>
+                    ))}
+                  </select>
+                  {isRunning && (
+                    <small className="text-warning">
+                      Changing antenna will briefly interrupt the stream
+                    </small>
+                  )}
+                </Flex>
+              </div>
+            )}
+          </div>
 
           <hr className="my-3" />
 
