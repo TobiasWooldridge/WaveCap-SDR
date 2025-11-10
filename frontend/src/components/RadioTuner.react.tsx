@@ -7,6 +7,8 @@ import { formatFrequencyMHz, formatSampleRate } from "../utils/frequency";
 import Button from "./primitives/Button.react";
 import Flex from "./primitives/Flex.react";
 import Slider from "./primitives/Slider.react";
+import FrequencySelector from "./primitives/FrequencySelector.react";
+import NumericSelector, { type UnitConfig } from "./primitives/NumericSelector.react";
 import Spinner from "./primitives/Spinner.react";
 import InfoTooltip from "./primitives/InfoTooltip.react";
 
@@ -15,10 +17,49 @@ interface RadioTunerProps {
   device: Device | undefined;
 }
 
+// Gain units configuration
+const gainUnits: UnitConfig[] = [
+  {
+    name: "dB",
+    multiplier: 1,
+    decimals: 1,
+    placeValues: [
+      { label: "10", value: 10 },
+      { label: "1", value: 1 },
+      { label: "0.1", value: 0.1 },
+    ],
+  },
+];
+
+// Bandwidth units configuration
+const bandwidthUnits: UnitConfig[] = [
+  {
+    name: "kHz",
+    multiplier: 1_000,
+    decimals: 0,
+    placeValues: [
+      { label: "1000", value: 1_000_000 },
+      { label: "100", value: 100_000 },
+      { label: "10", value: 10_000 },
+      { label: "1", value: 1_000 },
+    ],
+  },
+  {
+    name: "MHz",
+    multiplier: 1_000_000,
+    decimals: 3,
+    placeValues: [
+      { label: "1", value: 1_000_000 },
+      { label: "0.1", value: 100_000 },
+      { label: "0.01", value: 10_000 },
+      { label: "0.001", value: 1_000 },
+    ],
+  },
+];
+
 export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   // UI state
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [frequencyUnit, setFrequencyUnit] = useState<"kHz" | "MHz" | "GHz">("MHz");
 
   // Local state for immediate UI updates
   const [localFreq, setLocalFreq] = useState(capture.centerHz);
@@ -160,43 +201,6 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   const ppmMin = device?.ppmMin ?? -100;
   const ppmMax = device?.ppmMax ?? 100;
 
-  // Calculate frequency slider range based on selected unit
-  const getFrequencyRange = () => {
-    const unitMultiplier = frequencyUnit === "kHz" ? 1_000 : frequencyUnit === "MHz" ? 1_000_000 : 1_000_000_000;
-    const rangeWindow = frequencyUnit === "kHz" ? 1_000_000 : frequencyUnit === "MHz" ? 100_000_000 : 1_000_000_000; // ±500 kHz, ±50 MHz, or ±500 MHz
-
-    // Calculate range centered on current frequency
-    const centerFreq = localFreq;
-    let sliderMin = Math.max(deviceFreqMin, centerFreq - rangeWindow);
-    let sliderMax = Math.min(deviceFreqMax, centerFreq + rangeWindow);
-
-    // Ensure we don't go below device minimum
-    if (sliderMin < deviceFreqMin) {
-      sliderMin = deviceFreqMin;
-      sliderMax = Math.min(deviceFreqMax, sliderMin + 2 * rangeWindow);
-    }
-
-    // Ensure we don't go above device maximum
-    if (sliderMax > deviceFreqMax) {
-      sliderMax = deviceFreqMax;
-      sliderMin = Math.max(deviceFreqMin, sliderMax - 2 * rangeWindow);
-    }
-
-    // Step sizes based on unit
-    const fineStep = frequencyUnit === "kHz" ? 1_000 : frequencyUnit === "MHz" ? 10_000 : 1_000_000; // 1 kHz, 10 kHz, or 1 MHz
-    const coarseStep = frequencyUnit === "kHz" ? 100_000 : frequencyUnit === "MHz" ? 1_000_000 : 100_000_000; // 100 kHz, 1 MHz, or 100 MHz
-
-    return { min: sliderMin, max: sliderMax, step: fineStep, coarseStep, unitMultiplier };
-  };
-
-  const { min: freqMin, max: freqMax, step: freqStep, coarseStep: freqCoarseStep, unitMultiplier } = getFrequencyRange();
-
-  // Format frequency value in the selected unit
-  const formatFreqValue = (hz: number) => {
-    const value = hz / unitMultiplier;
-    return value.toFixed(frequencyUnit === "kHz" ? 0 : frequencyUnit === "MHz" ? 3 : 6);
-  };
-
   return (
     <div className="card shadow-sm">
       <div className="card-header bg-body-tertiary">
@@ -260,52 +264,26 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
 
           <hr className="my-2" />
 
-          {/* Frequency Slider with Unit Selector */}
-          <Flex direction="column" gap={2}>
-            <Flex justify="between" align="center">
-              <label className="form-label mb-0 fw-semibold">
-                Frequency
-                <InfoTooltip content="The center frequency your SDR will tune to. All channels are offset from this frequency." />
-              </label>
-              <select
-                className="form-select form-select-sm"
-                style={{ width: "auto" }}
-                value={frequencyUnit}
-                onChange={(e) => setFrequencyUnit(e.target.value as "kHz" | "MHz" | "GHz")}
-              >
-                <option value="kHz">kHz</option>
-                <option value="MHz">MHz</option>
-                <option value="GHz">GHz</option>
-              </select>
-            </Flex>
-            <Slider
-              label=""
-              value={localFreq}
-              min={freqMin}
-              max={freqMax}
-              step={freqStep}
-              coarseStep={freqCoarseStep}
-              unit={frequencyUnit}
-              formatValue={formatFreqValue}
-              onChange={setLocalFreq}
-              disabled={!isRunning}
-            />
-            <small className="text-muted">
-              Range: {formatFreqValue(freqMin)} - {formatFreqValue(freqMax)} {frequencyUnit}
-              {" • "}
-              Device limits: {formatFrequencyMHz(deviceFreqMin)} - {formatFrequencyMHz(deviceFreqMax)} MHz
-            </small>
-          </Flex>
+          {/* Frequency Selector */}
+          <FrequencySelector
+            label="Frequency"
+            value={localFreq}
+            min={deviceFreqMin}
+            max={deviceFreqMax}
+            step={1000}
+            onChange={setLocalFreq}
+            disabled={!isRunning}
+            info="The center frequency your SDR will tune to. All channels are offset from this frequency."
+          />
 
-          {/* Gain Slider */}
-          <Slider
+          {/* Gain Selector */}
+          <NumericSelector
             label="Gain"
             value={localGain}
             min={gainMin}
             max={gainMax}
             step={0.1}
-            coarseStep={1}
-            unit="dB"
+            units={gainUnits}
             info="Signal amplification in decibels. Higher gain increases sensitivity but may introduce noise. Start around 20-30 dB and adjust for best signal-to-noise ratio."
             onChange={setLocalGain}
             disabled={!isRunning}
@@ -341,17 +319,15 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             )}
           </Flex>
 
-          {/* Bandwidth Slider */}
-          <Slider
+          {/* Bandwidth Selector */}
+          <NumericSelector
             label="Bandwidth"
             value={localBandwidth}
             min={bwMin}
             max={bwMax}
-            step={10000}
-            coarseStep={100000}
-            unit="Hz"
-            info="Filter bandwidth in Hz. Wider bandwidth allows more spectrum but may include unwanted signals. Match to your signal type: FM broadcast ~200 kHz, narrowband ~10-25 kHz."
-            formatValue={(hz) => `${(hz / 1000).toFixed(0)} k`}
+            step={1000}
+            units={bandwidthUnits}
+            info="Filter bandwidth. Wider bandwidth allows more spectrum but may include unwanted signals. Match to your signal type: FM broadcast ~200 kHz, narrowband ~10-25 kHz."
             onChange={setLocalBandwidth}
             disabled={!isRunning}
           />

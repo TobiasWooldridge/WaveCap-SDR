@@ -38,6 +38,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
   const [newChannelFrequency, setNewChannelFrequency] = useState<number>(capture.centerHz);
   const [newChannelMode, setNewChannelMode] = useState<"wbfm" | "nfm" | "am">("wbfm");
   const [newChannelSquelch, setNewChannelSquelch] = useState<number>(-60);
+  const [newChannelAudioRate, setNewChannelAudioRate] = useState<number>(48000);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [playingChannel, setPlayingChannel] = useState<string | null>(null);
 
@@ -87,7 +88,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
       request: {
         mode: newChannelMode,
         offsetHz,
-        audioRate: 48000,
+        audioRate: newChannelAudioRate,
         squelchDb: newChannelSquelch,
       },
     }, {
@@ -95,6 +96,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
         setShowNewChannel(false);
         setNewChannelFrequency(capture.centerHz);
         setNewChannelSquelch(-60);
+        setNewChannelAudioRate(48000);
       },
     });
   };
@@ -257,17 +259,19 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
               </select>
             </Flex>
 
-            <FrequencySelector
-              label="Frequency"
-              value={newChannelFrequency}
-              min={capture.centerHz - (capture.sampleRate / 2)}
-              max={capture.centerHz + (capture.sampleRate / 2)}
-              step={1000}
-              onChange={setNewChannelFrequency}
-            />
-            <small className="text-muted">
-              Offset: {((newChannelFrequency - capture.centerHz) / 1000).toFixed(0)} kHz
-            </small>
+            <Flex direction="column" gap={1}>
+              <FrequencySelector
+                label="Frequency"
+                value={newChannelFrequency}
+                min={capture.centerHz - (capture.sampleRate / 2)}
+                max={capture.centerHz + (capture.sampleRate / 2)}
+                step={1000}
+                onChange={setNewChannelFrequency}
+              />
+              <small className="text-muted">
+                Offset: {((newChannelFrequency - capture.centerHz) / 1000).toFixed(0)} kHz
+              </small>
+            </Flex>
 
             <Slider
               label="Squelch"
@@ -281,6 +285,20 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
               onChange={setNewChannelSquelch}
               info="Signal strength threshold. Lower values (more negative) allow weaker signals."
             />
+
+            <Flex direction="column" gap={1}>
+              <label className="form-label small mb-1">Audio Rate</label>
+              <select
+                className="form-select form-select-sm"
+                value={newChannelAudioRate}
+                onChange={(e) => setNewChannelAudioRate(parseInt(e.target.value))}
+              >
+                <option value={8000}>8 kHz</option>
+                <option value={16000}>16 kHz</option>
+                <option value={24000}>24 kHz</option>
+                <option value={48000}>48 kHz (CD quality)</option>
+              </select>
+            </Flex>
 
             <Flex gap={2}>
               <Button
@@ -401,21 +419,46 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
                         info="Signal strength threshold for audio output. Lower values (more negative) allow weaker signals."
                       />
 
+                      {/* Audio Rate Selector */}
+                      <Flex direction="column" gap={1}>
+                        <label className="form-label small mb-1">Audio Rate</label>
+                        <select
+                          className="form-select form-select-sm"
+                          value={channel.audioRate}
+                          onChange={(e) =>
+                            updateChannel.mutate({
+                              channelId: channel.id,
+                              request: { audioRate: parseInt(e.target.value) },
+                            })
+                          }
+                        >
+                          <option value={8000}>8 kHz</option>
+                          <option value={16000}>16 kHz</option>
+                          <option value={24000}>24 kHz</option>
+                          <option value={48000}>48 kHz (CD quality)</option>
+                        </select>
+                      </Flex>
+
                       {/* Frequency Selector */}
-                      <FrequencySelector
-                        label="Frequency"
-                        value={getChannelFrequency(channel)}
-                        min={capture.centerHz - (capture.sampleRate / 2)}
-                        max={capture.centerHz + (capture.sampleRate / 2)}
-                        step={1000}
-                        onChange={(hz) =>
-                          updateChannel.mutate({
-                            channelId: channel.id,
-                            request: { offsetHz: hz - capture.centerHz },
-                          })
-                        }
-                        info="Channel frequency within the capture bandwidth"
-                      />
+                      <Flex direction="column" gap={1}>
+                        <FrequencySelector
+                          label="Frequency"
+                          value={getChannelFrequency(channel)}
+                          min={capture.centerHz - (capture.sampleRate / 2)}
+                          max={capture.centerHz + (capture.sampleRate / 2)}
+                          step={1000}
+                          onChange={(hz) =>
+                            updateChannel.mutate({
+                              channelId: channel.id,
+                              request: { offsetHz: hz - capture.centerHz },
+                            })
+                          }
+                          info="Channel frequency within the capture bandwidth"
+                        />
+                        <small className="text-muted">
+                          Offset: {(channel.offsetHz / 1000).toFixed(0)} kHz
+                        </small>
+                      </Flex>
                     </Flex>
 
                     {/* Stream URLs */}
