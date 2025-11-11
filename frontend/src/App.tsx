@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Radio, Plus, Wand2, X } from "lucide-react";
+import { Radio, Plus, Wand2, X, Edit2, Settings } from "lucide-react";
 import { useDevices } from "./hooks/useDevices";
-import { useCaptures, useCreateCapture, useDeleteCapture } from "./hooks/useCaptures";
+import { useCaptures, useCreateCapture, useDeleteCapture, useUpdateCapture } from "./hooks/useCaptures";
 import { useChannels } from "./hooks/useChannels";
 import { RadioTuner } from "./components/RadioTuner.react";
 import { ChannelManager } from "./components/ChannelManager.react";
@@ -12,6 +12,7 @@ import { formatFrequencyMHz } from "./utils/frequency";
 import Flex from "./components/primitives/Flex.react";
 import Spinner from "./components/primitives/Spinner.react";
 import Button from "./components/primitives/Button.react";
+import { DeviceSettingsModal } from "./components/DeviceSettingsModal.react";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,11 +35,45 @@ interface CaptureTabProps {
   isSelected: boolean;
   onClick: () => void;
   onDelete: () => void;
+  onUpdateName: (name: string | null) => void;
   channelCount: number;
 }
 
-function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClick, onDelete, channelCount }: CaptureTabProps) {
+function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClick, onDelete, onUpdateName, channelCount }: CaptureTabProps) {
   const stateColor = capture.state === "running" ? "success" : capture.state === "failed" ? "danger" : "secondary";
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const displayName = capture.name || capture.autoName || formatCaptureId(capture.id);
+  const hasCustomName = !!capture.name;
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
+
+  const handleStartEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditValue(capture.name || capture.autoName || "");
+    setIsEditing(true);
+  };
+
+  const handleSaveEdit = () => {
+    const trimmedValue = editValue.trim();
+    onUpdateName(trimmedValue || null);
+    setIsEditing(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleSaveEdit();
+    } else if (e.key === "Escape") {
+      setIsEditing(false);
+    }
+  };
 
   return (
     <button
@@ -52,7 +87,39 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
       }}
     >
       <span className={`badge bg-${stateColor}`} style={{ width: "8px", height: "8px", padding: 0, borderRadius: "50%" }}></span>
-      <span className={`fw-semibold ${isSelected ? 'text-dark' : 'text-white'}`}>{formatCaptureId(capture.id)}</span>
+
+      {isEditing ? (
+        <input
+          ref={inputRef}
+          type="text"
+          className="form-control form-control-sm"
+          style={{ width: "120px", height: "20px", fontSize: "12px", padding: "2px 6px" }}
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onBlur={handleSaveEdit}
+          onKeyDown={handleKeyDown}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ) : (
+        <span
+          className={`fw-semibold ${isSelected ? 'text-dark' : 'text-white'}`}
+          title={hasCustomName && capture.autoName ? `Auto: ${capture.autoName}` : undefined}
+        >
+          {displayName}
+        </span>
+      )}
+
+      {!isEditing && (
+        <button
+          className={`btn btn-sm p-0 ${isSelected ? 'text-dark' : 'text-white'}`}
+          style={{ width: "14px", height: "14px", lineHeight: 1 }}
+          onClick={handleStartEdit}
+          title="Edit name"
+        >
+          <Edit2 size={10} />
+        </button>
+      )}
+
       <span className={`small ${isSelected ? 'text-muted' : 'text-white opacity-75'}`}>
         {formatFrequencyMHz(capture.centerHz)} MHz • {channelCount} ch
       </span>
@@ -72,12 +139,13 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
 }
 
 // Wrapper component that can use hooks properly
-function CaptureTabWithData({ capture, devices, isSelected, onClick, onDelete }: {
+function CaptureTabWithData({ capture, devices, isSelected, onClick, onDelete, onUpdateName }: {
   capture: any;
   devices: any[] | undefined;
   isSelected: boolean;
   onClick: () => void;
   onDelete: () => void;
+  onUpdateName: (name: string | null) => void;
 }) {
   const { data: channels } = useChannels(capture.id);
   const captureDevice = devices?.find((d) => d.id === capture.deviceId);
@@ -90,6 +158,7 @@ function CaptureTabWithData({ capture, devices, isSelected, onClick, onDelete }:
       isSelected={isSelected}
       onClick={onClick}
       onDelete={onDelete}
+      onUpdateName={onUpdateName}
       channelCount={channelCount}
     />
   );
@@ -100,6 +169,7 @@ function AppContent() {
   const { data: captures, isLoading: capturesLoading } = useCaptures();
   const createCapture = useCreateCapture();
   const deleteCapture = useDeleteCapture();
+  const updateCapture = useUpdateCapture();
 
   // Initialize from URL query parameter
   const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(() => {
@@ -108,6 +178,7 @@ function AppContent() {
   });
   const [showNewCaptureModal, setShowNewCaptureModal] = useState(false);
   const [showWizard, setShowWizard] = useState(false);
+  const [showDeviceSettings, setShowDeviceSettings] = useState(false);
   const [newCaptureDeviceId, setNewCaptureDeviceId] = useState<string>("");
   const [newCaptureFreq, setNewCaptureFreq] = useState<number>(100_000_000);
 
@@ -196,6 +267,12 @@ function AppContent() {
                           setSelectedCaptureId(null);
                         }
                       }}
+                      onUpdateName={(name) => {
+                        updateCapture.mutate({
+                          captureId: capture.id,
+                          request: { name },
+                        });
+                      }}
                     />
                   ))}
                 </>
@@ -223,10 +300,20 @@ function AppContent() {
             </Flex>
           </Flex>
 
-          {/* Device Count Badge */}
-          <span className="badge bg-light text-dark">
-            {devices?.length ?? 0} device{devices?.length !== 1 ? "s" : ""}
-          </span>
+          {/* Device Settings and Count */}
+          <Flex align="center" gap={2}>
+            <Button
+              use="light"
+              size="sm"
+              onClick={() => setShowDeviceSettings(true)}
+              title="Device Settings"
+            >
+              <Settings size={16} />
+            </Button>
+            <span className="badge bg-light text-dark">
+              {devices?.length ?? 0} device{devices?.length !== 1 ? "s" : ""}
+            </span>
+          </Flex>
         </div>
       </nav>
 
@@ -327,6 +414,13 @@ function AppContent() {
             setSelectedCaptureId(captureId);
             setShowWizard(false);
           }}
+        />
+      )}
+
+      {/* Device Settings Modal */}
+      {showDeviceSettings && (
+        <DeviceSettingsModal
+          onClose={() => setShowDeviceSettings(false)}
         />
       )}
     </div>

@@ -106,6 +106,7 @@ class AppConfig:
     presets: Dict[str, PresetConfig] = field(default_factory=dict)
     recipes: Dict[str, RecipeConfig] = field(default_factory=dict)
     captures: List[CaptureStartConfig] = field(default_factory=list)
+    device_names: Dict[str, str] = field(default_factory=dict)  # device_id -> custom name
 
 
 def _read_yaml(path: Path) -> Dict[str, Any]:
@@ -188,6 +189,12 @@ def load_config(path_str: str) -> AppConfig:
             if isinstance(cap_data, dict):
                 captures.append(CaptureStartConfig(**cap_data))
 
+    # Parse device_names mapping
+    device_names: Dict[str, str] = {}
+    device_names_raw = raw.get("device_names", {})
+    if isinstance(device_names_raw, dict):
+        device_names = {k: str(v) for k, v in device_names_raw.items()}
+
     return AppConfig(
         server=server,
         stream=stream,
@@ -196,6 +203,7 @@ def load_config(path_str: str) -> AppConfig:
         presets=presets,
         recipes=recipes,
         captures=captures,
+        device_names=device_names,
     )
 
 
@@ -344,6 +352,10 @@ def save_config(config: AppConfig, path_str: str) -> None:
             )
         else:
             existing_data["captures"] = []
+
+    # Device names mapping
+    if config.device_names:
+        existing_data["device_names"] = config.device_names
 
     # Write to file with nice formatting
     with path.open("w", encoding="utf-8") as f:

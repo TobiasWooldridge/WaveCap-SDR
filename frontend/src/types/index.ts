@@ -13,6 +13,7 @@ export interface Device {
   ppmMin: number | null;
   ppmMax: number | null;
   antennas: string[];
+  nickname?: string | null;  // User-provided nickname
 }
 
 export interface Capture {
@@ -31,6 +32,8 @@ export interface Capture {
   dcOffsetAuto?: boolean;
   iqBalanceAuto?: boolean;
   errorMessage: string | null;
+  name: string | null;  // User-provided name
+  autoName: string | null;  // Auto-generated contextual name
 }
 
 export interface Channel {
@@ -61,6 +64,7 @@ export interface UpdateCaptureRequest {
   streamFormat?: string;
   dcOffsetAuto?: boolean;
   iqBalanceAuto?: boolean;
+  name?: string | null;
 }
 
 export interface CreateCaptureRequest {

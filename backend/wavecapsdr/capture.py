@@ -489,6 +489,8 @@ class CaptureConfig:
     bandwidth: Optional[float] = None
     ppm: Optional[float] = None
     antenna: Optional[str] = None
+    name: Optional[str] = None  # User-provided name (optional)
+    auto_name: Optional[str] = None  # Auto-generated name (e.g., "FM 90.3 - RTL-SDR")
     # SoapySDR advanced features
     device_settings: Dict[str, Any] = field(default_factory=dict)
     element_gains: Dict[str, float] = field(default_factory=dict)

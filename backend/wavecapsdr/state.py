@@ -14,6 +14,7 @@ except Exception:  # pragma: no cover
     SoapyDriver = None  # type: ignore
 
 from .capture import CaptureManager
+from .device_namer import load_device_nicknames
 
 
 @dataclass
@@ -56,4 +57,8 @@ class AppState:
                     driver = FakeDriver()
 
         captures = CaptureManager(cfg, driver)
+
+        # Load device nicknames from config
+        load_device_nicknames(cfg.device_names)
+
         return cls(config=cfg, driver=driver, captures=captures, config_path=config_path)

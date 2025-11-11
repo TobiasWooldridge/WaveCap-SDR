@@ -43,6 +43,7 @@ class CreateCaptureRequest(BaseModel):
     dcOffsetAuto: bool = True
     iqBalanceAuto: bool = True
     createDefaultChannel: bool = True
+    name: Optional[str] = None  # User-provided name (optional)
 
 
 class UpdateCaptureRequest(BaseModel):
@@ -58,6 +59,7 @@ class UpdateCaptureRequest(BaseModel):
     streamFormat: Optional[str] = None
     dcOffsetAuto: Optional[bool] = None
     iqBalanceAuto: Optional[bool] = None
+    name: Optional[str] = None  # User-provided name (optional)
 
 
 class CaptureModel(BaseModel):
@@ -76,6 +78,8 @@ class CaptureModel(BaseModel):
     dcOffsetAuto: Optional[bool] = None
     iqBalanceAuto: Optional[bool] = None
     errorMessage: Optional[str] = None
+    name: Optional[str] = None  # User-provided name (optional)
+    autoName: Optional[str] = None  # Auto-generated name (e.g., "FM 90.3 - RTL-SDR")
 
 
 class CreateChannelRequest(BaseModel):

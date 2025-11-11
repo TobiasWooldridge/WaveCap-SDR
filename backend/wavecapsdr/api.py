@@ -22,6 +22,13 @@ from .models import (
 )
 from .state import AppState
 from .frequency_namer import get_frequency_namer
+from .device_namer import (
+    generate_capture_name,
+    get_device_nickname,
+    set_device_nickname,
+    get_device_shorthand,
+)
+from .config import save_config
 
 
 router = APIRouter()
@@ -128,6 +135,8 @@ def _to_capture_model(cap) -> CaptureModel:
         dcOffsetAuto=cap.cfg.dc_offset_auto,
         iqBalanceAuto=cap.cfg.iq_balance_auto,
         errorMessage=cap.error_message,
+        name=cap.cfg.name,
+        autoName=cap.cfg.auto_name,
     )
 
 
@@ -140,6 +149,54 @@ def auth_check(request: Request, state: AppState = Depends(get_state)) -> None:
         raise HTTPException(status_code=401, detail="Missing bearer token")
     if auth.split(" ", 1)[1] != token:
         raise HTTPException(status_code=403, detail="Invalid token")
+
+
+@router.get("/devices/{device_id}/name")
+def get_device_name(device_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)):
+    """Get custom nickname for a device."""
+    nickname = get_device_nickname(device_id)
+    # Also get device info for shorthand fallback
+    devices = state.captures.list_devices()
+    device = next((d for d in devices if d["id"] == device_id), None)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    shorthand = get_device_shorthand(device_id, device["label"])
+    return {
+        "device_id": device_id,
+        "nickname": nickname,
+        "shorthand": shorthand,
+        "label": device["label"]
+    }
+
+
+@router.patch("/devices/{device_id}/name")
+def update_device_name(device_id: str, request: dict, _: None = Depends(auth_check), state: AppState = Depends(get_state)):
+    """Set custom nickname for a device."""
+    nickname = request.get("nickname", "")
+
+    # Validate device exists
+    devices = state.captures.list_devices()
+    device = next((d for d in devices if d["id"] == device_id), None)
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    # Update nickname
+    set_device_nickname(device_id, nickname)
+
+    # Save to config
+    if nickname:
+        state.config.device_names[device_id] = nickname
+    elif device_id in state.config.device_names:
+        del state.config.device_names[device_id]
+
+    if state.config_path:
+        try:
+            save_config(state.config, state.config_path)
+        except Exception as e:
+            logger.error(f"Failed to save device nickname: {e}")
+
+    return {"device_id": device_id, "nickname": nickname}
 
 
 @router.get("/devices", response_model=List[DeviceModel], response_model_by_alias=False)
@@ -225,6 +282,23 @@ def create_capture(
         dc_offset_auto=req.dcOffsetAuto,
         iq_balance_auto=req.iqBalanceAuto,
     )
+
+    # Set user-provided name if given
+    if req.name:
+        cap.cfg.name = req.name
+
+    # Generate auto_name using device namer
+    devices = state.captures.list_devices()
+    device = next((d for d in devices if d["id"] == cap.cfg.device_id), None)
+    if device:
+        device_nickname = get_device_nickname(cap.cfg.device_id)
+        cap.cfg.auto_name = generate_capture_name(
+            center_hz=req.centerHz,
+            device_id=cap.cfg.device_id,
+            device_label=device["label"],
+            recipe_name=None,
+            device_nickname=device_nickname,
+        )
 
     # Automatically create a default channel with offset 0 (unless disabled)
     if req.createDefaultChannel:
@@ -380,6 +454,10 @@ async def update_capture(
                     detail=f"Antenna '{req.antenna}' is not supported. Valid antennas: {valid_antennas}"
                 )
 
+    # Update user-provided name if given
+    if req.name is not None:
+        cap.cfg.name = req.name
+
     # Use reconfigure method with timeout protection
     try:
         # Add timeout to prevent hanging
@@ -409,6 +487,20 @@ async def update_capture(
             status_code=500,
             detail=f"Failed to reconfigure capture: {str(e)}"
         )
+
+    # Regenerate auto_name if frequency or device changed
+    if req.centerHz is not None or req.deviceId is not None:
+        devices = state.captures.list_devices()
+        device = next((d for d in devices if d["id"] == cap.cfg.device_id), None)
+        if device:
+            device_nickname = get_device_nickname(cap.cfg.device_id)
+            cap.cfg.auto_name = generate_capture_name(
+                center_hz=cap.cfg.center_hz,  # Now it's updated after reconfigure
+                device_id=cap.cfg.device_id,
+                device_label=device["label"],
+                recipe_name=None,
+                device_nickname=device_nickname,
+            )
 
     # Persist changes to config file if this capture is associated with a preset
     preset_name = state.capture_presets.get(cid)
@@ -611,6 +703,15 @@ def update_channel(
         ch.cfg.audio_rate = req.audioRate
     if req.squelchDb is not None:
         ch.cfg.squelch_db = req.squelchDb
+    if req.name is not None:
+        ch.cfg.name = req.name
+
+    # Regenerate auto_name if offset changed
+    if req.offsetHz is not None:
+        cap = state.captures.get_capture(ch.cfg.capture_id)
+        if cap is not None:
+            namer = get_frequency_namer()
+            ch.cfg.auto_name = namer.suggest_channel_name(cap.cfg.center_hz, ch.cfg.offset_hz)
 
     return ChannelModel(
         id=ch.cfg.id,
@@ -620,6 +721,8 @@ def update_channel(
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
         squelchDb=ch.cfg.squelch_db,
+        name=ch.cfg.name,
+        autoName=ch.cfg.auto_name,
         signalPowerDb=ch.signal_power_db,
         rssiDb=ch.rssi_db,
         snrDb=ch.snr_db,

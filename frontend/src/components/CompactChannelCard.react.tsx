@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Volume2, VolumeX, Trash2, Copy, CheckCircle, Settings, ChevronUp, ChevronDown } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { Volume2, VolumeX, Trash2, Copy, CheckCircle, Settings, ChevronUp, ChevronDown, Edit2 } from "lucide-react";
 import type { Capture, Channel } from "../types";
 import { useUpdateChannel, useDeleteChannel } from "../hooks/useChannels";
 import { formatFrequencyMHz } from "../utils/frequency";
@@ -35,10 +35,43 @@ export const CompactChannelCard = ({
 }: CompactChannelCardProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showStreamDropdown, setShowStreamDropdown] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const updateChannel = useUpdateChannel(capture.id);
   const deleteChannel = useDeleteChannel();
 
   const getChannelFrequency = () => capture.centerHz + channel.offsetHz;
+  const displayName = channel.name || channel.autoName || formatChannelId(channel.id);
+
+  useEffect(() => {
+    if (isEditingName && nameInputRef.current) {
+      nameInputRef.current.focus();
+      nameInputRef.current.select();
+    }
+  }, [isEditingName]);
+
+  const handleStartEditName = () => {
+    setEditNameValue(channel.name || channel.autoName || "");
+    setIsEditingName(true);
+  };
+
+  const handleSaveEditName = () => {
+    const trimmedValue = editNameValue.trim();
+    updateChannel.mutate({
+      channelId: channel.id,
+      request: { name: trimmedValue || null },
+    });
+    setIsEditingName(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleSaveEditName();
+    } else if (e.key === "Escape") {
+      setIsEditingName(false);
+    }
+  };
 
   const handleDelete = () => {
     if (confirm("Delete this channel?")) {
@@ -102,8 +135,36 @@ export const CompactChannelCard = ({
         <Flex direction="column" gap={2}>
           {/* Channel Info */}
           <div>
-            <div className="small text-muted">{channel.mode.toUpperCase()}</div>
-            <FrequencyLabel frequencyHz={getChannelFrequency()} autoName={channel.autoName} />
+            <Flex justify="between" align="center">
+              <div className="small text-muted">{channel.mode.toUpperCase()}</div>
+              <button
+                className="btn btn-sm p-0"
+                style={{ width: "16px", height: "16px" }}
+                onClick={handleStartEditName}
+                title="Edit name"
+              >
+                <Edit2 size={12} />
+              </button>
+            </Flex>
+            {isEditingName ? (
+              <input
+                ref={nameInputRef}
+                type="text"
+                className="form-control form-control-sm mt-1"
+                value={editNameValue}
+                onChange={(e) => setEditNameValue(e.target.value)}
+                onBlur={handleSaveEditName}
+                onKeyDown={handleKeyDown}
+                placeholder="Channel name"
+              />
+            ) : (
+              <div>
+                <div className="fw-semibold" title={channel.name && channel.autoName ? `Auto: ${channel.autoName}` : undefined}>
+                  {displayName}
+                </div>
+                <FrequencyLabel frequencyHz={getChannelFrequency()} autoName={channel.name ? channel.autoName : null} />
+              </div>
+            )}
           </div>
 
           {/* Prominent Signal Meters */}
