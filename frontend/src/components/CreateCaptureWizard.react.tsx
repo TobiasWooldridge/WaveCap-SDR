@@ -5,6 +5,7 @@ import { useDevices } from "../hooks/useDevices";
 import { useCreateCapture } from "../hooks/useCaptures";
 import { useCreateChannel } from "../hooks/useChannels";
 import type { Recipe } from "../types";
+import { getDeviceDisplayName } from "../utils/device";
 import Flex from "./primitives/Flex.react";
 import Button from "./primitives/Button.react";
 import Spinner from "./primitives/Spinner.react";
@@ -163,7 +164,7 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
                     <option value="">Auto-select device</option>
                     {devices?.map((device) => (
                       <option key={device.id} value={device.id}>
-                        {device.driver.toUpperCase()} - {device.label.substring(0, 50)}
+                        {getDeviceDisplayName(device)}
                       </option>
                     ))}
                   </select>

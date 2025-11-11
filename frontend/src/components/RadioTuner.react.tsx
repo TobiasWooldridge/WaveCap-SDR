@@ -5,6 +5,7 @@ import { useUpdateCapture, useStartCapture, useStopCapture } from "../hooks/useC
 import { useDevices } from "../hooks/useDevices";
 import { useDebounce } from "../hooks/useDebounce";
 import { formatFrequencyMHz, formatSampleRate } from "../utils/frequency";
+import { getDeviceDisplayName } from "../utils/device";
 import Button from "./primitives/Button.react";
 import Flex from "./primitives/Flex.react";
 import Slider from "./primitives/Slider.react";
@@ -247,7 +248,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             <Radio size={22} className="flex-shrink-0" />
             <div className="flex-grow-1">
               <h2 className="h5 mb-0 fw-bold text-white">
-                {device?.driver.toUpperCase() || "Radio"} - {device?.label || "Loading..."}
+                {device ? getDeviceDisplayName(device) : "Loading..."}
               </h2>
               <div className="small opacity-90">
                 {formatFrequencyMHz(capture.centerHz)} @ {formatSampleRate(capture.sampleRate)}
@@ -296,7 +297,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
               >
                 {(devices || []).map((dev) => (
                   <option key={dev.id} value={dev.id}>
-                    {dev.driver.toUpperCase()} - {dev.label}
+                    {getDeviceDisplayName(dev)}
                   </option>
                 ))}
               </select>

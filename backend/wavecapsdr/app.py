@@ -5,14 +5,26 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 
 from .config import AppConfig
 from .api import router as api_router
 from .state import AppState
+from .device_namer import get_device_nickname, generate_capture_name
 
 
 def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
     app = FastAPI(title="WaveCap-SDR", version="0.1.0")
+
+    # Configure CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Allow all origins for local development
+        allow_credentials=True,
+        allow_methods=["*"],  # Allow all HTTP methods
+        allow_headers=["*"],  # Allow all headers
+        expose_headers=["*"],  # Expose all headers to the client
+    )
 
     app.state.app_state = AppState.from_config(config, config_path)
 
@@ -51,6 +63,19 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
                     dc_offset_auto=preset.dc_offset_auto,
                     iq_balance_auto=preset.iq_balance_auto,
                 )
+
+                # Generate auto_name using device shorthand
+                devices = app_state.captures.list_devices()
+                device = next((d for d in devices if d["id"] == cap.cfg.device_id), None)
+                if device:
+                    device_nickname = get_device_nickname(cap.cfg.device_id)
+                    cap.cfg.auto_name = generate_capture_name(
+                        center_hz=preset.center_hz,
+                        device_id=cap.cfg.device_id,
+                        device_label=device["label"],
+                        recipe_name=None,
+                        device_nickname=device_nickname,
+                    )
 
                 # Create channels for each offset
                 for i, offset_hz in enumerate(preset.offsets):
@@ -103,6 +128,19 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
                     dc_offset_auto=(preset.dc_offset_auto if preset else True),
                     iq_balance_auto=(preset.iq_balance_auto if preset else True),
                 )
+
+                # Generate auto_name using device shorthand
+                if device_id:
+                    device = next((d for d in devices if d["id"] == device_id), None)
+                    if device:
+                        device_nickname = get_device_nickname(device_id)
+                        cap.cfg.auto_name = generate_capture_name(
+                            center_hz=center_hz,
+                            device_id=device_id,
+                            device_label=device["label"],
+                            recipe_name=None,
+                            device_nickname=device_nickname,
+                        )
 
                 default_channels = 0
                 if preset:

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Radio, Plus, Wand2, X, Edit2, Settings } from "lucide-react";
+import { ToastProvider, useToast } from "./hooks/useToast";
 import { useDevices } from "./hooks/useDevices";
 import { useCaptures, useCreateCapture, useDeleteCapture, useUpdateCapture } from "./hooks/useCaptures";
 import { useChannels } from "./hooks/useChannels";
@@ -13,6 +14,7 @@ import Flex from "./components/primitives/Flex.react";
 import Spinner from "./components/primitives/Spinner.react";
 import Button from "./components/primitives/Button.react";
 import { DeviceSettingsModal } from "./components/DeviceSettingsModal.react";
+import ErrorBoundary from "./components/ErrorBoundary.react";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -82,7 +84,7 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
       style={{
         position: "relative",
         borderRadius: "0.375rem 0.375rem 0 0",
-        borderBottom: isSelected ? "3px solid white" : "none",
+        borderBottom: "none",
         whiteSpace: "nowrap",
       }}
     >
@@ -170,6 +172,7 @@ function AppContent() {
   const createCapture = useCreateCapture();
   const deleteCapture = useDeleteCapture();
   const updateCapture = useUpdateCapture();
+  const toast = useToast();
 
   // Initialize from URL query parameter
   const [selectedCaptureId, setSelectedCaptureId] = useState<string | null>(() => {
@@ -218,6 +221,10 @@ function AppContent() {
       onSuccess: (newCapture) => {
         setShowNewCaptureModal(false);
         setSelectedCaptureId(newCapture.id);
+        toast.success("Capture created successfully");
+      },
+      onError: (error: any) => {
+        toast.error(error?.message || "Failed to create capture");
       },
     });
   };
@@ -241,78 +248,93 @@ function AppContent() {
   return (
     <div className="min-vh-100 bg-light">
       {/* Header with Capture Tabs */}
-      <nav className="navbar navbar-dark bg-primary shadow-sm mb-0">
-        <div className="container-fluid">
-          <Flex align="center" gap={3} style={{ flex: 1 }}>
+      <nav className="navbar navbar-dark bg-primary shadow-sm mb-0" style={{ paddingBottom: 0 }}>
+        <div className="container-fluid" style={{ flexDirection: "column", alignItems: "stretch", gap: "0.5rem" }}>
+          {/* Top Row: Branding and Device Info */}
+          <Flex align="center" justify="between" style={{ paddingBottom: "0.5rem" }}>
             {/* Branding */}
             <Flex align="center" gap={2} className="text-white">
               <Radio size={24} />
               <span className="navbar-brand mb-0 h5 text-white">WaveCap SDR</span>
             </Flex>
 
-            {/* Capture Tabs */}
-            <Flex align="center" gap={2} style={{ flex: 1 }}>
-              {captures && captures.length > 0 && (
-                <>
-                  {captures.map((capture) => (
-                    <CaptureTabWithData
-                      key={capture.id}
-                      capture={capture}
-                      devices={devices}
-                      isSelected={selectedCapture?.id === capture.id}
-                      onClick={() => setSelectedCaptureId(capture.id)}
-                      onDelete={() => {
-                        deleteCapture.mutate(capture.id);
-                        if (selectedCaptureId === capture.id) {
-                          setSelectedCaptureId(null);
-                        }
-                      }}
-                      onUpdateName={(name) => {
-                        updateCapture.mutate({
-                          captureId: capture.id,
-                          request: { name },
-                        });
-                      }}
-                    />
-                  ))}
-                </>
-              )}
-
-              {/* Add Capture Buttons */}
-              <Flex gap={1}>
-                <Button
-                  use="success"
-                  size="sm"
-                  onClick={() => setShowWizard(true)}
-                  title="Use Recipe Wizard"
-                >
-                  <Wand2 size={16} />
-                </Button>
-                <Button
-                  use="light"
-                  size="sm"
-                  onClick={() => setShowNewCaptureModal(true)}
-                  title="Manual Setup"
-                >
-                  <Plus size={16} />
-                </Button>
-              </Flex>
+            {/* Device Settings and Count */}
+            <Flex align="center" gap={2}>
+              <Button
+                use="light"
+                size="sm"
+                onClick={() => setShowDeviceSettings(true)}
+                title="Device Settings"
+              >
+                <Settings size={16} />
+              </Button>
+              <span className="badge bg-light text-dark">
+                {devices?.length ?? 0} device{devices?.length !== 1 ? "s" : ""}
+              </span>
             </Flex>
           </Flex>
 
-          {/* Device Settings and Count */}
-          <Flex align="center" gap={2}>
-            <Button
-              use="light"
-              size="sm"
-              onClick={() => setShowDeviceSettings(true)}
-              title="Device Settings"
-            >
-              <Settings size={16} />
-            </Button>
-            <span className="badge bg-light text-dark">
-              {devices?.length ?? 0} device{devices?.length !== 1 ? "s" : ""}
-            </span>
+          {/* Bottom Row: Capture Tabs */}
+          <Flex align="end" gap={2} style={{ marginBottom: "-1px" }}>
+            {captures && captures.length > 0 && (
+              <>
+                {captures.map((capture) => (
+                  <CaptureTabWithData
+                    key={capture.id}
+                    capture={capture}
+                    devices={devices}
+                    isSelected={selectedCapture?.id === capture.id}
+                    onClick={() => setSelectedCaptureId(capture.id)}
+                    onDelete={() => {
+                      deleteCapture.mutate(capture.id, {
+                        onSuccess: () => {
+                          toast.success("Capture deleted successfully");
+                        },
+                        onError: (error: any) => {
+                          toast.error(error?.message || "Failed to delete capture");
+                        },
+                      });
+                      if (selectedCaptureId === capture.id) {
+                        setSelectedCaptureId(null);
+                      }
+                    }}
+                    onUpdateName={(name) => {
+                      updateCapture.mutate({
+                        captureId: capture.id,
+                        request: { name },
+                      }, {
+                        onSuccess: () => {
+                          toast.success("Capture name updated");
+                        },
+                        onError: (error: any) => {
+                          toast.error(error?.message || "Failed to update capture name");
+                        },
+                      });
+                    }}
+                  />
+                ))}
+              </>
+            )}
+
+            {/* Add Capture Buttons */}
+            <Flex gap={1}>
+              <Button
+                use="success"
+                size="sm"
+                onClick={() => setShowWizard(true)}
+                title="Use Recipe Wizard"
+              >
+                <Wand2 size={16} />
+              </Button>
+              <Button
+                use="light"
+                size="sm"
+                onClick={() => setShowNewCaptureModal(true)}
+                title="Manual Setup"
+              >
+                <Plus size={16} />
+              </Button>
+            </Flex>
           </Flex>
         </div>
       </nav>
@@ -325,18 +347,24 @@ function AppContent() {
             <div className="col-12 col-lg-6">
               <Flex direction="column" gap={4}>
                 {/* Spectrum Analyzer - Sticky */}
-                <div style={{ position: "sticky", top: 16, zIndex: 100 }}>
-                  <SpectrumAnalyzer capture={selectedCapture} channels={selectedCaptureChannels} height={250} />
-                </div>
+                <ErrorBoundary>
+                  <div style={{ position: "sticky", top: 16, zIndex: 100 }}>
+                    <SpectrumAnalyzer capture={selectedCapture} channels={selectedCaptureChannels} height={250} />
+                  </div>
+                </ErrorBoundary>
 
                 {/* Radio Tuner */}
-                <RadioTuner capture={selectedCapture} device={selectedDevice} />
+                <ErrorBoundary>
+                  <RadioTuner capture={selectedCapture} device={selectedDevice} />
+                </ErrorBoundary>
               </Flex>
             </div>
 
             {/* Right Column: Channels - 50% width */}
             <div className="col-12 col-lg-6">
-              <ChannelManager capture={selectedCapture} />
+              <ErrorBoundary>
+                <ChannelManager capture={selectedCapture} />
+              </ErrorBoundary>
             </div>
           </div>
         ) : (
@@ -430,7 +458,11 @@ function AppContent() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AppContent />
+      <ToastProvider>
+        <ErrorBoundary>
+          <AppContent />
+        </ErrorBoundary>
+      </ToastProvider>
     </QueryClientProvider>
   );
 }

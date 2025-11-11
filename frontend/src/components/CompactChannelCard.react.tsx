@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Volume2, VolumeX, Trash2, Copy, CheckCircle, Settings, ChevronUp, ChevronDown, Edit2 } from "lucide-react";
 import type { Capture, Channel } from "../types";
 import { useUpdateChannel, useDeleteChannel } from "../hooks/useChannels";
+import { useToast } from "../hooks/useToast";
 import { formatFrequencyMHz } from "../utils/frequency";
 import Button from "./primitives/Button.react";
 import Flex from "./primitives/Flex.react";
@@ -40,6 +41,7 @@ export const CompactChannelCard = ({
   const nameInputRef = useRef<HTMLInputElement>(null);
   const updateChannel = useUpdateChannel(capture.id);
   const deleteChannel = useDeleteChannel();
+  const toast = useToast();
 
   const getChannelFrequency = () => capture.centerHz + channel.offsetHz;
   const displayName = channel.name || channel.autoName || formatChannelId(channel.id);
@@ -61,6 +63,13 @@ export const CompactChannelCard = ({
     updateChannel.mutate({
       channelId: channel.id,
       request: { name: trimmedValue || null },
+    }, {
+      onSuccess: () => {
+        toast.success("Channel name updated");
+      },
+      onError: (error: any) => {
+        toast.error(error?.message || "Failed to update channel name");
+      },
     });
     setIsEditingName(false);
   };
@@ -75,8 +84,27 @@ export const CompactChannelCard = ({
 
   const handleDelete = () => {
     if (confirm("Delete this channel?")) {
-      deleteChannel.mutate(channel.id);
+      deleteChannel.mutate(channel.id, {
+        onSuccess: () => {
+          toast.success("Channel deleted successfully");
+        },
+        onError: (error: any) => {
+          toast.error(error?.message || "Failed to delete channel");
+        },
+      });
     }
+  };
+
+  // Helper function to update channel with toast notifications
+  const updateChannelWithToast = (request: any) => {
+    updateChannel.mutate({
+      channelId: channel.id,
+      request,
+    }, {
+      onError: (error: any) => {
+        toast.error(error?.message || "Failed to update channel");
+      },
+    });
   };
 
   const streamFormats = [
@@ -233,10 +261,7 @@ export const CompactChannelCard = ({
                     className="form-select form-select-sm"
                     value={channel.mode}
                     onChange={(e) =>
-                      updateChannel.mutate({
-                        channelId: channel.id,
-                        request: { mode: e.target.value as any },
-                      })
+                      updateChannelWithToast({ mode: e.target.value as any })
                     }
                   >
                     <option value="wbfm">WBFM</option>
@@ -260,10 +285,7 @@ export const CompactChannelCard = ({
                   unit="dB"
                   formatValue={(val) => `${val.toFixed(0)} dB`}
                   onChange={(val) =>
-                    updateChannel.mutate({
-                      channelId: channel.id,
-                      request: { squelchDb: val },
-                    })
+                    updateChannelWithToast({ squelchDb: val })
                   }
                 />
 
@@ -274,10 +296,7 @@ export const CompactChannelCard = ({
                     className="form-select form-select-sm"
                     value={channel.audioRate}
                     onChange={(e) =>
-                      updateChannel.mutate({
-                        channelId: channel.id,
-                        request: { audioRate: parseInt(e.target.value) },
-                      })
+                      updateChannelWithToast({ audioRate: parseInt(e.target.value) })
                     }
                   >
                     <option value={8000}>8 kHz</option>
@@ -296,10 +315,7 @@ export const CompactChannelCard = ({
                     max={capture.centerHz + (capture.sampleRate / 2)}
                     step={1000}
                     onChange={(hz) =>
-                      updateChannel.mutate({
-                        channelId: channel.id,
-                        request: { offsetHz: hz - capture.centerHz },
-                      })
+                      updateChannelWithToast({ offsetHz: hz - capture.centerHz })
                     }
                   />
                   <small className="text-muted">

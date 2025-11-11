@@ -202,7 +202,17 @@ def update_device_name(device_id: str, request: dict, _: None = Depends(auth_che
 @router.get("/devices", response_model=List[DeviceModel], response_model_by_alias=False)
 def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)):
     devices = state.captures.list_devices()
-    return [DeviceModel(**d) for d in devices]
+    result = []
+    for d in devices:
+        device_id = d["id"]
+        device_label = d["label"]
+
+        # Get nickname and shorthand name
+        nickname = get_device_nickname(device_id)
+        shorthand = get_device_shorthand(device_id, device_label)
+
+        result.append(DeviceModel(**d, nickname=nickname, shorthand=shorthand))
+    return result
 
 
 @router.get("/recipes", response_model=List[RecipeModel])

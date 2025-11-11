@@ -14,6 +14,7 @@ export interface Device {
   ppmMax: number | null;
   antennas: string[];
   nickname?: string | null;  // User-provided nickname
+  shorthand?: string | null;  // Auto-generated shorthand name (e.g., "RTL-SDR", "SDRplay RSPdx")
 }
 
 export interface Capture {

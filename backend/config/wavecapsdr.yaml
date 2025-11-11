@@ -27,10 +27,10 @@ presets:
     antenna: Antenna B
   kexp_rspdx:
     center_hz: 90300000
-    sample_rate: 1000000
+    sample_rate: 500000
     offsets:
     - 0.0
-    gain: 30.000000000000004
+    gain: 20.0
     bandwidth: 200000.0
     ppm: 1.3322676295501878e-15
     antenna: Antenna B
@@ -266,3 +266,7 @@ captures:
     V4,serial=00000001,tuner=Rafael Micro R828D'
 - preset: kexp_rspdx
   device_id: driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070
+device_names:
+  ? 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
+    V4,serial=00000001,tuner=Rafael Micro R828D'
+  : My Desktop SDR

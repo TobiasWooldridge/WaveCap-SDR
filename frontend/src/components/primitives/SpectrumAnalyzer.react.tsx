@@ -25,6 +25,51 @@ export default function SpectrumAnalyzer({
   const [isConnected, setIsConnected] = useState(false);
   const [spectrumData, setSpectrumData] = useState<SpectrumData | null>(null);
   const [width, setWidth] = useState(800);
+  const [isIdle, setIsIdle] = useState(false);
+  const idleTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastActivityRef = useRef<number>(Date.now());
+
+  // Track user activity to detect idle state
+  useEffect(() => {
+    const IDLE_TIMEOUT = 60000; // 60 seconds
+
+    const resetIdleTimer = () => {
+      lastActivityRef.current = Date.now();
+      setIsIdle(false);
+
+      // Clear existing timer
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current);
+      }
+
+      // Set new timer to mark as idle after IDLE_TIMEOUT
+      idleTimerRef.current = setTimeout(() => {
+        console.log("Spectrum analyzer: UI idle, pausing");
+        setIsIdle(true);
+      }, IDLE_TIMEOUT);
+    };
+
+    // Activity events to track
+    const activityEvents = ["mousedown", "mousemove", "keydown", "scroll", "touchstart"];
+
+    // Add event listeners
+    activityEvents.forEach((event) => {
+      window.addEventListener(event, resetIdleTimer, { passive: true });
+    });
+
+    // Initialize timer
+    resetIdleTimer();
+
+    // Cleanup
+    return () => {
+      activityEvents.forEach((event) => {
+        window.removeEventListener(event, resetIdleTimer);
+      });
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current);
+      }
+    };
+  }, []);
 
   // Update canvas width when container resizes
   useEffect(() => {
@@ -42,18 +87,31 @@ export default function SpectrumAnalyzer({
 
   // Connect to WebSocket and receive FFT data
   useEffect(() => {
-    if (capture.state !== "running") {
-      // Disconnect if capture is not running
+    // Disconnect if capture is not running OR if UI is idle
+    if (capture.state !== "running" || isIdle) {
       if (wsRef.current) {
-        wsRef.current.close();
+        console.log(isIdle ? "Spectrum WebSocket paused due to idle" : "Spectrum WebSocket disconnected");
+        const ws = wsRef.current;
+        // Clear event handlers to prevent memory leaks
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        // Close the connection if it's still open or connecting
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+          ws.close();
+        }
         wsRef.current = null;
       }
       setIsConnected(false);
-      setSpectrumData(null); // Clear spectrum data when stopped
+      if (capture.state !== "running") {
+        setSpectrumData(null); // Clear spectrum data when stopped
+      }
+      // Keep spectrum data visible when idle
       return;
     }
 
-    // Create WebSocket connection
+    // Create WebSocket connection when active and running
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsUrl = `${protocol}//${window.location.host}/api/v1/stream/captures/${capture.id}/spectrum`;
 
@@ -83,14 +141,20 @@ export default function SpectrumAnalyzer({
       setIsConnected(false);
     };
 
-    // Cleanup on unmount
+    // Cleanup on unmount or effect re-run
     return () => {
+      // Clear event handlers to prevent memory leaks
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      // Close the connection if it's still open or connecting
       if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
         ws.close();
       }
       wsRef.current = null;
     };
-  }, [capture.id, capture.state]);
+  }, [capture.id, capture.state, isIdle]);
 
   // Draw spectrum on canvas
   useEffect(() => {
@@ -268,16 +332,29 @@ export default function SpectrumAnalyzer({
     }
   }, [spectrumData, width, height, channels]);
 
+  // Determine badge status
+  const getBadgeStatus = () => {
+    if (isIdle && capture.state === "running") {
+      return { text: "PAUSED (IDLE)", className: "bg-warning" };
+    } else if (isConnected) {
+      return { text: "LIVE", className: "bg-success" };
+    } else {
+      return { text: "OFFLINE", className: "bg-secondary" };
+    }
+  };
+
+  const badgeStatus = getBadgeStatus();
+
   return (
     <div className="card shadow-sm">
       <div className="card-header bg-body-tertiary">
         <div className="d-flex justify-content-between align-items-center">
           <h3 className="h6 mb-0">Spectrum Analyzer</h3>
           <span
-            className={`badge ${isConnected ? "bg-success" : "bg-secondary"} text-white`}
+            className={`badge ${badgeStatus.className} text-white`}
             style={{ fontSize: "9px" }}
           >
-            {isConnected ? "LIVE" : "OFFLINE"}
+            {badgeStatus.text}
           </span>
         </div>
       </div>

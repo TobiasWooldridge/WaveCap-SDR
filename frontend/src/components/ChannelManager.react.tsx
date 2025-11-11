@@ -7,12 +7,14 @@ import {
   useStartChannel,
   useStopChannel,
 } from "../hooks/useChannels";
+import { useToast } from "../hooks/useToast";
 import Button from "./primitives/Button.react";
 import Flex from "./primitives/Flex.react";
 import Slider from "./primitives/Slider.react";
 import FrequencySelector from "./primitives/FrequencySelector.react";
 import Spinner from "./primitives/Spinner.react";
 import { CompactChannelCard } from "./CompactChannelCard.react";
+import { SkeletonChannelCard } from "./primitives/Skeleton.react";
 
 interface ChannelManagerProps {
   capture: Capture;
@@ -23,6 +25,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
   const createChannel = useCreateChannel();
   const startChannel = useStartChannel(capture.id);
   const stopChannel = useStopChannel(capture.id);
+  const toast = useToast();
 
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [newChannelFrequency, setNewChannelFrequency] = useState<number>(capture.centerHz);
@@ -71,6 +74,10 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
         setNewChannelFrequency(capture.centerHz);
         setNewChannelSquelch(-60);
         setNewChannelAudioRate(48000);
+        toast.success("Channel created successfully");
+      },
+      onError: (error: any) => {
+        toast.error(error?.message || "Failed to create channel");
       },
     });
   };
@@ -79,6 +86,9 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
     navigator.clipboard.writeText(url).then(() => {
       setCopiedUrl(url);
       setTimeout(() => setCopiedUrl(null), 2000);
+      toast.success("URL copied to clipboard");
+    }).catch(() => {
+      toast.error("Failed to copy URL");
     });
   };
 
@@ -169,8 +179,9 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
       }
       setPlayingChannel(channelId);
       playPCMAudio(channelId);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Unable to start channel for playback:", error);
+      toast.error(error?.message || "Failed to start channel");
       setPlayingChannel(null);
     }
   };
@@ -289,6 +300,17 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
           </Flex>
         )}
 
+        {/* Loading Skeleton */}
+        {isLoading && (
+          <div className="row g-3">
+            {[1, 2].map((i) => (
+              <div key={i} className="col-12 col-xl-6">
+                <SkeletonChannelCard />
+              </div>
+            ))}
+          </div>
+        )}
+
         {!isLoading && (!channels || channels.length === 0) && (
           <div className="text-muted small text-center py-3">
             No channels. Click + to create one.
@@ -296,10 +318,10 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
         )}
 
         {/* Grid Layout for Channels */}
-        {channels && channels.length > 0 && (
+        {!isLoading && channels && channels.length > 0 && (
           <div className="row g-3">
             {channels.map((channel) => (
-              <div key={channel.id} className="col-12 col-lg-6 col-xxl-4">
+              <div key={channel.id} className="col-12 col-xl-6">
                 <CompactChannelCard
                   channel={channel}
                   capture={capture}

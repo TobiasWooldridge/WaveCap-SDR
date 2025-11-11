@@ -50,6 +50,25 @@ code {
   padding-right: 0.5rem;
 }
 
+// Minimum touch target size for accessibility (44x44px minimum)
+button, .btn, a, input[type="button"], input[type="submit"], input[type="reset"] {
+  min-width: 44px;
+  min-height: 44px;
+
+  // Allow explicit overrides for very small buttons in dense UIs
+  &.btn-icon-sm {
+    min-width: 32px;
+    min-height: 32px;
+  }
+}
+
+// Ensure small icon buttons still meet touch target requirements
+.btn-sm {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.25rem 0.5rem;
+}
+
 // Fix vertical alignment for badges and buttons
 .badge {
   display: inline-flex;
@@ -76,4 +95,122 @@ code {
 
 .spin {
   animation: spin 1s linear infinite;
+}
+
+// Pulse animation for skeleton screens
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.skeleton {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+// Toast notifications
+.toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 400px;
+  pointer-events: none;
+
+  @media (max-width: 576px) {
+    left: 20px;
+    right: 20px;
+    max-width: none;
+  }
+}
+
+.toast-item {
+  background: white;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-left: 4px solid;
+  pointer-events: auto;
+  animation: slideIn 0.3s ease-out;
+  min-height: 44px;
+
+  &.toast-success {
+    border-left-color: var(--bs-success);
+    .toast-icon {
+      color: var(--bs-success);
+    }
+  }
+
+  &.toast-error {
+    border-left-color: var(--bs-danger);
+    .toast-icon {
+      color: var(--bs-danger);
+    }
+  }
+
+  &.toast-warning {
+    border-left-color: var(--bs-warning);
+    .toast-icon {
+      color: var(--bs-warning);
+    }
+  }
+
+  &.toast-info {
+    border-left-color: var(--bs-info);
+    .toast-icon {
+      color: var(--bs-info);
+    }
+  }
+
+  .toast-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+  }
+
+  .toast-message {
+    flex: 1;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #333;
+  }
+
+  .toast-close {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    color: #666;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+
+    &:hover {
+      background-color: rgba(0, 0, 0, 0.05);
+      color: #333;
+    }
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
