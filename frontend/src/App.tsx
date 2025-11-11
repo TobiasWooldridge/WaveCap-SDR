@@ -42,22 +42,22 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
 
   return (
     <button
-      className={`btn btn-sm d-flex align-items-center gap-2 ${isSelected ? 'btn-primary' : 'btn-outline-primary'}`}
+      className={`btn btn-sm d-flex align-items-center gap-2 ${isSelected ? 'btn-light' : 'btn-outline-light'}`}
       onClick={onClick}
       style={{
         position: "relative",
         borderRadius: "0.375rem 0.375rem 0 0",
-        borderBottom: isSelected ? "2px solid var(--bs-primary)" : "none",
+        borderBottom: isSelected ? "3px solid white" : "none",
         whiteSpace: "nowrap",
       }}
     >
       <span className={`badge bg-${stateColor}`} style={{ width: "8px", height: "8px", padding: 0, borderRadius: "50%" }}></span>
-      <span className="fw-semibold">{formatCaptureId(capture.id)}</span>
-      <span className={`small ${isSelected ? 'text-white-50' : 'text-muted'}`}>
+      <span className={`fw-semibold ${isSelected ? 'text-dark' : 'text-white'}`}>{formatCaptureId(capture.id)}</span>
+      <span className={`small ${isSelected ? 'text-muted' : 'text-white opacity-75'}`}>
         {formatFrequencyMHz(capture.centerHz)} MHz • {channelCount} ch
       </span>
       <button
-        className="btn btn-sm p-0 ms-1"
+        className={`btn btn-sm p-0 ms-1 ${isSelected ? 'text-dark' : 'text-white'}`}
         style={{ width: "16px", height: "16px", lineHeight: 1 }}
         onClick={(e) => {
           e.stopPropagation();
@@ -174,9 +174,9 @@ function AppContent() {
         <div className="container-fluid">
           <Flex align="center" gap={3} style={{ flex: 1 }}>
             {/* Branding */}
-            <Flex align="center" gap={2}>
+            <Flex align="center" gap={2} className="text-white">
               <Radio size={24} />
-              <span className="navbar-brand mb-0 h5">WaveCap SDR</span>
+              <span className="navbar-brand mb-0 h5 text-white">WaveCap SDR</span>
             </Flex>
 
             {/* Capture Tabs */}

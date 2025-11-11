@@ -214,6 +214,14 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   const isRunning = capture.state === "running";
   const isFailed = capture.state === "failed";
 
+  // Track which settings are pending update
+  const isFreqPending = localFreq !== capture.centerHz || debouncedFreq !== capture.centerHz;
+  const isGainPending = localGain !== (capture.gain ?? 0) || debouncedGain !== (capture.gain ?? 0);
+  const isBandwidthPending = localBandwidth !== (capture.bandwidth ?? 200000) || debouncedBandwidth !== (capture.bandwidth ?? 200000);
+  const isPpmPending = localPpm !== (capture.ppm ?? 0) || debouncedPpm !== (capture.ppm ?? 0);
+  const isSampleRatePending = localSampleRate !== capture.sampleRate;
+  const isAntennaPending = localAntenna !== (capture.antenna ?? "");
+
   // Get device constraints
   const deviceFreqMin = device?.freqMinHz ?? 24_000_000;
   const deviceFreqMax = device?.freqMaxHz ?? 1_800_000_000;
@@ -342,7 +350,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             {/* Frequency Selector */}
             <div className="col-12">
               <FrequencySelector
-                label="Frequency"
+                label={isFreqPending ? "Frequency (updating...)" : "Frequency"}
                 value={localFreq}
                 min={deviceFreqMin}
                 max={deviceFreqMax}
@@ -355,7 +363,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             {/* Gain Selector */}
             <div className="col-12 col-xl-6">
               <NumericSelector
-                label="Gain"
+                label={isGainPending ? "Gain (updating...)" : "Gain"}
                 value={localGain}
                 min={gainMin}
                 max={gainMax}
@@ -369,7 +377,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             {/* Bandwidth Selector */}
             <div className="col-12 col-xl-6">
               <NumericSelector
-                label="Bandwidth"
+                label={isBandwidthPending ? "Bandwidth (updating...)" : "Bandwidth"}
                 value={localBandwidth}
                 min={bwMin}
                 max={bwMax}
@@ -385,7 +393,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
               <Flex direction="column" gap={2}>
                 <label className="form-label mb-0 fw-semibold">
                   <Settings size={16} className="me-1" />
-                  Sample Rate
+                  {isSampleRatePending ? "Sample Rate (updating...)" : "Sample Rate"}
                 </label>
                 <select
                   className="form-select"
@@ -409,7 +417,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             {/* PPM Correction Slider */}
             <div className="col-12 col-xl-6">
               <Slider
-                label="PPM Correction"
+                label={isPpmPending ? "PPM Correction (updating...)" : "PPM Correction"}
                 value={localPpm}
                 min={ppmMin}
                 max={ppmMax}
@@ -425,7 +433,9 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             {device?.antennas && device.antennas.length > 0 && (
               <div className="col-12">
                 <Flex direction="column" gap={2}>
-                  <label className="form-label mb-0 fw-semibold">Antenna</label>
+                  <label className="form-label mb-0 fw-semibold">
+                    {isAntennaPending ? "Antenna (updating...)" : "Antenna"}
+                  </label>
                   <select
                     className="form-select"
                     value={localAntenna}
