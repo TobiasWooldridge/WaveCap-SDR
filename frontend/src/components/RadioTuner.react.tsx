@@ -227,19 +227,41 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   return (
     <Flex direction="column" gap={3}>
       {/* Header */}
-      <Flex align="center" gap={2}>
-        <Radio size={20} />
-        <h2 className="h5 mb-0">Radio Tuner</h2>
-        {updateMutation.isPending && (
-          <Flex align="center" gap={1}>
-            <Spinner size="sm" />
-            <span className="small text-muted">Updating...</span>
+      <div className="card shadow-sm mb-3">
+        <div
+          className={`card-header ${
+            isFailed ? "bg-danger" :
+            isRunning ? "bg-success" :
+            "bg-secondary"
+          } text-white`}
+        >
+          <Flex align="center" gap={2}>
+            <Radio size={22} className="flex-shrink-0" />
+            <div className="flex-grow-1">
+              <h2 className="h5 mb-0 fw-bold text-white">
+                {device?.driver.toUpperCase() || "Radio"} - {device?.label || "Loading..."}
+              </h2>
+              <div className="small opacity-90">
+                {formatFrequencyMHz(capture.centerHz)} @ {formatSampleRate(capture.sampleRate)}
+                {capture.antenna && ` • ${capture.antenna}`}
+              </div>
+            </div>
+            {updateMutation.isPending && (
+              <Flex align="center" gap={1} className="text-white">
+                <Spinner size="sm" />
+                <span className="small">Updating...</span>
+              </Flex>
+            )}
+            <span className={`badge ${
+              isFailed ? "bg-dark" :
+              isRunning ? "bg-light text-success" :
+              "bg-dark"
+            } fs-6 px-3 py-2`}>
+              {capture.state.toUpperCase()}
+            </span>
           </Flex>
-        )}
-        <span className={`badge bg-${isFailed ? "danger" : isRunning ? "success" : "secondary"} ms-auto`}>
-          {capture.state}
-        </span>
-      </Flex>
+        </div>
+      </div>
 
       {/* Device & Control Card */}
       <div className="card shadow-sm">
