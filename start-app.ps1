@@ -1,5 +1,5 @@
 #!/usr/bin/env pwsh
-# WaveCap-SDR startup script for Windows/PowerShell
+# WaveCap-SDR startup script for PowerShell
 # Starts the server with sensible defaults
 #
 # Optional environment variables:
@@ -18,12 +18,24 @@
 param()
 
 $ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BackendDir = Join-Path $ScriptDir "backend"
 $VenvDir = Join-Path $BackendDir ".venv"
-$VenvPython = Join-Path $VenvDir "Scripts\python.exe"
-$VenvPip = Join-Path $VenvDir "Scripts\pip.exe"
+
+# Determine Python and Pip executables based on platform
+$VenvPython = if ($IsWindows -or $env:OS -eq "Windows_NT") {
+    Join-Path $VenvDir "Scripts\python.exe"
+} else {
+    Join-Path $VenvDir "bin/python"
+}
+
+$VenvPip = if ($IsWindows -or $env:OS -eq "Windows_NT") {
+    Join-Path $VenvDir "Scripts\pip.exe"
+} else {
+    Join-Path $VenvDir "bin/pip"
+}
 
 # Helper function for colored output
 function Write-ColorOutput {
@@ -46,7 +58,18 @@ Set-Location $BackendDir
 # Set up virtual environment if needed
 if (-not (Test-Path $VenvPython)) {
     Write-ColorOutput "Setting up Python virtual environment..." "Yellow"
-    python -m venv $VenvDir
+
+    # Find python3 or python command
+    $PythonCmd = Get-Command python3 -ErrorAction SilentlyContinue
+    if (-not $PythonCmd) {
+        $PythonCmd = Get-Command python -ErrorAction SilentlyContinue
+    }
+    if (-not $PythonCmd) {
+        Write-ColorOutput "Error: Python 3 not found. Please install Python 3." "Red"
+        exit 1
+    }
+
+    & $PythonCmd.Source -m venv --system-site-packages $VenvDir
     & $VenvPython -m pip install --upgrade pip --quiet
     Write-ColorOutput "Installing dependencies..." "Green"
     & $VenvPython -m pip install fastapi uvicorn httpx websockets pyyaml numpy scipy --quiet
@@ -74,6 +97,25 @@ Write-Host "  Driver: $Driver"
 if ($env:DEVICE_ARGS) { Write-Host "  Device: $env:DEVICE_ARGS" }
 if ($env:CONFIG) { Write-Host "  Config: $env:CONFIG" }
 Write-Host ""
+
+# Attempt to refresh SDRplay service so devices enumerate cleanly.
+# Note: This is typically only relevant on Linux/Unix systems
+$RestartScript = Join-Path $ScriptDir "restart-sdrplay.sh"
+if (Test-Path $RestartScript) {
+    if (-not ($IsWindows -or $env:OS -eq "Windows_NT")) {
+        try {
+            & bash $RestartScript --non-interactive 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "Refreshed sdrplay service."
+            } else {
+                Write-Host "Warning: Could not auto-restart sdrplay (sudo password likely required). Run ./restart-sdrplay.sh manually if needed."
+            }
+        } catch {
+            Write-Host "Warning: Could not auto-restart sdrplay. Run ./restart-sdrplay.sh manually if needed."
+        }
+    }
+}
+
 Write-ColorOutput "Starting WaveCap-SDR server..." "Green"
 Write-Host "Web UI will be available at: http://${Host_Addr}:${Port_Num}/"
 Write-Host "Press Ctrl+C to stop"
