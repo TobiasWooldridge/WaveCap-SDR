@@ -19,6 +19,10 @@ from .models import (
     UpdateChannelRequest,
     RecipeModel,
     RecipeChannelModel,
+    CreateScannerRequest,
+    UpdateScannerRequest,
+    ScannerModel,
+    ScanHitModel,
 )
 from .state import AppState
 from .frequency_namer import get_frequency_namer
@@ -573,6 +577,30 @@ def list_channels(
             signalPowerDb=ch.signal_power_db,
             rssiDb=ch.rssi_db,
             snrDb=ch.snr_db,
+            # Filter configuration
+            enableDeemphasis=ch.cfg.enable_deemphasis,
+            deemphasisTauUs=ch.cfg.deemphasis_tau_us,
+            enableMpxFilter=ch.cfg.enable_mpx_filter,
+            mpxCutoffHz=ch.cfg.mpx_cutoff_hz,
+            enableFmHighpass=ch.cfg.enable_fm_highpass,
+            fmHighpassHz=ch.cfg.fm_highpass_hz,
+            enableFmLowpass=ch.cfg.enable_fm_lowpass,
+            fmLowpassHz=ch.cfg.fm_lowpass_hz,
+            enableAmHighpass=ch.cfg.enable_am_highpass,
+            amHighpassHz=ch.cfg.am_highpass_hz,
+            enableAmLowpass=ch.cfg.enable_am_lowpass,
+            amLowpassHz=ch.cfg.am_lowpass_hz,
+            enableSsbBandpass=ch.cfg.enable_ssb_bandpass,
+            ssbBandpassLowHz=ch.cfg.ssb_bandpass_low_hz,
+            ssbBandpassHighHz=ch.cfg.ssb_bandpass_high_hz,
+            ssbMode=ch.cfg.ssb_mode,
+            enableAgc=ch.cfg.enable_agc,
+            agcTargetDb=ch.cfg.agc_target_db,
+            agcAttackMs=ch.cfg.agc_attack_ms,
+            agcReleaseMs=ch.cfg.agc_release_ms,
+            enableNoiseBlanker=ch.cfg.enable_noise_blanker,
+            noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
+            notchFrequencies=ch.cfg.notch_frequencies,
         )
         for ch in chans
     ]
@@ -595,6 +623,10 @@ def create_channel(
 
     # Set user-provided name
     ch.cfg.name = req.name
+
+    # Set notch frequencies if provided
+    if req.notchFrequencies is not None:
+        ch.cfg.notch_frequencies = req.notchFrequencies
 
     # Generate auto_name using frequency recognition
     cap = state.captures.get_capture(cid)
@@ -619,6 +651,30 @@ def create_channel(
         signalPowerDb=ch.signal_power_db,
         rssiDb=ch.rssi_db,
         snrDb=ch.snr_db,
+        # Filter configuration
+        enableDeemphasis=ch.cfg.enable_deemphasis,
+        deemphasisTauUs=ch.cfg.deemphasis_tau_us,
+        enableMpxFilter=ch.cfg.enable_mpx_filter,
+        mpxCutoffHz=ch.cfg.mpx_cutoff_hz,
+        enableFmHighpass=ch.cfg.enable_fm_highpass,
+        fmHighpassHz=ch.cfg.fm_highpass_hz,
+        enableFmLowpass=ch.cfg.enable_fm_lowpass,
+        fmLowpassHz=ch.cfg.fm_lowpass_hz,
+        enableAmHighpass=ch.cfg.enable_am_highpass,
+        amHighpassHz=ch.cfg.am_highpass_hz,
+        enableAmLowpass=ch.cfg.enable_am_lowpass,
+        amLowpassHz=ch.cfg.am_lowpass_hz,
+        enableSsbBandpass=ch.cfg.enable_ssb_bandpass,
+        ssbBandpassLowHz=ch.cfg.ssb_bandpass_low_hz,
+        ssbBandpassHighHz=ch.cfg.ssb_bandpass_high_hz,
+        ssbMode=ch.cfg.ssb_mode,
+        enableAgc=ch.cfg.enable_agc,
+        agcTargetDb=ch.cfg.agc_target_db,
+        agcAttackMs=ch.cfg.agc_attack_ms,
+        agcReleaseMs=ch.cfg.agc_release_ms,
+        enableNoiseBlanker=ch.cfg.enable_noise_blanker,
+        noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
+        notchFrequencies=ch.cfg.notch_frequencies,
     )
 
 
@@ -640,9 +696,35 @@ def start_channel(
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
         squelchDb=ch.cfg.squelch_db,
+        name=ch.cfg.name,
+        autoName=ch.cfg.auto_name,
         signalPowerDb=ch.signal_power_db,
         rssiDb=ch.rssi_db,
         snrDb=ch.snr_db,
+        # Filter configuration
+        enableDeemphasis=ch.cfg.enable_deemphasis,
+        deemphasisTauUs=ch.cfg.deemphasis_tau_us,
+        enableMpxFilter=ch.cfg.enable_mpx_filter,
+        mpxCutoffHz=ch.cfg.mpx_cutoff_hz,
+        enableFmHighpass=ch.cfg.enable_fm_highpass,
+        fmHighpassHz=ch.cfg.fm_highpass_hz,
+        enableFmLowpass=ch.cfg.enable_fm_lowpass,
+        fmLowpassHz=ch.cfg.fm_lowpass_hz,
+        enableAmHighpass=ch.cfg.enable_am_highpass,
+        amHighpassHz=ch.cfg.am_highpass_hz,
+        enableAmLowpass=ch.cfg.enable_am_lowpass,
+        amLowpassHz=ch.cfg.am_lowpass_hz,
+        enableSsbBandpass=ch.cfg.enable_ssb_bandpass,
+        ssbBandpassLowHz=ch.cfg.ssb_bandpass_low_hz,
+        ssbBandpassHighHz=ch.cfg.ssb_bandpass_high_hz,
+        ssbMode=ch.cfg.ssb_mode,
+        enableAgc=ch.cfg.enable_agc,
+        agcTargetDb=ch.cfg.agc_target_db,
+        agcAttackMs=ch.cfg.agc_attack_ms,
+        agcReleaseMs=ch.cfg.agc_release_ms,
+        enableNoiseBlanker=ch.cfg.enable_noise_blanker,
+        noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
+        notchFrequencies=ch.cfg.notch_frequencies,
     )
 
 
@@ -664,9 +746,35 @@ def stop_channel(
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
         squelchDb=ch.cfg.squelch_db,
+        name=ch.cfg.name,
+        autoName=ch.cfg.auto_name,
         signalPowerDb=ch.signal_power_db,
         rssiDb=ch.rssi_db,
         snrDb=ch.snr_db,
+        # Filter configuration
+        enableDeemphasis=ch.cfg.enable_deemphasis,
+        deemphasisTauUs=ch.cfg.deemphasis_tau_us,
+        enableMpxFilter=ch.cfg.enable_mpx_filter,
+        mpxCutoffHz=ch.cfg.mpx_cutoff_hz,
+        enableFmHighpass=ch.cfg.enable_fm_highpass,
+        fmHighpassHz=ch.cfg.fm_highpass_hz,
+        enableFmLowpass=ch.cfg.enable_fm_lowpass,
+        fmLowpassHz=ch.cfg.fm_lowpass_hz,
+        enableAmHighpass=ch.cfg.enable_am_highpass,
+        amHighpassHz=ch.cfg.am_highpass_hz,
+        enableAmLowpass=ch.cfg.enable_am_lowpass,
+        amLowpassHz=ch.cfg.am_lowpass_hz,
+        enableSsbBandpass=ch.cfg.enable_ssb_bandpass,
+        ssbBandpassLowHz=ch.cfg.ssb_bandpass_low_hz,
+        ssbBandpassHighHz=ch.cfg.ssb_bandpass_high_hz,
+        ssbMode=ch.cfg.ssb_mode,
+        enableAgc=ch.cfg.enable_agc,
+        agcTargetDb=ch.cfg.agc_target_db,
+        agcAttackMs=ch.cfg.agc_attack_ms,
+        agcReleaseMs=ch.cfg.agc_release_ms,
+        enableNoiseBlanker=ch.cfg.enable_noise_blanker,
+        noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
+        notchFrequencies=ch.cfg.notch_frequencies,
     )
 
 
@@ -687,9 +795,35 @@ def get_channel(
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
         squelchDb=ch.cfg.squelch_db,
+        name=ch.cfg.name,
+        autoName=ch.cfg.auto_name,
         signalPowerDb=ch.signal_power_db,
         rssiDb=ch.rssi_db,
         snrDb=ch.snr_db,
+        # Filter configuration
+        enableDeemphasis=ch.cfg.enable_deemphasis,
+        deemphasisTauUs=ch.cfg.deemphasis_tau_us,
+        enableMpxFilter=ch.cfg.enable_mpx_filter,
+        mpxCutoffHz=ch.cfg.mpx_cutoff_hz,
+        enableFmHighpass=ch.cfg.enable_fm_highpass,
+        fmHighpassHz=ch.cfg.fm_highpass_hz,
+        enableFmLowpass=ch.cfg.enable_fm_lowpass,
+        fmLowpassHz=ch.cfg.fm_lowpass_hz,
+        enableAmHighpass=ch.cfg.enable_am_highpass,
+        amHighpassHz=ch.cfg.am_highpass_hz,
+        enableAmLowpass=ch.cfg.enable_am_lowpass,
+        amLowpassHz=ch.cfg.am_lowpass_hz,
+        enableSsbBandpass=ch.cfg.enable_ssb_bandpass,
+        ssbBandpassLowHz=ch.cfg.ssb_bandpass_low_hz,
+        ssbBandpassHighHz=ch.cfg.ssb_bandpass_high_hz,
+        ssbMode=ch.cfg.ssb_mode,
+        enableAgc=ch.cfg.enable_agc,
+        agcTargetDb=ch.cfg.agc_target_db,
+        agcAttackMs=ch.cfg.agc_attack_ms,
+        agcReleaseMs=ch.cfg.agc_release_ms,
+        enableNoiseBlanker=ch.cfg.enable_noise_blanker,
+        noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
+        notchFrequencies=ch.cfg.notch_frequencies,
     )
 
 
@@ -715,6 +849,54 @@ def update_channel(
         ch.cfg.squelch_db = req.squelchDb
     if req.name is not None:
         ch.cfg.name = req.name
+    if req.notchFrequencies is not None:
+        ch.cfg.notch_frequencies = req.notchFrequencies
+
+    # Update filter configuration
+    if req.enableDeemphasis is not None:
+        ch.cfg.enable_deemphasis = req.enableDeemphasis
+    if req.deemphasisTauUs is not None:
+        ch.cfg.deemphasis_tau_us = req.deemphasisTauUs
+    if req.enableMpxFilter is not None:
+        ch.cfg.enable_mpx_filter = req.enableMpxFilter
+    if req.mpxCutoffHz is not None:
+        ch.cfg.mpx_cutoff_hz = req.mpxCutoffHz
+    if req.enableFmHighpass is not None:
+        ch.cfg.enable_fm_highpass = req.enableFmHighpass
+    if req.fmHighpassHz is not None:
+        ch.cfg.fm_highpass_hz = req.fmHighpassHz
+    if req.enableFmLowpass is not None:
+        ch.cfg.enable_fm_lowpass = req.enableFmLowpass
+    if req.fmLowpassHz is not None:
+        ch.cfg.fm_lowpass_hz = req.fmLowpassHz
+    if req.enableAmHighpass is not None:
+        ch.cfg.enable_am_highpass = req.enableAmHighpass
+    if req.amHighpassHz is not None:
+        ch.cfg.am_highpass_hz = req.amHighpassHz
+    if req.enableAmLowpass is not None:
+        ch.cfg.enable_am_lowpass = req.enableAmLowpass
+    if req.amLowpassHz is not None:
+        ch.cfg.am_lowpass_hz = req.amLowpassHz
+    if req.enableSsbBandpass is not None:
+        ch.cfg.enable_ssb_bandpass = req.enableSsbBandpass
+    if req.ssbBandpassLowHz is not None:
+        ch.cfg.ssb_bandpass_low_hz = req.ssbBandpassLowHz
+    if req.ssbBandpassHighHz is not None:
+        ch.cfg.ssb_bandpass_high_hz = req.ssbBandpassHighHz
+    if req.ssbMode is not None:
+        ch.cfg.ssb_mode = req.ssbMode
+    if req.enableAgc is not None:
+        ch.cfg.enable_agc = req.enableAgc
+    if req.agcTargetDb is not None:
+        ch.cfg.agc_target_db = req.agcTargetDb
+    if req.agcAttackMs is not None:
+        ch.cfg.agc_attack_ms = req.agcAttackMs
+    if req.agcReleaseMs is not None:
+        ch.cfg.agc_release_ms = req.agcReleaseMs
+    if req.enableNoiseBlanker is not None:
+        ch.cfg.enable_noise_blanker = req.enableNoiseBlanker
+    if req.noiseBlankerThresholdDb is not None:
+        ch.cfg.noise_blanker_threshold_db = req.noiseBlankerThresholdDb
 
     # Regenerate auto_name if offset changed
     if req.offsetHz is not None:
@@ -736,6 +918,30 @@ def update_channel(
         signalPowerDb=ch.signal_power_db,
         rssiDb=ch.rssi_db,
         snrDb=ch.snr_db,
+        # Filter configuration
+        enableDeemphasis=ch.cfg.enable_deemphasis,
+        deemphasisTauUs=ch.cfg.deemphasis_tau_us,
+        enableMpxFilter=ch.cfg.enable_mpx_filter,
+        mpxCutoffHz=ch.cfg.mpx_cutoff_hz,
+        enableFmHighpass=ch.cfg.enable_fm_highpass,
+        fmHighpassHz=ch.cfg.fm_highpass_hz,
+        enableFmLowpass=ch.cfg.enable_fm_lowpass,
+        fmLowpassHz=ch.cfg.fm_lowpass_hz,
+        enableAmHighpass=ch.cfg.enable_am_highpass,
+        amHighpassHz=ch.cfg.am_highpass_hz,
+        enableAmLowpass=ch.cfg.enable_am_lowpass,
+        amLowpassHz=ch.cfg.am_lowpass_hz,
+        enableSsbBandpass=ch.cfg.enable_ssb_bandpass,
+        ssbBandpassLowHz=ch.cfg.ssb_bandpass_low_hz,
+        ssbBandpassHighHz=ch.cfg.ssb_bandpass_high_hz,
+        ssbMode=ch.cfg.ssb_mode,
+        enableAgc=ch.cfg.enable_agc,
+        agcTargetDb=ch.cfg.agc_target_db,
+        agcAttackMs=ch.cfg.agc_attack_ms,
+        agcReleaseMs=ch.cfg.agc_release_ms,
+        enableNoiseBlanker=ch.cfg.enable_noise_blanker,
+        noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
+        notchFrequencies=ch.cfg.notch_frequencies,
     )
 
 
@@ -1095,3 +1301,291 @@ async def stream_channel_audio(websocket: WebSocket, chan_id: str, format: str =
     finally:
         ch.unsubscribe(q)
         logger.info(f"WebSocket stream ended for channel {chan_id}")
+
+
+# ==============================================================================
+# Scanner endpoints
+# ==============================================================================
+
+from .scanner import ScannerService, ScanConfig, ScanMode
+
+
+def _to_scanner_model(scanner_id: str, scanner: ScannerService) -> ScannerModel:
+    """Convert ScannerService to ScannerModel."""
+    return ScannerModel(
+        id=scanner_id,
+        captureId=scanner.capture_id,
+        state=scanner.status.state,
+        currentFrequency=scanner.status.current_frequency,
+        currentIndex=scanner.status.current_index,
+        scanList=scanner.config.scan_list,
+        mode=scanner.config.mode,
+        dwellTimeMs=scanner.config.dwell_time_ms,
+        priorityFrequencies=scanner.config.priority_frequencies,
+        priorityIntervalS=scanner.config.priority_interval_s,
+        squelchThresholdDb=scanner.config.squelch_threshold_db,
+        lockoutList=scanner.status.lockout_list,
+        pauseDurationMs=scanner.config.pause_duration_ms,
+        hits=[ScanHitModel(frequencyHz=freq, timestamp=ts) for freq, ts in scanner.status.hits],
+    )
+
+
+@router.post("/scanners", response_model=ScannerModel, status_code=201)
+def create_scanner(
+    req: CreateScannerRequest,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Create a new scanner for a capture."""
+    # Validate capture exists
+    capture = state.captures.get_capture(req.captureId)
+    if capture is None:
+        raise HTTPException(status_code=404, detail=f"Capture {req.captureId} not found")
+
+    # Generate scanner ID
+    scanner_id = f"scan_{len(state.scanners) + 1}"
+
+    # Create scanner config
+    config = ScanConfig(
+        scan_list=req.scanList,
+        mode=ScanMode(req.mode),
+        dwell_time_ms=req.dwellTimeMs,
+        priority_frequencies=req.priorityFrequencies,
+        priority_interval_s=req.priorityIntervalS,
+        squelch_threshold_db=req.squelchThresholdDb,
+        lockout_frequencies=req.lockoutFrequencies,
+        pause_duration_ms=req.pauseDurationMs,
+    )
+
+    # Create scanner service
+    scanner = ScannerService(capture_id=req.captureId, config=config)
+
+    # Set up update callback to tune the capture
+    async def update_frequency(freq_hz: float):
+        try:
+            state.captures.update_capture(req.captureId, center_hz=freq_hz)
+        except Exception as e:
+            logger.error(f"Scanner failed to update frequency: {e}")
+
+    scanner.set_update_callback(update_frequency)
+
+    # Set up RSSI callback to get current RSSI from capture
+    def get_rssi() -> Optional[float]:
+        # Get first channel's RSSI as a proxy for activity
+        channels = list(capture.channels.values())
+        if channels:
+            return channels[0].rssi_db
+        return None
+
+    scanner.set_rssi_callback(get_rssi)
+
+    # Store scanner
+    state.scanners[scanner_id] = scanner
+
+    return _to_scanner_model(scanner_id, scanner)
+
+
+@router.get("/scanners", response_model=List[ScannerModel])
+def list_scanners(_: None = Depends(auth_check), state: AppState = Depends(get_state)):
+    """List all scanners."""
+    return [_to_scanner_model(sid, scanner) for sid, scanner in state.scanners.items()]
+
+
+@router.get("/scanners/{sid}", response_model=ScannerModel)
+def get_scanner(
+    sid: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Get scanner by ID."""
+    scanner = state.scanners.get(sid)
+    if scanner is None:
+        raise HTTPException(status_code=404, detail=f"Scanner {sid} not found")
+    return _to_scanner_model(sid, scanner)
+
+
+@router.patch("/scanners/{sid}", response_model=ScannerModel)
+def update_scanner(
+    sid: str,
+    req: UpdateScannerRequest,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Update scanner configuration."""
+    scanner = state.scanners.get(sid)
+    if scanner is None:
+        raise HTTPException(status_code=404, detail=f"Scanner {sid} not found")
+
+    # Update config
+    if req.scanList is not None:
+        scanner.config.scan_list = req.scanList
+    if req.mode is not None:
+        scanner.config.mode = ScanMode(req.mode)
+    if req.dwellTimeMs is not None:
+        scanner.config.dwell_time_ms = req.dwellTimeMs
+    if req.priorityFrequencies is not None:
+        scanner.config.priority_frequencies = req.priorityFrequencies
+    if req.priorityIntervalS is not None:
+        scanner.config.priority_interval_s = req.priorityIntervalS
+    if req.squelchThresholdDb is not None:
+        scanner.config.squelch_threshold_db = req.squelchThresholdDb
+    if req.lockoutFrequencies is not None:
+        scanner.status.lockout_list = req.lockoutFrequencies
+    if req.pauseDurationMs is not None:
+        scanner.config.pause_duration_ms = req.pauseDurationMs
+
+    return _to_scanner_model(sid, scanner)
+
+
+@router.delete("/scanners/{sid}", status_code=204)
+def delete_scanner(
+    sid: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Delete a scanner."""
+    scanner = state.scanners.get(sid)
+    if scanner is None:
+        raise HTTPException(status_code=404, detail=f"Scanner {sid} not found")
+
+    # Stop scanner if running
+    scanner.stop()
+
+    # Remove from state
+    del state.scanners[sid]
+
+
+@router.post("/scanners/{sid}/start", response_model=ScannerModel)
+def start_scanner(
+    sid: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Start scanning."""
+    scanner = state.scanners.get(sid)
+    if scanner is None:
+        raise HTTPException(status_code=404, detail=f"Scanner {sid} not found")
+
+    scanner.start()
+    return _to_scanner_model(sid, scanner)
+
+
+@router.post("/scanners/{sid}/stop", response_model=ScannerModel)
+def stop_scanner(
+    sid: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Stop scanning."""
+    scanner = state.scanners.get(sid)
+    if scanner is None:
+        raise HTTPException(status_code=404, detail=f"Scanner {sid} not found")
+
+    scanner.stop()
+    return _to_scanner_model(sid, scanner)
+
+
+@router.post("/scanners/{sid}/pause", response_model=ScannerModel)
+def pause_scanner(
+    sid: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Pause scanning."""
+    scanner = state.scanners.get(sid)
+    if scanner is None:
+        raise HTTPException(status_code=404, detail=f"Scanner {sid} not found")
+
+    scanner.pause()
+    return _to_scanner_model(sid, scanner)
+
+
+@router.post("/scanners/{sid}/resume", response_model=ScannerModel)
+def resume_scanner(
+    sid: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Resume scanning from pause."""
+    scanner = state.scanners.get(sid)
+    if scanner is None:
+        raise HTTPException(status_code=404, detail=f"Scanner {sid} not found")
+
+    scanner.resume()
+    return _to_scanner_model(sid, scanner)
+
+
+@router.post("/scanners/{sid}/lock", response_model=ScannerModel)
+def lock_scanner(
+    sid: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Lock on current frequency."""
+    scanner = state.scanners.get(sid)
+    if scanner is None:
+        raise HTTPException(status_code=404, detail=f"Scanner {sid} not found")
+
+    scanner.lock()
+    return _to_scanner_model(sid, scanner)
+
+
+@router.post("/scanners/{sid}/unlock", response_model=ScannerModel)
+def unlock_scanner(
+    sid: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Unlock and resume scanning."""
+    scanner = state.scanners.get(sid)
+    if scanner is None:
+        raise HTTPException(status_code=404, detail=f"Scanner {sid} not found")
+
+    scanner.unlock()
+    return _to_scanner_model(sid, scanner)
+
+
+@router.post("/scanners/{sid}/lockout", response_model=ScannerModel)
+def lockout_frequency(
+    sid: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Add current frequency to lockout list."""
+    scanner = state.scanners.get(sid)
+    if scanner is None:
+        raise HTTPException(status_code=404, detail=f"Scanner {sid} not found")
+
+    scanner.lockout_current()
+    return _to_scanner_model(sid, scanner)
+
+
+@router.delete("/scanners/{sid}/lockout/{freq}", response_model=ScannerModel)
+def clear_lockout(
+    sid: str,
+    freq: float,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Remove frequency from lockout list."""
+    scanner = state.scanners.get(sid)
+    if scanner is None:
+        raise HTTPException(status_code=404, detail=f"Scanner {sid} not found")
+
+    scanner.clear_lockout(freq)
+    return _to_scanner_model(sid, scanner)
+
+
+@router.delete("/scanners/{sid}/lockouts", response_model=ScannerModel)
+def clear_all_lockouts(
+    sid: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Clear all lockouts."""
+    scanner = state.scanners.get(sid)
+    if scanner is None:
+        raise HTTPException(status_code=404, detail=f"Scanner {sid} not found")
+
+    scanner.clear_all_lockouts()
+    return _to_scanner_model(sid, scanner)
