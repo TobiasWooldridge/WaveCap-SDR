@@ -3,6 +3,8 @@ import { Radio, Settings, ChevronDown, ChevronUp, Cpu } from "lucide-react";
 import type { Capture, Device } from "../types";
 import { useUpdateCapture, useStartCapture, useStopCapture } from "../hooks/useCaptures";
 import { useDevices } from "../hooks/useDevices";
+import { useChannels, useCreateChannel } from "../hooks/useChannels";
+import { useMemoryBanks } from "../hooks/useMemoryBanks";
 import { useDebounce } from "../hooks/useDebounce";
 import { formatFrequencyMHz, formatSampleRate } from "../utils/frequency";
 import { getDeviceDisplayName } from "../utils/device";
@@ -12,7 +14,8 @@ import Slider from "./primitives/Slider.react";
 import FrequencySelector from "./primitives/FrequencySelector.react";
 import NumericSelector, { type UnitConfig } from "./primitives/NumericSelector.react";
 import Spinner from "./primitives/Spinner.react";
-import { FrequencyLabel } from "./FrequencyLabel.react";
+import { BookmarkManager } from "./BookmarkManager.react";
+import ScannerControl from "./ScannerControl.react";
 
 interface RadioTunerProps {
   capture: Capture;
@@ -107,6 +110,48 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   const updateMutation = useUpdateCapture();
   const startMutation = useStartCapture();
   const stopMutation = useStopCapture();
+
+  // Get channels for the capture
+  const { data: channels } = useChannels(capture.id);
+
+  // Get memory banks hook
+  const { getMemoryBank } = useMemoryBanks();
+
+  // Create channel hook for loading memory banks
+  const createChannel = useCreateChannel();
+
+  // Handler to load a memory bank
+  const handleLoadMemoryBank = (bankId: string) => {
+    const bank = getMemoryBank(bankId);
+    if (!bank) return;
+
+    // Update capture configuration
+    updateMutation.mutate({
+      captureId: capture.id,
+      request: {
+        centerHz: bank.captureConfig.centerHz,
+        sampleRate: bank.captureConfig.sampleRate,
+        gain: bank.captureConfig.gain ?? undefined,
+        bandwidth: bank.captureConfig.bandwidth ?? undefined,
+        ppm: bank.captureConfig.ppm ?? undefined,
+        antenna: bank.captureConfig.antenna ?? undefined,
+      },
+    });
+
+    // Recreate channels (note: this is simplified, might need to clear existing channels first)
+    bank.channels.forEach((channelConfig) => {
+      createChannel.mutate({
+        captureId: capture.id,
+        request: {
+          mode: channelConfig.mode,
+          offsetHz: channelConfig.offsetHz,
+          audioRate: channelConfig.audioRate,
+          squelchDb: channelConfig.squelchDb,
+          name: channelConfig.name,
+        },
+      });
+    });
+  };
 
   // Update capture when debounced values change
   useEffect(() => {
@@ -234,103 +279,91 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   const ppmMax = device?.ppmMax ?? 100;
 
   return (
-    <Flex direction="column" gap={3}>
-      {/* Header */}
-      <div className="card shadow-sm mb-3">
-        <div
-          className={`card-header ${
-            isFailed ? "bg-danger" :
-            isRunning ? "bg-success" :
-            "bg-secondary"
-          } text-white`}
-        >
-          <Flex align="center" gap={2}>
-            <Radio size={22} className="flex-shrink-0" />
-            <div className="flex-grow-1">
-              <h2 className="h5 mb-0 fw-bold text-white">
-                {device ? getDeviceDisplayName(device) : "Loading..."}
-              </h2>
-              <div className="small opacity-90">
-                {formatFrequencyMHz(capture.centerHz)} @ {formatSampleRate(capture.sampleRate)}
-                {capture.antenna && ` • ${capture.antenna}`}
-              </div>
-            </div>
-            {updateMutation.isPending && (
-              <Flex align="center" gap={1} className="text-white">
-                <Spinner size="sm" />
-                <span className="small">Updating...</span>
-              </Flex>
-            )}
-            <span className={`badge ${
-              isFailed ? "bg-dark" :
-              isRunning ? "bg-light text-success" :
-              "bg-dark"
-            } fs-6 px-3 py-2`}>
-              {capture.state.toUpperCase()}
-            </span>
-          </Flex>
-        </div>
+    <Flex direction="column" gap={2}>
+      {/* Compact Inline Header */}
+      <div className="d-flex align-items-center gap-2 p-2 bg-light rounded border">
+        <Radio size={16} className="flex-shrink-0" />
+        <span className="fw-semibold small text-truncate" style={{ maxWidth: "200px" }}>
+          {device ? getDeviceDisplayName(device) : "Loading..."}
+        </span>
+        <span className="small text-muted">
+          {formatFrequencyMHz(localFreq)} MHz
+        </span>
+        {updateMutation.isPending && (
+          <Spinner size="sm" />
+        )}
+        <span className={`badge ms-auto ${
+          isFailed ? "bg-danger" :
+          isRunning ? "bg-success" :
+          "bg-secondary"
+        }`} style={{ fontSize: "0.7rem" }}>
+          {capture.state.toUpperCase()}
+        </span>
       </div>
 
       {/* Device & Control Card */}
       <div className="card shadow-sm">
-        <div className="card-header bg-body-tertiary">
-          <Flex align="center" gap={2}>
-            <Cpu size={18} />
-            <h3 className="h6 mb-0">Device & Control</h3>
+        <div className="card-header bg-body-tertiary py-1 px-2">
+          <Flex align="center" gap={1}>
+            <Cpu size={14} />
+            <small className="fw-semibold mb-0">Device & Control</small>
           </Flex>
         </div>
-        <div className="card-body">
-          <Flex direction="column" gap={3}>
-            {/* Device Selector */}
-            <Flex direction="column" gap={2}>
-              <label className="form-label mb-0 fw-semibold">
-                <Flex align="center" gap={1}>
-                  <span>Radio Device</span>
-                </Flex>
-              </label>
-              <select
-                className="form-select"
-                value={localDeviceId}
-                onChange={(e) => handleDeviceChange(e.target.value)}
-                disabled={isRunning}
-              >
-                {(devices || []).map((dev) => (
-                  <option key={dev.id} value={dev.id}>
-                    {getDeviceDisplayName(dev)}
-                  </option>
-                ))}
-              </select>
-              {isRunning && (
-                <small className="text-warning">
-                  Stop capture to change device
-                </small>
-              )}
-            </Flex>
-
-            {/* Frequency Display - Compact */}
-            <div className="text-center py-2 bg-primary bg-opacity-10 rounded">
-              <div className="h3 fw-bold text-primary mb-1">
-                {formatFrequencyMHz(localFreq)} MHz
+        <div className="card-body" style={{ padding: "0.75rem" }}>
+          <Flex direction="column" gap={2}>
+            {/* Horizontal Layout: Device + Start/Stop + Bookmarks */}
+            <div className="row g-2 align-items-end">
+              {/* Device Selector */}
+              <div className="col-12 col-md-6">
+                <label className="form-label mb-1 small fw-semibold">Radio Device</label>
+                <select
+                  className="form-select form-select-sm"
+                  value={localDeviceId}
+                  onChange={(e) => handleDeviceChange(e.target.value)}
+                  disabled={isRunning}
+                >
+                  {(devices || []).map((dev) => (
+                    <option key={dev.id} value={dev.id}>
+                      {getDeviceDisplayName(dev)}
+                    </option>
+                  ))}
+                </select>
+                {isRunning && (
+                  <small className="text-warning d-block mt-1" style={{ fontSize: "0.7rem" }}>
+                    Stop to change
+                  </small>
+                )}
               </div>
-              <div className="text-muted" style={{ fontSize: "0.8rem" }}>
-                <FrequencyLabel frequencyHz={localFreq} />
+
+              {/* Start/Stop Button */}
+              <div className="col-12 col-md-3">
+                <Button
+                  use={isRunning ? "danger" : "success"}
+                  size="sm"
+                  onClick={handleStartStop}
+                  disabled={startMutation.isPending || stopMutation.isPending}
+                  style={{ width: "100%" }}
+                >
+                  {isRunning ? "Stop" : "Start"}
+                </Button>
+              </div>
+
+              {/* Bookmark Manager */}
+              <div className="col-12 col-md-3">
+                <BookmarkManager
+                  currentFrequency={localFreq}
+                  onTuneToFrequency={(freq) => setLocalFreq(freq)}
+                  currentCapture={capture}
+                  currentChannels={channels}
+                  onLoadMemoryBank={handleLoadMemoryBank}
+                />
               </div>
             </div>
 
-            {/* Start/Stop Button */}
-            <Button
-              use={isRunning ? "danger" : "success"}
-              onClick={handleStartStop}
-              disabled={startMutation.isPending || stopMutation.isPending}
-            >
-              {isRunning ? "Stop Capture" : "Start Capture"}
-            </Button>
-
             {/* Error Message */}
             {isFailed && capture.errorMessage && (
-              <div className="alert alert-danger mb-0 py-2">
-                <strong>Error:</strong> {capture.errorMessage}
+              <div className="alert alert-danger mb-0 py-1 px-2">
+                <small><strong>Error:</strong> {capture.errorMessage}</small>
               </div>
             )}
           </Flex>
@@ -339,15 +372,15 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
 
       {/* Frequency Settings Card */}
       <div className="card shadow-sm">
-        <div className="card-header bg-body-tertiary">
-          <Flex align="center" gap={2}>
-            <Settings size={18} />
-            <h3 className="h6 mb-0">Frequency Settings</h3>
+        <div className="card-header bg-body-tertiary py-1 px-2">
+          <Flex align="center" gap={1}>
+            <Settings size={14} />
+            <small className="fw-semibold mb-0">Frequency Settings</small>
           </Flex>
         </div>
-        <div className="card-body">
+        <div className="card-body" style={{ padding: "0.75rem" }}>
           {/* 2-Column Grid Layout for Controls */}
-          <div className="row g-3">
+          <div className="row g-2">
             {/* Frequency Selector */}
             <div className="col-12">
               <FrequencySelector
@@ -373,6 +406,12 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
                 info="Signal amplification in decibels. Higher gain increases sensitivity but may introduce noise. Start around 20-30 dB and adjust for best signal-to-noise ratio."
                 onChange={setLocalGain}
               />
+              {localGain > 45 && (
+                <div className="alert alert-warning py-1 px-2 mt-2 mb-0" style={{ fontSize: "0.8rem" }}>
+                  <strong>Warning:</strong> High gain ({localGain.toFixed(1)} dB) may cause signal clipping and distortion.
+                  Consider reducing gain to 20-40 dB for optimal performance.
+                </div>
+              )}
             </div>
 
             {/* Bandwidth Selector */}
@@ -387,6 +426,18 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
                 info="Filter bandwidth. Wider bandwidth allows more spectrum but may include unwanted signals. Match to your signal type: FM broadcast ~200 kHz, narrowband ~10-25 kHz."
                 onChange={setLocalBandwidth}
               />
+              {localBandwidth > localSampleRate && (
+                <div className="alert alert-warning py-1 px-2 mt-2 mb-0" style={{ fontSize: "0.8rem" }}>
+                  <strong>Warning:</strong> Bandwidth ({(localBandwidth / 1e6).toFixed(2)} MHz) is higher than sample rate ({(localSampleRate / 1e6).toFixed(2)} MHz).
+                  Bandwidth should be ≤ sample rate to avoid aliasing.
+                </div>
+              )}
+              {localBandwidth < 150_000 && localSampleRate >= 200_000 && (
+                <div className="alert alert-info py-1 px-2 mt-2 mb-0" style={{ fontSize: "0.8rem" }}>
+                  <strong>Note:</strong> Bandwidth ({(localBandwidth / 1e3).toFixed(0)} kHz) may be too narrow for FM broadcast reception.
+                  Recommended: 150-220 kHz for WBFM, 10-25 kHz for NBFM, 10 kHz for AM.
+                </div>
+              )}
             </div>
 
             {/* Sample Rate Dropdown */}
@@ -411,6 +462,12 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
                   <small className="text-warning">
                     Changing sample rate will briefly interrupt the stream
                   </small>
+                )}
+                {localSampleRate < 200_000 && (
+                  <div className="alert alert-info py-1 px-2 mt-2 mb-0" style={{ fontSize: "0.8rem" }}>
+                    <strong>Note:</strong> Sample rate ({(localSampleRate / 1e3).toFixed(0)} kHz) is below 200 kHz.
+                    FM broadcast reception requires ≥200 kHz for optimal quality. Consider increasing sample rate if tuning to FM stations.
+                  </div>
                 )}
               </Flex>
             </div>
@@ -462,19 +519,19 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
 
       {/* Advanced Settings Card */}
       <div className="card shadow-sm">
-        <div className="card-header bg-body-tertiary">
-          <Flex align="center" gap={2} style={{ cursor: "pointer" }} onClick={() => setShowAdvanced(!showAdvanced)}>
-            <Settings size={18} />
-            <h3 className="h6 mb-0">Advanced Settings</h3>
+        <div className="card-header bg-body-tertiary py-1 px-2" style={{ cursor: "pointer" }} onClick={() => setShowAdvanced(!showAdvanced)}>
+          <Flex align="center" gap={1}>
+            <Settings size={14} />
+            <small className="fw-semibold mb-0">Advanced Settings</small>
             <div className="ms-auto">
-              {showAdvanced ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </div>
           </Flex>
         </div>
         {showAdvanced && (
-          <div className="card-body">
+          <div className="card-body" style={{ padding: "0.75rem" }}>
             {/* Advanced Settings Panel */}
-            <Flex direction="column" gap={3}>
+            <Flex direction="column" gap={2}>
               {/* DC Offset Auto Correction */}
               <div className="form-check">
                 <input
@@ -598,6 +655,9 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             </Flex>
           </div>
         )}
+
+        {/* Scanner Control */}
+        <ScannerControl captureId={capture.id} />
       </div>
     </Flex>
   );

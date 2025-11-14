@@ -30,10 +30,10 @@ presets:
     sample_rate: 500000
     offsets:
     - 0.0
-    gain: 20.0
+    gain: 30.0
     bandwidth: 200000.0
-    ppm: 1.3322676295501878e-15
-    antenna: Antenna B
+    ppm: 1.3600232051658168e-15
+    antenna: Antenna A
 recipes:
   fm_radio_station:
     name: FM Radio Station
@@ -269,4 +269,5 @@ captures:
 device_names:
   ? 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
     V4,serial=00000001,tuner=Rafael Micro R828D'
-  : My Desktop SDR
+  : RTLSDR
+  driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070: SDRPlay

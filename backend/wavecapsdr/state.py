@@ -25,6 +25,8 @@ class AppState:
     config_path: Optional[str] = None
     # Map capture_id -> preset_name for persistence
     capture_presets: Dict[str, str] = field(default_factory=dict)
+    # Map scanner_id -> ScannerService for active scanners
+    scanners: Dict[str, any] = field(default_factory=dict)
 
     @classmethod
     def from_config(cls, cfg: AppConfig, config_path: Optional[str] = None) -> "AppState":

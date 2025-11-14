@@ -9,6 +9,7 @@ import { RadioTuner } from "./components/RadioTuner.react";
 import { ChannelManager } from "./components/ChannelManager.react";
 import { CreateCaptureWizard } from "./components/CreateCaptureWizard.react";
 import SpectrumAnalyzer from "./components/primitives/SpectrumAnalyzer.react";
+import WaterfallDisplay from "./components/primitives/WaterfallDisplay.react";
 import { formatFrequencyMHz } from "./utils/frequency";
 import Flex from "./components/primitives/Flex.react";
 import Spinner from "./components/primitives/Spinner.react";
@@ -207,6 +208,24 @@ function AppContent() {
   // Get channels for selected capture
   const { data: selectedCaptureChannels } = useChannels(selectedCapture?.id);
 
+  const handleFrequencyClick = (frequencyHz: number) => {
+    if (!selectedCapture) return;
+
+    updateCapture.mutate({
+      captureId: selectedCapture.id,
+      request: {
+        centerHz: frequencyHz,
+      },
+    }, {
+      onSuccess: () => {
+        toast.success(`Tuned to ${(frequencyHz / 1e6).toFixed(3)} MHz`);
+      },
+      onError: (error: any) => {
+        toast.error(error?.message || "Failed to tune frequency");
+      },
+    });
+  };
+
   const handleCreateCapture = () => {
     if (!newCaptureDeviceId) return;
 
@@ -339,32 +358,55 @@ function AppContent() {
         </div>
       </nav>
 
-      {/* Main Content - 2 Column Layout */}
-      <div className="container-fluid px-4 py-3">
+      {/* Main Content - Responsive Multi-Column Layout */}
+      <div className="container-fluid px-4 py-3" style={{ height: 'calc(100vh - 120px)' }}>
         {selectedCapture ? (
-          <div className="row g-4">
-            {/* Left Column: Radio Controls - 50% width */}
-            <div className="col-12 col-lg-6">
-              <Flex direction="column" gap={4}>
-                {/* Spectrum Analyzer - Sticky */}
-                <ErrorBoundary>
-                  <div style={{ position: "sticky", top: 16, zIndex: 100 }}>
-                    <SpectrumAnalyzer capture={selectedCapture} channels={selectedCaptureChannels} height={250} />
-                  </div>
-                </ErrorBoundary>
+          <div className="row g-2" style={{ height: '100%' }}>
+            {/* Column 1: Visualizations (Spectrum + Waterfall) */}
+            <div className="col-12 col-lg-6 col-xxl-4" style={{ height: '100%' }}>
+              <div style={{ height: '100%', overflowY: 'auto', paddingRight: '4px' }}>
+                <Flex direction="column" gap={2}>
+                  {/* Spectrum Analyzer */}
+                  <ErrorBoundary>
+                    <SpectrumAnalyzer
+                      capture={selectedCapture}
+                      channels={selectedCaptureChannels}
+                      height={200}
+                      onFrequencyClick={handleFrequencyClick}
+                    />
+                  </ErrorBoundary>
 
-                {/* Radio Tuner */}
+                  {/* Waterfall Display */}
+                  <ErrorBoundary>
+                    <WaterfallDisplay
+                      capture={selectedCapture}
+                      channels={selectedCaptureChannels}
+                      height={300}
+                      timeSpanSeconds={30}
+                      colorScheme="heat"
+                      intensity={1.2}
+                    />
+                  </ErrorBoundary>
+                </Flex>
+              </div>
+            </div>
+
+            {/* Column 2: Radio Tuner (Controls) */}
+            <div className="col-12 col-lg-6 col-xxl-4" style={{ height: '100%' }}>
+              <div style={{ height: '100%', overflowY: 'auto', paddingRight: '4px' }}>
                 <ErrorBoundary>
                   <RadioTuner capture={selectedCapture} device={selectedDevice} />
                 </ErrorBoundary>
-              </Flex>
+              </div>
             </div>
 
-            {/* Right Column: Channels - 50% width */}
-            <div className="col-12 col-lg-6">
-              <ErrorBoundary>
-                <ChannelManager capture={selectedCapture} />
-              </ErrorBoundary>
+            {/* Column 3: Channel Manager */}
+            <div className="col-12 col-xxl-4" style={{ height: '100%' }}>
+              <div style={{ height: '100%', overflowY: 'auto', paddingRight: '4px' }}>
+                <ErrorBoundary>
+                  <ChannelManager capture={selectedCapture} />
+                </ErrorBoundary>
+              </div>
             </div>
           </div>
         ) : (

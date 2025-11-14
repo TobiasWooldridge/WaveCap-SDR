@@ -8,7 +8,7 @@ import Button from "./primitives/Button.react";
 import Flex from "./primitives/Flex.react";
 import Slider from "./primitives/Slider.react";
 import FrequencySelector from "./primitives/FrequencySelector.react";
-import SignalMeter from "./primitives/SignalMeter.react";
+import SMeter from "./primitives/SMeter.react";
 import { FrequencyLabel } from "./FrequencyLabel.react";
 
 interface CompactChannelCardProps {
@@ -38,6 +38,10 @@ export const CompactChannelCard = ({
   const [showStreamDropdown, setShowStreamDropdown] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState("");
+  const [newNotchFreq, setNewNotchFreq] = useState("");
+  const [showDspFilters, setShowDspFilters] = useState(false);
+  const [showAgcSettings, setShowAgcSettings] = useState(false);
+  const [showNoiseBlanker, setShowNoiseBlanker] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const updateChannel = useUpdateChannel(capture.id);
   const deleteChannel = useDeleteChannel();
@@ -105,6 +109,34 @@ export const CompactChannelCard = ({
         toast.error(error?.message || "Failed to update channel");
       },
     });
+  };
+
+  const handleAddNotch = () => {
+    const freq = parseFloat(newNotchFreq);
+    if (isNaN(freq) || freq <= 0 || freq > 20000) {
+      toast.error("Notch frequency must be between 0 and 20000 Hz");
+      return;
+    }
+    const currentNotches = channel.notchFrequencies || [];
+    if (currentNotches.includes(freq)) {
+      toast.error("This frequency is already in the notch list");
+      return;
+    }
+    if (currentNotches.length >= 10) {
+      toast.error("Maximum 10 notch filters allowed");
+      return;
+    }
+    updateChannelWithToast({ notchFrequencies: [...currentNotches, freq] });
+    setNewNotchFreq("");
+    toast.success(`Added notch filter at ${freq} Hz`);
+  };
+
+  const handleRemoveNotch = (freq: number) => {
+    const currentNotches = channel.notchFrequencies || [];
+    updateChannelWithToast({
+      notchFrequencies: currentNotches.filter(f => f !== freq)
+    });
+    toast.success(`Removed notch filter at ${freq} Hz`);
   };
 
   const streamFormats = [
@@ -191,22 +223,38 @@ export const CompactChannelCard = ({
                   {displayName}
                 </div>
                 <FrequencyLabel frequencyHz={getChannelFrequency()} autoName={channel.name ? channel.autoName : null} />
+                {/* Warning for channels outside spectrum range */}
+                {(() => {
+                  const channelFreq = getChannelFrequency();
+                  const spectrumMin = capture.centerHz - (capture.sampleRate / 2);
+                  const spectrumMax = capture.centerHz + (capture.sampleRate / 2);
+                  const isOutOfRange = channelFreq < spectrumMin || channelFreq > spectrumMax;
+
+                  if (isOutOfRange) {
+                    return (
+                      <div className="alert alert-warning py-1 px-2 mt-1 mb-0" style={{ fontSize: "0.7rem" }}>
+                        <strong>Warning:</strong> Channel frequency ({formatFrequencyMHz(channelFreq)} MHz) is outside observable spectrum ({formatFrequencyMHz(spectrumMin)} - {formatFrequencyMHz(spectrumMax)} MHz)
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
             )}
           </div>
 
-          {/* Prominent Signal Meters */}
+          {/* S-Meter Display */}
           <div className="border rounded p-2 bg-light">
             <Flex direction="column" gap={1}>
               <Flex align="center" gap={1}>
                 <span className="badge bg-success text-white" style={{fontSize: "8px", width: "32px"}}>LIVE</span>
                 <div style={{ flex: 1 }}>
-                  <SignalMeter signalPowerDb={channel.rssiDb} width={200} height={18} />
+                  <SMeter rssiDbFs={channel.rssiDb} frequencyHz={getChannelFrequency()} width={200} height={24} />
                 </div>
               </Flex>
               <Flex direction="row" gap={1} align="center" style={{fontSize: "9px"}}>
                 <span className="text-muted" style={{ width: "40px" }}>RSSI:</span>
-                <span className="fw-semibold">{channel.rssiDb?.toFixed(1) ?? 'N/A'} dB</span>
+                <span className="fw-semibold">{channel.rssiDb?.toFixed(1) ?? 'N/A'} dBFS</span>
                 <span className="text-muted ms-2" style={{ width: "35px" }}>SNR:</span>
                 <span className="fw-semibold">{channel.snrDb?.toFixed(1) ?? 'N/A'} dB</span>
               </Flex>
@@ -274,6 +322,26 @@ export const CompactChannelCard = ({
                   </select>
                 </Flex>
 
+                {/* SSB Mode Selector (SSB only) */}
+                {channel.mode === "ssb" && (
+                  <Flex direction="column" gap={1}>
+                    <label className="form-label small mb-0">SSB Mode</label>
+                    <select
+                      className="form-select form-select-sm"
+                      value={channel.ssbMode}
+                      onChange={(e) =>
+                        updateChannelWithToast({ ssbMode: e.target.value as any })
+                      }
+                    >
+                      <option value="usb">USB (Upper Sideband)</option>
+                      <option value="lsb">LSB (Lower Sideband)</option>
+                    </select>
+                    <small className="text-muted">
+                      USB: Amateur radio above 10 MHz. LSB: Below 10 MHz
+                    </small>
+                  </Flex>
+                )}
+
                 {/* Squelch Slider */}
                 <Slider
                   label="Squelch"
@@ -320,6 +388,460 @@ export const CompactChannelCard = ({
                   />
                   <small className="text-muted">
                     Offset: {(channel.offsetHz / 1000).toFixed(0)} kHz
+                  </small>
+                </Flex>
+
+                {/* DSP Filters Section */}
+                <div className="border rounded">
+                  <button
+                    className="btn btn-sm w-100 text-start d-flex justify-content-between align-items-center p-2"
+                    onClick={() => setShowDspFilters(!showDspFilters)}
+                    style={{ background: "transparent", border: "none" }}
+                  >
+                    <span className="fw-semibold small">DSP Filters</span>
+                    {showDspFilters ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+                  {showDspFilters && (
+                    <div className="p-2 border-top">
+                      <Flex direction="column" gap={2}>
+                        {/* Info card */}
+                        <div className="alert alert-info py-1 px-2 mb-0" style={{ fontSize: "0.7rem" }}>
+                          <strong>DSP Filters</strong> shape audio frequency response for optimal clarity
+                        </div>
+
+                        {/* FM Mode Filters */}
+                        {(channel.mode === "wbfm" || channel.mode === "nbfm") && (
+                          <>
+                            {/* Deemphasis */}
+                            <Flex direction="column" gap={1}>
+                              <Flex justify="between" align="center">
+                                <label className="form-label small mb-0">Deemphasis</label>
+                                <input
+                                  type="checkbox"
+                                  checked={channel.enableDeemphasis}
+                                  onChange={(e) =>
+                                    updateChannelWithToast({ enableDeemphasis: e.target.checked })
+                                  }
+                                  style={{ width: "16px", height: "16px" }}
+                                />
+                              </Flex>
+                              {channel.enableDeemphasis && (
+                                <select
+                                  className="form-select form-select-sm"
+                                  value={channel.deemphasisTauUs}
+                                  onChange={(e) =>
+                                    updateChannelWithToast({ deemphasisTauUs: parseFloat(e.target.value) })
+                                  }
+                                >
+                                  <option value={50}>50 µs (Europe)</option>
+                                  <option value={75}>75 µs (USA)</option>
+                                </select>
+                              )}
+                              <small className="text-muted">
+                                Compensates for FM pre-emphasis (boosts treble)
+                              </small>
+                            </Flex>
+
+                            {/* MPX Filter (WBFM only) */}
+                            {channel.mode === "wbfm" && (
+                              <Flex direction="column" gap={1}>
+                                <Flex justify="between" align="center">
+                                  <label className="form-label small mb-0">MPX Filter (19 kHz Pilot Removal)</label>
+                                  <input
+                                    type="checkbox"
+                                    checked={channel.enableMpxFilter}
+                                    onChange={(e) =>
+                                      updateChannelWithToast({ enableMpxFilter: e.target.checked })
+                                    }
+                                    style={{ width: "16px", height: "16px" }}
+                                  />
+                                </Flex>
+                                <small className="text-muted">
+                                  Removes stereo pilot tone and subcarriers (eliminates high-pitch whine)
+                                </small>
+                              </Flex>
+                            )}
+
+                            {/* FM Highpass */}
+                            <Flex direction="column" gap={1}>
+                              <Flex justify="between" align="center">
+                                <label className="form-label small mb-0">Highpass Filter</label>
+                                <input
+                                  type="checkbox"
+                                  checked={channel.enableFmHighpass}
+                                  onChange={(e) =>
+                                    updateChannelWithToast({ enableFmHighpass: e.target.checked })
+                                  }
+                                  style={{ width: "16px", height: "16px" }}
+                                />
+                              </Flex>
+                              {channel.enableFmHighpass && (
+                                <Slider
+                                  label=""
+                                  value={channel.fmHighpassHz}
+                                  min={50}
+                                  max={500}
+                                  step={10}
+                                  unit="Hz"
+                                  formatValue={(val) => `${val.toFixed(0)} Hz`}
+                                  onChange={(val) =>
+                                    updateChannelWithToast({ fmHighpassHz: val })
+                                  }
+                                />
+                              )}
+                              <small className="text-muted">
+                                Removes DC offset and rumble
+                              </small>
+                            </Flex>
+
+                            {/* FM Lowpass (NBFM only) */}
+                            {channel.mode === "nbfm" && (
+                              <Flex direction="column" gap={1}>
+                                <Flex justify="between" align="center">
+                                  <label className="form-label small mb-0">Lowpass Filter (Voice BW)</label>
+                                  <input
+                                    type="checkbox"
+                                    checked={channel.enableFmLowpass}
+                                    onChange={(e) =>
+                                      updateChannelWithToast({ enableFmLowpass: e.target.checked })
+                                    }
+                                    style={{ width: "16px", height: "16px" }}
+                                  />
+                                </Flex>
+                                {channel.enableFmLowpass && (
+                                  <Slider
+                                    label=""
+                                    value={channel.fmLowpassHz}
+                                    min={2000}
+                                    max={5000}
+                                    step={100}
+                                    unit="Hz"
+                                    formatValue={(val) => `${val.toFixed(0)} Hz`}
+                                    onChange={(val) =>
+                                      updateChannelWithToast({ fmLowpassHz: val })
+                                    }
+                                  />
+                                )}
+                                <small className="text-muted">
+                                  Limits voice bandwidth (3000 Hz typical)
+                                </small>
+                              </Flex>
+                            )}
+                          </>
+                        )}
+
+                        {/* AM Mode Filters */}
+                        {channel.mode === "am" && (
+                          <>
+                            {/* AM Highpass */}
+                            <Flex direction="column" gap={1}>
+                              <Flex justify="between" align="center">
+                                <label className="form-label small mb-0">Highpass Filter (DC Removal)</label>
+                                <input
+                                  type="checkbox"
+                                  checked={channel.enableAmHighpass}
+                                  onChange={(e) =>
+                                    updateChannelWithToast({ enableAmHighpass: e.target.checked })
+                                  }
+                                  style={{ width: "16px", height: "16px" }}
+                                />
+                              </Flex>
+                              {channel.enableAmHighpass && (
+                                <Slider
+                                  label=""
+                                  value={channel.amHighpassHz}
+                                  min={50}
+                                  max={500}
+                                  step={10}
+                                  unit="Hz"
+                                  formatValue={(val) => `${val.toFixed(0)} Hz`}
+                                  onChange={(val) =>
+                                    updateChannelWithToast({ amHighpassHz: val })
+                                  }
+                                />
+                              )}
+                              <small className="text-muted">
+                                Removes AM carrier offset and rumble
+                              </small>
+                            </Flex>
+
+                            {/* AM Lowpass */}
+                            <Flex direction="column" gap={1}>
+                              <Flex justify="between" align="center">
+                                <label className="form-label small mb-0">Lowpass Filter (Bandwidth)</label>
+                                <input
+                                  type="checkbox"
+                                  checked={channel.enableAmLowpass}
+                                  onChange={(e) =>
+                                    updateChannelWithToast({ enableAmLowpass: e.target.checked })
+                                  }
+                                  style={{ width: "16px", height: "16px" }}
+                                />
+                              </Flex>
+                              {channel.enableAmLowpass && (
+                                <Slider
+                                  label=""
+                                  value={channel.amLowpassHz}
+                                  min={3000}
+                                  max={10000}
+                                  step={100}
+                                  unit="Hz"
+                                  formatValue={(val) => `${val.toFixed(0)} Hz`}
+                                  onChange={(val) =>
+                                    updateChannelWithToast({ amLowpassHz: val })
+                                  }
+                                />
+                              )}
+                              <small className="text-muted">
+                                AM broadcast: 5000 Hz, Aviation: 3000 Hz
+                              </small>
+                            </Flex>
+                          </>
+                        )}
+
+                        {/* SSB Mode Filters */}
+                        {channel.mode === "ssb" && (
+                          <Flex direction="column" gap={1}>
+                            <Flex justify="between" align="center">
+                              <label className="form-label small mb-0">Bandpass Filter (Voice)</label>
+                              <input
+                                type="checkbox"
+                                checked={channel.enableSsbBandpass}
+                                onChange={(e) =>
+                                  updateChannelWithToast({ enableSsbBandpass: e.target.checked })
+                                }
+                                style={{ width: "16px", height: "16px" }}
+                              />
+                            </Flex>
+                            {channel.enableSsbBandpass && (
+                              <Flex direction="column" gap={1}>
+                                <Slider
+                                  label="Low Cutoff"
+                                  value={channel.ssbBandpassLowHz}
+                                  min={100}
+                                  max={1000}
+                                  step={50}
+                                  unit="Hz"
+                                  formatValue={(val) => `${val.toFixed(0)} Hz`}
+                                  onChange={(val) =>
+                                    updateChannelWithToast({ ssbBandpassLowHz: val })
+                                  }
+                                />
+                                <Slider
+                                  label="High Cutoff"
+                                  value={channel.ssbBandpassHighHz}
+                                  min={2000}
+                                  max={4000}
+                                  step={100}
+                                  unit="Hz"
+                                  formatValue={(val) => `${val.toFixed(0)} Hz`}
+                                  onChange={(val) =>
+                                    updateChannelWithToast({ ssbBandpassHighHz: val })
+                                  }
+                                />
+                              </Flex>
+                            )}
+                            <small className="text-muted">
+                              Typical voice: 300-3000 Hz. Narrow: 500-2500 Hz
+                            </small>
+                          </Flex>
+                        )}
+                      </Flex>
+                    </div>
+                  )}
+                </div>
+
+                {/* AGC Settings Section */}
+                {(channel.mode === "am" || channel.mode === "ssb") && (
+                  <div className="border rounded">
+                    <button
+                      className="btn btn-sm w-100 text-start d-flex justify-content-between align-items-center p-2"
+                      onClick={() => setShowAgcSettings(!showAgcSettings)}
+                      style={{ background: "transparent", border: "none" }}
+                    >
+                      <Flex align="center" gap={1}>
+                        <span className="fw-semibold small">AGC (Auto Gain Control)</span>
+                        <span className={`badge ${channel.enableAgc ? "bg-success" : "bg-secondary"}`} style={{ fontSize: "8px" }}>
+                          {channel.enableAgc ? "ON" : "OFF"}
+                        </span>
+                      </Flex>
+                      {showAgcSettings ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </button>
+                    {showAgcSettings && (
+                      <div className="p-2 border-top">
+                        <Flex direction="column" gap={2}>
+                          {/* Info card */}
+                          <div className="alert alert-info py-1 px-2 mb-0" style={{ fontSize: "0.7rem" }}>
+                            <strong>AGC</strong> automatically adjusts gain to maintain consistent audio levels. Essential for AM/SSB signals with varying strength.
+                          </div>
+
+                          {/* Enable AGC */}
+                          <Flex justify="between" align="center">
+                            <label className="form-label small mb-0">Enable AGC</label>
+                            <input
+                              type="checkbox"
+                              checked={channel.enableAgc}
+                              onChange={(e) =>
+                                updateChannelWithToast({ enableAgc: e.target.checked })
+                              }
+                              style={{ width: "16px", height: "16px" }}
+                            />
+                          </Flex>
+
+                          {channel.enableAgc && (
+                            <>
+                              <Slider
+                                label="Target Level"
+                                value={channel.agcTargetDb}
+                                min={-60}
+                                max={-10}
+                                step={1}
+                                unit="dB"
+                                formatValue={(val) => `${val.toFixed(0)} dB`}
+                                onChange={(val) =>
+                                  updateChannelWithToast({ agcTargetDb: val })
+                                }
+                              />
+                              <Slider
+                                label="Attack Time"
+                                value={channel.agcAttackMs}
+                                min={1}
+                                max={100}
+                                step={1}
+                                unit="ms"
+                                formatValue={(val) => `${val.toFixed(0)} ms`}
+                                onChange={(val) =>
+                                  updateChannelWithToast({ agcAttackMs: val })
+                                }
+                              />
+                              <Slider
+                                label="Release Time"
+                                value={channel.agcReleaseMs}
+                                min={10}
+                                max={500}
+                                step={10}
+                                unit="ms"
+                                formatValue={(val) => `${val.toFixed(0)} ms`}
+                                onChange={(val) =>
+                                  updateChannelWithToast({ agcReleaseMs: val })
+                                }
+                              />
+                              <small className="text-muted">
+                                Attack: how quickly gain increases. Release: how quickly gain decreases.
+                              </small>
+                            </>
+                          )}
+                        </Flex>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Noise Blanker Section */}
+                <div className="border rounded">
+                  <button
+                    className="btn btn-sm w-100 text-start d-flex justify-content-between align-items-center p-2"
+                    onClick={() => setShowNoiseBlanker(!showNoiseBlanker)}
+                    style={{ background: "transparent", border: "none" }}
+                  >
+                    <Flex align="center" gap={1}>
+                      <span className="fw-semibold small">Noise Blanker</span>
+                      <span className={`badge ${channel.enableNoiseBlanker ? "bg-success" : "bg-secondary"}`} style={{ fontSize: "8px" }}>
+                        {channel.enableNoiseBlanker ? "ON" : "OFF"}
+                      </span>
+                    </Flex>
+                    {showNoiseBlanker ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+                  {showNoiseBlanker && (
+                    <div className="p-2 border-top">
+                      <Flex direction="column" gap={2}>
+                        {/* Info card */}
+                        <div className="alert alert-warning py-1 px-2 mb-0" style={{ fontSize: "0.7rem" }}>
+                          <strong>Noise Blanker</strong> suppresses impulse noise from lightning, ignition, power lines. Use when experiencing static pops/clicks.
+                        </div>
+
+                        {/* Enable Noise Blanker */}
+                        <Flex justify="between" align="center">
+                          <label className="form-label small mb-0">Enable Noise Blanker</label>
+                          <input
+                            type="checkbox"
+                            checked={channel.enableNoiseBlanker}
+                            onChange={(e) =>
+                              updateChannelWithToast({ enableNoiseBlanker: e.target.checked })
+                            }
+                            style={{ width: "16px", height: "16px" }}
+                          />
+                        </Flex>
+
+                        {channel.enableNoiseBlanker && (
+                          <>
+                            <Slider
+                              label="Threshold"
+                              value={channel.noiseBlankerThresholdDb}
+                              min={3}
+                              max={30}
+                              step={1}
+                              unit="dB"
+                              formatValue={(val) => `${val.toFixed(0)} dB`}
+                              onChange={(val) =>
+                                updateChannelWithToast({ noiseBlankerThresholdDb: val })
+                              }
+                            />
+                            <small className="text-muted">
+                              Lower = more aggressive (may remove weak signals). Higher = less aggressive. Start at 10 dB.
+                            </small>
+                          </>
+                        )}
+                      </Flex>
+                    </div>
+                  )}
+                </div>
+
+                {/* Notch Filters */}
+                <Flex direction="column" gap={1}>
+                  <label className="form-label small mb-0">Notch Filters (Interference Rejection)</label>
+                  {channel.notchFrequencies && channel.notchFrequencies.length > 0 ? (
+                    <Flex direction="column" gap={1}>
+                      {channel.notchFrequencies.map((freq) => (
+                        <Flex key={freq} justify="between" align="center" className="border rounded p-1 bg-light">
+                          <span className="small fw-semibold">{freq} Hz</span>
+                          <button
+                            className="btn btn-sm btn-danger p-0"
+                            style={{ width: "20px", height: "20px", fontSize: "12px" }}
+                            onClick={() => handleRemoveNotch(freq)}
+                            title="Remove notch"
+                          >
+                            ×
+                          </button>
+                        </Flex>
+                      ))}
+                    </Flex>
+                  ) : (
+                    <small className="text-muted">No notch filters active</small>
+                  )}
+                  <Flex gap={1}>
+                    <input
+                      type="number"
+                      className="form-control form-control-sm"
+                      placeholder="Frequency (Hz)"
+                      value={newNotchFreq}
+                      onChange={(e) => setNewNotchFreq(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleAddNotch()}
+                      min={0}
+                      max={20000}
+                      step={10}
+                    />
+                    <Button
+                      use="primary"
+                      size="sm"
+                      onClick={handleAddNotch}
+                      disabled={!newNotchFreq}
+                    >
+                      Add
+                    </Button>
+                  </Flex>
+                  <small className="text-muted">
+                    Remove interfering tones (power line hum, carriers, etc.). Common: 60 Hz, 120 Hz
                   </small>
                 </Flex>
               </Flex>

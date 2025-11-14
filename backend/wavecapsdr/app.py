@@ -6,6 +6,9 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from .config import AppConfig
 from .api import router as api_router
@@ -25,6 +28,11 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
         allow_headers=["*"],  # Allow all headers
         expose_headers=["*"],  # Expose all headers to the client
     )
+
+    # Configure rate limiting
+    limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     app.state.app_state = AppState.from_config(config, config_path)
 
@@ -198,7 +206,8 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
         return {"message": "WaveCap-SDR API", "docs": "/docs"}
 
     @app.get("/health")
-    def health() -> dict[str, str]:
+    @limiter.limit("30/minute")
+    def health(request: Request) -> dict[str, str]:
         return {"status": "ok"}
 
     return app

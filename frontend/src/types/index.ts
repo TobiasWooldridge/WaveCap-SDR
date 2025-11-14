@@ -50,6 +50,40 @@ export interface Channel {
   signalPowerDb: number | null;
   rssiDb: number | null;  // Server-side RSSI from IQ
   snrDb: number | null;   // Server-side SNR estimate
+
+  // Filter configuration
+  // FM filters
+  enableDeemphasis: boolean;
+  deemphasisTauUs: number;
+  enableMpxFilter: boolean;
+  mpxCutoffHz: number;
+  enableFmHighpass: boolean;
+  fmHighpassHz: number;
+  enableFmLowpass: boolean;
+  fmLowpassHz: number;
+
+  // AM/SSB filters
+  enableAmHighpass: boolean;
+  amHighpassHz: number;
+  enableAmLowpass: boolean;
+  amLowpassHz: number;
+  enableSsbBandpass: boolean;
+  ssbBandpassLowHz: number;
+  ssbBandpassHighHz: number;
+  ssbMode: string;
+
+  // AGC
+  enableAgc: boolean;
+  agcTargetDb: number;
+  agcAttackMs: number;
+  agcReleaseMs: number;
+
+  // Noise blanker
+  enableNoiseBlanker: boolean;
+  noiseBlankerThresholdDb: number;
+
+  // Notch filters
+  notchFrequencies: number[];  // List of frequencies to notch out (Hz)
 }
 
 export interface UpdateCaptureRequest {
@@ -90,6 +124,7 @@ export interface CreateChannelRequest {
   audioRate?: number;
   squelchDb?: number | null;
   name?: string | null;
+  notchFrequencies?: number[];
 }
 
 export interface UpdateChannelRequest {
@@ -98,6 +133,40 @@ export interface UpdateChannelRequest {
   audioRate?: number;
   squelchDb?: number | null;
   name?: string | null;
+
+  // Filter configuration
+  // FM filters
+  enableDeemphasis?: boolean;
+  deemphasisTauUs?: number;
+  enableMpxFilter?: boolean;
+  mpxCutoffHz?: number;
+  enableFmHighpass?: boolean;
+  fmHighpassHz?: number;
+  enableFmLowpass?: boolean;
+  fmLowpassHz?: number;
+
+  // AM/SSB filters
+  enableAmHighpass?: boolean;
+  amHighpassHz?: number;
+  enableAmLowpass?: boolean;
+  amLowpassHz?: number;
+  enableSsbBandpass?: boolean;
+  ssbBandpassLowHz?: number;
+  ssbBandpassHighHz?: number;
+  ssbMode?: "usb" | "lsb";
+
+  // AGC
+  enableAgc?: boolean;
+  agcTargetDb?: number;
+  agcAttackMs?: number;
+  agcReleaseMs?: number;
+
+  // Noise blanker
+  enableNoiseBlanker?: boolean;
+  noiseBlankerThresholdDb?: number;
+
+  // Notch filters
+  notchFrequencies?: number[];
 }
 
 export interface RecipeChannel {
@@ -119,4 +188,50 @@ export interface Recipe {
   channels: RecipeChannel[];
   allowFrequencyInput: boolean;
   frequencyLabel?: string | null;
+}
+
+// Scanner types
+export interface ScanHit {
+  frequencyHz: number;
+  timestamp: number;
+}
+
+export interface Scanner {
+  id: string;
+  captureId: string;
+  state: "stopped" | "scanning" | "paused" | "locked";
+  currentFrequency: number;
+  currentIndex: number;
+  scanList: number[];
+  mode: "sequential" | "priority" | "activity";
+  dwellTimeMs: number;
+  priorityFrequencies: number[];
+  priorityIntervalS: number;
+  squelchThresholdDb: number;
+  lockoutList: number[];
+  pauseDurationMs: number;
+  hits: ScanHit[];
+}
+
+export interface CreateScannerRequest {
+  captureId: string;
+  scanList: number[];
+  mode?: "sequential" | "priority" | "activity";
+  dwellTimeMs?: number;
+  priorityFrequencies?: number[];
+  priorityIntervalS?: number;
+  squelchThresholdDb?: number;
+  lockoutFrequencies?: number[];
+  pauseDurationMs?: number;
+}
+
+export interface UpdateScannerRequest {
+  scanList?: number[];
+  mode?: "sequential" | "priority" | "activity";
+  dwellTimeMs?: number;
+  priorityFrequencies?: number[];
+  priorityIntervalS?: number;
+  squelchThresholdDb?: number;
+  lockoutFrequencies?: number[];
+  pauseDurationMs?: number;
 }

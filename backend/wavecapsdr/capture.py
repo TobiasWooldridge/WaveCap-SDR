@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 from .config import AppConfig
 from .devices.base import Device, DeviceDriver, StreamHandle
 from .dsp.fm import wbfm_demod, nbfm_demod
+from .dsp.am import am_demod, ssb_demod
 from .encoders import create_encoder, AudioEncoder
 from .decoders.p25 import P25Decoder
 from .decoders.dmr import DMRDecoder
@@ -110,12 +111,46 @@ def freq_shift(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray
 class ChannelConfig:
     id: str
     capture_id: str
-    mode: str  # "wbfm" | "am" | "ssb" (initially wbfm only)
+    mode: str  # "wbfm" | "nbfm" | "am" | "ssb"
     offset_hz: float = 0.0
     audio_rate: int = 48_000
     squelch_db: Optional[float] = None
     name: Optional[str] = None  # User-provided name
     auto_name: Optional[str] = None  # Auto-generated contextual name
+
+    # Filter configuration (mode-specific defaults applied at creation)
+    # FM filters
+    enable_deemphasis: bool = True
+    deemphasis_tau_us: float = 75.0  # 75µs (US) or 50µs (EU)
+    enable_mpx_filter: bool = True  # WBFM only: removes 19 kHz pilot tone
+    mpx_cutoff_hz: float = 15_000
+    enable_fm_highpass: bool = False
+    fm_highpass_hz: float = 100
+    enable_fm_lowpass: bool = False
+    fm_lowpass_hz: float = 3_000  # NBFM voice bandwidth
+
+    # AM/SSB filters
+    enable_am_highpass: bool = True
+    am_highpass_hz: float = 100
+    enable_am_lowpass: bool = True
+    am_lowpass_hz: float = 5_000  # AM broadcast bandwidth
+    enable_ssb_bandpass: bool = True
+    ssb_bandpass_low_hz: float = 300
+    ssb_bandpass_high_hz: float = 3_000
+    ssb_mode: str = "usb"  # "usb" or "lsb"
+
+    # AGC (Automatic Gain Control)
+    enable_agc: bool = False  # Default off for FM, enabled for AM/SSB
+    agc_target_db: float = -20.0
+    agc_attack_ms: float = 5.0
+    agc_release_ms: float = 50.0
+
+    # Noise blanker (impulse noise suppression)
+    enable_noise_blanker: bool = False  # Default off
+    noise_blanker_threshold_db: float = 10.0  # 10 dB above median level
+
+    # Notch filters (interference rejection)
+    notch_frequencies: list[float] = field(default_factory=list)  # List of frequencies to notch out
 
 
 @dataclass
@@ -319,9 +354,31 @@ class Channel:
             # FM demodulation (wide or narrow band)
             base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
             if self.cfg.mode == "wbfm":
-                audio = wbfm_demod(base, sample_rate, self.cfg.audio_rate)
+                audio = wbfm_demod(
+                    base,
+                    sample_rate,
+                    self.cfg.audio_rate,
+                    enable_deemphasis=self.cfg.enable_deemphasis,
+                    deemphasis_tau=self.cfg.deemphasis_tau_us * 1e-6,  # Convert µs to seconds
+                    enable_mpx_filter=self.cfg.enable_mpx_filter,
+                    mpx_cutoff_hz=self.cfg.mpx_cutoff_hz,
+                    enable_highpass=self.cfg.enable_fm_highpass,
+                    highpass_hz=self.cfg.fm_highpass_hz,
+                    notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+                )
             else:  # nbfm
-                audio = nbfm_demod(base, sample_rate, self.cfg.audio_rate)
+                audio = nbfm_demod(
+                    base,
+                    sample_rate,
+                    self.cfg.audio_rate,
+                    enable_deemphasis=self.cfg.enable_deemphasis,
+                    deemphasis_tau=self.cfg.deemphasis_tau_us * 1e-6,  # Convert µs to seconds
+                    enable_highpass=self.cfg.enable_fm_highpass,
+                    highpass_hz=self.cfg.fm_highpass_hz,
+                    enable_lowpass=self.cfg.enable_fm_lowpass,
+                    lowpass_hz=self.cfg.fm_lowpass_hz,
+                    notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+                )
 
             # Calculate signal power in dB (always, for metrics)
             if audio.size > 0:
@@ -335,6 +392,68 @@ class Channel:
             # Apply squelch if configured
             if self.cfg.squelch_db is not None and audio.size > 0:
                 # Mute audio if below threshold
+                if self.signal_power_db is not None and self.signal_power_db < self.cfg.squelch_db:
+                    audio = np.zeros_like(audio)
+
+            await self._broadcast(audio)
+
+        elif self.cfg.mode == "am":
+            # AM demodulation
+            base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+            audio = am_demod(
+                base,
+                sample_rate,
+                audio_rate=self.cfg.audio_rate,
+                enable_agc=self.cfg.enable_agc,
+                enable_highpass=self.cfg.enable_am_highpass,
+                highpass_hz=self.cfg.am_highpass_hz,
+                enable_lowpass=self.cfg.enable_am_lowpass,
+                lowpass_hz=self.cfg.am_lowpass_hz,
+                agc_target_db=self.cfg.agc_target_db,
+                notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+            )
+
+            # Calculate signal power in dB (always, for metrics)
+            if audio.size > 0:
+                power = np.mean(audio ** 2)
+                power_db = 10.0 * np.log10(power + 1e-10)
+                self.signal_power_db = float(power_db)
+            else:
+                self.signal_power_db = None
+
+            # Apply squelch if configured
+            if self.cfg.squelch_db is not None and audio.size > 0:
+                if self.signal_power_db is not None and self.signal_power_db < self.cfg.squelch_db:
+                    audio = np.zeros_like(audio)
+
+            await self._broadcast(audio)
+
+        elif self.cfg.mode == "ssb":
+            # SSB demodulation (USB or LSB)
+            base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+            audio = ssb_demod(
+                base,
+                sample_rate,
+                audio_rate=self.cfg.audio_rate,
+                mode=self.cfg.ssb_mode,
+                enable_agc=self.cfg.enable_agc,
+                enable_bandpass=self.cfg.enable_ssb_bandpass,
+                bandpass_low=self.cfg.ssb_bandpass_low_hz,
+                bandpass_high=self.cfg.ssb_bandpass_high_hz,
+                agc_target_db=self.cfg.agc_target_db,
+                notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+            )
+
+            # Calculate signal power in dB (always, for metrics)
+            if audio.size > 0:
+                power = np.mean(audio ** 2)
+                power_db = 10.0 * np.log10(power + 1e-10)
+                self.signal_power_db = float(power_db)
+            else:
+                self.signal_power_db = None
+
+            # Apply squelch if configured
+            if self.cfg.squelch_db is not None and audio.size > 0:
                 if self.signal_power_db is not None and self.signal_power_db < self.cfg.squelch_db:
                     audio = np.zeros_like(audio)
 
@@ -529,6 +648,7 @@ class Capture:
     # FFT data (server-side spectrum analyzer)
     _fft_power: Optional[np.ndarray] = None  # Power spectrum in dB
     _fft_freqs: Optional[np.ndarray] = None  # Frequency bins in Hz
+    _fft_counter: int = 0  # Frame counter for adaptive FFT throttling
 
     def _ensure_device(self) -> Device:
         """Lazily open the device when the capture actually starts."""
@@ -988,35 +1108,51 @@ class Capture:
 
             # Calculate FFT for spectrum display (only if there are active subscribers)
             if self._fft_sinks:
-                self._calculate_fft(samples.copy(), self.cfg.sample_rate)
-                # Broadcast FFT to subscribers
-                for (q, loop) in list(self._fft_sinks):
-                    if self._fft_power is not None and self._fft_freqs is not None:
-                        payload_fft = {
-                            "power": self._fft_power.tolist(),
-                            "freqs": self._fft_freqs.tolist(),
-                            "centerHz": self.cfg.center_hz,
-                            "sampleRate": self.cfg.sample_rate,
-                        }
-                        def _try_put_fft() -> None:
-                            try:
-                                q.put_nowait(payload_fft)
-                            except asyncio.QueueFull:
-                                try:
-                                    _ = q.get_nowait()
-                                except asyncio.QueueEmpty:
-                                    pass
+                # Adaptive FFT throttling: Target 30 FPS regardless of sample rate
+                # This prevents UI lag on high sample rate captures
+                TARGET_FFT_FPS = 30
+                CHUNK_SIZE = 4096
+
+                # Calculate current FFT rate: sample_rate / chunk_size
+                current_fft_rate = self.cfg.sample_rate / CHUNK_SIZE
+
+                # Calculate skip interval to achieve target FPS
+                skip_interval = max(1, int(current_fft_rate / TARGET_FFT_FPS))
+
+                # Increment frame counter
+                self._fft_counter += 1
+
+                # Only calculate FFT every Nth frame to maintain ~30 FPS
+                if self._fft_counter % skip_interval == 0:
+                    self._calculate_fft(samples.copy(), self.cfg.sample_rate)
+                    # Broadcast FFT to subscribers
+                    for (q, loop) in list(self._fft_sinks):
+                        if self._fft_power is not None and self._fft_freqs is not None:
+                            payload_fft = {
+                                "power": self._fft_power.tolist(),
+                                "freqs": self._fft_freqs.tolist(),
+                                "centerHz": self.cfg.center_hz,
+                                "sampleRate": self.cfg.sample_rate,
+                            }
+                            def _try_put_fft() -> None:
                                 try:
                                     q.put_nowait(payload_fft)
                                 except asyncio.QueueFull:
-                                    pass
-                        try:
-                            loop.call_soon_threadsafe(_try_put_fft)
-                        except Exception:
+                                    try:
+                                        _ = q.get_nowait()
+                                    except asyncio.QueueEmpty:
+                                        pass
+                                    try:
+                                        q.put_nowait(payload_fft)
+                                    except asyncio.QueueFull:
+                                        pass
                             try:
-                                self._fft_sinks.discard((q, loop))
+                                loop.call_soon_threadsafe(_try_put_fft)
                             except Exception:
-                                pass
+                                try:
+                                    self._fft_sinks.discard((q, loop))
+                                except Exception:
+                                    pass
 
             # Dispatch to channels for audio processing (requires event loop)
             for ch in chans:
@@ -1126,6 +1262,57 @@ class CaptureManager:
     def get_channel(self, chan_id: str) -> Optional[Channel]:
         return self._channels.get(chan_id)
 
+    def _apply_mode_defaults(self, mode: str, cfg: ChannelConfig) -> None:
+        """Apply mode-specific default filter settings.
+
+        Mode-specific defaults:
+        - WBFM: Deemphasis ON (75µs), MPX filter ON (15 kHz), AGC OFF
+        - NBFM: All filters OFF by default (often used for voice comms without pre-emphasis)
+        - AM: HPF ON (100 Hz), LPF ON (5 kHz), AGC ON (-20 dB)
+        - SSB: BPF ON (300-3000 Hz), AGC ON (-20 dB), USB mode
+        """
+        if mode == "wbfm":
+            # WBFM broadcast defaults
+            cfg.enable_deemphasis = True
+            cfg.deemphasis_tau_us = 75.0  # 75µs for US, 50µs for EU
+            cfg.enable_mpx_filter = True  # Remove 19 kHz pilot tone
+            cfg.mpx_cutoff_hz = 15_000
+            cfg.enable_fm_highpass = False
+            cfg.enable_fm_lowpass = False
+            cfg.enable_agc = False  # FM typically doesn't need AGC
+
+        elif mode == "nbfm":
+            # NBFM voice comms defaults
+            cfg.enable_deemphasis = False  # NBFM often doesn't use deemphasis
+            cfg.enable_mpx_filter = False  # No stereo in NBFM
+            cfg.enable_fm_highpass = False  # User can enable if needed
+            cfg.fm_highpass_hz = 300
+            cfg.enable_fm_lowpass = False  # User can enable if needed
+            cfg.fm_lowpass_hz = 3_000
+            cfg.enable_agc = False
+
+        elif mode == "am":
+            # AM broadcast/aviation defaults
+            cfg.enable_am_highpass = True  # Remove DC offset
+            cfg.am_highpass_hz = 100
+            cfg.enable_am_lowpass = True  # Broadcast bandwidth
+            cfg.am_lowpass_hz = 5_000
+            cfg.enable_agc = True  # AM needs AGC
+            cfg.agc_target_db = -20.0
+            cfg.agc_attack_ms = 5.0
+            cfg.agc_release_ms = 50.0
+
+        elif mode == "ssb":
+            # SSB ham/marine defaults
+            cfg.enable_ssb_bandpass = True  # Voice bandwidth
+            cfg.ssb_bandpass_low_hz = 300
+            cfg.ssb_bandpass_high_hz = 3_000
+            cfg.ssb_mode = "usb"  # Default to upper sideband
+            cfg.enable_agc = True  # SSB needs AGC
+            cfg.agc_target_db = -20.0
+            cfg.agc_attack_ms = 5.0
+            cfg.agc_release_ms = 50.0
+
     def create_channel(
         self,
         cid: str,
@@ -1147,6 +1334,8 @@ class CaptureManager:
             audio_rate=audio_rate or self._cfg.stream.default_audio_rate,
             squelch_db=squelch_db,
         )
+        # Apply mode-specific filter defaults
+        self._apply_mode_defaults(mode, cfg)
         ch = Channel(cfg=cfg)
         cap.create_channel(ch)
         self._channels[chan_id] = ch
