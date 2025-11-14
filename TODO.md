@@ -16,14 +16,14 @@ WaveCap-SDR has **excellent architectural foundations** with a modern web interf
 - AGC implementation for AM/SSB modes
 - ✅ **S-Meter Display** - Visual signal strength with S1-S9+60dB scale (completed 2025-11-13)
 - ✅ **Active Notch Filters** - Multi-frequency interference rejection (completed 2025-11-13)
+- ✅ **Click-to-Tune on Spectrum** - Interactive spectrum with frequency tooltip (completed 2025-11-13)
 
 ### Top Priority Gaps
 1. **Scanner Mode** - Automated frequency scanning with signal detection
-2. **Complete AM/SSB** - Current implementations need refinement for production use
-3. **Frequency History & Memory Banks** - Quick recall of recent frequencies and saved configurations
-4. **Click-to-Tune on Spectrum** - Interactive spectrum for easy tuning
-5. **Digital Mode Codecs** - P25/DMR voice decoders (IMBE/AMBE)
-6. **CW Decoder** - Morse code support
+2. **Frequency History & Memory Banks** - Quick recall of recent frequencies and saved configurations
+3. **Complete AM/SSB** - Current implementations need refinement for production use
+4. **Digital Mode Codecs** - P25/DMR voice decoders (IMBE/AMBE)
+5. **CW Decoder** - Morse code support
 
 ### Implementation Roadmap
 - **Phase 1 (1-2 weeks):** Quick wins with immediate user impact
@@ -100,26 +100,25 @@ High-value features using existing infrastructure. Minimal risk, immediate user 
 
 ---
 
-### Click-to-Tune on Spectrum
-**Status:** Partially implemented (TODO item exists)
-**Effort:** 4-6 hours
+### ✅ Click-to-Tune on Spectrum (COMPLETED)
+**Status:** ✅ FULLY IMPLEMENTED
+**Completed:** 2025-11-13
 **Files:**
-- `frontend/src/components/primitives/SpectrumAnalyzer.react.tsx` - Add click handler
-- `frontend/src/components/RadioTuner.react.tsx` - Connect to capture update API
+- `frontend/src/components/primitives/SpectrumAnalyzer.react.tsx` - Click handler and tooltip (lines 521-571, 657-694)
+- `frontend/src/App.tsx` - handleFrequencyClick updates capture (lines 211-223)
 
 **Implementation:**
-- Make spectrum canvas clickable
-- Calculate frequency from click X position
-- Update capture center_hz via API call
-- Visual feedback: cursor crosshair over spectrum
-- Show frequency tooltip on hover
+- ✅ Make spectrum canvas clickable
+- ✅ Calculate frequency from click X position
+- ✅ Update capture center_hz via API call with toast notification
+- ✅ Visual feedback: cursor crosshair over spectrum
+- ✅ Show frequency tooltip on hover with "Click to tune" hint
+- ✅ Tooltip displays frequency in MHz with 4 decimal precision
+- ✅ Smooth hover tracking with mousemove/mouseleave handlers
 
-**Additional Features:**
+**Additional Features for Future:**
 - Drag-to-create-channel: click+drag on spectrum → creates new channel at offset
-- Visual channel markers overlaid on spectrum
 - Snap-to-peak option (tune to strongest signal near click)
-
-**Wizard Integration:** After wizard completion, show tooltip: "Click spectrum to add channels"
 
 ---
 

@@ -70,6 +70,8 @@ export default function SpectrumAnalyzer({
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(800);
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [hoverFrequency, setHoverFrequency] = useState<number | null>(null);
+  const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null);
 
   // Load height from localStorage or use initial value
   const [height, setHeight] = useState(() => {
@@ -538,6 +540,35 @@ export default function SpectrumAnalyzer({
     onFrequencyClick(Math.round(clickedFrequency));
   };
 
+  // Handle mouse move to show frequency tooltip
+  const handleCanvasMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!spectrumData) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+
+    // Calculate frequency from mouse position
+    const { freqs, centerHz } = spectrumData;
+    const freqMin = centerHz + freqs[0];
+    const freqMax = centerHz + freqs[freqs.length - 1];
+    const freqSpan = freqMax - freqMin;
+
+    // Convert X position to frequency
+    const frequency = freqMin + (x / width) * freqSpan;
+
+    setHoverFrequency(frequency);
+    setHoverPosition({ x: event.clientX, y: event.clientY });
+  };
+
+  // Handle mouse leave to hide tooltip
+  const handleCanvasMouseLeave = () => {
+    setHoverFrequency(null);
+    setHoverPosition(null);
+  };
+
   return (
     <div className="card shadow-sm">
       <div className="card-header bg-body-tertiary py-1 px-2">
@@ -616,12 +647,14 @@ export default function SpectrumAnalyzer({
         </div>
       </div>
       {!isCollapsed && (
-        <div className="card-body" ref={containerRef} style={{ padding: "0.5rem" }}>
+        <div className="card-body" ref={containerRef} style={{ padding: "0.5rem", position: "relative" }}>
           <canvas
             ref={canvasRef}
             width={width}
             height={height}
             onClick={handleCanvasClick}
+            onMouseMove={handleCanvasMouseMove}
+            onMouseLeave={handleCanvasMouseLeave}
             style={{
               border: "1px solid #dee2e6",
               borderRadius: "4px",
@@ -630,6 +663,34 @@ export default function SpectrumAnalyzer({
               cursor: onFrequencyClick ? "crosshair" : "default",
             }}
           />
+          {/* Frequency tooltip */}
+          {hoverFrequency !== null && hoverPosition !== null && (
+            <div
+              style={{
+                position: "fixed",
+                left: `${hoverPosition.x + 10}px`,
+                top: `${hoverPosition.y - 30}px`,
+                backgroundColor: "rgba(0, 0, 0, 0.85)",
+                color: "white",
+                padding: "4px 8px",
+                borderRadius: "4px",
+                fontSize: "12px",
+                fontWeight: 600,
+                fontFamily: "monospace",
+                pointerEvents: "none",
+                zIndex: 1000,
+                whiteSpace: "nowrap",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+              }}
+            >
+              {(hoverFrequency / 1e6).toFixed(4)} MHz
+              {onFrequencyClick && (
+                <div style={{ fontSize: "10px", opacity: 0.8, marginTop: "2px" }}>
+                  Click to tune
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
