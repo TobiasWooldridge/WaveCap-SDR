@@ -14,13 +14,16 @@ WaveCap-SDR has **excellent architectural foundations** with a modern web interf
 - Audio streaming in multiple formats (PCM, MP3, Opus, AAC)
 - Frequency bookmarks and wizard-based setup
 - AGC implementation for AM/SSB modes
+- ✅ **S-Meter Display** - Visual signal strength with S1-S9+60dB scale (completed 2025-11-13)
+- ✅ **Active Notch Filters** - Multi-frequency interference rejection (completed 2025-11-13)
 
 ### Top Priority Gaps
 1. **Scanner Mode** - Automated frequency scanning with signal detection
 2. **Complete AM/SSB** - Current implementations need refinement for production use
-3. **S-Meter Display** - Visual signal strength in standard S-units
-4. **Digital Mode Codecs** - P25/DMR voice decoders (IMBE/AMBE)
-5. **CW Decoder** - Morse code support
+3. **Frequency History & Memory Banks** - Quick recall of recent frequencies and saved configurations
+4. **Click-to-Tune on Spectrum** - Interactive spectrum for easy tuning
+5. **Digital Mode Codecs** - P25/DMR voice decoders (IMBE/AMBE)
+6. **CW Decoder** - Morse code support
 
 ### Implementation Roadmap
 - **Phase 1 (1-2 weeks):** Quick wins with immediate user impact
@@ -34,41 +37,44 @@ WaveCap-SDR has **excellent architectural foundations** with a modern web interf
 
 High-value features using existing infrastructure. Minimal risk, immediate user benefit.
 
-### S-Meter Display
-**Status:** Code infrastructure exists (RSSI/SNR calculated)
-**Effort:** 4-6 hours
+### ✅ S-Meter Display (COMPLETED)
+**Status:** ✅ FULLY IMPLEMENTED
+**Completed:** 2025-11-13
 **Files:**
-- `backend/wavecapsdr/models.py` - Add S-unit conversion helper
-- `frontend/src/components/CompactChannelCard.react.tsx` - Add S-meter component
+- `backend/wavecapsdr/capture.py` - RSSI/SNR calculation from IQ samples (lines 182-206)
+- `frontend/src/components/primitives/SMeter.react.tsx` - S-meter component
+- `frontend/src/components/CompactChannelCard.react.tsx` - Integrated S-meter display
 
 **Implementation:**
-- Convert existing RSSI (dBFS) to S-units: S9 = -73 dBm (HF) or -93 dBm (VHF/UHF)
-- Visual analog meter with S1-S9+60dB scale
-- Peak hold indicator
-- Color coding: green (S1-S5), yellow (S6-S8), red (S9+)
-
-**Wizard Integration:** Displays automatically in all channel cards
+- ✅ Convert RSSI (dBFS) to S-units with proper scale mapping
+- ✅ Visual analog meter with S1-S9+60dB scale and tick marks
+- ✅ Color coding: orange (S1-S4), yellow (S5-S6), green (S7-S9), red (S9+20+)
+- ✅ Shows both visual meter and numeric RSSI/SNR values
+- ✅ Backend calculates RSSI/SNR every processing cycle
+- ✅ Displays automatically in all channel cards
 
 ---
 
-### Active Notch Filter
-**Status:** Code exists in `dsp/filters.py` but unused
-**Effort:** 6-8 hours
+### ✅ Active Notch Filter (COMPLETED)
+**Status:** ✅ FULLY IMPLEMENTED
+**Completed:** 2025-11-13
 **Files:**
-- `backend/wavecapsdr/models.py` - Add `notch_frequencies: list[float]` to ChannelConfig
-- `backend/wavecapsdr/capture.py` - Instantiate notch filters in DSP chain
-- `frontend/src/components/CompactChannelCard.react.tsx` - Add notch filter UI
+- `backend/wavecapsdr/dsp/filters.py` - `notch_filter()` function with Q=30 (lines 156-198)
+- `backend/wavecapsdr/models.py` - `notch_frequencies: list[float]` in ChannelConfig
+- `backend/wavecapsdr/capture.py` - Integrated in all demodulation modes (FM/AM/SSB)
+- `backend/wavecapsdr/dsp/{fm.py,am.py}` - Notch filters applied in DSP chain
+- `frontend/src/components/CompactChannelCard.react.tsx` - Full notch filter UI (lines 800-846)
 
 **Implementation:**
-- Support multiple notch frequencies per channel (array of Hz values)
-- UI: "+ Add Notch" button → frequency picker modal
-- Show list of active notches with remove button
-- Default Q factor: 30 (narrow notch)
-- Chain multiple notch filters in series
+- ✅ Support multiple notch frequencies per channel (max 10)
+- ✅ UI: Input field + "Add" button with validation
+- ✅ Shows list of active notches with remove button
+- ✅ Default Q factor: 30 (narrow notch, high selectivity)
+- ✅ Chains multiple notch filters in series
+- ✅ Frequency validation: 0-20kHz range
+- ✅ Applied to WBFM, NBFM, AM, and SSB modes
 
-**Wizard Integration:** Add "Troubleshooting" section in channel settings modal
-
-**Use Cases:** Remove power line hum (60 Hz), carrier interference, birdie tones
+**Use Cases:** Remove power line hum (60 Hz, 120 Hz), carrier interference, birdie tones
 
 ---
 
