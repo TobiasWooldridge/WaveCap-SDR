@@ -33,7 +33,7 @@ class DeviceModel(BaseModel):
 
 
 class CreateCaptureRequest(BaseModel):
-    deviceId: Optional[str] = Field(None, max_length=100)
+    deviceId: Optional[str] = Field(None, max_length=500)  # Device IDs can be long SoapySDR strings
     centerHz: float = Field(..., gt=0, lt=10e9)  # 0 to 10 GHz
     sampleRate: int = Field(..., gt=0, le=100_000_000)  # Max 100 MHz
     gain: Optional[float] = Field(None, ge=-100, le=100)  # -100 to 100 dB
@@ -68,7 +68,7 @@ class CreateCaptureRequest(BaseModel):
 
 
 class UpdateCaptureRequest(BaseModel):
-    deviceId: Optional[str] = Field(None, max_length=100)
+    deviceId: Optional[str] = Field(None, max_length=500)  # Device IDs can be long SoapySDR strings
     centerHz: Optional[float] = Field(None, gt=0, lt=10e9)  # 0 to 10 GHz
     sampleRate: Optional[int] = Field(None, gt=0, le=100_000_000)  # Max 100 MHz
     gain: Optional[float] = Field(None, ge=-100, le=100)  # -100 to 100 dB
