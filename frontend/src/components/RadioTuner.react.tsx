@@ -7,7 +7,7 @@ import { useChannels, useCreateChannel } from "../hooks/useChannels";
 import { useMemoryBanks } from "../hooks/useMemoryBanks";
 import { useDebounce } from "../hooks/useDebounce";
 import { formatFrequencyMHz, formatSampleRate } from "../utils/frequency";
-import { getDeviceDisplayName } from "../utils/device";
+import { getDeviceDisplayName, getDeviceNameFromId } from "../utils/device";
 import Button from "./primitives/Button.react";
 import Flex from "./primitives/Flex.react";
 import Slider from "./primitives/Slider.react";
@@ -258,7 +258,10 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   };
 
   const isRunning = capture.state === "running";
+  const isStarting = capture.state === "starting";
+  const isStopping = capture.state === "stopping";
   const isFailed = capture.state === "failed";
+  const isTransitioning = isStarting || isStopping;
 
   // Track which settings are pending update
   const isFreqPending = localFreq !== capture.centerHz || debouncedFreq !== capture.centerHz;
@@ -284,7 +287,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
       <div className="d-flex align-items-center gap-2 p-2 bg-light rounded border">
         <Radio size={16} className="flex-shrink-0" />
         <span className="fw-semibold small text-truncate" style={{ maxWidth: "200px" }}>
-          {device ? getDeviceDisplayName(device) : "Loading..."}
+          {device ? getDeviceDisplayName(device) : getDeviceNameFromId(capture.deviceId)}
         </span>
         <span className="small text-muted">
           {formatFrequencyMHz(localFreq)} MHz
@@ -295,6 +298,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
         <span className={`badge ms-auto ${
           isFailed ? "bg-danger" :
           isRunning ? "bg-success" :
+          isTransitioning ? "bg-warning text-dark" :
           "bg-secondary"
         }`} style={{ fontSize: "0.7rem" }}>
           {capture.state.toUpperCase()}
@@ -338,13 +342,13 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
               {/* Start/Stop Button */}
               <div className="col-12 col-md-3">
                 <Button
-                  use={isRunning ? "danger" : "success"}
+                  use={isRunning || isStopping ? "danger" : isStarting ? "warning" : "success"}
                   size="sm"
                   onClick={handleStartStop}
-                  disabled={startMutation.isPending || stopMutation.isPending}
+                  disabled={startMutation.isPending || stopMutation.isPending || isTransitioning}
                   style={{ width: "100%" }}
                 >
-                  {isRunning ? "Stop" : "Start"}
+                  {isStarting ? "Starting..." : isStopping ? "Stopping..." : isRunning ? "Stop" : "Start"}
                 </Button>
               </div>
 

@@ -5,11 +5,55 @@ from typing import Tuple
 
 import numpy as np
 
-from .filters import highpass_filter, lowpass_filter, notch_filter, noise_blanker
+from .filters import highpass_filter, lowpass_filter, notch_filter, noise_blanker, spectral_noise_reduction
 
 
 # Pre-allocated zero for quadrature demod (avoids allocation per call)
 _ZERO_F32 = np.zeros(1, dtype=np.float32)
+
+# Soft clipping constants
+_SOFT_CLIP_K = np.float32(1.5)  # Knee factor for tanh soft clipping
+_SOFT_CLIP_NORM = np.float32(1.0 / np.tanh(1.5))  # Normalization factor
+_SOFT_CLIP_HEADROOM = np.float32(0.95)  # Leave 5% headroom to avoid hitting ±1.0
+
+
+def soft_clip(x: np.ndarray) -> np.ndarray:
+    """Apply soft clipping using tanh function.
+
+    Unlike hard clipping (np.clip), soft clipping gradually saturates
+    the signal, preventing harsh distortion and aliasing on peaks.
+    Output is scaled to 95% to leave headroom and avoid hitting ±1.0.
+
+    Args:
+        x: Input signal (any range)
+
+    Returns:
+        Soft-clipped signal in range [-0.95, 0.95]
+    """
+    return np.tanh(x * _SOFT_CLIP_K) * _SOFT_CLIP_NORM * _SOFT_CLIP_HEADROOM
+
+
+def rms_normalize(x: np.ndarray, target_rms: float = 0.18, min_rms: float = 1e-4) -> np.ndarray:
+    """Normalize signal based on RMS level instead of peak.
+
+    RMS normalization provides more consistent perceived loudness
+    compared to peak normalization, and is immune to single transients.
+
+    Args:
+        x: Input signal
+        target_rms: Target RMS level (0.25 = -12 dB, leaves headroom for peaks)
+        min_rms: Minimum RMS to prevent excessive amplification of noise
+
+    Returns:
+        RMS-normalized signal
+    """
+    if x.size == 0:
+        return x
+
+    rms = np.sqrt(np.mean(x ** 2))
+    if rms > min_rms:
+        return x * (target_rms / rms)
+    return x
 
 
 def quadrature_demod(iq: np.ndarray, sample_rate: int) -> np.ndarray:
@@ -184,6 +228,8 @@ def wbfm_demod(
     enable_noise_blanker: bool = False,
     noise_blanker_threshold_db: float = 10.0,
     notch_frequencies: list[float] | None = None,
+    enable_noise_reduction: bool = False,
+    noise_reduction_db: float = 12.0,
 ) -> np.ndarray:
     """Demodulate wideband FM (broadcast radio).
 
@@ -200,6 +246,8 @@ def wbfm_demod(
         enable_noise_blanker: Enable noise blanker for impulse noise suppression (default False)
         noise_blanker_threshold_db: Noise blanker threshold in dB above median level (default 10 dB)
         notch_frequencies: List of frequencies to notch out (Hz) for interference rejection (default None)
+        enable_noise_reduction: Enable spectral noise reduction (default False)
+        noise_reduction_db: Noise reduction strength in dB (default 12 dB)
 
     Returns:
         Demodulated audio samples (float32, mono, clipped to ±1.0)
@@ -211,9 +259,10 @@ def wbfm_demod(
         4. Optional MPX filter (removes 19 kHz pilot tone, 38 kHz stereo, 57 kHz RDS)
         5. Optional highpass filter (DC blocking)
         6. Optional notch filters (interference rejection)
-        7. Normalize
-        8. Resample to audio_rate
-        9. Clip to ±1.0
+        7. Optional spectral noise reduction (hiss/static suppression)
+        8. Normalize
+        9. Resample to audio_rate
+        10. Soft clip to ±1.0
     """
     fm = quadrature_demod(iq, sample_rate)
 
@@ -240,14 +289,18 @@ def wbfm_demod(
             if 0 < freq < sample_rate / 2:
                 fm = notch_filter(fm, sample_rate, freq, q=30.0)
 
-    # Normalize roughly
-    if fm.size:
-        fm = fm / max(1e-6, np.max(np.abs(fm)))
+    # Apply spectral noise reduction to suppress background hiss/static
+    if enable_noise_reduction:
+        fm = spectral_noise_reduction(fm, sample_rate, reduction_db=noise_reduction_db)
+
+    # RMS-based normalization (more consistent than peak normalization)
+    # Target RMS of 0.18 (-15 dB) leaves more headroom for peaks
+    fm = rms_normalize(fm, target_rms=0.18)
 
     audio = resample_linear(fm, sample_rate, audio_rate)
 
-    # Hard clip to [-1,1]
-    np.clip(audio, -1.0, 1.0, out=audio)
+    # Soft clip to prevent harsh distortion on peaks
+    audio = soft_clip(audio)
     return audio
 
 
@@ -264,6 +317,8 @@ def nbfm_demod(
     enable_noise_blanker: bool = False,
     noise_blanker_threshold_db: float = 10.0,
     notch_frequencies: list[float] | None = None,
+    enable_noise_reduction: bool = False,
+    noise_reduction_db: float = 12.0,
 ) -> np.ndarray:
     """Demodulate narrowband FM (voice communications, public safety, amateur radio).
 
@@ -280,6 +335,8 @@ def nbfm_demod(
         enable_noise_blanker: Enable noise blanker for impulse noise suppression (default False)
         noise_blanker_threshold_db: Noise blanker threshold in dB above median level (default 10 dB)
         notch_frequencies: List of frequencies to notch out (Hz) for interference rejection (default None)
+        enable_noise_reduction: Enable spectral noise reduction (default False)
+        noise_reduction_db: Noise reduction strength in dB (default 12 dB)
 
     Returns:
         Demodulated audio samples (float32, mono, clipped to ±1.0)
@@ -291,9 +348,10 @@ def nbfm_demod(
         4. Optional highpass filter (removes rumble, DC offset)
         5. Optional lowpass filter (voice bandwidth limiting)
         6. Optional notch filters (interference rejection)
-        7. Normalize
-        8. Resample to audio_rate
-        9. Clip to ±1.0
+        7. Optional spectral noise reduction (hiss/static suppression)
+        8. Normalize
+        9. Resample to audio_rate
+        10. Soft clip to ±1.0
 
     Typical settings:
         - Voice comms: highpass 300 Hz, lowpass 3000 Hz, no deemphasis
@@ -323,13 +381,17 @@ def nbfm_demod(
             if 0 < freq < sample_rate / 2:
                 fm = notch_filter(fm, sample_rate, freq, q=30.0)
 
-    # Normalize
-    if fm.size:
-        fm = fm / max(1e-6, np.max(np.abs(fm)))
+    # Apply spectral noise reduction to suppress background hiss/static
+    if enable_noise_reduction:
+        fm = spectral_noise_reduction(fm, sample_rate, reduction_db=noise_reduction_db)
+
+    # RMS-based normalization (more consistent than peak normalization)
+    # Target RMS of 0.18 (-15 dB) leaves more headroom for peaks
+    fm = rms_normalize(fm, target_rms=0.18)
 
     audio = resample_linear(fm, sample_rate, audio_rate)
 
-    # Hard clip to [-1,1]
-    np.clip(audio, -1.0, 1.0, out=audio)
+    # Soft clip to prevent harsh distortion on peaks
+    audio = soft_clip(audio)
     return audio
 

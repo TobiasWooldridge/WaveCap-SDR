@@ -461,6 +461,21 @@ async def update_capture(
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
 ):
+    import traceback
+    try:
+        return await _update_capture_impl(cid, req, state)
+    except HTTPException:
+        raise
+    except Exception as e:
+        error_msg = f"[ERROR] update_capture failed: {e}\n{traceback.format_exc()}"
+        print(error_msg, flush=True)
+        # Also write to temp file for debugging
+        with open("/tmp/wavecapsdr_error.log", "a") as f:
+            f.write(f"\n--- {__import__('datetime').datetime.now()} ---\n{error_msg}\n")
+        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+
+
+async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppState):
     cap = state.captures.get_capture(cid)
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
@@ -662,6 +677,9 @@ def list_channels(
             signalPowerDb=ch.signal_power_db,
             rssiDb=ch.rssi_db,
             snrDb=ch.snr_db,
+            audioRmsDb=ch.audio_rms_db,
+            audioPeakDb=ch.audio_peak_db,
+            audioClippingCount=ch.audio_clipping_count,
             # Filter configuration
             enableDeemphasis=ch.cfg.enable_deemphasis,
             deemphasisTauUs=ch.cfg.deemphasis_tau_us,
@@ -686,6 +704,8 @@ def list_channels(
             enableNoiseBlanker=ch.cfg.enable_noise_blanker,
             noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
             notchFrequencies=ch.cfg.notch_frequencies,
+            enableNoiseReduction=ch.cfg.enable_noise_reduction,
+            noiseReductionDb=ch.cfg.noise_reduction_db,
         )
         for ch in chans
     ]
@@ -736,6 +756,9 @@ def create_channel(
         signalPowerDb=ch.signal_power_db,
         rssiDb=ch.rssi_db,
         snrDb=ch.snr_db,
+        audioRmsDb=ch.audio_rms_db,
+        audioPeakDb=ch.audio_peak_db,
+        audioClippingCount=ch.audio_clipping_count,
         # Filter configuration
         enableDeemphasis=ch.cfg.enable_deemphasis,
         deemphasisTauUs=ch.cfg.deemphasis_tau_us,
@@ -760,6 +783,8 @@ def create_channel(
         enableNoiseBlanker=ch.cfg.enable_noise_blanker,
         noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
         notchFrequencies=ch.cfg.notch_frequencies,
+        enableNoiseReduction=ch.cfg.enable_noise_reduction,
+        noiseReductionDb=ch.cfg.noise_reduction_db,
     )
 
 
@@ -786,6 +811,9 @@ def start_channel(
         signalPowerDb=ch.signal_power_db,
         rssiDb=ch.rssi_db,
         snrDb=ch.snr_db,
+        audioRmsDb=ch.audio_rms_db,
+        audioPeakDb=ch.audio_peak_db,
+        audioClippingCount=ch.audio_clipping_count,
         # Filter configuration
         enableDeemphasis=ch.cfg.enable_deemphasis,
         deemphasisTauUs=ch.cfg.deemphasis_tau_us,
@@ -810,6 +838,8 @@ def start_channel(
         enableNoiseBlanker=ch.cfg.enable_noise_blanker,
         noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
         notchFrequencies=ch.cfg.notch_frequencies,
+        enableNoiseReduction=ch.cfg.enable_noise_reduction,
+        noiseReductionDb=ch.cfg.noise_reduction_db,
     )
 
 
@@ -836,6 +866,9 @@ def stop_channel(
         signalPowerDb=ch.signal_power_db,
         rssiDb=ch.rssi_db,
         snrDb=ch.snr_db,
+        audioRmsDb=ch.audio_rms_db,
+        audioPeakDb=ch.audio_peak_db,
+        audioClippingCount=ch.audio_clipping_count,
         # Filter configuration
         enableDeemphasis=ch.cfg.enable_deemphasis,
         deemphasisTauUs=ch.cfg.deemphasis_tau_us,
@@ -860,6 +893,8 @@ def stop_channel(
         enableNoiseBlanker=ch.cfg.enable_noise_blanker,
         noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
         notchFrequencies=ch.cfg.notch_frequencies,
+        enableNoiseReduction=ch.cfg.enable_noise_reduction,
+        noiseReductionDb=ch.cfg.noise_reduction_db,
     )
 
 
@@ -885,6 +920,9 @@ def get_channel(
         signalPowerDb=ch.signal_power_db,
         rssiDb=ch.rssi_db,
         snrDb=ch.snr_db,
+        audioRmsDb=ch.audio_rms_db,
+        audioPeakDb=ch.audio_peak_db,
+        audioClippingCount=ch.audio_clipping_count,
         # Filter configuration
         enableDeemphasis=ch.cfg.enable_deemphasis,
         deemphasisTauUs=ch.cfg.deemphasis_tau_us,
@@ -909,6 +947,8 @@ def get_channel(
         enableNoiseBlanker=ch.cfg.enable_noise_blanker,
         noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
         notchFrequencies=ch.cfg.notch_frequencies,
+        enableNoiseReduction=ch.cfg.enable_noise_reduction,
+        noiseReductionDb=ch.cfg.noise_reduction_db,
     )
 
 
@@ -982,6 +1022,10 @@ def update_channel(
         ch.cfg.enable_noise_blanker = req.enableNoiseBlanker
     if req.noiseBlankerThresholdDb is not None:
         ch.cfg.noise_blanker_threshold_db = req.noiseBlankerThresholdDb
+    if req.enableNoiseReduction is not None:
+        ch.cfg.enable_noise_reduction = req.enableNoiseReduction
+    if req.noiseReductionDb is not None:
+        ch.cfg.noise_reduction_db = req.noiseReductionDb
 
     # Regenerate auto_name if offset changed
     if req.offsetHz is not None:
@@ -1003,6 +1047,9 @@ def update_channel(
         signalPowerDb=ch.signal_power_db,
         rssiDb=ch.rssi_db,
         snrDb=ch.snr_db,
+        audioRmsDb=ch.audio_rms_db,
+        audioPeakDb=ch.audio_peak_db,
+        audioClippingCount=ch.audio_clipping_count,
         # Filter configuration
         enableDeemphasis=ch.cfg.enable_deemphasis,
         deemphasisTauUs=ch.cfg.deemphasis_tau_us,
@@ -1027,6 +1074,8 @@ def update_channel(
         enableNoiseBlanker=ch.cfg.enable_noise_blanker,
         noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
         notchFrequencies=ch.cfg.notch_frequencies,
+        enableNoiseReduction=ch.cfg.enable_noise_reduction,
+        noiseReductionDb=ch.cfg.noise_reduction_db,
     )
 
 

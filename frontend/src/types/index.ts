@@ -20,7 +20,7 @@ export interface Device {
 export interface Capture {
   id: string;
   deviceId: string;
-  state: "created" | "running" | "stopped" | "failed";
+  state: "created" | "starting" | "running" | "stopping" | "stopped" | "failed";
   centerHz: number;
   sampleRate: number;
   gain: number | null;
@@ -84,6 +84,10 @@ export interface Channel {
 
   // Notch filters
   notchFrequencies: number[];  // List of frequencies to notch out (Hz)
+
+  // Spectral noise reduction
+  enableNoiseReduction: boolean;
+  noiseReductionDb: number;
 }
 
 export interface UpdateCaptureRequest {
@@ -167,6 +171,10 @@ export interface UpdateChannelRequest {
 
   // Notch filters
   notchFrequencies?: number[];
+
+  // Spectral noise reduction
+  enableNoiseReduction?: boolean;
+  noiseReductionDb?: number;
 }
 
 export interface RecipeChannel {

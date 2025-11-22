@@ -185,6 +185,10 @@ class ChannelConfig:
     # Notch filters (interference rejection)
     notch_frequencies: list[float] = field(default_factory=list)  # List of frequencies to notch out
 
+    # Spectral noise reduction (hiss/static suppression)
+    enable_noise_reduction: bool = False  # Default off
+    noise_reduction_db: float = 12.0  # 12 dB reduction
+
 
 @dataclass
 class Channel:
@@ -202,6 +206,10 @@ class Channel:
     signal_power_db: Optional[float] = None  # Current signal power in dB
     rssi_db: Optional[float] = None  # Received Signal Strength Indicator from IQ
     snr_db: Optional[float] = None  # Signal-to-Noise Ratio estimate
+    # Audio output level metering
+    audio_rms_db: Optional[float] = None  # Output audio RMS level in dB
+    audio_peak_db: Optional[float] = None  # Output audio peak level in dB
+    audio_clipping_count: int = 0  # Number of samples that would have clipped
     # Digital voice decoders (lazily initialized)
     _p25_decoder: Optional[P25Decoder] = None
     _dmr_decoder: Optional[DMRDecoder] = None
@@ -213,9 +221,41 @@ class Channel:
         self.state = "running"
         self._drop_count = 0
         self._last_drop_log_time = 0.0
+        self.audio_clipping_count = 0
 
     def stop(self) -> None:
         self.state = "stopped"
+
+    def _update_audio_metrics(self, audio: np.ndarray) -> None:
+        """Calculate and update audio output level metrics.
+
+        Args:
+            audio: Audio samples (float32, expected range [-1, 1])
+        """
+        if audio.size == 0:
+            self.audio_rms_db = None
+            self.audio_peak_db = None
+            return
+
+        # Calculate RMS level in dB
+        rms = np.sqrt(np.mean(audio ** 2))
+        if rms > 1e-10:
+            self.audio_rms_db = float(20.0 * np.log10(rms))
+        else:
+            self.audio_rms_db = -100.0  # Effectively silence
+
+        # Calculate peak level in dB
+        peak = np.max(np.abs(audio))
+        if peak > 1e-10:
+            self.audio_peak_db = float(20.0 * np.log10(peak))
+        else:
+            self.audio_peak_db = -100.0
+
+        # Count samples that would have clipped (before soft clipping)
+        # Threshold of 0.95 to catch samples that are near clipping
+        clipping_samples = np.sum(np.abs(audio) > 0.95)
+        self.audio_clipping_count += int(clipping_samples)
+
 
     def _log_drop_warning(self, fmt: str) -> None:
         """Rate-limited logging for queue drops (once per 10 seconds)."""
@@ -485,6 +525,8 @@ class Channel:
                     enable_highpass=self.cfg.enable_fm_highpass,
                     highpass_hz=self.cfg.fm_highpass_hz,
                     notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+                    enable_noise_reduction=self.cfg.enable_noise_reduction,
+                    noise_reduction_db=self.cfg.noise_reduction_db,
                 )
             else:  # nbfm
                 audio = nbfm_demod(
@@ -498,6 +540,8 @@ class Channel:
                     enable_lowpass=self.cfg.enable_fm_lowpass,
                     lowpass_hz=self.cfg.fm_lowpass_hz,
                     notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+                    enable_noise_reduction=self.cfg.enable_noise_reduction,
+                    noise_reduction_db=self.cfg.noise_reduction_db,
                 )
 
             # Calculate signal power in dB (always, for metrics)
@@ -508,6 +552,12 @@ class Channel:
                 logger.debug(f"Channel {self.cfg.id}: signal_power_db={power_db:.2f}")
             else:
                 self.signal_power_db = None
+
+            # Update audio output level metrics
+            try:
+                self._update_audio_metrics(audio)
+            except Exception as e:
+                logger.error(f"Channel {self.cfg.id}: Error in _update_audio_metrics: {e}")
 
             # Apply squelch if configured
             if self.cfg.squelch_db is not None and audio.size > 0:
@@ -541,6 +591,9 @@ class Channel:
             else:
                 self.signal_power_db = None
 
+            # Update audio output level metrics
+            self._update_audio_metrics(audio)
+
             # Apply squelch if configured
             if self.cfg.squelch_db is not None and audio.size > 0:
                 if self.signal_power_db is not None and self.signal_power_db < self.cfg.squelch_db:
@@ -571,6 +624,9 @@ class Channel:
                 self.signal_power_db = float(power_db)
             else:
                 self.signal_power_db = None
+
+            # Update audio output level metrics
+            self._update_audio_metrics(audio)
 
             # Apply squelch if configured
             if self.cfg.squelch_db is not None and audio.size > 0:
@@ -772,6 +828,8 @@ class Capture:
     _fft_freqs_list: Optional[list] = None  # Cached Python list (avoids repeated .tolist())
     _fft_counter: int = 0  # Frame counter for adaptive FFT throttling
     _fft_window_cache: Dict[int, np.ndarray] = field(default_factory=dict)  # Cached FFT windows by size
+    # Main event loop for scheduling audio processing when no subscribers
+    _main_loop: Optional[asyncio.AbstractEventLoop] = None
 
     def _ensure_device(self) -> Device:
         """Lazily open the device when the capture actually starts."""
@@ -862,6 +920,14 @@ class Capture:
 
         # Cancel any pending retry timer
         self._cancel_retry_timer()
+
+        # Try to capture the main event loop for audio processing
+        # (needed when there are no audio subscribers but we still want metrics)
+        try:
+            self._main_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop - will try again when audio subscribers connect
+            pass
 
         self.state = "starting"
         self.error_message = None
@@ -1296,7 +1362,7 @@ class Capture:
 
             # Dispatch to channels for audio processing (requires event loop)
             for ch in chans:
-                # Get event loop - try audio sinks first, then IQ sinks
+                # Get event loop - try audio sinks first, then IQ sinks, then main loop
                 target_loop = None
                 try:
                     # Get loop from first audio sink (tuple is (q, loop, format))
@@ -1312,6 +1378,10 @@ class Capture:
                             target_loop = next(iter(self._iq_sinks))[1]
                     except Exception:
                         pass
+
+                # Fallback to main loop for metrics calculation (no subscribers)
+                if target_loop is None:
+                    target_loop = self._main_loop
 
                 # Process channel if we have an event loop (always process for metrics)
                 if target_loop is not None:

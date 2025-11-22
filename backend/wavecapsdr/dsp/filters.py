@@ -331,3 +331,118 @@ def noise_blanker(
     y[expanded_mask] = 0
 
     return y.astype(np.float32 if not np.iscomplexobj(x) else np.complex64)
+
+
+def spectral_noise_reduction(
+    x: np.ndarray,
+    sample_rate: int,
+    reduction_db: float = 12.0,
+    fft_size: int = 1024,
+    overlap: float = 0.5,
+) -> np.ndarray:
+    """Apply spectral noise reduction to suppress background hiss/static.
+
+    Uses spectral subtraction with soft gain to reduce broadband noise while
+    preserving the tonal components of the signal (speech, music).
+
+    This is effective for:
+    - Background hiss from weak signals
+    - Broadband static/noise floor
+    - High-frequency hash in FM demodulation
+
+    Algorithm:
+    1. STFT analysis to decompose signal into time-frequency bins
+    2. Estimate noise floor from quietest portions of each frequency bin
+    3. Apply soft gain reduction to bins near noise floor
+    4. ISTFT synthesis to reconstruct signal
+
+    Args:
+        x: Input audio signal (float32)
+        sample_rate: Sample rate in Hz
+        reduction_db: Amount of noise reduction in dB (default 12 dB)
+        fft_size: FFT size for spectral analysis (default 1024, ~21ms at 48kHz)
+        overlap: Overlap ratio between frames (default 0.5 = 50%)
+
+    Returns:
+        Noise-reduced signal (same length as input)
+
+    Example usage:
+        # Light noise reduction for FM broadcast
+        clean = spectral_noise_reduction(audio, 48000, reduction_db=10)
+
+        # Aggressive reduction for noisy signal
+        clean = spectral_noise_reduction(audio, 48000, reduction_db=18)
+    """
+    if x.size == 0 or x.size < fft_size:
+        return x.astype(np.float32, copy=False)
+
+    try:
+        from scipy import signal as scipy_signal
+    except ImportError:
+        return x.astype(np.float32, copy=False)
+
+    # Calculate hop size (step between frames)
+    hop_size = int(fft_size * (1 - overlap))
+
+    # Create analysis window (Hann window for smooth transitions)
+    window = scipy_signal.windows.hann(fft_size, sym=False).astype(np.float32)
+
+    # Pad signal to ensure we have complete frames
+    n_frames = (len(x) - fft_size) // hop_size + 1
+    padded_length = (n_frames - 1) * hop_size + fft_size
+    if padded_length > len(x):
+        x = np.pad(x, (0, padded_length - len(x)), mode='constant')
+
+    # Compute STFT
+    n_bins = fft_size // 2 + 1
+    stft = np.zeros((n_frames, n_bins), dtype=np.complex64)
+
+    for i in range(n_frames):
+        start = i * hop_size
+        frame = x[start:start + fft_size] * window
+        stft[i] = np.fft.rfft(frame)
+
+    # Get magnitude and phase
+    magnitude = np.abs(stft)
+    phase = np.angle(stft)
+
+    # Estimate noise floor per frequency bin (use 10th percentile as noise estimate)
+    noise_floor = np.percentile(magnitude, 10, axis=0)
+
+    # Compute soft gain mask using Wiener-like filtering
+    # gain = max(0, 1 - (noise_floor / magnitude)^2)
+    # With adjustable reduction strength
+    reduction_linear = 10 ** (reduction_db / 20.0)
+    noise_scaled = noise_floor * reduction_linear
+
+    # Avoid division by zero
+    magnitude_safe = np.maximum(magnitude, 1e-10)
+
+    # Wiener gain with floor to prevent musical noise artifacts
+    gain = np.maximum(0.0, 1.0 - (noise_scaled / magnitude_safe) ** 2)
+
+    # Apply soft floor to prevent complete zeroing (reduces musical noise)
+    gain = np.maximum(gain, 0.1)
+
+    # Apply gain to magnitude
+    magnitude_clean = magnitude * gain
+
+    # Reconstruct complex spectrum
+    stft_clean = magnitude_clean * np.exp(1j * phase)
+
+    # Inverse STFT with overlap-add
+    output = np.zeros(padded_length, dtype=np.float32)
+    window_sum = np.zeros(padded_length, dtype=np.float32)
+
+    for i in range(n_frames):
+        start = i * hop_size
+        frame = np.fft.irfft(stft_clean[i], n=fft_size).astype(np.float32)
+        output[start:start + fft_size] += frame * window
+        window_sum[start:start + fft_size] += window ** 2
+
+    # Normalize by window sum (avoid division by zero)
+    window_sum = np.maximum(window_sum, 1e-10)
+    output /= window_sum
+
+    # Return original length
+    return output[:len(x) - (padded_length - len(x)) if padded_length > len(x) else len(x)].astype(np.float32)

@@ -42,6 +42,7 @@ export const CompactChannelCard = ({
   const [showDspFilters, setShowDspFilters] = useState(false);
   const [showAgcSettings, setShowAgcSettings] = useState(false);
   const [showNoiseBlanker, setShowNoiseBlanker] = useState(false);
+  const [showNoiseReduction, setShowNoiseReduction] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const updateChannel = useUpdateChannel(capture.id);
   const deleteChannel = useDeleteChannel();
@@ -789,6 +790,66 @@ export const CompactChannelCard = ({
                             />
                             <small className="text-muted">
                               Lower = more aggressive (may remove weak signals). Higher = less aggressive. Start at 10 dB.
+                            </small>
+                          </>
+                        )}
+                      </Flex>
+                    </div>
+                  )}
+                </div>
+
+                {/* Noise Reduction Section */}
+                <div className="border rounded">
+                  <button
+                    className="btn btn-sm w-100 text-start d-flex justify-content-between align-items-center p-2"
+                    onClick={() => setShowNoiseReduction(!showNoiseReduction)}
+                    style={{ background: "transparent", border: "none" }}
+                  >
+                    <Flex align="center" gap={1}>
+                      <span className="fw-semibold small">Noise Reduction</span>
+                      <span className={`badge ${channel.enableNoiseReduction ? "bg-success" : "bg-secondary"}`} style={{ fontSize: "8px" }}>
+                        {channel.enableNoiseReduction ? "ON" : "OFF"}
+                      </span>
+                    </Flex>
+                    {showNoiseReduction ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+                  {showNoiseReduction && (
+                    <div className="p-2 border-top">
+                      <Flex direction="column" gap={2}>
+                        {/* Info card */}
+                        <div className="alert alert-info py-1 px-2 mb-0" style={{ fontSize: "0.7rem" }}>
+                          <strong>Noise Reduction</strong> suppresses background hiss and static using spectral processing. Use when hearing constant noise floor.
+                        </div>
+
+                        {/* Enable Noise Reduction */}
+                        <Flex justify="between" align="center">
+                          <label className="form-label small mb-0">Enable Noise Reduction</label>
+                          <input
+                            type="checkbox"
+                            checked={channel.enableNoiseReduction}
+                            onChange={(e) =>
+                              updateChannelWithToast({ enableNoiseReduction: e.target.checked })
+                            }
+                            style={{ width: "16px", height: "16px" }}
+                          />
+                        </Flex>
+
+                        {channel.enableNoiseReduction && (
+                          <>
+                            <Slider
+                              label="Reduction Strength"
+                              value={channel.noiseReductionDb}
+                              min={3}
+                              max={30}
+                              step={1}
+                              unit="dB"
+                              formatValue={(val) => `${val.toFixed(0)} dB`}
+                              onChange={(val) =>
+                                updateChannelWithToast({ noiseReductionDb: val })
+                              }
+                            />
+                            <small className="text-muted">
+                              Lower = subtle noise reduction. Higher = aggressive (may affect audio quality). Start at 12 dB.
                             </small>
                           </>
                         )}

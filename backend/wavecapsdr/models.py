@@ -151,6 +151,10 @@ class CreateChannelRequest(BaseModel):
     # Notch filters (interference rejection)
     notchFrequencies: Optional[list[float]] = Field(None, max_length=10)  # Max 10 notches
 
+    # Spectral noise reduction (hiss/static suppression)
+    enableNoiseReduction: Optional[bool] = None
+    noiseReductionDb: Optional[float] = Field(None, ge=3, le=30)  # 3-30 dB reduction
+
     @field_validator('name')
     @classmethod
     def sanitize_name(cls, v: Optional[str]) -> Optional[str]:
@@ -215,6 +219,10 @@ class UpdateChannelRequest(BaseModel):
     # Notch filters (interference rejection)
     notchFrequencies: Optional[list[float]] = Field(None, max_length=10)  # Max 10 notches
 
+    # Spectral noise reduction (hiss/static suppression)
+    enableNoiseReduction: Optional[bool] = None
+    noiseReductionDb: Optional[float] = Field(None, ge=3, le=30)  # 3-30 dB reduction
+
     @field_validator('name')
     @classmethod
     def sanitize_name(cls, v: Optional[str]) -> Optional[str]:
@@ -251,6 +259,10 @@ class ChannelModel(BaseModel):
     signalPowerDb: Optional[float] = None
     rssiDb: Optional[float] = None  # Server-side RSSI from IQ samples
     snrDb: Optional[float] = None  # Server-side SNR estimate
+    # Audio output level metering
+    audioRmsDb: Optional[float] = None  # Output audio RMS level in dB
+    audioPeakDb: Optional[float] = None  # Output audio peak level in dB
+    audioClippingCount: int = 0  # Number of samples near clipping
 
     # Filter configuration
     # FM filters
@@ -285,6 +297,10 @@ class ChannelModel(BaseModel):
 
     # Notch filters
     notchFrequencies: list[float] = []
+
+    # Spectral noise reduction
+    enableNoiseReduction: bool
+    noiseReductionDb: float
 
 
 class RecipeChannelModel(BaseModel):
