@@ -238,20 +238,27 @@ def update_device_name(device_id: str, request: dict, _: None = Depends(auth_che
 
 @router.get("/devices", response_model=List[DeviceModel], response_model_by_alias=False)
 def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)):
-    devices = state.captures.list_devices()
     result = []
     seen_ids = set()
 
-    for d in devices:
-        device_id = d["id"]
-        device_label = d["label"]
-        seen_ids.add(device_id)
+    # Try to enumerate devices, but don't fail if enumeration errors
+    # (e.g., "Broken pipe" when devices are busy)
+    try:
+        devices = state.captures.list_devices()
+        for d in devices:
+            device_id = d["id"]
+            device_label = d["label"]
+            seen_ids.add(device_id)
 
-        # Get nickname and shorthand name
-        nickname = get_device_nickname(device_id)
-        shorthand = get_device_shorthand(device_id, device_label)
+            # Get nickname and shorthand name
+            nickname = get_device_nickname(device_id)
+            shorthand = get_device_shorthand(device_id, device_label)
 
-        result.append(DeviceModel(**d, nickname=nickname, shorthand=shorthand))
+            result.append(DeviceModel(**d, nickname=nickname, shorthand=shorthand))
+    except Exception:
+        # Enumeration failed (devices busy, driver error, etc.)
+        # Continue to add devices from active captures below
+        pass
 
     # Also include devices from active captures that aren't in enumeration
     # (devices in use may not show up in driver enumeration)
