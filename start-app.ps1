@@ -75,6 +75,42 @@ if (-not (Test-Path $VenvPython)) {
     & $VenvPython -m pip install fastapi uvicorn httpx websockets pyyaml numpy scipy slowapi --quiet
 }
 
+# Build frontend (requires Node.js)
+$FrontendDir = Join-Path $ScriptDir "frontend"
+$StaticDir = Join-Path $BackendDir "wavecapsdr/static"
+if (Test-Path $FrontendDir) {
+    $NpmCmd = Get-Command npm -ErrorAction SilentlyContinue
+    if (-not $NpmCmd) {
+        Write-ColorOutput "Error: Node.js/npm is required to build the frontend" "Red"
+        Write-ColorOutput "Install Node.js: https://nodejs.org/" "Red"
+        exit 1
+    }
+
+    Write-ColorOutput "Building frontend..." "Yellow"
+    Set-Location $FrontendDir
+
+    # Install dependencies if node_modules doesn't exist
+    if (-not (Test-Path "node_modules")) {
+        Write-Host "Installing npm dependencies..."
+        & npm ci --silent
+    }
+
+    # Build the frontend
+    & npm run build --silent
+
+    # Copy built files to backend static directory
+    $DistDir = Join-Path $FrontendDir "dist"
+    if (Test-Path $DistDir) {
+        if (-not (Test-Path $StaticDir)) {
+            New-Item -ItemType Directory -Path $StaticDir -Force | Out-Null
+        }
+        Copy-Item -Path "$DistDir/*" -Destination $StaticDir -Recurse -Force
+        Write-ColorOutput "Frontend built successfully" "Green"
+    }
+
+    Set-Location $BackendDir
+}
+
 # Default values
 $Host_Addr = if ($env:HOST) { $env:HOST } else { "0.0.0.0" }
 $Port_Num = if ($env:PORT) { $env:PORT } else { "8087" }

@@ -60,6 +60,38 @@ if [ ! -x "$VENV_DIR/bin/python" ]; then
   "$VENV_DIR/bin/python" -m pip install fastapi uvicorn httpx websockets pyyaml numpy scipy slowapi --quiet
 fi
 
+# Build frontend (requires Node.js)
+FRONTEND_DIR="$SCRIPT_DIR/frontend"
+STATIC_DIR="$BACKEND_DIR/wavecapsdr/static"
+if [ -d "$FRONTEND_DIR" ]; then
+  if ! command -v npm &> /dev/null; then
+    echo "Error: Node.js/npm is required to build the frontend"
+    echo "Install Node.js: https://nodejs.org/ or 'brew install node' on macOS"
+    exit 1
+  fi
+
+  echo -e "${YELLOW}Building frontend...${NC}"
+  cd "$FRONTEND_DIR"
+
+  # Install dependencies if node_modules doesn't exist
+  if [ ! -d "node_modules" ]; then
+    echo "Installing npm dependencies..."
+    npm ci --silent
+  fi
+
+  # Build the frontend
+  npm run build --silent
+
+  # Copy built files to backend static directory
+  if [ -d "dist" ]; then
+    mkdir -p "$STATIC_DIR"
+    cp -r dist/* "$STATIC_DIR/"
+    echo -e "${GREEN}Frontend built successfully${NC}"
+  fi
+
+  cd "$BACKEND_DIR"
+fi
+
 # Default values
 : "${HOST:=0.0.0.0}"
 : "${PORT:=8087}"
