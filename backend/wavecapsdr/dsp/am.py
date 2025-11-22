@@ -14,7 +14,7 @@ import numpy as np
 
 from .agc import apply_agc
 from .filters import bandpass_filter, highpass_filter, lowpass_filter, notch_filter, noise_blanker
-from .fm import resample_linear
+from .fm import resample_poly
 
 
 def freq_shift(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray:
@@ -127,8 +127,8 @@ def am_demod(
             release_ms=50.0,
         )
 
-    # 6. Resample to audio output rate
-    audio = resample_linear(audio, sample_rate, audio_rate)
+    # 6. Resample to audio output rate (polyphase resampling for better performance)
+    audio = resample_poly(audio, sample_rate, audio_rate)
 
     # 7. Hard clip to prevent overflow
     np.clip(audio, -1.0, 1.0, out=audio)
@@ -225,36 +225,10 @@ def ssb_demod(
             release_ms=50.0,
         )
 
-    # 6. Resample to audio output rate
-    audio = resample_linear(audio, sample_rate, audio_rate)
+    # 6. Resample to audio output rate (polyphase resampling for better performance)
+    audio = resample_poly(audio, sample_rate, audio_rate)
 
     # 7. Hard clip to prevent overflow
     np.clip(audio, -1.0, 1.0, out=audio)
 
     return audio
-
-
-def resample_linear(x: np.ndarray, in_rate: int, out_rate: int) -> np.ndarray:
-    """Resample audio using linear interpolation.
-
-    This is a simple, fast resampler suitable for audio.
-    For higher quality, consider using scipy.signal.resample_poly.
-
-    Args:
-        x: Input signal
-        in_rate: Input sample rate in Hz
-        out_rate: Output sample rate in Hz
-
-    Returns:
-        Resampled signal
-    """
-    if x.size == 0 or in_rate == out_rate:
-        return x.astype(np.float32, copy=False)
-
-    t_in = np.arange(x.shape[0], dtype=np.float64) / float(in_rate)
-    duration = t_in[-1] if x.shape[0] > 0 else 0.0
-    n_out = max(1, int(round(duration * out_rate)))
-    t_out = np.arange(n_out, dtype=np.float64) / float(out_rate)
-    y = np.interp(t_out, t_in, x.astype(np.float64))
-
-    return y.astype(np.float32)

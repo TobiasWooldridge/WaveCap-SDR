@@ -395,7 +395,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             </div>
 
             {/* Gain Selector */}
-            <div className="col-12 col-xl-6">
+            <div className="col-12">
               <NumericSelector
                 label={isGainPending ? "Gain (updating...)" : "Gain"}
                 value={localGain}
@@ -415,7 +415,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             </div>
 
             {/* Bandwidth Selector */}
-            <div className="col-12 col-xl-6">
+            <div className="col-12">
               <NumericSelector
                 label={isBandwidthPending ? "Bandwidth (updating...)" : "Bandwidth"}
                 value={localBandwidth}
@@ -441,7 +441,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             </div>
 
             {/* Sample Rate Dropdown */}
-            <div className="col-12 col-xl-6">
+            <div className="col-12">
               <Flex direction="column" gap={2}>
                 <label className="form-label mb-0 fw-semibold">
                   <Settings size={16} className="me-1" />
@@ -473,7 +473,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             </div>
 
             {/* PPM Correction Slider */}
-            <div className="col-12 col-xl-6">
+            <div className="col-12">
               <Slider
                 label={isPpmPending ? "PPM Correction (updating...)" : "PPM Correction"}
                 value={localPpm}

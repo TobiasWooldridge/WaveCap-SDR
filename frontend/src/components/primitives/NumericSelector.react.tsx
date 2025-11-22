@@ -121,9 +121,9 @@ export default function NumericSelector({
         )}
       </Flex>
 
-      <Flex gap={3} align="center">
+      <Flex gap={2} align="center" style={{ flexWrap: "wrap" }}>
         {/* Slider on the left */}
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: "1 1 150px", minWidth: "100px" }}>
           <input
             type="range"
             className="form-range"
@@ -137,58 +137,64 @@ export default function NumericSelector({
         </div>
 
         {/* Value display and controls on the right */}
-        <Flex gap={1} align="center">
+        <Flex gap={1} align="center" style={{ flexWrap: "wrap" }}>
           {/* Editable text display */}
-          <input
-            type="text"
-            className="form-control form-control-sm text-end"
-            style={{ width: "85px", fontFamily: "monospace", fontSize: "0.875rem" }}
-            value={isEditing ? inputValue : formatValue(displayValue)}
-            onChange={(e) => setInputValue(e.target.value)}
-            onFocus={handleTextFocus}
-            onBlur={handleTextBlur}
-            onKeyDown={handleKeyDown}
-            disabled={disabled}
-          />
-          <span className="small text-muted" style={{ width: "40px" }}>{unitName}</span>
+          <Flex gap={1} align="center">
+            <input
+              type="text"
+              className="form-control form-control-sm text-end"
+              style={{ width: "85px", fontFamily: "monospace", fontSize: "0.875rem" }}
+              value={isEditing ? inputValue : formatValue(displayValue)}
+              onChange={(e) => setInputValue(e.target.value)}
+              onFocus={handleTextFocus}
+              onBlur={handleTextBlur}
+              onKeyDown={handleKeyDown}
+              disabled={disabled}
+            />
+            <span className="small text-muted" style={{ width: "40px" }}>{unitName}</span>
+          </Flex>
 
-          {/* Up/down controls for each place value */}
-          {placeValues.map((place, idx) => (
-            <Flex key={idx} align="center" gap={0}>
-              <Flex direction="column" gap={0} style={{ width: "fit-content", minWidth: "28px" }}>
-                {/* Place value label above buttons */}
-                <div className="text-center text-muted" style={{ fontSize: "8px", lineHeight: "10px", marginBottom: "1px" }}>
-                  {place.label}
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline-secondary p-0"
-                  style={{ height: "16px", lineHeight: "1", fontSize: "10px", borderRadius: "2px 2px 0 0" }}
-                  onClick={() => adjustByPlace(place.value, 1)}
-                  disabled={disabled || value >= max}
-                  title={`+${place.label} ${unitName}`}
-                >
-                  <ChevronUp size={12} style={{ marginTop: "-2px" }} />
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline-secondary p-0"
-                  style={{ height: "16px", lineHeight: "1", fontSize: "10px", borderRadius: "0 0 2px 2px", borderTop: "none" }}
-                  onClick={() => adjustByPlace(place.value, -1)}
-                  disabled={disabled || value <= min}
-                  title={`-${place.label} ${unitName}`}
-                >
-                  <ChevronDown size={12} style={{ marginTop: "-2px" }} />
-                </button>
-              </Flex>
-              {/* Decimal point separators for better visual grouping */}
-              {place.label.includes(".") && idx < placeValues.length - 1 && !placeValues[idx + 1].label.includes(".") && (
-                <span className="text-muted" style={{ fontSize: "10px", marginLeft: "2px", marginRight: "2px" }}>
-                  .
-                </span>
-              )}
+          {/* Up/down controls for each place value - kept together as a group */}
+          {placeValues.length > 0 && (
+            <Flex gap={0} align="center" style={{ flexShrink: 0 }}>
+              {placeValues.map((place, idx) => (
+                <Flex key={idx} align="center" gap={0}>
+                  <Flex direction="column" gap={0} style={{ width: "fit-content", minWidth: "28px" }}>
+                    {/* Place value label above buttons */}
+                    <div className="text-center text-muted" style={{ fontSize: "8px", lineHeight: "10px", marginBottom: "1px" }}>
+                      {place.label}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-secondary p-0"
+                      style={{ height: "16px", lineHeight: "1", fontSize: "10px", borderRadius: "2px 2px 0 0" }}
+                      onClick={() => adjustByPlace(place.value, 1)}
+                      disabled={disabled || value >= max}
+                      title={`+${place.label} ${unitName}`}
+                    >
+                      <ChevronUp size={12} style={{ marginTop: "-2px" }} />
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-secondary p-0"
+                      style={{ height: "16px", lineHeight: "1", fontSize: "10px", borderRadius: "0 0 2px 2px", borderTop: "none" }}
+                      onClick={() => adjustByPlace(place.value, -1)}
+                      disabled={disabled || value <= min}
+                      title={`-${place.label} ${unitName}`}
+                    >
+                      <ChevronDown size={12} style={{ marginTop: "-2px" }} />
+                    </button>
+                  </Flex>
+                  {/* Decimal point separators for better visual grouping */}
+                  {place.label.includes(".") && idx < placeValues.length - 1 && !placeValues[idx + 1].label.includes(".") && (
+                    <span className="text-muted" style={{ fontSize: "10px", marginLeft: "2px", marginRight: "2px" }}>
+                      .
+                    </span>
+                  )}
+                </Flex>
+              ))}
             </Flex>
-          ))}
+          )}
         </Flex>
       </Flex>
 

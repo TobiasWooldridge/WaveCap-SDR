@@ -100,7 +100,7 @@ const Slider = forwardRef<HTMLInputElement, SliderProps>(
 
     return (
       <Flex direction="column" gap={2} className={clsx("slider-container", className)}>
-        <Flex justify="between" align="center">
+        <Flex justify="between" align="center" style={{ flexWrap: "wrap", gap: "0.5rem" }}>
           <label className="form-label mb-0 fw-semibold">
             <Flex align="center" gap={1}>
               <span>{label}</span>
@@ -112,74 +112,75 @@ const Slider = forwardRef<HTMLInputElement, SliderProps>(
             </Flex>
           </label>
 
-          <Flex align="center" gap={1}>
-            {/* Coarse decrement */}
-            <Button
-              use="secondary"
-              size="sm"
-              appearance="outline"
-              onClick={() => handleIncrement(-actualCoarseStep)}
-              disabled={disabled || value <= min}
-              title={`Decrease by ${actualCoarseStep} ${unit}`}
-              className="px-1 py-0"
-            >
-              <ChevronsDown size={14} />
-            </Button>
+          <Flex align="center" gap={1} style={{ flexWrap: "wrap" }}>
+            {/* Decrement buttons - kept together */}
+            <Flex align="center" gap={1} style={{ flexShrink: 0 }}>
+              <Button
+                use="secondary"
+                size="sm"
+                appearance="outline"
+                onClick={() => handleIncrement(-actualCoarseStep)}
+                disabled={disabled || value <= min}
+                title={`Decrease by ${actualCoarseStep} ${unit}`}
+                className="px-1 py-0"
+              >
+                <ChevronsDown size={14} />
+              </Button>
+              <Button
+                use="secondary"
+                size="sm"
+                appearance="outline"
+                onClick={() => handleIncrement(-step)}
+                disabled={disabled || value <= min}
+                title={`Decrease by ${step} ${unit}`}
+                className="px-1 py-0"
+              >
+                <ChevronDown size={14} />
+              </Button>
+            </Flex>
 
-            {/* Fine decrement */}
-            <Button
-              use="secondary"
-              size="sm"
-              appearance="outline"
-              onClick={() => handleIncrement(-step)}
-              disabled={disabled || value <= min}
-              title={`Decrease by ${step} ${unit}`}
-              className="px-1 py-0"
-            >
-              <ChevronDown size={14} />
-            </Button>
+            {/* Text input with unit - kept together */}
+            <Flex align="center" gap={1} style={{ flexShrink: 0 }}>
+              <input
+                type="text"
+                className="form-control form-control-sm text-center"
+                style={{ width: "110px", fontFamily: "monospace", fontSize: "0.875rem" }}
+                value={isEditing ? inputValue : displayValue}
+                onChange={(e) => handleTextChange(e.target.value)}
+                onFocus={handleTextFocus}
+                onBlur={handleTextBlur}
+                onKeyDown={handleKeyDown}
+                disabled={disabled}
+                placeholder={displayValue}
+              />
+              <span className="small text-muted">{unit}</span>
+            </Flex>
 
-            {/* Text input */}
-            <input
-              type="text"
-              className="form-control form-control-sm text-center"
-              style={{ width: "110px", fontFamily: "monospace", fontSize: "0.875rem" }}
-              value={isEditing ? inputValue : displayValue}
-              onChange={(e) => handleTextChange(e.target.value)}
-              onFocus={handleTextFocus}
-              onBlur={handleTextBlur}
-              onKeyDown={handleKeyDown}
-              disabled={disabled}
-              placeholder={displayValue}
-            />
-
-            <span className="small text-muted">{unit}</span>
-
-            {/* Fine increment */}
-            <Button
-              use="secondary"
-              size="sm"
-              appearance="outline"
-              onClick={() => handleIncrement(step)}
-              disabled={disabled || value >= max}
-              title={`Increase by ${step} ${unit}`}
-              className="px-1 py-0"
-            >
-              <ChevronUp size={14} />
-            </Button>
-
-            {/* Coarse increment */}
-            <Button
-              use="secondary"
-              size="sm"
-              appearance="outline"
-              onClick={() => handleIncrement(actualCoarseStep)}
-              disabled={disabled || value >= max}
-              title={`Increase by ${actualCoarseStep} ${unit}`}
-              className="px-1 py-0"
-            >
-              <ChevronsUp size={14} />
-            </Button>
+            {/* Increment buttons - kept together */}
+            <Flex align="center" gap={1} style={{ flexShrink: 0 }}>
+              <Button
+                use="secondary"
+                size="sm"
+                appearance="outline"
+                onClick={() => handleIncrement(step)}
+                disabled={disabled || value >= max}
+                title={`Increase by ${step} ${unit}`}
+                className="px-1 py-0"
+              >
+                <ChevronUp size={14} />
+              </Button>
+              <Button
+                use="secondary"
+                size="sm"
+                appearance="outline"
+                onClick={() => handleIncrement(actualCoarseStep)}
+                disabled={disabled || value >= max}
+                title={`Increase by ${actualCoarseStep} ${unit}`}
+                className="px-1 py-0"
+              >
+                <ChevronsUp size={14} />
+              </Button>
+            </Flex>
           </Flex>
         </Flex>
 
