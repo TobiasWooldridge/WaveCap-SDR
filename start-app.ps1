@@ -20,18 +20,24 @@ param()
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
+# PowerShell 5.1 compatibility: $IsWindows only exists in PowerShell 6+
+# Define it for older versions so the rest of the script works uniformly
+if (-not (Test-Path variable:IsWindows)) {
+    $IsWindows = $env:OS -eq "Windows_NT"
+}
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BackendDir = Join-Path $ScriptDir "backend"
 $VenvDir = Join-Path $BackendDir ".venv"
 
 # Determine Python and Pip executables based on platform
-$VenvPython = if ($IsWindows -or $env:OS -eq "Windows_NT") {
+$VenvPython = if ($IsWindows) {
     Join-Path $VenvDir "Scripts\python.exe"
 } else {
     Join-Path $VenvDir "bin/python"
 }
 
-$VenvPip = if ($IsWindows -or $env:OS -eq "Windows_NT") {
+$VenvPip = if ($IsWindows) {
     Join-Path $VenvDir "Scripts\pip.exe"
 } else {
     Join-Path $VenvDir "bin/pip"
@@ -138,7 +144,7 @@ Write-Host ""
 # Note: This is typically only relevant on Linux/Unix systems
 $RestartScript = Join-Path $ScriptDir "restart-sdrplay.sh"
 if (Test-Path $RestartScript) {
-    if (-not ($IsWindows -or $env:OS -eq "Windows_NT")) {
+    if (-not $IsWindows) {
         try {
             & bash $RestartScript --non-interactive 2>$null
             if ($LASTEXITCODE -eq 0) {
