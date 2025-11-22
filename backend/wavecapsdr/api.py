@@ -106,6 +106,35 @@ def health_check(request: Request):
         health_status["checks"]["channels"] = {"status": "error", "error": str(e)}
         health_status["status"] = "degraded"
 
+    try:
+        # Check streaming/queue stats and cleanup zombies
+        total_subscribers = 0
+        total_zombies_cleaned = 0
+        queue_stats = []
+        for cap in state.captures.list_captures():
+            channels = state.captures.list_channels(cap.cfg.id)
+            for ch in channels:
+                # Run zombie cleanup during health check
+                zombies_cleaned = ch.cleanup_zombie_subscribers()
+                total_zombies_cleaned += zombies_cleaned
+                # Get queue stats
+                stats = ch.get_queue_stats()
+                total_subscribers += stats["total_subscribers"]
+                if stats["total_subscribers"] > 0 or stats["drops_since_last_log"] > 0:
+                    queue_stats.append({
+                        "channel_id": ch.cfg.id,
+                        **stats
+                    })
+        health_status["checks"]["streaming"] = {
+            "status": "ok",
+            "total_subscribers": total_subscribers,
+            "zombies_cleaned": total_zombies_cleaned,
+            "channel_stats": queue_stats
+        }
+    except Exception as e:
+        health_status["checks"]["streaming"] = {"status": "error", "error": str(e)}
+        health_status["status"] = "degraded"
+
     # Overall status
     if any(check.get("status") == "error" for check in health_status["checks"].values()):
         health_status["status"] = "degraded"

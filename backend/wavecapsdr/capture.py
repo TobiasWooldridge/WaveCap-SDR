@@ -196,6 +196,63 @@ class Channel:
             self._drop_count = 0
             self._last_drop_log_time = now
 
+    def cleanup_zombie_subscribers(self) -> int:
+        """Remove subscribers whose event loops are closed or unavailable.
+
+        Returns:
+            Number of zombie subscribers removed
+        """
+        zombies = []
+        for item in list(self._audio_sinks):
+            q, loop, fmt = item
+            try:
+                # Check if loop is closed or not running
+                if loop.is_closed():
+                    zombies.append(item)
+            except Exception:
+                # If we can't check the loop, it's probably dead
+                zombies.append(item)
+
+        for item in zombies:
+            fmt = item[2]
+            self._audio_sinks.discard(item)
+            logger.info(f"Channel {self.cfg.id}: Removed zombie subscriber, format={fmt}")
+
+            # Clean up encoder subscriber count
+            if fmt in ("mp3", "opus", "aac"):
+                self._encoder_subscribers[fmt] = max(0, self._encoder_subscribers.get(fmt, 1) - 1)
+                if self._encoder_subscribers[fmt] == 0 and fmt in self._encoders:
+                    logger.info(f"Channel {self.cfg.id}: Stopping {fmt} encoder (zombie cleanup)")
+                    encoder = self._encoders.pop(fmt)
+                    asyncio.create_task(encoder.stop())
+                    del self._encoder_subscribers[fmt]
+
+        return len(zombies)
+
+    def get_queue_stats(self) -> dict:
+        """Get queue statistics for monitoring and health checks.
+
+        Returns:
+            Dictionary with subscriber counts, queue depths, and format breakdown
+        """
+        format_stats: Dict[str, dict] = {}
+
+        for q, loop, fmt in list(self._audio_sinks):
+            if fmt not in format_stats:
+                format_stats[fmt] = {"subscribers": 0, "total_queue_depth": 0}
+            format_stats[fmt]["subscribers"] += 1
+            try:
+                format_stats[fmt]["total_queue_depth"] += q.qsize()
+            except Exception:
+                pass  # Queue might be in invalid state
+
+        return {
+            "total_subscribers": len(self._audio_sinks),
+            "formats": format_stats,
+            "active_encoders": list(self._encoders.keys()),
+            "drops_since_last_log": self._drop_count,
+        }
+
     def update_signal_metrics(self, iq: np.ndarray, sample_rate: int) -> None:
         """Calculate signal metrics from IQ samples (server-side, no audio needed)."""
         if self.state != "running" or iq.size == 0:
