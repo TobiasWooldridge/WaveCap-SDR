@@ -172,12 +172,29 @@ class Channel:
     # Digital voice decoders (lazily initialized)
     _p25_decoder: Optional[P25Decoder] = None
     _dmr_decoder: Optional[DMRDecoder] = None
+    # Drop tracking for rate-limited logging
+    _drop_count: int = 0
+    _last_drop_log_time: float = 0.0
 
     def start(self) -> None:
         self.state = "running"
+        self._drop_count = 0
+        self._last_drop_log_time = 0.0
 
     def stop(self) -> None:
         self.state = "stopped"
+
+    def _log_drop_warning(self, fmt: str) -> None:
+        """Rate-limited logging for queue drops (once per 10 seconds)."""
+        self._drop_count += 1
+        now = time.time()
+        if now - self._last_drop_log_time >= 10.0:
+            logger.warning(
+                f"Channel {self.cfg.id}: Audio queue full for format={fmt}, "
+                f"dropped {self._drop_count} packets in last 10s"
+            )
+            self._drop_count = 0
+            self._last_drop_log_time = now
 
     def update_signal_metrics(self, iq: np.ndarray, sample_rate: int) -> None:
         """Calculate signal metrics from IQ samples (server-side, no audio needed)."""
@@ -310,7 +327,6 @@ class Channel:
                     q.put_nowait(payload)
                 except asyncio.QueueFull:
                     # Queue full - try to drop oldest and retry
-                    logger.warning(f"Channel {self.cfg.id}: Audio queue full for format={fmt}, dropping oldest packet")
                     try:
                         _ = q.get_nowait()
                     except asyncio.QueueEmpty:
@@ -318,15 +334,18 @@ class Channel:
                     try:
                         q.put_nowait(payload)
                     except asyncio.QueueFull:
-                        logger.warning(f"Channel {self.cfg.id}: Audio queue still full for format={fmt}, dropping packet")
+                        pass  # Still full, will be counted in drop warning
+                    self._log_drop_warning(fmt)
             else:
                 # Schedule put on the queue's owning loop to avoid cross-loop errors
+                # Capture self reference for closure
+                channel_ref = self
+
                 def _try_put() -> None:
                     try:
                         q.put_nowait(payload)
                     except asyncio.QueueFull:
                         # Queue full - try to drop oldest and retry
-                        logger.warning(f"Channel {self.cfg.id}: Audio queue full (cross-loop) for format={fmt}, dropping oldest packet")
                         try:
                             _ = q.get_nowait()
                         except asyncio.QueueEmpty:
@@ -334,7 +353,8 @@ class Channel:
                         try:
                             q.put_nowait(payload)
                         except asyncio.QueueFull:
-                            logger.warning(f"Channel {self.cfg.id}: Audio queue still full (cross-loop) for format={fmt}, dropping packet")
+                            pass  # Still full
+                        channel_ref._log_drop_warning(fmt)
 
                 try:
                     loop.call_soon_threadsafe(_try_put)
