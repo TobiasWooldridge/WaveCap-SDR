@@ -1,6 +1,6 @@
 # WaveCap‑SDR — Product Specification (Authoritative)
 
-Status: Initial draft (updated for multi-channel per device)
+Status: Alpha (updated 2025-11-21)
 
 ## Overview
 WaveCap‑SDR is a standalone server that encapsulates all Software‑Defined Radio (SDR) control and signal processing for the WaveCap ecosystem. It exposes a network API for device discovery, tuning, capture, and demodulation so other services (e.g., WaveCap in `~/speaker/WaveCap`) can consume radio streams or recorded artifacts without bundling radio drivers or DSP logic.
@@ -30,59 +30,170 @@ Terminology
 - Capture: owns the physical SDR device and defines RF center and sample rate.
 - Channel: a demod chain within a capture, defined by a target RF frequency (or offset), mode, and squelch.
 
-## API Surface (draft)
+## API Surface
 Base path: `/api/v1`
 
+### Devices
 - GET `/devices`
-  - Lists available devices with id, label, capabilities (freq range, gains, sample rates).
+  - Lists available devices with id, label, capabilities (freq range, gains, sample rates), nickname, shorthand.
+- GET `/devices/{deviceId}/name`
+  - Get device nickname and shorthand.
+- PATCH `/devices/{deviceId}/name`
+  - Set custom nickname for device.
 
-Captures (own devices)
+### Recipes
+- GET `/recipes`
+  - List capture creation recipes (presets for common use cases).
+
+### Frequency Identification
+- GET `/frequency/identify?frequency_hz={hz}`
+  - Identify a frequency and return suggested name, band, description.
+
+### Captures (own devices)
 - GET `/captures`
   - List active captures.
 - POST `/captures`
-  - Body: `{ deviceId?, centerHz, sampleRate, gain?, bandwidth?, ppm?, record?: { iq?: { enabled: bool, path?: string } } }`
-  - Creates a capture; returns `{ id, deviceId, state: "created", centerHz, sampleRate }`.
-- POST `/captures/{id}/start`
-  - Starts device streaming; returns `{ id, state: "running" }`.
-- POST `/captures/{id}/stop`
-  - Stops device streaming and finalizes IQ recording.
+  - Body: `{ deviceId?, centerHz, sampleRate, gain?, bandwidth?, ppm?, antenna?, deviceSettings?, elementGains?, streamFormat?, dcOffsetAuto?, iqBalanceAuto?, createDefaultChannel?, name? }`
+  - Creates a capture; returns full capture model.
 - GET `/captures/{id}`
   - Returns capture status, config, and stats.
+- PATCH `/captures/{id}`
+  - Update capture configuration (frequency, gain, bandwidth, etc.). Hot-reconfigures running captures.
+- POST `/captures/{id}/start`
+  - Starts device streaming and auto-starts all channels.
+- POST `/captures/{id}/stop`
+  - Stops device streaming and finalizes IQ recording.
 - DELETE `/captures/{id}`
   - Tears down the capture and all channels.
-- WS `/stream/captures/{id}/iq`
-  - Streams capture IQ frames (e.g., `iq16` or `f32`).
 
-Channels (demod within a capture)
+### Channels (demod within a capture)
 - GET `/captures/{id}/channels`
   - List channels for a capture.
 - POST `/captures/{id}/channels`
-  - Body: `{ freqHz? , offsetHz?, mode: "nbfm"|"wbfm"|"am"|"ssb", squelchDb?: number, audioRate?: number, record?: { audio?: { enabled: bool, path?: string } } }`
-  - Creates a channel; `freqHz` is absolute RF; `offsetHz` is relative to `centerHz`.
+  - Body: `{ mode, offsetHz?, audioRate?, squelchDb?, name?, notchFrequencies?, ...filterParams }`
+  - Creates a channel with configurable DSP parameters.
+- GET `/channels/{chanId}`
+  - Returns channel status, config, and signal metrics (RSSI, SNR).
+- PATCH `/channels/{chanId}`
+  - Update channel configuration including all DSP parameters.
 - POST `/channels/{chanId}/start`
   - Starts demod pipeline.
 - POST `/channels/{chanId}/stop`
   - Stops demod pipeline and finalizes audio recording.
-- GET `/channels/{chanId}`
-  - Returns channel status, config, and stats.
 - DELETE `/channels/{chanId}`
   - Removes the channel.
-- WS `/stream/channels/{chanId}`
-  - Streams audio frames (e.g., `pcm16`).
 
-Health
+### Scanner (frequency scanning)
+- POST `/scanners`
+  - Create scanner: `{ captureId, scanList, mode, dwellTimeMs, priorityFrequencies, priorityIntervalS, squelchThresholdDb, lockoutFrequencies, pauseDurationMs }`
+- GET `/scanners`
+  - List all scanners.
+- GET `/scanners/{id}`
+  - Get scanner status including current frequency, hits, lockouts.
+- PATCH `/scanners/{id}`
+  - Update scanner configuration.
+- DELETE `/scanners/{id}`
+  - Delete scanner.
+- POST `/scanners/{id}/start`
+  - Start scanning.
+- POST `/scanners/{id}/stop`
+  - Stop scanning.
+- POST `/scanners/{id}/pause`
+  - Pause scanning.
+- POST `/scanners/{id}/resume`
+  - Resume from pause.
+- POST `/scanners/{id}/lock`
+  - Lock on current frequency.
+- POST `/scanners/{id}/unlock`
+  - Unlock and resume scanning.
+- POST `/scanners/{id}/lockout`
+  - Add current frequency to lockout list.
+- DELETE `/scanners/{id}/lockout/{freq}`
+  - Remove frequency from lockout.
+- DELETE `/scanners/{id}/lockouts`
+  - Clear all lockouts.
+
+### Streaming
+- WS `/stream/captures/{id}/iq`
+  - Streams capture IQ frames (binary: `iq16` or `f32`).
+- WS `/stream/captures/{id}/spectrum`
+  - Streams FFT/spectrum data (JSON) for waterfall/spectrum analyzer.
+- WS `/stream/channels/{chanId}?format={pcm16|f32}`
+  - Streams audio frames (binary).
+- GET `/stream/channels/{chanId}.pcm?format={pcm16|f32}`
+  - HTTP streaming for VLC and other players.
+- GET `/stream/channels/{chanId}.mp3`
+  - HTTP MP3 streaming.
+- GET `/stream/channels/{chanId}.opus`
+  - HTTP Opus streaming.
+- GET `/stream/channels/{chanId}.aac`
+  - HTTP AAC streaming.
+
+### Health
 - GET `/health`
-  - Liveness and readiness report; includes attached devices summary.
+  - Comprehensive health check with device, capture, and channel status.
 
 Error handling:
 - JSON errors: `{ error: { code, message, details? } }` with appropriate HTTP status.
 - Common codes: `DEVICE_BUSY`, `INVALID_CONFIG`, `NO_DEVICE`, `UNSUPPORTED_MODE`.
 
-## Data Model (high‑level)
-- Device: `{ id, driver, label, freqRange: [minHz,maxHz], sampleRates: number[], gains: string[], antenna?: string[] }`
-- Capture: `{ id, deviceId, state, centerHz, sampleRate, stats }`
-- Channel: `{ id, captureId, mode, targetHz|offsetHz, state, audioRate, squelchDb?, stats }`
-- Stats: `{ startedAt, bytesOut, framesOut, overruns, underruns, dropped, snr?, squelch? }`
+## Data Model
+
+### Device
+```
+{ id, driver, label, freqMinHz, freqMaxHz, sampleRates[], gains[], gainMin, gainMax,
+  bandwidthMin, bandwidthMax, ppmMin, ppmMax, antennas[], nickname?, shorthand? }
+```
+
+### Capture
+```
+{ id, deviceId, state, centerHz, sampleRate, gain?, bandwidth?, ppm?, antenna?,
+  deviceSettings?, elementGains?, streamFormat?, dcOffsetAuto?, iqBalanceAuto?,
+  errorMessage?, name?, autoName? }
+```
+States: `created`, `starting`, `running`, `stopping`, `stopped`, `failed`
+
+### Channel
+```
+{ id, captureId, mode, state, offsetHz, audioRate, squelchDb?, name?, autoName?,
+  signalPowerDb?, rssiDb?, snrDb?, ...dspConfig }
+```
+States: `created`, `running`, `stopped`
+
+### Channel DSP Configuration
+FM filters:
+- `enableDeemphasis`, `deemphasisTauUs` (1-200 µs)
+- `enableMpxFilter`, `mpxCutoffHz`
+- `enableFmHighpass`, `fmHighpassHz`
+- `enableFmLowpass`, `fmLowpassHz`
+
+AM/SSB filters:
+- `enableAmHighpass`, `amHighpassHz`
+- `enableAmLowpass`, `amLowpassHz`
+- `enableSsbBandpass`, `ssbBandpassLowHz`, `ssbBandpassHighHz`
+- `ssbMode` ("usb" | "lsb")
+
+AGC:
+- `enableAgc`, `agcTargetDb`, `agcAttackMs`, `agcReleaseMs`
+
+Noise reduction:
+- `enableNoiseBlanker`, `noiseBlankerThresholdDb`
+- `notchFrequencies[]` (up to 10 frequencies for interference rejection)
+
+### Scanner
+```
+{ id, captureId, state, currentFrequency, currentIndex, scanList[], mode,
+  dwellTimeMs, priorityFrequencies[], priorityIntervalS, squelchThresholdDb,
+  lockoutList[], pauseDurationMs, hits[] }
+```
+States: `stopped`, `scanning`, `paused`, `locked`
+Modes: `sequential`, `priority`, `activity`
+
+### Recipe
+```
+{ id, name, description, category, centerHz, sampleRate, gain?, bandwidth?,
+  channels[], allowFrequencyInput?, frequencyLabel? }
+```
 
 ## Deployment & Running
 WaveCap-SDR provides convenient startup scripts for all platforms:
@@ -92,7 +203,7 @@ WaveCap-SDR provides convenient startup scripts for all platforms:
 
 These scripts automatically:
 - Create and configure Python virtual environment with system SoapySDR integration
-- Install required dependencies (FastAPI, uvicorn, httpx, websockets, pyyaml, numpy, scipy)
+- Install required dependencies (FastAPI, uvicorn, httpx, websockets, pyyaml, numpy, scipy, slowapi)
 - Start the server with sensible defaults
 
 Behavior on startup:
@@ -137,20 +248,45 @@ Configuration via environment variables:
 - Enforce backpressure on streaming clients; drop oldest frames if needed and report drops.
 
 ## Milestones
-1. MVP: device list, single session start/stop, IQ streaming over WS, local recording.
-2. Add WBFM demod + audio streaming (PCM16).
-3. Add basic auth token and configuration file.
-4. Add metrics and structured logging.
-5. Add additional demod modes and fixtures for testing without hardware.
+
+### Completed
+1. ✅ **MVP**: Device enumeration, capture start/stop, IQ streaming over WebSocket.
+2. ✅ **WBFM/NBFM demod**: Audio streaming (PCM16, F32, MP3, Opus, AAC).
+3. ✅ **Configuration**: YAML config file, bearer token auth, recipe presets.
+4. ✅ **Web UI**: Spectrum analyzer, waterfall display, channel cards, creation wizard.
+5. ✅ **Multi-device**: Simultaneous operation of RTL-SDR and SDRplay devices.
+6. ✅ **DSP filters**: Deemphasis, highpass/lowpass, notch filters, AGC, noise blanker.
+7. ✅ **Scanner**: Sequential/priority/activity scan modes with lockout management.
+8. ✅ **Signal metrics**: RSSI/SNR measurement, S-meter display.
+9. ✅ **Click-to-tune**: Interactive spectrum with frequency tooltip.
+
+### In Progress
+10. **AM/SSB refinement**: Synchronous AM, improved SSB filters.
+11. **Digital modes**: P25/DMR frame decoding (voice codec pending).
+
+### Planned
+12. **Stereo FM**: 19 kHz pilot detection, L-R decoding.
+13. **RDS decoder**: Station name, radio text extraction.
+14. **CW decoder**: Morse code recognition.
 
 ## Out of Scope (for now)
 - Multi‑node clustering and remote device brokers.
 - Advanced digital decoders beyond core analog modes.
 
+## Demodulation Modes
+
+| Mode | Status | Description |
+|------|--------|-------------|
+| `wbfm` | ✅ Complete | Wideband FM (broadcast) with deemphasis, 150 kHz deviation |
+| `nbfm` | ✅ Complete | Narrowband FM (VHF/UHF comms) with 5 kHz deviation |
+| `am` | ✅ Basic | Envelope detection with configurable bandwidth and AGC |
+| `ssb` | ✅ Basic | USB/LSB with bandpass filter and AGC |
+| `raw` | ✅ Complete | Pass-through IQ samples |
+| `p25` | 🚧 Partial | Frame sync and TSBK decoding, voice codec pending |
+| `dmr` | 🚧 Partial | Frame sync and CSBK decoding, voice codec pending |
+
 ## Open Questions
-- Which driver stack(s) to support first (e.g., RTL‑SDR, SoapySDR)? RESOLVED: SoapySDR primary, targeting RTL‑SDR and SDRplay RSPdx‑r2 via their Soapy modules.
 - Preferred on‑disk container for IQ (raw vs. WAV container with metadata)?
-- Transport framing for IQ over WS (binary frames chunked by N samples vs. length‑prefixed)?
 - Channel scheduler behavior when requested targets drift outside passband (auto retune vs. error).
 
 ## Integration with WaveCap

@@ -6,14 +6,17 @@ A standalone server that encapsulates SDR device control, capture, and demodulat
 - Contribution & workflow: see `AGENTS.md` for coding principles, testing expectations, and repo conventions.
 
 ## Status
-**Alpha** — Core functionality implemented. Device enumeration, IQ streaming, WBFM demodulation, and web UI are working. Tested with RTL-SDR Blog V4 and SDRplay RSPdx-R2 via SoapySDR.
+**Alpha** — Core functionality implemented. Device enumeration, IQ streaming, FM/AM/SSB demodulation, spectrum analyzer, and web UI are working. Tested with RTL-SDR Blog V4 and SDRplay RSPdx-R2 via SoapySDR.
 
-### Recent Updates (2025-10-26)
-- Added web UI with catalog page and embedded audio players
-- Multi-format audio streaming (PCM16 and F32)
-- HTTP streaming endpoint for VLC and browser compatibility
-- FM demodulation performance optimization (14x speedup with scipy)
-- Multi-device support with simultaneous RTL-SDR and SDRplay operation
+### Recent Updates (2025-11-21)
+- **Scanner mode**: Sequential, priority, and activity-based frequency scanning with lockout management
+- **S-Meter display**: Real-time RSSI/SNR measurement with S1-S9+60dB scale
+- **Click-to-tune**: Interactive spectrum analyzer with frequency tooltip
+- **Notch filters**: Multi-frequency interference rejection (up to 10 notches per channel)
+- **DSP enhancements**: Configurable highpass/lowpass filters, noise blanker, AGC tuning
+- **Multi-format streaming**: PCM16, F32, MP3, Opus, AAC audio formats
+- **HTTP streaming**: VLC and browser-compatible audio endpoints
+- **Multi-device support**: Simultaneous RTL-SDR and SDRplay operation
 
 ## Getting Started
 
