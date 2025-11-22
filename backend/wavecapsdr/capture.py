@@ -116,41 +116,27 @@ def pack_f32(samples: np.ndarray) -> bytes:
     return x.tobytes()
 
 
-# Cache for frequency shift exponentials (10-15% speedup for repeated offsets)
-_freq_shift_cache: dict[tuple[int, float, int], np.ndarray] = {}
-_FREQ_SHIFT_CACHE_MAX = 32  # Limit cache size to prevent memory bloat
+# Cache for frequency shift exponentials using LRU cache (proper eviction)
+@functools.lru_cache(maxsize=64)
+def _get_freq_shift_exp(size: int, offset_hz: float, sample_rate: int) -> np.ndarray:
+    """Get cached complex exponential for frequency shifting.
+
+    Uses LRU cache for proper eviction semantics (vs manual dict with arbitrary removal).
+    """
+    n = np.arange(size, dtype=np.float32)
+    return np.exp(-1j * 2.0 * np.pi * (offset_hz / float(sample_rate)) * n).astype(np.complex64)
 
 
 def freq_shift(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray:
     """Frequency shift IQ samples by mixing with complex exponential.
 
-    Performance: Caches the complex exponential for repeated offset/sample_rate/size
-    combinations, providing 10-15% speedup for typical usage patterns.
+    Performance: Caches the complex exponential using LRU cache for repeated
+    offset/sample_rate/size combinations, providing 10-15% speedup.
     """
     if offset_hz == 0.0 or iq.size == 0:
         return iq
 
-    # Create cache key based on (size, offset_hz, sample_rate)
-    cache_key = (iq.shape[0], offset_hz, sample_rate)
-
-    # Check cache first
-    if cache_key in _freq_shift_cache:
-        ph = _freq_shift_cache[cache_key]
-    else:
-        # Calculate complex exponential
-        n = np.arange(iq.shape[0], dtype=np.float32)
-        ph = np.exp(-1j * 2.0 * np.pi * (offset_hz / float(sample_rate)) * n).astype(np.complex64)
-
-        # Cache it (with size limit)
-        if len(_freq_shift_cache) >= _FREQ_SHIFT_CACHE_MAX:
-            # Remove oldest entry (first key)
-            try:
-                oldest_key = next(iter(_freq_shift_cache))
-                del _freq_shift_cache[oldest_key]
-            except (StopIteration, KeyError):
-                pass
-        _freq_shift_cache[cache_key] = ph
-
+    ph = _get_freq_shift_exp(iq.shape[0], offset_hz, sample_rate)
     return (iq.astype(np.complex64, copy=False) * ph).astype(np.complex64)
 
 
@@ -308,21 +294,31 @@ class Channel:
         # Frequency shift to channel offset
         shifted_iq = freq_shift(iq, self.cfg.offset_hz, sample_rate)
 
+        # Calculate magnitudes once (reuse for RSSI and SNR)
+        magnitudes = np.abs(shifted_iq)
+
         # Calculate RSSI (power of IQ samples in dB)
-        power = np.mean(np.abs(shifted_iq) ** 2)
+        power = np.mean(magnitudes ** 2)
         self.rssi_db = float(10.0 * np.log10(power + 1e-10))
 
-        # Estimate SNR using percentile-based noise floor estimation
-        # Sort by magnitude and use lower percentile as noise estimate
-        magnitudes = np.abs(shifted_iq)
-        noise_floor = np.percentile(magnitudes, 10)  # Bottom 10% as noise
-        signal_peak = np.percentile(magnitudes, 90)  # Top 10% as signal
+        # Estimate SNR using partition-based noise floor estimation (O(n) vs O(n log n) percentile)
+        n = magnitudes.size
+        k_noise = n // 10  # 10th percentile index
+        k_signal = n - n // 10 - 1  # 90th percentile index
 
-        noise_power = noise_floor ** 2
-        signal_power = signal_peak ** 2
+        if k_noise > 0 and k_signal > k_noise:
+            # np.partition is O(n) - much faster than percentile's O(n log n)
+            partitioned = np.partition(magnitudes, [k_noise, k_signal])
+            noise_floor = partitioned[k_noise]
+            signal_peak = partitioned[k_signal]
 
-        if noise_power > 1e-10:
-            self.snr_db = float(10.0 * np.log10(signal_power / noise_power))
+            noise_power = noise_floor ** 2
+            signal_power = signal_peak ** 2
+
+            if noise_power > 1e-10:
+                self.snr_db = float(10.0 * np.log10(signal_power / noise_power))
+            else:
+                self.snr_db = None
         else:
             self.snr_db = None
 
@@ -772,6 +768,8 @@ class Capture:
     # FFT data (server-side spectrum analyzer)
     _fft_power: Optional[np.ndarray] = None  # Power spectrum in dB
     _fft_freqs: Optional[np.ndarray] = None  # Frequency bins in Hz
+    _fft_power_list: Optional[list] = None  # Cached Python list (avoids repeated .tolist())
+    _fft_freqs_list: Optional[list] = None  # Cached Python list (avoids repeated .tolist())
     _fft_counter: int = 0  # Frame counter for adaptive FFT throttling
     _fft_window_cache: Dict[int, np.ndarray] = field(default_factory=dict)  # Cached FFT windows by size
 
@@ -1053,19 +1051,21 @@ class Capture:
         magnitude = np.abs(fft_shifted)
         power_db = 20.0 * np.log10(magnitude + 1e-10)
 
-        # Store results
+        # Store results and pre-convert to Python lists (avoids repeated .tolist())
         self._fft_power = power_db
         self._fft_freqs = freqs
+        self._fft_power_list = power_db.tolist()
+        self._fft_freqs_list = freqs.tolist()
 
     async def _broadcast_fft(self) -> None:
         """Broadcast FFT data to all subscribers."""
         if not self._fft_sinks or self._fft_power is None or self._fft_freqs is None:
             return
 
-        # Create payload with FFT data
+        # Create payload with FFT data (use cached lists to avoid repeated .tolist())
         payload = {
-            "power": self._fft_power.tolist(),
-            "freqs": self._fft_freqs.tolist(),
+            "power": self._fft_power_list,
+            "freqs": self._fft_freqs_list,
             "centerHz": self.cfg.center_hz,
             "sampleRate": self.cfg.sample_rate,
         }
@@ -1264,25 +1264,26 @@ class Capture:
                 if self._fft_counter % skip_interval == 0:
                     # No copy needed - synchronous read-only operation
                     self._calculate_fft(samples, self.cfg.sample_rate)
-                    # Broadcast FFT to subscribers
-                    for (q, loop) in list(self._fft_sinks):
-                        if self._fft_power is not None and self._fft_freqs is not None:
-                            payload_fft = {
-                                "power": self._fft_power.tolist(),
-                                "freqs": self._fft_freqs.tolist(),
-                                "centerHz": self.cfg.center_hz,
-                                "sampleRate": self.cfg.sample_rate,
-                            }
-                            def _try_put_fft() -> None:
+                    # Broadcast FFT to subscribers (use cached lists to avoid repeated .tolist())
+                    if self._fft_power_list is not None and self._fft_freqs_list is not None:
+                        payload_fft = {
+                            "power": self._fft_power_list,
+                            "freqs": self._fft_freqs_list,
+                            "centerHz": self.cfg.center_hz,
+                            "sampleRate": self.cfg.sample_rate,
+                        }
+                        for (q, loop) in list(self._fft_sinks):
+                            # Use default args to capture loop variables (avoids closure issues)
+                            def _try_put_fft(q: asyncio.Queue = q, payload: dict = payload_fft) -> None:
                                 try:
-                                    q.put_nowait(payload_fft)
+                                    q.put_nowait(payload)
                                 except asyncio.QueueFull:
                                     try:
                                         _ = q.get_nowait()
                                     except asyncio.QueueEmpty:
                                         pass
                                     try:
-                                        q.put_nowait(payload_fft)
+                                        q.put_nowait(payload)
                                     except asyncio.QueueFull:
                                         pass
                             try:
