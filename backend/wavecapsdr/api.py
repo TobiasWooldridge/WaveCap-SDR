@@ -23,6 +23,10 @@ from .models import (
     UpdateScannerRequest,
     ScannerModel,
     ScanHitModel,
+    SpectrumSnapshotModel,
+    ExtendedMetricsModel,
+    MetricsHistoryModel,
+    MetricsHistoryPoint,
 )
 from .state import AppState
 from .frequency_namer import get_frequency_namer
@@ -1027,6 +1031,136 @@ def delete_channel(
 ):
     state.captures.delete_channel(chan_id)
     return JSONResponse(status_code=204, content={})
+
+
+# ==============================================================================
+# Signal monitoring endpoints (for Claude skills)
+# ==============================================================================
+
+def _rssi_to_s_units(rssi_db: Optional[float]) -> Optional[str]:
+    """Convert RSSI in dB to S-meter units (S0-S9, S9+10, etc.)."""
+    if rssi_db is None:
+        return None
+    # Standard S-meter: S9 = -73 dBm, each S-unit is 6 dB
+    # Our RSSI is relative, so we calibrate based on typical SDR levels
+    # Assumption: -100 dB RSSI ≈ S0, -40 dB RSSI ≈ S9+20
+    s_value = (rssi_db + 127) / 6.0
+    if s_value < 0:
+        return "S0"
+    elif s_value <= 9:
+        return f"S{int(s_value)}"
+    else:
+        over = (s_value - 9) * 6
+        return f"S9+{int(over)}"
+
+
+@router.get("/captures/{cid}/spectrum/snapshot", response_model=SpectrumSnapshotModel)
+def get_spectrum_snapshot(
+    cid: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Get a single FFT spectrum snapshot (no WebSocket required).
+
+    Returns the most recent FFT calculation for the capture.
+    Useful for scripts and Claude skills that need spectrum data.
+    """
+    import time
+    cap = state.captures.get_capture(cid)
+    if cap is None:
+        raise HTTPException(status_code=404, detail="Capture not found")
+
+    # Check if capture is running
+    if cap.state != "running":
+        raise HTTPException(status_code=400, detail="Capture is not running")
+
+    # Get cached FFT data
+    if cap._fft_power_list is None or cap._fft_freqs_list is None:
+        raise HTTPException(status_code=503, detail="No spectrum data available yet")
+
+    return SpectrumSnapshotModel(
+        power=cap._fft_power_list,
+        freqs=cap._fft_freqs_list,
+        centerHz=cap.cfg.center_hz,
+        sampleRate=cap.cfg.sample_rate,
+        timestamp=time.time(),
+    )
+
+
+@router.get("/channels/{chan_id}/metrics/extended", response_model=ExtendedMetricsModel)
+def get_channel_extended_metrics(
+    chan_id: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Get extended signal metrics for a channel.
+
+    Includes RSSI, SNR, signal power, S-meter reading, squelch state,
+    and stream health metrics. Useful for tuning and monitoring.
+    """
+    import time
+    ch = state.captures.get_channel(chan_id)
+    if ch is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    # Get parent capture state
+    cap = state.captures.get_capture(ch.cfg.capture_id)
+    capture_state = cap.state if cap else "unknown"
+
+    # Get queue stats for stream health
+    queue_stats = ch.get_queue_stats()
+
+    # Calculate squelch state
+    squelch_open = True
+    if ch.cfg.squelch_db is not None and ch.signal_power_db is not None:
+        squelch_open = ch.signal_power_db >= ch.cfg.squelch_db
+
+    return ExtendedMetricsModel(
+        channelId=chan_id,
+        rssiDb=ch.rssi_db,
+        snrDb=ch.snr_db,
+        signalPowerDb=ch.signal_power_db,
+        sUnits=_rssi_to_s_units(ch.rssi_db),
+        squelchOpen=squelch_open,
+        streamSubscribers=queue_stats.get("total_subscribers", 0),
+        streamDropsPerSec=queue_stats.get("drops_since_last_log", 0) / 60.0,  # Approximate
+        captureState=capture_state,
+        timestamp=time.time(),
+    )
+
+
+@router.get("/channels/{chan_id}/metrics/history", response_model=MetricsHistoryModel)
+def get_channel_metrics_history(
+    chan_id: str,
+    seconds: int = 60,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Get time-series history of signal metrics.
+
+    Note: Currently returns a single point (current values) since
+    historical tracking is not yet implemented. Future versions
+    will maintain a rolling buffer of metrics.
+    """
+    import time
+    ch = state.captures.get_channel(chan_id)
+    if ch is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    # Currently just return current values as a single point
+    # TODO: Implement rolling buffer in Channel class for true history
+    current_point = MetricsHistoryPoint(
+        timestamp=time.time(),
+        rssiDb=ch.rssi_db,
+        snrDb=ch.snr_db,
+        signalPowerDb=ch.signal_power_db,
+    )
+
+    return MetricsHistoryModel(
+        channelId=chan_id,
+        points=[current_point],
+        durationSeconds=float(seconds),
+    )
 
 
 @router.websocket("/stream/captures/{cid}/iq")

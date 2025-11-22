@@ -364,3 +364,46 @@ class ScannerModel(BaseModel):
     lockoutList: list[float]
     pauseDurationMs: int
     hits: list[ScanHitModel]
+
+
+# Signal monitoring models
+class SpectrumSnapshotModel(BaseModel):
+    """Single FFT spectrum snapshot (no WebSocket required)."""
+    power: list[float]  # Power spectrum in dB
+    freqs: list[float]  # Frequency bins in Hz
+    centerHz: float
+    sampleRate: int
+    timestamp: float
+
+
+class ExtendedMetricsModel(BaseModel):
+    """Extended signal metrics for tuning and monitoring."""
+    channelId: str
+    # Core signal metrics
+    rssiDb: Optional[float] = None  # Received signal strength (dB)
+    snrDb: Optional[float] = None  # Signal-to-noise ratio (dB)
+    signalPowerDb: Optional[float] = None  # Audio signal power (dB)
+    # Derived metrics
+    sUnits: Optional[str] = None  # S-meter reading (S0-S9, S9+10, etc.)
+    squelchOpen: bool = False  # Whether squelch is currently open
+    # Stream health
+    streamSubscribers: int = 0
+    streamDropsPerSec: float = 0.0
+    # Capture-level info
+    captureState: str = "unknown"
+    timestamp: float = 0.0
+
+
+class MetricsHistoryPoint(BaseModel):
+    """Single point in metrics history."""
+    timestamp: float
+    rssiDb: Optional[float] = None
+    snrDb: Optional[float] = None
+    signalPowerDb: Optional[float] = None
+
+
+class MetricsHistoryModel(BaseModel):
+    """Time-series of signal metrics."""
+    channelId: str
+    points: list[MetricsHistoryPoint]
+    durationSeconds: float
