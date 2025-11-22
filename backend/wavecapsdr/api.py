@@ -236,15 +236,60 @@ def update_device_name(device_id: str, request: dict, _: None = Depends(auth_che
 def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)):
     devices = state.captures.list_devices()
     result = []
+    seen_ids = set()
+
     for d in devices:
         device_id = d["id"]
         device_label = d["label"]
+        seen_ids.add(device_id)
 
         # Get nickname and shorthand name
         nickname = get_device_nickname(device_id)
         shorthand = get_device_shorthand(device_id, device_label)
 
         result.append(DeviceModel(**d, nickname=nickname, shorthand=shorthand))
+
+    # Also include devices from active captures that aren't in enumeration
+    # (devices in use may not show up in driver enumeration)
+    for cap in state.captures.list_captures():
+        device_id = cap.cfg.device_id
+        if device_id not in seen_ids and cap.device is not None:
+            seen_ids.add(device_id)
+            # Extract driver and label from device_id string
+            driver = "unknown"
+            label = device_id
+            for part in device_id.split(","):
+                if part.startswith("driver="):
+                    driver = part.split("=", 1)[1]
+                elif part.startswith("label="):
+                    label = part.split("=", 1)[1]
+
+            # Try to get device info from the open device
+            device_info = cap.device.info if cap.device else None
+            nickname = get_device_nickname(device_id)
+            shorthand = get_device_shorthand(device_id, label)
+
+            # Create a minimal DeviceModel for the in-use device
+            in_use_device = DeviceModel(
+                id=device_id,
+                driver=driver,
+                label=label,
+                freqMinHz=device_info.freq_min_hz if device_info else 0,
+                freqMaxHz=device_info.freq_max_hz if device_info else 6e9,
+                sampleRates=device_info.sample_rates if device_info else [],
+                gains=device_info.gains if device_info else [],
+                gainMin=device_info.gain_min if device_info else 0,
+                gainMax=device_info.gain_max if device_info else 50,
+                bandwidthMin=device_info.bandwidth_min if device_info else 0,
+                bandwidthMax=device_info.bandwidth_max if device_info else 10e6,
+                ppmMin=-100,
+                ppmMax=100,
+                antennas=device_info.antennas if device_info else [],
+                nickname=nickname,
+                shorthand=shorthand,
+            )
+            result.append(in_use_device)
+
     return result
 
 
