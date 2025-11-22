@@ -10,6 +10,7 @@ limits:
   max_channels_per_capture: 8
 device:
   driver: soapy
+  device_args: driver=rtlsdr
 antennas:
   sdrplay_240309F070:
     fm_broadcast: Ant B
@@ -17,7 +18,7 @@ antennas:
     uhf_amateur: Ant A
 presets:
   kexp:
-    center_hz: 90300000
+    center_hz: 90304573
     sample_rate: 250000
     offsets:
     - 0.0

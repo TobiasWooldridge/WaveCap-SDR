@@ -40,10 +40,24 @@ cd "$BACKEND_DIR"
 # Set up virtual environment if needed
 if [ ! -x "$VENV_DIR/bin/python" ]; then
   echo -e "${YELLOW}Setting up Python virtual environment...${NC}"
-  python3 -m venv --system-site-packages "$VENV_DIR"
+
+  # On macOS, prefer Homebrew's Python for SoapySDR compatibility
+  PYTHON_CMD="python3"
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    # Try Homebrew Python versions (newest first)
+    for py in /opt/homebrew/bin/python3.14 /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3.12 /opt/homebrew/bin/python3; do
+      if [ -x "$py" ]; then
+        PYTHON_CMD="$py"
+        echo "Using Homebrew Python: $PYTHON_CMD"
+        break
+      fi
+    done
+  fi
+
+  "$PYTHON_CMD" -m venv --system-site-packages "$VENV_DIR"
   "$VENV_DIR/bin/python" -m pip install --upgrade pip --quiet
   echo -e "${GREEN}Installing dependencies...${NC}"
-  "$VENV_DIR/bin/python" -m pip install fastapi uvicorn httpx websockets pyyaml numpy scipy --quiet
+  "$VENV_DIR/bin/python" -m pip install fastapi uvicorn httpx websockets pyyaml numpy scipy slowapi --quiet
 fi
 
 # Default values

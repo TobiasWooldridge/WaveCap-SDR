@@ -72,7 +72,7 @@ if (-not (Test-Path $VenvPython)) {
     & $PythonCmd.Source -m venv --system-site-packages $VenvDir
     & $VenvPython -m pip install --upgrade pip --quiet
     Write-ColorOutput "Installing dependencies..." "Green"
-    & $VenvPython -m pip install fastapi uvicorn httpx websockets pyyaml numpy scipy --quiet
+    & $VenvPython -m pip install fastapi uvicorn httpx websockets pyyaml numpy scipy slowapi --quiet
 }
 
 # Default values

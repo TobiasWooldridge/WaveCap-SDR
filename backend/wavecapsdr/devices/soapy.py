@@ -17,6 +17,86 @@ from .base import Device, DeviceDriver, DeviceInfo, StreamHandle
 F = TypeVar('F', bound=Callable[..., Any])
 
 
+def _enumerate_worker(driver_name: str, queue: multiprocessing.Queue) -> None:
+    """Worker function to enumerate SoapySDR devices in subprocess.
+
+    This is a module-level function so it can be pickled for multiprocessing.
+    """
+    try:
+        import SoapySDR  # type: ignore
+        # Unload and reload modules to reset any stuck state
+        try:
+            SoapySDR.Device.unmake()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        # Only enumerate for this specific driver
+        results = []
+        for args in SoapySDR.Device.enumerate(f"driver={driver_name}"):  # type: ignore[attr-defined]
+            driver = str(args["driver"]) if "driver" in args else "unknown"
+            label = str(args["label"]) if "label" in args else "SDR"
+            # Build a canonical args string
+            try:
+                items = []
+                for k in sorted(args.keys()):
+                    v = args[k] if k in args else None
+                    if v is None:
+                        continue
+                    items.append(f"{k}={v}")
+                id_ = ",".join(items) if items else driver
+            except Exception:
+                id_ = driver
+
+            freq_min = float(args["rfmin"]) if "rfmin" in args else 1e4
+            freq_max = float(args["rfmax"]) if "rfmax" in args else 6e9
+            gains = ("LNA", "VGA")
+
+            # Set device-specific limits based on driver
+            if driver == "rtlsdr":
+                # RTL-SDR common sample rates
+                sample_rates = (250_000, 1_000_000, 1_024_000, 1_800_000, 1_920_000, 2_000_000, 2_048_000, 2_400_000, 2_560_000)
+                gain_min, gain_max = 0.0, 49.6
+                bandwidth_min, bandwidth_max = 200_000.0, 3_200_000.0
+                antennas = ("RX",)
+            elif driver == "sdrplay":
+                # SDRplay supports a wide range of sample rates from 200 kHz to 10 MHz
+                sample_rates = (
+                    200_000, 250_000, 500_000, 1_000_000, 2_000_000,
+                    3_000_000, 4_000_000, 5_000_000, 6_000_000,
+                    7_000_000, 8_000_000, 9_000_000, 10_000_000
+                )
+                gain_min, gain_max = 0.0, 59.0
+                bandwidth_min, bandwidth_max = 200_000.0, 8_000_000.0
+                antennas = ("Antenna A", "Antenna B", "Antenna C")
+            else:
+                # Default for unknown devices
+                sample_rates = (250_000, 1_000_000, 2_000_000, 2_400_000)
+                gain_min, gain_max = None, None
+                bandwidth_min, bandwidth_max = None, None
+                antennas = ()
+
+            ppm_min, ppm_max = -100.0, 100.0
+
+            results.append({
+                "id": id_,
+                "driver": driver,
+                "label": label,
+                "freq_min_hz": freq_min,
+                "freq_max_hz": freq_max,
+                "sample_rates": sample_rates,
+                "gains": gains,
+                "gain_min": gain_min,
+                "gain_max": gain_max,
+                "bandwidth_min": bandwidth_min,
+                "bandwidth_max": bandwidth_max,
+                "ppm_min": ppm_min,
+                "ppm_max": ppm_max,
+                "antennas": antennas,
+            })
+        queue.put(("success", results))
+    except Exception as e:
+        queue.put(("error", str(e)))
+
+
 class TimeoutError(Exception):
     """Raised when an operation times out."""
     pass
@@ -548,85 +628,10 @@ class SoapyDriver(DeviceDriver):
 
     def _enumerate_driver(self, driver_name: str, timeout: float = 5.0) -> list[DeviceInfo]:
         """Enumerate devices for a specific driver with timeout protection."""
-        def enumerate_worker(driver_name: str, queue: multiprocessing.Queue) -> None:
-            """Worker function to enumerate in subprocess."""
-            try:
-                import SoapySDR  # type: ignore
-                # Unload and reload modules to reset any stuck state
-                try:
-                    SoapySDR.Device.unmake()  # type: ignore[attr-defined]
-                except Exception:
-                    pass
-                # Only enumerate for this specific driver
-                results = []
-                for args in SoapySDR.Device.enumerate(f"driver={driver_name}"):  # type: ignore[attr-defined]
-                    driver = str(args["driver"]) if "driver" in args else "unknown"
-                    label = str(args["label"]) if "label" in args else "SDR"
-                    # Build a canonical args string
-                    try:
-                        items = []
-                        for k in sorted(args.keys()):
-                            v = args[k] if k in args else None
-                            if v is None:
-                                continue
-                            items.append(f"{k}={v}")
-                        id_ = ",".join(items) if items else driver
-                    except Exception:
-                        id_ = driver
-
-                    freq_min = float(args["rfmin"]) if "rfmin" in args else 1e4
-                    freq_max = float(args["rfmax"]) if "rfmax" in args else 6e9
-                    gains = ("LNA", "VGA")
-
-                    # Set device-specific limits based on driver
-                    if driver == "rtlsdr":
-                        # RTL-SDR common sample rates
-                        sample_rates = (250_000, 1_000_000, 1_024_000, 1_800_000, 1_920_000, 2_000_000, 2_048_000, 2_400_000, 2_560_000)
-                        gain_min, gain_max = 0.0, 49.6
-                        bandwidth_min, bandwidth_max = 200_000.0, 3_200_000.0
-                        antennas = ("RX",)
-                    elif driver == "sdrplay":
-                        # SDRplay supports a wide range of sample rates from 200 kHz to 10 MHz
-                        sample_rates = (
-                            200_000, 250_000, 500_000, 1_000_000, 2_000_000,
-                            3_000_000, 4_000_000, 5_000_000, 6_000_000,
-                            7_000_000, 8_000_000, 9_000_000, 10_000_000
-                        )
-                        gain_min, gain_max = 0.0, 59.0
-                        bandwidth_min, bandwidth_max = 200_000.0, 8_000_000.0
-                        antennas = ("Antenna A", "Antenna B", "Antenna C")
-                    else:
-                        # Default for unknown devices
-                        sample_rates = (250_000, 1_000_000, 2_000_000, 2_400_000)
-                        gain_min, gain_max = None, None
-                        bandwidth_min, bandwidth_max = None, None
-                        antennas = ()
-
-                    ppm_min, ppm_max = -100.0, 100.0
-
-                    results.append({
-                        "id": id_,
-                        "driver": driver,
-                        "label": label,
-                        "freq_min_hz": freq_min,
-                        "freq_max_hz": freq_max,
-                        "sample_rates": sample_rates,
-                        "gains": gains,
-                        "gain_min": gain_min,
-                        "gain_max": gain_max,
-                        "bandwidth_min": bandwidth_min,
-                        "bandwidth_max": bandwidth_max,
-                        "ppm_min": ppm_min,
-                        "ppm_max": ppm_max,
-                        "antennas": antennas,
-                    })
-                queue.put(("success", results))
-            except Exception as e:
-                queue.put(("error", str(e)))
-
         # Use multiprocessing to isolate and timeout the enumeration
+        # Note: _enumerate_worker is a module-level function so it can be pickled
         queue: multiprocessing.Queue = multiprocessing.Queue()
-        process = multiprocessing.Process(target=enumerate_worker, args=(driver_name, queue))
+        process = multiprocessing.Process(target=_enumerate_worker, args=(driver_name, queue))
         process.start()
         process.join(timeout=timeout)
 

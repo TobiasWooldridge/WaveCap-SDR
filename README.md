@@ -18,22 +18,37 @@ A standalone server that encapsulates SDR device control, capture, and demodulat
 ## Getting Started
 
 ### Prerequisites
-- Python 3.9+ (tested with 3.13)
+- Python 3.9+ (tested with 3.13, 3.14)
 - SoapySDR with device modules installed (system-level)
   - For RTL-SDR: `SoapyRTLSDR` module
   - For SDRplay: `SoapySDRPlay3` module and SDRplay API
 - System packages: `python3-soapysdr` or equivalent
+- Node.js 20+ (optional, for rebuilding the frontend)
 
 ### Quick Start
 
-1. **Install system dependencies** (Ubuntu/Debian):
-```bash
-sudo apt-get install python3-soapysdr soapysdr-tools
-# For RTL-SDR:
-sudo apt-get install soapysdr-module-rtlsdr
-# For SDRplay (requires separate download from SDRplay.com):
-# Install SDRplay API .deb, then soapysdr-module-sdrplay3
-```
+1. **Install system dependencies**:
+
+   **Ubuntu/Debian:**
+   ```bash
+   sudo apt-get install python3-soapysdr soapysdr-tools
+   # For RTL-SDR:
+   sudo apt-get install soapysdr-module-rtlsdr
+   # For SDRplay (requires separate download from SDRplay.com):
+   # Install SDRplay API .deb, then soapysdr-module-sdrplay3
+   ```
+
+   **macOS (Homebrew):**
+   ```bash
+   brew install soapysdr node
+   # For RTL-SDR:
+   brew install librtlsdr soapyrtlsdr
+   # For SDRplay: Install SDRplay API from SDRplay.com, then:
+   # brew install soapysdrplay3
+   ```
+
+   > **Note:** Homebrew's SoapySDR includes Python bindings for its bundled Python version.
+   > The startup script will use Homebrew's Python automatically if available.
 
 2. **Set up Python environment**:
 ```bash
@@ -41,7 +56,7 @@ cd backend
 python3 -m venv --system-site-packages .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install fastapi uvicorn httpx websockets pyyaml numpy scipy
+pip install fastapi uvicorn httpx websockets pyyaml numpy scipy slowapi
 ```
 
 3. **Verify device detection**:
@@ -105,13 +120,23 @@ If you prefer to run the server manually:
 
 ```bash
 cd backend
-PYTHONPATH=. .venv/bin/python -m wavecapsdr \
-  --host 0.0.0.0 \
-  --port 8087 \
-  --driver soapy
+source .venv/bin/activate
+PYTHONPATH=. python -m wavecapsdr --bind 0.0.0.0 --port 8087
 ```
 
 Then visit `http://localhost:8087/` for the web UI catalog page, or use the API directly (see `SPEC.md`).
+
+### Building the Frontend (Development)
+
+The frontend is pre-built in `backend/wavecapsdr/static/`. To rebuild after making changes:
+
+```bash
+cd frontend
+npm ci
+npm run build
+# Copy built files to backend
+cp -r dist/* ../backend/wavecapsdr/static/
+```
 
 ## Relation to WaveCap
 - WaveCap (control/UI) lives in `~/speaker/WaveCap` (also symlinked as `~/speaker/smart-speaker`). WaveCap‑SDR provides the radio server component. Together they form one product; this repo intentionally contains no frontend.
@@ -121,13 +146,16 @@ Then visit `http://localhost:8087/` for the web UI catalog page, or use the API 
   - `wavecapsdr/` — main package
     - `devices/` — SDR driver abstractions (soapy, rtl, fake)
     - `dsp/` — signal processing (FM demodulation)
-    - `static/` — web UI files (catalog and player)
+    - `static/` — web UI files (built from frontend/)
     - `api.py` — FastAPI REST/WebSocket endpoints
     - `app.py` — FastAPI application and static file serving
     - `capture.py` — capture and channel management
     - `harness.py` — test harness
   - `tests/` — pytest test suite
   - `config/` — configuration files and presets
+- `frontend/` — React/TypeScript web UI
+  - `src/` — source code (components, hooks, types)
+  - `dist/` — build output (copied to backend/wavecapsdr/static/)
 - `docs/` — documentation
   - `configuration.md` — runtime options (planned)
   - `troubleshooting.md` — common issues and solutions
