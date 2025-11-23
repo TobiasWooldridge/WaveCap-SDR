@@ -9,7 +9,7 @@ Supports multiple scan modes:
 import asyncio
 import time
 from enum import Enum
-from typing import Optional
+from typing import Awaitable, Callable, Optional, Union
 from dataclasses import dataclass, field
 
 
@@ -72,19 +72,20 @@ class ScannerService:
             hits=[],
             lockout_list=list(config.lockout_frequencies),
         )
-        self._task: Optional[asyncio.Task] = None
-        self._update_callback: Optional[callable] = None
-        self._rssi_callback: Optional[callable] = None  # Get current RSSI
+        self._task: Optional[asyncio.Task[None]] = None
+        # Update callback can be sync or async
+        self._update_callback: Optional[Callable[[float], Union[None, Awaitable[None]]]] = None
+        self._rssi_callback: Optional[Callable[[], float]] = None  # Get current RSSI
 
-    def set_update_callback(self, callback: callable):
+    def set_update_callback(self, callback: Callable[[float], Union[None, Awaitable[None]]]) -> None:
         """Set callback for frequency updates: callback(frequency_hz)."""
         self._update_callback = callback
 
-    def set_rssi_callback(self, callback: callable):
+    def set_rssi_callback(self, callback: Callable[[], float]) -> None:
         """Set callback to get current RSSI: rssi = callback()."""
         self._rssi_callback = callback
 
-    def start(self):
+    def start(self) -> None:
         """Start scanning."""
         if self._task is not None:
             return
@@ -92,7 +93,7 @@ class ScannerService:
         self.status.state = ScanState.SCANNING
         self._task = asyncio.create_task(self._scan_loop())
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop scanning."""
         if self._task is None:
             return
@@ -101,35 +102,35 @@ class ScannerService:
         self._task = None
         self.status.state = ScanState.STOPPED
 
-    def pause(self):
+    def pause(self) -> None:
         """Pause scanning (manual pause)."""
         self.status.state = ScanState.PAUSED
 
-    def resume(self):
+    def resume(self) -> None:
         """Resume scanning from pause."""
         if self.status.state == ScanState.PAUSED:
             self.status.state = ScanState.SCANNING
 
-    def lock(self):
+    def lock(self) -> None:
         """Lock on current frequency (stop scanning)."""
         self.status.state = ScanState.LOCKED
 
-    def unlock(self):
+    def unlock(self) -> None:
         """Unlock and resume scanning."""
         if self.status.state == ScanState.LOCKED:
             self.status.state = ScanState.SCANNING
 
-    def lockout_current(self):
+    def lockout_current(self) -> None:
         """Add current frequency to lockout list."""
         if self.status.current_frequency not in self.status.lockout_list:
             self.status.lockout_list.append(self.status.current_frequency)
 
-    def clear_lockout(self, frequency: float):
+    def clear_lockout(self, frequency: float) -> None:
         """Remove frequency from lockout list."""
         if frequency in self.status.lockout_list:
             self.status.lockout_list.remove(frequency)
 
-    def clear_all_lockouts(self):
+    def clear_all_lockouts(self) -> None:
         """Clear all lockouts."""
         self.status.lockout_list.clear()
 
@@ -178,7 +179,7 @@ class ScannerService:
             return False
         return rssi > self.config.squelch_threshold_db
 
-    async def _scan_loop(self):
+    async def _scan_loop(self) -> None:
         """Main scan loop."""
         try:
             while True:
@@ -208,7 +209,9 @@ class ScannerService:
 
                         # Tune to priority frequency
                         if self._update_callback:
-                            await self._update_callback(priority_freq)
+                            result = self._update_callback(priority_freq)
+                            if asyncio.iscoroutine(result):
+                                await result
                         self.status.current_frequency = priority_freq
 
                         # Dwell on priority frequency
@@ -227,7 +230,9 @@ class ScannerService:
 
                 # Update frequency
                 if self._update_callback:
-                    await self._update_callback(next_freq)
+                    result = self._update_callback(next_freq)
+                    if asyncio.iscoroutine(result):
+                        await result
 
                 self.status.current_frequency = next_freq
                 self.status.current_index = next_idx

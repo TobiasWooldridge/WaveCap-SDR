@@ -88,6 +88,31 @@ export interface Channel {
   // Spectral noise reduction
   enableNoiseReduction: boolean;
   noiseReductionDb: number;
+
+  // RDS data (WBFM only)
+  rdsData?: RDSData | null;
+}
+
+// RDS (Radio Data System) data for FM broadcast
+export interface RDSData {
+  piCode: string | null;  // Program Identification (hex string like "A1B2")
+  psName: string | null;  // Program Service name (8 chars, station name)
+  radioText: string | null;  // Radio Text (up to 64 chars)
+  pty: number;  // Program Type code
+  ptyName: string;  // Program Type name (e.g., "Rock", "News")
+  ta: boolean;  // Traffic Announcement flag
+  tp: boolean;  // Traffic Program flag
+  ms: boolean;  // Music/Speech switch (true = Music)
+}
+
+// POCSAG pager message
+export interface POCSAGMessage {
+  address: number;  // 21-bit capcode
+  function: number;  // Function code (0-3)
+  messageType: "numeric" | "alpha" | "alert_only" | "alpha_2";
+  message: string;  // Decoded message content
+  timestamp: number;  // Unix timestamp
+  baudRate: number;  // 512, 1200, or 2400
 }
 
 export interface UpdateCaptureRequest {
@@ -182,6 +207,9 @@ export interface RecipeChannel {
   name: string;
   mode: string;
   squelchDb: number;
+  // POCSAG decoding settings (NBFM only)
+  enablePocsag?: boolean;
+  pocsagBaud?: number;
 }
 
 export interface Recipe {

@@ -30,11 +30,11 @@ class AudioEncoder(ABC):
 
     def __init__(self, config: EncoderConfig):
         self.config = config
-        self.process: Optional[subprocess.Popen] = None
+        self.process: Optional[subprocess.Popen[bytes]] = None
         self.running = False
         self._input_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=32)
         self._output_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=32)
-        self._encoder_task: Optional[asyncio.Task] = None
+        self._encoder_task: Optional[asyncio.Task[None]] = None
 
     async def start(self) -> None:
         """Start the encoder process."""

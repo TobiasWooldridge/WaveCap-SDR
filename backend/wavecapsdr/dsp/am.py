@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .agc import apply_agc
+from .agc import apply_agc, soft_clip
 from .filters import bandpass_filter, highpass_filter, lowpass_filter, notch_filter, noise_blanker
 from .fm import resample_poly
 
@@ -119,6 +119,7 @@ def am_demod(
     # 5. Automatic Gain Control
     # AM signals vary greatly in strength, AGC is very important
     if enable_agc:
+        # AGC includes soft clipping internally
         audio = apply_agc(
             audio,
             sample_rate,
@@ -130,8 +131,9 @@ def am_demod(
     # 6. Resample to audio output rate (polyphase resampling for better performance)
     audio = resample_poly(audio, sample_rate, audio_rate)
 
-    # 7. Hard clip to prevent overflow
-    np.clip(audio, -1.0, 1.0, out=audio)
+    # 7. Soft clip to prevent overflow (only if AGC didn't already clip)
+    if not enable_agc:
+        audio = soft_clip(audio)
 
     return audio
 
@@ -217,6 +219,7 @@ def ssb_demod(
     # 5. Automatic Gain Control
     # SSB signals vary greatly in strength, AGC is CRITICAL
     if enable_agc:
+        # AGC includes soft clipping internally
         audio = apply_agc(
             audio,
             sample_rate,
@@ -228,7 +231,8 @@ def ssb_demod(
     # 6. Resample to audio output rate (polyphase resampling for better performance)
     audio = resample_poly(audio, sample_rate, audio_rate)
 
-    # 7. Hard clip to prevent overflow
-    np.clip(audio, -1.0, 1.0, out=audio)
+    # 7. Soft clip to prevent overflow (only if AGC didn't already clip)
+    if not enable_agc:
+        audio = soft_clip(audio)
 
     return audio

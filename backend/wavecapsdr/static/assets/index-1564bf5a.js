@@ -10498,6 +10498,15 @@ const Info = createLucideIcon("Info", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const MessageSquare = createLucideIcon("MessageSquare", [
+  ["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", key: "1lielz" }]
+]);
+/**
+ * @license lucide-react v0.294.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const Minus = createLucideIcon("Minus", [["path", { d: "M5 12h14", key: "1ays0h" }]]);
 /**
  * @license lucide-react v0.294.0 - ISC
@@ -11219,6 +11228,22 @@ function formatSampleRate(hz) {
   }
   return `${hz} Hz`;
 }
+function getDeviceNameFromId(deviceId) {
+  const driverMatch = deviceId.match(/driver=([^,]+)/);
+  const labelMatch = deviceId.match(/label=([^,]+)/);
+  if (labelMatch) {
+    return labelMatch[1];
+  }
+  if (driverMatch) {
+    const driver = driverMatch[1];
+    if (driver === "sdrplay")
+      return "SDRplay";
+    if (driver === "rtlsdr")
+      return "RTL-SDR";
+    return driver.charAt(0).toUpperCase() + driver.slice(1);
+  }
+  return deviceId.substring(0, 30) + "...";
+}
 function getDeviceDisplayName(device) {
   if (device.nickname) {
     return device.nickname;
@@ -11360,80 +11385,86 @@ const Slider = reactExports.forwardRef(
       }
     };
     return /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, className: clsx("slider-container", className), children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { justify: "between", align: "center", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { justify: "between", align: "center", style: { flexWrap: "wrap", gap: "0.5rem" }, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-label mb-0 fw-semibold", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: label }),
           info && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { title: info, style: { cursor: "help", display: "flex", alignItems: "center" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Info, { size: 14, className: "text-muted" }) })
         ] }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            Button,
-            {
-              use: "secondary",
-              size: "sm",
-              appearance: "outline",
-              onClick: () => handleIncrement(-actualCoarseStep),
-              disabled: disabled || value <= min,
-              title: `Decrease by ${actualCoarseStep} ${unit}`,
-              className: "px-1 py-0",
-              children: /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronsDown, { size: 14 })
-            }
-          ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            Button,
-            {
-              use: "secondary",
-              size: "sm",
-              appearance: "outline",
-              onClick: () => handleIncrement(-step),
-              disabled: disabled || value <= min,
-              title: `Decrease by ${step} ${unit}`,
-              className: "px-1 py-0",
-              children: /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { size: 14 })
-            }
-          ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "input",
-            {
-              type: "text",
-              className: "form-control form-control-sm text-center",
-              style: { width: "110px", fontFamily: "monospace", fontSize: "0.875rem" },
-              value: isEditing ? inputValue : displayValue,
-              onChange: (e) => handleTextChange(e.target.value),
-              onFocus: handleTextFocus,
-              onBlur: handleTextBlur,
-              onKeyDown: handleKeyDown,
-              disabled,
-              placeholder: displayValue
-            }
-          ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "small text-muted", children: unit }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            Button,
-            {
-              use: "secondary",
-              size: "sm",
-              appearance: "outline",
-              onClick: () => handleIncrement(step),
-              disabled: disabled || value >= max,
-              title: `Increase by ${step} ${unit}`,
-              className: "px-1 py-0",
-              children: /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronUp, { size: 14 })
-            }
-          ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            Button,
-            {
-              use: "secondary",
-              size: "sm",
-              appearance: "outline",
-              onClick: () => handleIncrement(actualCoarseStep),
-              disabled: disabled || value >= max,
-              title: `Increase by ${actualCoarseStep} ${unit}`,
-              className: "px-1 py-0",
-              children: /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronsUp, { size: 14 })
-            }
-          )
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, style: { flexWrap: "wrap" }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, style: { flexShrink: 0 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              Button,
+              {
+                use: "secondary",
+                size: "sm",
+                appearance: "outline",
+                onClick: () => handleIncrement(-actualCoarseStep),
+                disabled: disabled || value <= min,
+                title: `Decrease by ${actualCoarseStep} ${unit}`,
+                className: "px-1 py-0",
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronsDown, { size: 14 })
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              Button,
+              {
+                use: "secondary",
+                size: "sm",
+                appearance: "outline",
+                onClick: () => handleIncrement(-step),
+                disabled: disabled || value <= min,
+                title: `Decrease by ${step} ${unit}`,
+                className: "px-1 py-0",
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { size: 14 })
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, style: { flexShrink: 0 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "input",
+              {
+                type: "text",
+                className: "form-control form-control-sm text-center",
+                style: { width: "110px", fontFamily: "monospace", fontSize: "0.875rem" },
+                value: isEditing ? inputValue : displayValue,
+                onChange: (e) => handleTextChange(e.target.value),
+                onFocus: handleTextFocus,
+                onBlur: handleTextBlur,
+                onKeyDown: handleKeyDown,
+                disabled,
+                placeholder: displayValue
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "small text-muted", children: unit })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, style: { flexShrink: 0 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              Button,
+              {
+                use: "secondary",
+                size: "sm",
+                appearance: "outline",
+                onClick: () => handleIncrement(step),
+                disabled: disabled || value >= max,
+                title: `Increase by ${step} ${unit}`,
+                className: "px-1 py-0",
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronUp, { size: 14 })
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              Button,
+              {
+                use: "secondary",
+                size: "sm",
+                appearance: "outline",
+                onClick: () => handleIncrement(actualCoarseStep),
+                disabled: disabled || value >= max,
+                title: `Increase by ${actualCoarseStep} ${unit}`,
+                className: "px-1 py-0",
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronsUp, { size: 14 })
+              }
+            )
+          ] })
         ] })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -11539,8 +11570,8 @@ function NumericSelector({
         }
       )
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { gap: 3, align: "center", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { gap: 2, align: "center", style: { flexWrap: "wrap" }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: "1 1 150px", minWidth: "100px" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
         "input",
         {
           type: "range",
@@ -11553,23 +11584,25 @@ function NumericSelector({
           onChange: handleSliderChange
         }
       ) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { gap: 1, align: "center", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "input",
-          {
-            type: "text",
-            className: "form-control form-control-sm text-end",
-            style: { width: "85px", fontFamily: "monospace", fontSize: "0.875rem" },
-            value: isEditing ? inputValue : formatValue(displayValue),
-            onChange: (e) => setInputValue(e.target.value),
-            onFocus: handleTextFocus,
-            onBlur: handleTextBlur,
-            onKeyDown: handleKeyDown,
-            disabled
-          }
-        ),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "small text-muted", style: { width: "40px" }, children: unitName }),
-        placeValues.map((place, idx) => /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 0, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { gap: 1, align: "center", style: { flexWrap: "wrap" }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { gap: 1, align: "center", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "input",
+            {
+              type: "text",
+              className: "form-control form-control-sm text-end",
+              style: { width: "85px", fontFamily: "monospace", fontSize: "0.875rem" },
+              value: isEditing ? inputValue : formatValue(displayValue),
+              onChange: (e) => setInputValue(e.target.value),
+              onFocus: handleTextFocus,
+              onBlur: handleTextBlur,
+              onKeyDown: handleKeyDown,
+              disabled
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "small text-muted", style: { width: "40px" }, children: unitName })
+        ] }),
+        placeValues.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(Flex, { gap: 0, align: "center", style: { flexShrink: 0 }, children: placeValues.map((place, idx) => /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 0, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 0, style: { width: "fit-content", minWidth: "28px" }, children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center text-muted", style: { fontSize: "8px", lineHeight: "10px", marginBottom: "1px" }, children: place.label }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -11598,7 +11631,7 @@ function NumericSelector({
             )
           ] }),
           place.label.includes(".") && idx < placeValues.length - 1 && !placeValues[idx + 1].label.includes(".") && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted", style: { fontSize: "10px", marginLeft: "2px", marginRight: "2px" }, children: "." })
-        ] }, idx))
+        ] }, idx)) })
       ] })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { justify: "between", className: "small text-muted", children: [
@@ -13124,7 +13157,10 @@ const RadioTuner = ({ capture, device }) => {
     }
   };
   const isRunning = capture.state === "running";
+  const isStarting = capture.state === "starting";
+  const isStopping = capture.state === "stopping";
   const isFailed = capture.state === "failed";
+  const isTransitioning = isStarting || isStopping;
   const isFreqPending = localFreq !== capture.centerHz || debouncedFreq !== capture.centerHz;
   const isGainPending = localGain !== (capture.gain ?? 0) || debouncedGain !== (capture.gain ?? 0);
   const isBandwidthPending = localBandwidth !== (capture.bandwidth ?? 2e5) || debouncedBandwidth !== (capture.bandwidth ?? 2e5);
@@ -13142,13 +13178,13 @@ const RadioTuner = ({ capture, device }) => {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center gap-2 p-2 bg-light rounded border", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(Radio, { size: 16, className: "flex-shrink-0" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "fw-semibold small text-truncate", style: { maxWidth: "200px" }, children: device ? getDeviceDisplayName(device) : "Loading..." }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "fw-semibold small text-truncate", style: { maxWidth: "200px" }, children: device ? getDeviceDisplayName(device) : getDeviceNameFromId(capture.deviceId) }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "small text-muted", children: [
         formatFrequencyMHz(localFreq),
         " MHz"
       ] }),
       updateMutation.isPending && /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { size: "sm" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `badge ms-auto ${isFailed ? "bg-danger" : isRunning ? "bg-success" : "bg-secondary"}`, style: { fontSize: "0.7rem" }, children: capture.state.toUpperCase() })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `badge ms-auto ${isFailed ? "bg-danger" : isRunning ? "bg-success" : isTransitioning ? "bg-warning text-dark" : "bg-secondary"}`, style: { fontSize: "0.7rem" }, children: capture.state.toUpperCase() })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card shadow-sm", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card-header bg-body-tertiary py-1 px-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
@@ -13174,12 +13210,12 @@ const RadioTuner = ({ capture, device }) => {
           /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-12 col-md-3", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
             Button,
             {
-              use: isRunning ? "danger" : "success",
+              use: isRunning || isStopping ? "danger" : isStarting ? "warning" : "success",
               size: "sm",
               onClick: handleStartStop,
-              disabled: startMutation.isPending || stopMutation.isPending,
+              disabled: startMutation.isPending || stopMutation.isPending || isTransitioning,
               style: { width: "100%" },
-              children: isRunning ? "Stop" : "Start"
+              children: isStarting ? "Starting..." : isStopping ? "Stopping..." : isRunning ? "Stop" : "Start"
             }
           ) }),
           /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-12 col-md-3", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -13218,7 +13254,7 @@ const RadioTuner = ({ capture, device }) => {
             info: "The center frequency your SDR will tune to. All channels are offset from this frequency."
           }
         ) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "col-12 col-xl-6", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "col-12", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             NumericSelector,
             {
@@ -13239,7 +13275,7 @@ const RadioTuner = ({ capture, device }) => {
             " dB) may cause signal clipping and distortion. Consider reducing gain to 20-40 dB for optimal performance."
           ] })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "col-12 col-xl-6", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "col-12", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             NumericSelector,
             {
@@ -13268,7 +13304,7 @@ const RadioTuner = ({ capture, device }) => {
             " kHz) may be too narrow for FM broadcast reception. Recommended: 150-220 kHz for WBFM, 10-25 kHz for NBFM, 10 kHz for AM."
           ] })
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-12 col-xl-6", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-12", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { className: "form-label mb-0 fw-semibold", children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(Settings, { size: 16, className: "me-1" }),
             isSampleRatePending ? "Sample Rate (updating...)" : "Sample Rate"
@@ -13290,7 +13326,7 @@ const RadioTuner = ({ capture, device }) => {
             " kHz) is below 200 kHz. FM broadcast reception requires ≥200 kHz for optimal quality. Consider increasing sample rate if tuning to FM stations."
           ] })
         ] }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-12 col-xl-6", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-12", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
           Slider,
           {
             label: isPpmPending ? "PPM Correction (updating...)" : "PPM Correction",
@@ -13658,6 +13694,182 @@ function SMeter({
     )
   ] });
 }
+function AudioWaveform({
+  channelId,
+  isPlaying,
+  width = 200,
+  height = 40
+}) {
+  const canvasRef = reactExports.useRef(null);
+  const animationRef = reactExports.useRef(null);
+  const audioBufferRef = reactExports.useRef(new Float32Array(512));
+  const writeIndexRef = reactExports.useRef(0);
+  const readerRef = reactExports.useRef(null);
+  const shouldStreamRef = reactExports.useRef(false);
+  const drawWaveform = reactExports.useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas)
+      return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx)
+      return;
+    const buffer = audioBufferRef.current;
+    const dpr = window.devicePixelRatio || 1;
+    ctx.fillStyle = "#1a1a2e";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = "#333";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height / 2);
+    ctx.lineTo(canvas.width, canvas.height / 2);
+    ctx.stroke();
+    ctx.strokeStyle = "#00ff88";
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.beginPath();
+    const samplesPerPixel = Math.max(1, Math.floor(buffer.length / (width * dpr)));
+    const centerY = canvas.height / 2;
+    const amplitude = canvas.height / 2 * 0.9;
+    for (let x2 = 0; x2 < canvas.width; x2++) {
+      const sampleIndex = Math.floor(x2 / canvas.width * buffer.length);
+      let min = 0, max = 0;
+      for (let i = 0; i < samplesPerPixel && sampleIndex + i < buffer.length; i++) {
+        const sample = buffer[(sampleIndex + i) % buffer.length];
+        if (sample < min)
+          min = sample;
+        if (sample > max)
+          max = sample;
+      }
+      const y1 = centerY - min * amplitude;
+      const y2 = centerY - max * amplitude;
+      if (x2 === 0) {
+        ctx.moveTo(x2, y1);
+      }
+      ctx.lineTo(x2, y1);
+      ctx.lineTo(x2, y2);
+    }
+    ctx.stroke();
+    const rms = Math.sqrt(buffer.reduce((sum, s) => sum + s * s, 0) / buffer.length);
+    const levelHeight = Math.min(rms * 5, 1) * canvas.height;
+    ctx.fillStyle = rms > 0.3 ? "#ff4444" : rms > 0.1 ? "#ffaa00" : "#00ff88";
+    ctx.fillRect(0, canvas.height - levelHeight, 3 * dpr, levelHeight);
+    ctx.fillRect(canvas.width - 3 * dpr, canvas.height - levelHeight, 3 * dpr, levelHeight);
+    animationRef.current = requestAnimationFrame(drawWaveform);
+  }, [width]);
+  const startStreaming = reactExports.useCallback(async () => {
+    if (readerRef.current) {
+      try {
+        await readerRef.current.cancel();
+      } catch {
+      }
+      readerRef.current = null;
+    }
+    shouldStreamRef.current = true;
+    audioBufferRef.current.fill(0);
+    writeIndexRef.current = 0;
+    try {
+      const streamUrl = `${window.location.origin}/api/v1/stream/channels/${channelId}.pcm`;
+      const response = await fetch(streamUrl);
+      if (!response.ok || !response.body) {
+        console.error("Failed to fetch audio stream for waveform");
+        return;
+      }
+      const reader = response.body.getReader();
+      readerRef.current = reader;
+      const processStream = async () => {
+        while (shouldStreamRef.current && readerRef.current === reader) {
+          try {
+            const { done, value } = await reader.read();
+            if (done)
+              break;
+            const dataView = new DataView(value.buffer, value.byteOffset, value.byteLength);
+            const sampleCount = Math.floor(value.length / 2);
+            for (let i = 0; i < sampleCount; i++) {
+              const sample = dataView.getInt16(i * 2, true) / 32768;
+              audioBufferRef.current[writeIndexRef.current] = sample;
+              writeIndexRef.current = (writeIndexRef.current + 1) % audioBufferRef.current.length;
+            }
+          } catch (e) {
+            if (shouldStreamRef.current && readerRef.current === reader) {
+              console.error("Stream read error:", e);
+            }
+            break;
+          }
+        }
+      };
+      processStream();
+    } catch (error) {
+      console.error("Failed to start waveform stream:", error);
+    }
+  }, [channelId]);
+  const stopStreaming = reactExports.useCallback(() => {
+    shouldStreamRef.current = false;
+    if (readerRef.current) {
+      readerRef.current.cancel().catch(() => {
+      });
+      readerRef.current = null;
+    }
+    audioBufferRef.current.fill(0);
+    writeIndexRef.current = 0;
+  }, []);
+  reactExports.useEffect(() => {
+    if (isPlaying) {
+      startStreaming();
+      animationRef.current = requestAnimationFrame(drawWaveform);
+    } else {
+      stopStreaming();
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
+      const canvas = canvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.fillStyle = "#1a1a2e";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.strokeStyle = "#333";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(0, canvas.height / 2);
+          ctx.lineTo(canvas.width, canvas.height / 2);
+          ctx.stroke();
+        }
+      }
+    }
+    return () => {
+      stopStreaming();
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [isPlaying, startStreaming, stopStreaming, drawWaveform]);
+  reactExports.useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas)
+      return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.scale(dpr, dpr);
+    }
+  }, [width, height]);
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "canvas",
+    {
+      ref: canvasRef,
+      style: {
+        width: `${width}px`,
+        height: `${height}px`,
+        borderRadius: "4px",
+        display: "block"
+      }
+    }
+  );
+}
 const API_BASE$1 = "/api/v1";
 async function fetchFrequencyName(frequencyHz) {
   const response = await fetch(
@@ -13684,6 +13896,190 @@ const FrequencyLabel = ({ frequencyHz, autoName }) => {
   }
   return /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: displayName });
 };
+async function fetchPOCSAGMessages(channelId, limit = 50, since) {
+  const params = new URLSearchParams({ limit: limit.toString() });
+  if (since !== void 0) {
+    params.append("since", since.toString());
+  }
+  const response = await fetch(
+    `/api/v1/channels/${channelId}/decode/pocsag?${params}`
+  );
+  if (!response.ok) {
+    if (response.status === 404) {
+      return [];
+    }
+    throw new Error("Failed to fetch POCSAG messages");
+  }
+  return response.json();
+}
+function usePOCSAGMessages(channelId, options) {
+  const { enabled = true, limit = 50, refetchInterval = 2e3 } = options ?? {};
+  return useQuery({
+    queryKey: ["pocsag-messages", channelId, limit],
+    queryFn: () => fetchPOCSAGMessages(channelId, limit),
+    enabled: enabled && !!channelId,
+    refetchInterval
+  });
+}
+function formatTimestamp(ts) {
+  const date = new Date(ts * 1e3);
+  return date.toLocaleTimeString(void 0, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+function formatAddress(address) {
+  return address.toString().padStart(7, "0");
+}
+function getMessageTypeLabel(msgType) {
+  switch (msgType) {
+    case "numeric":
+      return "NUM";
+    case "alpha":
+      return "TXT";
+    case "alert_only":
+      return "ALT";
+    case "alpha_2":
+      return "TXT2";
+  }
+}
+function getMessageTypeBadgeClass(msgType) {
+  switch (msgType) {
+    case "numeric":
+      return "bg-info text-dark";
+    case "alpha":
+    case "alpha_2":
+      return "bg-success";
+    case "alert_only":
+      return "bg-warning text-dark";
+  }
+}
+const POCSAGFeed = ({ channelId, enabled = true }) => {
+  const [isExpanded, setIsExpanded] = reactExports.useState(false);
+  const { data: messages = [], isLoading } = usePOCSAGMessages(channelId, {
+    enabled,
+    limit: 20,
+    refetchInterval: 2e3
+  });
+  if (!enabled) {
+    return null;
+  }
+  const hasMessages = messages.length > 0;
+  const latestMessage = messages[0];
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      className: "border rounded bg-dark text-light",
+      style: { fontSize: "10px" },
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "button",
+          {
+            className: "btn btn-sm w-100 text-start d-flex justify-content-between align-items-center p-2",
+            onClick: () => setIsExpanded(!isExpanded),
+            style: { background: "transparent", border: "none", color: "inherit" },
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "span",
+                  {
+                    className: "badge bg-warning text-dark",
+                    style: { fontSize: "8px" },
+                    children: "POCSAG"
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(MessageSquare, { size: 12 }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "fw-semibold", children: "Pager Feed" }),
+                hasMessages && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-secondary", style: { fontSize: "8px" }, children: messages.length })
+              ] }),
+              isExpanded ? /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronUp, { size: 14 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { size: 14 })
+            ]
+          }
+        ),
+        !isExpanded && latestMessage && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "px-2 pb-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 1, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted", style: { fontSize: "8px" }, children: formatTimestamp(latestMessage.timestamp) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                className: `badge ${getMessageTypeBadgeClass(latestMessage.messageType)}`,
+                style: { fontSize: "7px" },
+                children: getMessageTypeLabel(latestMessage.messageType)
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-monospace", style: { fontSize: "9px" }, children: formatAddress(latestMessage.address) })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "div",
+            {
+              className: "text-truncate font-monospace",
+              style: { fontSize: "10px" },
+              title: latestMessage.message || "(alert only)",
+              children: latestMessage.message || "(alert only)"
+            }
+          )
+        ] }) }),
+        isExpanded && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border-top border-secondary", children: [
+          isLoading && messages.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "p-2 text-center text-muted", children: "Loading..." }),
+          !isLoading && messages.length === 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "p-2 text-center text-muted", children: "No messages received yet" }),
+          messages.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "div",
+            {
+              style: {
+                maxHeight: "200px",
+                overflowY: "auto"
+              },
+              children: messages.map((msg, idx) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "div",
+                {
+                  className: `p-2 ${idx !== messages.length - 1 ? "border-bottom border-secondary" : ""}`,
+                  children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 1, children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, justify: "between", children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
+                        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted", style: { fontSize: "8px" }, children: formatTimestamp(msg.timestamp) }),
+                        /* @__PURE__ */ jsxRuntimeExports.jsx(
+                          "span",
+                          {
+                            className: `badge ${getMessageTypeBadgeClass(msg.messageType)}`,
+                            style: { fontSize: "7px" },
+                            children: getMessageTypeLabel(msg.messageType)
+                          }
+                        )
+                      ] }),
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(
+                        "span",
+                        {
+                          className: "font-monospace text-info",
+                          style: { fontSize: "9px" },
+                          title: `Address: ${msg.address}, Function: ${msg.function}`,
+                          children: formatAddress(msg.address)
+                        }
+                      )
+                    ] }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      "div",
+                      {
+                        className: "font-monospace",
+                        style: {
+                          fontSize: "10px",
+                          wordBreak: "break-word",
+                          whiteSpace: "pre-wrap"
+                        },
+                        children: msg.message || "(alert only)"
+                      }
+                    )
+                  ] })
+                },
+                `${msg.timestamp}-${msg.address}-${idx}`
+              ))
+            }
+          )
+        ] })
+      ]
+    }
+  );
+};
 function formatChannelId(id2) {
   const match = id2.match(/^ch(\d+)$/);
   return match ? `Ch ${match[1]}` : id2;
@@ -13705,6 +14101,7 @@ const CompactChannelCard = ({
   const [showDspFilters, setShowDspFilters] = reactExports.useState(false);
   const [showAgcSettings, setShowAgcSettings] = reactExports.useState(false);
   const [showNoiseBlanker, setShowNoiseBlanker] = reactExports.useState(false);
+  const [showNoiseReduction, setShowNoiseReduction] = reactExports.useState(false);
   const nameInputRef = reactExports.useRef(null);
   const updateChannel2 = useUpdateChannel(capture.id);
   const deleteChannel2 = useDeleteChannel();
@@ -13914,6 +14311,25 @@ const CompactChannelCard = ({
           ] })
         ] })
       ] }) }),
+      channel.mode === "wbfm" && channel.rdsData && (channel.rdsData.psName || channel.rdsData.radioText) && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "border rounded p-2 bg-dark text-light", style: { fontSize: "10px" }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 1, children: [
+        channel.rdsData.psName && /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-info text-dark", style: { fontSize: "8px", width: "28px" }, children: "RDS" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "fw-bold font-monospace", style: { fontSize: "14px", letterSpacing: "1px" }, children: channel.rdsData.psName }),
+          channel.rdsData.ptyName && channel.rdsData.ptyName !== "None" && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-secondary ms-auto", style: { fontSize: "8px" }, children: channel.rdsData.ptyName })
+        ] }),
+        channel.rdsData.radioText && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-truncate font-monospace text-muted", title: channel.rdsData.radioText, children: channel.rdsData.radioText }),
+        (channel.rdsData.ta || channel.rdsData.tp || channel.rdsData.piCode) && /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { gap: 1, align: "center", children: [
+          channel.rdsData.piCode && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", style: { fontSize: "8px" }, children: [
+            "PI:",
+            channel.rdsData.piCode
+          ] }),
+          channel.rdsData.tp && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-warning text-dark", style: { fontSize: "7px" }, children: "TP" }),
+          channel.rdsData.ta && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-danger", style: { fontSize: "7px" }, children: "TA" }),
+          !channel.rdsData.ms && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-primary", style: { fontSize: "7px" }, children: "Speech" })
+        ] })
+      ] }) }),
+      channel.mode === "nbfm" && /* @__PURE__ */ jsxRuntimeExports.jsx(POCSAGFeed, { channelId: channel.id, enabled: channel.state === "running" }),
+      isPlaying && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "border rounded p-2 bg-dark", children: /* @__PURE__ */ jsxRuntimeExports.jsx(AudioWaveform, { channelId: channel.id, isPlaying, width: 200, height: 40 }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "dropdown", style: { position: "relative" }, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs(
           Button,
@@ -14100,6 +14516,19 @@ const CompactChannelCard = ({
                     }
                   )
                 ] }),
+                channel.enableMpxFilter && /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  Slider,
+                  {
+                    label: "",
+                    value: channel.mpxCutoffHz,
+                    min: 1e4,
+                    max: 18e3,
+                    step: 500,
+                    unit: "Hz",
+                    formatValue: (val) => `${(val / 1e3).toFixed(1)} kHz`,
+                    onChange: (val) => updateChannelWithToast({ mpxCutoffHz: val })
+                  }
+                ),
                 /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: "Removes stereo pilot tone and subcarriers (eliminates high-pitch whine)" })
               ] }),
               /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 1, children: [
@@ -14390,6 +14819,57 @@ const CompactChannelCard = ({
             ] })
           ] }) })
         ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "border rounded", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "button",
+            {
+              className: "btn btn-sm w-100 text-start d-flex justify-content-between align-items-center p-2",
+              onClick: () => setShowNoiseReduction(!showNoiseReduction),
+              style: { background: "transparent", border: "none" },
+              children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "fw-semibold small", children: "Noise Reduction" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `badge ${channel.enableNoiseReduction ? "bg-success" : "bg-secondary"}`, style: { fontSize: "8px" }, children: channel.enableNoiseReduction ? "ON" : "OFF" })
+                ] }),
+                showNoiseReduction ? /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronUp, { size: 14 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { size: 14 })
+              ]
+            }
+          ),
+          showNoiseReduction && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "p-2 border-top", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "alert alert-info py-1 px-2 mb-0", style: { fontSize: "0.7rem" }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Noise Reduction" }),
+              " suppresses background hiss and static using spectral processing. Use when hearing constant noise floor."
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { justify: "between", align: "center", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-label small mb-0", children: "Enable Noise Reduction" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "input",
+                {
+                  type: "checkbox",
+                  checked: channel.enableNoiseReduction,
+                  onChange: (e) => updateChannelWithToast({ enableNoiseReduction: e.target.checked }),
+                  style: { width: "16px", height: "16px" }
+                }
+              )
+            ] }),
+            channel.enableNoiseReduction && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                Slider,
+                {
+                  label: "Reduction Strength",
+                  value: channel.noiseReductionDb,
+                  min: 3,
+                  max: 30,
+                  step: 1,
+                  unit: "dB",
+                  formatValue: (val) => `${val.toFixed(0)} dB`,
+                  onChange: (val) => updateChannelWithToast({ noiseReductionDb: val })
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: "Lower = subtle noise reduction. Higher = aggressive (may affect audio quality). Start at 12 dB." })
+            ] })
+          ] }) })
+        ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 1, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-label small mb-0", children: "Notch Filters (Interference Rejection)" }),
           channel.notchFrequencies && channel.notchFrequencies.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(Flex, { direction: "column", gap: 1, children: channel.notchFrequencies.map((freq) => /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { justify: "between", align: "center", className: "border rounded p-1 bg-light", children: [
@@ -14509,24 +14989,36 @@ const ChannelManager = ({ capture }) => {
   const [newChannelSquelch, setNewChannelSquelch] = reactExports.useState(-60);
   const [newChannelAudioRate, setNewChannelAudioRate] = reactExports.useState(48e3);
   const [copiedUrl, setCopiedUrl] = reactExports.useState(null);
-  const [playingChannel, setPlayingChannel] = reactExports.useState(null);
+  const [playingChannels, setPlayingChannels] = reactExports.useState(/* @__PURE__ */ new Set());
   const audioContextRef = reactExports.useRef(null);
-  const streamReaderRef = reactExports.useRef(null);
-  const shouldPlayRef = reactExports.useRef(false);
-  const nextStartTimeRef = reactExports.useRef(0);
-  const stopAudio = () => {
-    shouldPlayRef.current = false;
-    if (streamReaderRef.current) {
-      streamReaderRef.current.cancel();
-      streamReaderRef.current = null;
+  const masterGainRef = reactExports.useRef(null);
+  const channelStreamsRef = reactExports.useRef(/* @__PURE__ */ new Map());
+  const stopChannelAudio = reactExports.useCallback((channelId) => {
+    const stream = channelStreamsRef.current.get(channelId);
+    if (stream) {
+      stream.shouldPlay = false;
+      stream.reader.cancel().catch(() => {
+      });
+      stream.gainNode.disconnect();
+      channelStreamsRef.current.delete(channelId);
     }
-  };
+  }, []);
+  const stopAllAudio = reactExports.useCallback(() => {
+    channelStreamsRef.current.forEach((stream) => {
+      stream.shouldPlay = false;
+      stream.reader.cancel().catch(() => {
+      });
+      stream.gainNode.disconnect();
+    });
+    channelStreamsRef.current.clear();
+    setPlayingChannels(/* @__PURE__ */ new Set());
+  }, []);
   reactExports.useEffect(() => {
     setNewChannelFrequency(capture.centerHz);
     return () => {
-      stopAudio();
+      stopAllAudio();
     };
-  }, [capture.id]);
+  }, [capture.id, stopAllAudio]);
   const handleCreateChannel = () => {
     const offsetHz = newChannelFrequency - capture.centerHz;
     createChannel2.mutate({
@@ -14587,25 +15079,45 @@ const ChannelManager = ({ capture }) => {
       toast.error("Failed to copy URL");
     }
   };
-  const playPCMAudio = async (channelId) => {
+  const initAudioContext = reactExports.useCallback(() => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext({ sampleRate: 48e3 });
+      masterGainRef.current = audioContextRef.current.createGain();
+      masterGainRef.current.gain.value = 1;
+      masterGainRef.current.connect(audioContextRef.current.destination);
+    }
+    return audioContextRef.current;
+  }, []);
+  const playPCMAudio = reactExports.useCallback(async (channelId) => {
     try {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioContext({ sampleRate: 48e3 });
-      }
-      const audioContext = audioContextRef.current;
-      shouldPlayRef.current = true;
-      nextStartTimeRef.current = audioContext.currentTime;
+      const audioContext = initAudioContext();
+      const masterGain = masterGainRef.current;
+      const channelGain = audioContext.createGain();
+      const numChannels = channelStreamsRef.current.size + 1;
+      channelGain.gain.value = 1 / Math.sqrt(numChannels);
+      channelGain.connect(masterGain);
       const streamUrl = `${window.location.origin}/api/v1/stream/channels/${channelId}.pcm`;
       const response = await fetch(streamUrl);
       if (!response.ok || !response.body) {
         throw new Error("Failed to fetch audio stream");
       }
       const reader = response.body.getReader();
-      streamReaderRef.current = reader;
+      const streamInfo = {
+        reader,
+        gainNode: channelGain,
+        shouldPlay: true,
+        nextStartTime: audioContext.currentTime
+      };
+      channelStreamsRef.current.set(channelId, streamInfo);
+      const totalChannels = channelStreamsRef.current.size;
+      const mixGain = 1 / Math.sqrt(totalChannels);
+      channelStreamsRef.current.forEach((stream) => {
+        stream.gainNode.gain.value = mixGain;
+      });
       const bufferSize = 4096;
       let pcmBuffer = [];
       const processChunk = async () => {
-        while (shouldPlayRef.current) {
+        while (streamInfo.shouldPlay) {
           const { done, value } = await reader.read();
           if (done)
             break;
@@ -14615,7 +15127,7 @@ const ChannelManager = ({ capture }) => {
             const sample = dataView.getInt16(i * 2, true) / 32768;
             pcmBuffer.push(sample);
           }
-          while (pcmBuffer.length >= bufferSize && shouldPlayRef.current) {
+          while (pcmBuffer.length >= bufferSize && streamInfo.shouldPlay) {
             const chunk = pcmBuffer.splice(0, bufferSize);
             const audioBuffer = audioContext.createBuffer(1, chunk.length, 48e3);
             const channelData = audioBuffer.getChannelData(0);
@@ -14624,44 +15136,81 @@ const ChannelManager = ({ capture }) => {
             }
             const source = audioContext.createBufferSource();
             source.buffer = audioBuffer;
-            source.connect(audioContext.destination);
-            const startTime = Math.max(nextStartTimeRef.current, audioContext.currentTime);
+            source.connect(channelGain);
+            const startTime = Math.max(streamInfo.nextStartTime, audioContext.currentTime);
             source.start(startTime);
-            nextStartTimeRef.current = startTime + audioBuffer.duration;
+            streamInfo.nextStartTime = startTime + audioBuffer.duration;
           }
         }
       };
       processChunk().catch((error) => {
         console.error("Audio playback error:", error);
-        setPlayingChannel(null);
+        stopChannelAudio(channelId);
+        setPlayingChannels((prev) => {
+          const next = new Set(prev);
+          next.delete(channelId);
+          return next;
+        });
       });
     } catch (error) {
       console.error("Failed to play audio:", error);
-      setPlayingChannel(null);
+      setPlayingChannels((prev) => {
+        const next = new Set(prev);
+        next.delete(channelId);
+        return next;
+      });
     }
-  };
+  }, [initAudioContext, stopChannelAudio]);
   const togglePlay = async (channelId) => {
-    if (playingChannel === channelId) {
-      stopAudio();
-      setPlayingChannel(null);
+    if (playingChannels.has(channelId)) {
+      stopChannelAudio(channelId);
       stopChannel2.mutate(channelId);
+      setPlayingChannels((prev) => {
+        const next = new Set(prev);
+        next.delete(channelId);
+        return next;
+      });
       return;
-    }
-    if (playingChannel) {
-      stopAudio();
-      setPlayingChannel(null);
     }
     try {
       const channel = channels == null ? void 0 : channels.find((ch2) => ch2.id === channelId);
       if (channel && channel.state !== "running") {
         await startChannel2.mutateAsync(channelId);
       }
-      setPlayingChannel(channelId);
+      setPlayingChannels((prev) => new Set(prev).add(channelId));
       playPCMAudio(channelId);
     } catch (error) {
       console.error("Unable to start channel for playback:", error);
       toast.error((error == null ? void 0 : error.message) || "Failed to start channel");
-      setPlayingChannel(null);
+    }
+  };
+  const playAllChannels = async () => {
+    if (!channels || channels.length === 0)
+      return;
+    try {
+      for (const channel of channels) {
+        if (channel.state !== "running") {
+          await startChannel2.mutateAsync(channel.id);
+        }
+      }
+      const allChannelIds = new Set(channels.map((ch2) => ch2.id));
+      setPlayingChannels(allChannelIds);
+      for (const channel of channels) {
+        if (!channelStreamsRef.current.has(channel.id)) {
+          playPCMAudio(channel.id);
+        }
+      }
+    } catch (error) {
+      console.error("Unable to start all channels:", error);
+      toast.error((error == null ? void 0 : error.message) || "Failed to start all channels");
+    }
+  };
+  const stopAllChannels = async () => {
+    stopAllAudio();
+    if (channels) {
+      for (const channel of channels) {
+        stopChannel2.mutate(channel.id);
+      }
     }
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card shadow-sm", children: [
@@ -14671,16 +15220,32 @@ const ChannelManager = ({ capture }) => {
         /* @__PURE__ */ jsxRuntimeExports.jsx("h3", { className: "h6 mb-0", children: "Channels" }),
         channels && channels.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-secondary", children: channels.length })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        Button,
-        {
-          use: "primary",
-          size: "sm",
-          onClick: () => setShowNewChannel(!showNewChannel),
-          disabled: capture.state !== "running",
-          children: /* @__PURE__ */ jsxRuntimeExports.jsx(Plus, { size: 16 })
-        }
-      )
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 2, children: [
+        channels && channels.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
+          Button,
+          {
+            use: playingChannels.size > 0 ? "warning" : "success",
+            size: "sm",
+            onClick: playingChannels.size > 0 ? stopAllChannels : playAllChannels,
+            disabled: capture.state !== "running",
+            title: playingChannels.size > 0 ? "Stop all channels" : "Listen to all channels",
+            children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
+              playingChannels.size > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(VolumeX, { size: 16 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Volume2, { size: 16 }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "d-none d-sm-inline", children: playingChannels.size > 0 ? "Stop All" : "Listen All" })
+            ] })
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          Button,
+          {
+            use: "primary",
+            size: "sm",
+            onClick: () => setShowNewChannel(!showNewChannel),
+            disabled: capture.state !== "running",
+            children: /* @__PURE__ */ jsxRuntimeExports.jsx(Plus, { size: 16 })
+          }
+        )
+      ] })
     ] }) }),
     showNewChannel && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card-body border-bottom", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 3, children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("h6", { className: "mb-0", children: "New Channel" }),
@@ -14780,17 +15345,18 @@ const ChannelManager = ({ capture }) => {
       isLoading && /* @__PURE__ */ jsxRuntimeExports.jsx(Flex, { justify: "center", className: "py-3", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { size: "sm" }) }),
       isLoading && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "row g-3", children: [1, 2].map((i) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-12 col-xl-6", children: /* @__PURE__ */ jsxRuntimeExports.jsx(SkeletonChannelCard, {}) }, i)) }),
       !isLoading && (!channels || channels.length === 0) && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-muted small text-center py-3", children: "No channels. Click + to create one." }),
-      !isLoading && channels && channels.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "row g-3", children: channels.map((channel) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-12 col-xl-6", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+      !isLoading && channels && channels.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "d-flex flex-column gap-2", children: channels.map((channel) => /* @__PURE__ */ jsxRuntimeExports.jsx(
         CompactChannelCard,
         {
           channel,
           capture,
-          isPlaying: playingChannel === channel.id,
+          isPlaying: playingChannels.has(channel.id),
           onTogglePlay: () => togglePlay(channel.id),
           onCopyUrl: copyToClipboard,
           copiedUrl
-        }
-      ) }, channel.id)) })
+        },
+        channel.id
+      )) })
     ] }),
     capture.state !== "running" && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card-footer bg-body-tertiary", children: /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: "Start the capture to create channels and stream audio." }) })
   ] });
@@ -14818,6 +15384,11 @@ function CreateCaptureWizard({ onClose, onSuccess }) {
   const [selectedRecipe, setSelectedRecipe] = reactExports.useState(null);
   const [customFrequency, setCustomFrequency] = reactExports.useState(100);
   const [selectedDeviceId, setSelectedDeviceId] = reactExports.useState("");
+  reactExports.useEffect(() => {
+    if ((devices == null ? void 0 : devices.length) && !selectedDeviceId) {
+      setSelectedDeviceId(devices[0].id);
+    }
+  }, [devices, selectedDeviceId]);
   const recipesByCategory = (recipes == null ? void 0 : recipes.reduce((acc, recipe) => {
     if (!acc[recipe.category]) {
       acc[recipe.category] = [];
@@ -14831,12 +15402,12 @@ function CreateCaptureWizard({ onClose, onSuccess }) {
     setStep("configure");
   };
   const handleCreate = async () => {
-    if (!selectedRecipe)
+    if (!selectedRecipe || !selectedDeviceId)
       return;
     const centerHz = selectedRecipe.allowFrequencyInput ? customFrequency * 1e6 : selectedRecipe.centerHz;
     try {
       const newCapture = await createCapture2.mutateAsync({
-        deviceId: selectedDeviceId || void 0,
+        deviceId: selectedDeviceId,
         centerHz,
         sampleRate: selectedRecipe.sampleRate,
         gain: selectedRecipe.gain || void 0,
@@ -14902,16 +15473,14 @@ function CreateCaptureWizard({ onClose, onSuccess }) {
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-label fw-semibold", children: "SDR Device" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
             "select",
             {
               className: "form-select",
               value: selectedDeviceId,
               onChange: (e) => setSelectedDeviceId(e.target.value),
-              children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "", children: "Auto-select device" }),
-                devices == null ? void 0 : devices.map((device) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: device.id, children: getDeviceDisplayName(device) }, device.id))
-              ]
+              required: true,
+              children: devices == null ? void 0 : devices.map((device) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: device.id, children: getDeviceDisplayName(device) }, device.id))
             }
           )
         ] }),
@@ -14957,7 +15526,7 @@ function CreateCaptureWizard({ onClose, onSuccess }) {
           use: "success",
           size: "sm",
           onClick: handleCreate,
-          disabled: createCapture2.isPending || createChannel2.isPending,
+          disabled: createCapture2.isPending || createChannel2.isPending || !selectedDeviceId,
           children: createCapture2.isPending || createChannel2.isPending ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { size: "sm" }),
             " Creating..."
@@ -16266,6 +16835,27 @@ function formatCaptureId(id2) {
   const match = id2.match(/^c(\d+)$/);
   return match ? `Capture ${match[1]}` : id2;
 }
+function getStableDeviceId(deviceId) {
+  if (!deviceId.includes("=")) {
+    return deviceId;
+  }
+  let driver = "";
+  let serial = "";
+  let label = "";
+  for (const part of deviceId.split(",")) {
+    if (part.startsWith("driver=")) {
+      driver = part.split("=")[1] || "";
+    } else if (part.startsWith("serial=")) {
+      serial = part.split("=")[1] || "";
+    } else if (part.startsWith("label=")) {
+      label = part.split("=")[1] || "";
+    }
+  }
+  if (!driver && !serial && !label) {
+    return deviceId;
+  }
+  return serial ? `${driver}:${serial}` : `${driver}:${label}`;
+}
 function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClick, onDelete, onUpdateName, channelCount }) {
   const stateColor = capture.state === "running" ? "success" : capture.state === "failed" ? "danger" : "secondary";
   const [isEditing, setIsEditing] = reactExports.useState(false);
@@ -16299,13 +16889,28 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "button",
     {
-      className: `btn btn-sm d-flex align-items-center gap-2 ${isSelected ? "btn-light" : "btn-outline-light"}`,
+      className: `btn btn-sm d-flex align-items-center gap-2 ${isSelected ? "btn-light" : ""}`,
       onClick,
       style: {
         position: "relative",
         borderRadius: "0.375rem 0.375rem 0 0",
         borderBottom: "none",
-        whiteSpace: "nowrap"
+        whiteSpace: "nowrap",
+        ...isSelected ? {} : {
+          border: "1px solid rgba(255,255,255,0.5)",
+          color: "white",
+          backgroundColor: "transparent"
+        }
+      },
+      onMouseEnter: (e) => {
+        if (!isSelected) {
+          e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.15)";
+        }
+      },
+      onMouseLeave: (e) => {
+        if (!isSelected) {
+          e.currentTarget.style.backgroundColor = "transparent";
+        }
       },
       children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `badge bg-${stateColor}`, style: { width: "8px", height: "8px", padding: 0, borderRadius: "50%" } }),
@@ -16330,10 +16935,10 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
             children: displayName
           }
         ),
-        !isEditing && /* @__PURE__ */ jsxRuntimeExports.jsx(
+        !isEditing && isSelected && /* @__PURE__ */ jsxRuntimeExports.jsx(
           "button",
           {
-            className: `btn btn-sm p-0 ${isSelected ? "text-dark" : "text-white"}`,
+            className: "btn btn-sm p-0 text-dark",
             style: { width: "14px", height: "14px", lineHeight: 1 },
             onClick: handleStartEdit,
             title: "Edit name",
@@ -16353,7 +16958,11 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
             style: { width: "16px", height: "16px", lineHeight: 1 },
             onClick: (e) => {
               e.stopPropagation();
-              onDelete();
+              if (window.confirm(`Delete capture "${displayName}"?
+
+This will stop the capture and remove all channels.`)) {
+                onDelete();
+              }
             },
             title: "Delete capture",
             children: /* @__PURE__ */ jsxRuntimeExports.jsx(X, { size: 12 })
@@ -16409,6 +17018,42 @@ function AppContent() {
   const selectedCapture = (captures == null ? void 0 : captures.find((c) => c.id === selectedCaptureId)) ?? (captures == null ? void 0 : captures[0]);
   const selectedDevice = devices == null ? void 0 : devices.find((d) => d.id === (selectedCapture == null ? void 0 : selectedCapture.deviceId));
   const { data: selectedCaptureChannels } = useChannels(selectedCapture == null ? void 0 : selectedCapture.id);
+  const capturesByDevice = reactExports.useMemo(() => {
+    if (!captures || !devices)
+      return [];
+    const groupMap = /* @__PURE__ */ new Map();
+    const stableIdToDevice = /* @__PURE__ */ new Map();
+    for (const device of devices) {
+      stableIdToDevice.set(getStableDeviceId(device.id), device);
+    }
+    for (const device of devices) {
+      groupMap.set(device.id, { device, captures: [] });
+    }
+    groupMap.set("_unassigned", { device: null, captures: [] });
+    for (const capture of captures) {
+      if (!capture.deviceId) {
+        groupMap.get("_unassigned").captures.push(capture);
+        continue;
+      }
+      let group = groupMap.get(capture.deviceId);
+      if (group) {
+        group.captures.push(capture);
+        continue;
+      }
+      const captureStableId = getStableDeviceId(capture.deviceId);
+      const matchedDevice = stableIdToDevice.get(captureStableId);
+      if (matchedDevice) {
+        groupMap.get(matchedDevice.id).captures.push(capture);
+      } else {
+        groupMap.get("_unassigned").captures.push(capture);
+      }
+    }
+    return Array.from(groupMap.entries()).filter(([key, group]) => group.captures.length > 0 || key !== "_unassigned" && group.device).map(([deviceId, group]) => ({
+      deviceId,
+      device: group.device,
+      captures: group.captures
+    }));
+  }, [captures, devices]);
   const handleFrequencyClick = (frequencyHz) => {
     if (!selectedCapture)
       return;
@@ -16480,43 +17125,64 @@ function AppContent() {
           ] })
         ] })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "end", gap: 2, style: { marginBottom: "-1px" }, children: [
-        captures && captures.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, { children: captures.map((capture) => /* @__PURE__ */ jsxRuntimeExports.jsx(
-          CaptureTabWithData,
-          {
-            capture,
-            devices,
-            isSelected: (selectedCapture == null ? void 0 : selectedCapture.id) === capture.id,
-            onClick: () => setSelectedCaptureId(capture.id),
-            onDelete: () => {
-              deleteCapture2.mutate(capture.id, {
-                onSuccess: () => {
-                  toast.success("Capture deleted successfully");
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "end", gap: 3, style: { marginBottom: "-1px", flexWrap: "wrap" }, children: [
+        capturesByDevice.map((group) => {
+          var _a2, _b2, _c2, _d2;
+          return /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "end", gap: 1, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                style: {
+                  fontSize: "0.7rem",
+                  color: "rgba(255,255,255,0.7)",
+                  padding: "0.25rem 0.5rem",
+                  backgroundColor: "rgba(0,0,0,0.2)",
+                  borderRadius: "0.25rem 0.25rem 0 0",
+                  whiteSpace: "nowrap",
+                  marginBottom: "0"
                 },
-                onError: (error) => {
-                  toast.error((error == null ? void 0 : error.message) || "Failed to delete capture");
-                }
-              });
-              if (selectedCaptureId === capture.id) {
-                setSelectedCaptureId(null);
+                title: ((_a2 = group.device) == null ? void 0 : _a2.id) || "Unassigned",
+                children: ((_b2 = group.device) == null ? void 0 : _b2.nickname) || ((_c2 = group.device) == null ? void 0 : _c2.shorthand) || ((_d2 = group.device) == null ? void 0 : _d2.label) || "Unassigned"
               }
-            },
-            onUpdateName: (name) => {
-              updateCapture2.mutate({
-                captureId: capture.id,
-                request: { name }
-              }, {
-                onSuccess: () => {
-                  toast.success("Capture name updated");
+            ),
+            group.captures.map((capture) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+              CaptureTabWithData,
+              {
+                capture,
+                devices,
+                isSelected: (selectedCapture == null ? void 0 : selectedCapture.id) === capture.id,
+                onClick: () => setSelectedCaptureId(capture.id),
+                onDelete: () => {
+                  deleteCapture2.mutate(capture.id, {
+                    onSuccess: () => {
+                      toast.success("Capture deleted successfully");
+                    },
+                    onError: (error) => {
+                      toast.error((error == null ? void 0 : error.message) || "Failed to delete capture");
+                    }
+                  });
+                  if (selectedCaptureId === capture.id) {
+                    setSelectedCaptureId(null);
+                  }
                 },
-                onError: (error) => {
-                  toast.error((error == null ? void 0 : error.message) || "Failed to update capture name");
+                onUpdateName: (name) => {
+                  updateCapture2.mutate({
+                    captureId: capture.id,
+                    request: { name }
+                  }, {
+                    onSuccess: () => {
+                      toast.success("Capture name updated");
+                    },
+                    onError: (error) => {
+                      toast.error((error == null ? void 0 : error.message) || "Failed to update capture name");
+                    }
+                  });
                 }
-              });
-            }
-          },
-          capture.id
-        )) }),
+              },
+              capture.id
+            ))
+          ] }, group.deviceId);
+        }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { gap: 1, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             Button,
@@ -16648,4 +17314,4 @@ const index = "";
 client.createRoot(document.getElementById("root")).render(
   /* @__PURE__ */ jsxRuntimeExports.jsx(React.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(App, {}) })
 );
-//# sourceMappingURL=index-b22cc20f.js.map
+//# sourceMappingURL=index-1564bf5a.js.map

@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Radio, Plus, Wand2, X, Edit2, Settings } from "lucide-react";
+import { Radio, Plus, Wand2, X, Edit2, Settings, Play } from "lucide-react";
 import { ToastProvider, useToast } from "./hooks/useToast";
 import { useDevices } from "./hooks/useDevices";
 import { useCaptures, useCreateCapture, useDeleteCapture, useUpdateCapture } from "./hooks/useCaptures";
@@ -32,6 +32,38 @@ function formatCaptureId(id: string): string {
   return match ? `Capture ${match[1]}` : id;
 }
 
+// Extract a stable identifier from a SoapySDR device ID string.
+// Device IDs can contain volatile fields like 'tuner' that change based on
+// device availability. This function extracts driver + serial (or label) to
+// create a stable ID for matching captures to devices.
+// For non-SoapySDR format IDs (e.g., "device0"), returns the original ID.
+function getStableDeviceId(deviceId: string): string {
+  // Check if this looks like a SoapySDR format ID (has key=value pairs)
+  if (!deviceId.includes("=")) {
+    return deviceId; // Non-SoapySDR format, use as-is
+  }
+
+  let driver = "";
+  let serial = "";
+  let label = "";
+  for (const part of deviceId.split(",")) {
+    if (part.startsWith("driver=")) {
+      driver = part.split("=")[1] || "";
+    } else if (part.startsWith("serial=")) {
+      serial = part.split("=")[1] || "";
+    } else if (part.startsWith("label=")) {
+      label = part.split("=")[1] || "";
+    }
+  }
+
+  // If we couldn't extract useful fields, fall back to original ID
+  if (!driver && !serial && !label) {
+    return deviceId;
+  }
+
+  return serial ? `${driver}:${serial}` : `${driver}:${label}`;
+}
+
 interface CaptureTabProps {
   capture: any;
   captureDevice: any;
@@ -43,7 +75,8 @@ interface CaptureTabProps {
 }
 
 function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClick, onDelete, onUpdateName, channelCount }: CaptureTabProps) {
-  const stateColor = capture.state === "running" ? "success" : capture.state === "failed" ? "danger" : "secondary";
+  const isRunning = capture.state === "running";
+  const isFailed = capture.state === "failed";
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -80,16 +113,37 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
 
   return (
     <button
-      className={`btn btn-sm d-flex align-items-center gap-2 ${isSelected ? 'btn-light' : 'btn-outline-light'}`}
+      className={`btn btn-sm d-flex align-items-center gap-2 ${isSelected ? 'btn-light' : ''}`}
       onClick={onClick}
       style={{
         position: "relative",
         borderRadius: "0.375rem 0.375rem 0 0",
         borderBottom: "none",
         whiteSpace: "nowrap",
+        ...(isSelected ? {} : {
+          border: "1px solid rgba(255,255,255,0.5)",
+          color: "white",
+          backgroundColor: "transparent",
+        }),
+      }}
+      onMouseEnter={(e) => {
+        if (!isSelected) {
+          e.currentTarget.style.backgroundColor = "rgba(255,255,255,0.15)";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!isSelected) {
+          e.currentTarget.style.backgroundColor = "transparent";
+        }
       }}
     >
-      <span className={`badge bg-${stateColor}`} style={{ width: "8px", height: "8px", padding: 0, borderRadius: "50%" }}></span>
+      {isRunning ? (
+        <Play size={12} fill="currentColor" className="text-success" />
+      ) : isFailed ? (
+        <span className="badge bg-danger" style={{ width: "8px", height: "8px", padding: 0, borderRadius: "50%" }}></span>
+      ) : (
+        <span className="badge bg-secondary" style={{ width: "8px", height: "8px", padding: 0, borderRadius: "50%" }}></span>
+      )}
 
       {isEditing ? (
         <input
@@ -112,9 +166,9 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
         </span>
       )}
 
-      {!isEditing && (
+      {!isEditing && isSelected && (
         <button
-          className={`btn btn-sm p-0 ${isSelected ? 'text-dark' : 'text-white'}`}
+          className="btn btn-sm p-0 text-dark"
           style={{ width: "14px", height: "14px", lineHeight: 1 }}
           onClick={handleStartEdit}
           title="Edit name"
@@ -131,7 +185,9 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
         style={{ width: "16px", height: "16px", lineHeight: 1 }}
         onClick={(e) => {
           e.stopPropagation();
-          onDelete();
+          if (window.confirm(`Delete capture "${displayName}"?\n\nThis will stop the capture and remove all channels.`)) {
+            onDelete();
+          }
         }}
         title="Delete capture"
       >
@@ -202,11 +258,73 @@ function AppContent() {
   // Find the selected capture, or use first available
   const selectedCapture = captures?.find((c) => c.id === selectedCaptureId) ?? captures?.[0];
 
-  // Find device for selected capture
-  const selectedDevice = devices?.find((d) => d.id === selectedCapture?.deviceId);
+  // Find device for selected capture (using stable ID matching for volatile fields)
+  const selectedDevice = devices?.find((d) => {
+    if (!selectedCapture?.deviceId) return false;
+    // Try exact match first
+    if (d.id === selectedCapture.deviceId) return true;
+    // Fall back to stable ID matching (handles volatile fields like 'tuner')
+    return getStableDeviceId(d.id) === getStableDeviceId(selectedCapture.deviceId);
+  });
 
   // Get channels for selected capture
   const { data: selectedCaptureChannels } = useChannels(selectedCapture?.id);
+
+  // Group captures by device for the UI
+  const capturesByDevice = useMemo(() => {
+    if (!captures || !devices) return [];
+
+    // Create a map of deviceId -> { device, captures }
+    const groupMap = new Map<string, { device: typeof devices[0] | null; captures: typeof captures }>();
+
+    // Create a map from stable device ID to device object for matching
+    const stableIdToDevice = new Map<string, typeof devices[0]>();
+    for (const device of devices) {
+      stableIdToDevice.set(getStableDeviceId(device.id), device);
+    }
+
+    // Initialize groups for all devices
+    for (const device of devices) {
+      groupMap.set(device.id, { device, captures: [] });
+    }
+
+    // Add an "Unassigned" group for captures without a device
+    groupMap.set("_unassigned", { device: null, captures: [] });
+
+    // Group captures by their deviceId using stable ID matching
+    for (const capture of captures) {
+      if (!capture.deviceId) {
+        groupMap.get("_unassigned")!.captures.push(capture);
+        continue;
+      }
+
+      // First try exact match
+      let group = groupMap.get(capture.deviceId);
+      if (group) {
+        group.captures.push(capture);
+        continue;
+      }
+
+      // Fall back to stable ID matching (handles volatile fields like 'tuner')
+      const captureStableId = getStableDeviceId(capture.deviceId);
+      const matchedDevice = stableIdToDevice.get(captureStableId);
+      if (matchedDevice) {
+        groupMap.get(matchedDevice.id)!.captures.push(capture);
+      } else {
+        // Device not found, put in unassigned
+        groupMap.get("_unassigned")!.captures.push(capture);
+      }
+    }
+
+    // Convert to array and filter out empty groups (except keep devices with no captures for context)
+    return Array.from(groupMap.entries())
+      .filter(([key, group]) => group.captures.length > 0 || (key !== "_unassigned" && group.device))
+      .map(([deviceId, group]) => ({
+        deviceId,
+        device: group.device,
+        captures: group.captures,
+      }));
+  }, [captures, devices]);
 
   const handleFrequencyClick = (frequencyHz: number) => {
     if (!selectedCapture) return;
@@ -293,11 +411,27 @@ function AppContent() {
             </Flex>
           </Flex>
 
-          {/* Bottom Row: Capture Tabs */}
-          <Flex align="end" gap={2} style={{ marginBottom: "-1px" }}>
-            {captures && captures.length > 0 && (
-              <>
-                {captures.map((capture) => (
+          {/* Bottom Row: Device-Grouped Capture Tabs */}
+          <Flex align="end" gap={3} style={{ marginBottom: "-1px", flexWrap: "wrap" }}>
+            {capturesByDevice.map((group) => (
+              <Flex key={group.deviceId} align="end" gap={1}>
+                {/* Device Label */}
+                <span
+                  style={{
+                    fontSize: "0.7rem",
+                    color: "rgba(255,255,255,0.7)",
+                    padding: "0.25rem 0.5rem",
+                    backgroundColor: "rgba(0,0,0,0.2)",
+                    borderRadius: "0.25rem 0.25rem 0 0",
+                    whiteSpace: "nowrap",
+                    marginBottom: "0",
+                  }}
+                  title={group.device?.id || "Unassigned"}
+                >
+                  {group.device?.nickname || group.device?.shorthand || group.device?.label || "Unassigned"}
+                </span>
+                {/* Captures in this group */}
+                {group.captures.map((capture) => (
                   <CaptureTabWithData
                     key={capture.id}
                     capture={capture}
@@ -332,8 +466,8 @@ function AppContent() {
                     }}
                   />
                 ))}
-              </>
-            )}
+              </Flex>
+            ))}
 
             {/* Add Capture Buttons */}
             <Flex gap={1}>

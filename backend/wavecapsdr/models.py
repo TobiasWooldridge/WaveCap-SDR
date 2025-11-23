@@ -60,7 +60,7 @@ class CreateCaptureRequest(BaseModel):
         return v if v else None
 
     @model_validator(mode='after')
-    def validate_bandwidth_with_sample_rate(self):
+    def validate_bandwidth_with_sample_rate(self) -> "CreateCaptureRequest":
         if self.bandwidth is not None and self.sampleRate is not None:
             if self.bandwidth > self.sampleRate:
                 raise ValueError('Bandwidth cannot exceed sample rate')
@@ -302,12 +302,18 @@ class ChannelModel(BaseModel):
     enableNoiseReduction: bool
     noiseReductionDb: float
 
+    # RDS data (WBFM only)
+    rdsData: Optional["RDSDataModel"] = None
+
 
 class RecipeChannelModel(BaseModel):
     offsetHz: float
     name: str
     mode: str = "wbfm"
     squelchDb: float = -60
+    # POCSAG decoding settings (NBFM only)
+    enablePocsag: bool = False
+    pocsagBaud: int = 1200
 
 
 class RecipeModel(BaseModel):
@@ -380,6 +386,30 @@ class ScannerModel(BaseModel):
     lockoutList: list[float]
     pauseDurationMs: int
     hits: list[ScanHitModel]
+
+
+# RDS (Radio Data System) data for FM broadcast
+class RDSDataModel(BaseModel):
+    """RDS data decoded from FM broadcast."""
+    piCode: Optional[str] = None  # Program Identification (hex string like "A1B2")
+    psName: Optional[str] = None  # Program Service name (8 chars, station name)
+    radioText: Optional[str] = None  # Radio Text (up to 64 chars)
+    pty: int = 0  # Program Type code
+    ptyName: str = "None"  # Program Type name (e.g., "Rock", "News")
+    ta: bool = False  # Traffic Announcement flag
+    tp: bool = False  # Traffic Program flag
+    ms: bool = True  # Music/Speech switch (True = Music)
+
+
+# POCSAG pager message
+class POCSAGMessageModel(BaseModel):
+    """A decoded POCSAG pager message."""
+    address: int  # 21-bit address (capcode)
+    function: int  # 2-bit function code (0-3)
+    messageType: str  # "numeric", "alpha", "alert_only", or "alpha_2"
+    message: str  # Decoded message content
+    timestamp: float  # Unix timestamp
+    baudRate: int = 1200  # 512, 1200, or 2400
 
 
 # Signal monitoring models

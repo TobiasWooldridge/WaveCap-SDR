@@ -21,6 +21,25 @@ try:
 except ImportError:
     SCIPY_AVAILABLE = False
 
+# Soft clipping constants
+_SOFT_CLIP_K = np.float32(1.5)  # Knee factor for tanh soft clipping
+_SOFT_CLIP_NORM = np.float32(1.0 / np.tanh(1.5))  # Normalization factor
+
+
+def soft_clip(x: np.ndarray) -> np.ndarray:
+    """Apply soft clipping using tanh function.
+
+    Unlike hard clipping (np.clip), soft clipping gradually saturates
+    the signal, preventing harsh distortion and aliasing on peaks.
+
+    Args:
+        x: Input signal (any range)
+
+    Returns:
+        Soft-clipped signal in range [-1, 1]
+    """
+    return np.tanh(x * _SOFT_CLIP_K) * _SOFT_CLIP_NORM
+
 
 def _envelope_detector_vectorized(
     x: np.ndarray, attack_coef: float, release_coef: float
@@ -139,8 +158,9 @@ def apply_agc(
     # Apply gain to signal
     y = x * gain
 
-    # Hard clip to prevent overflow (should rarely be needed with proper AGC)
-    np.clip(y, -1.0, 1.0, out=y)
+    # Soft clip to prevent overflow with smooth saturation
+    # (preferable to hard clip for better audio quality)
+    y = soft_clip(y)
 
     return y.astype(np.float32)
 
@@ -182,7 +202,7 @@ def apply_simple_agc(
     # Limit maximum gain
     gain = min(gain, max_gain)
 
-    # Apply gain and clip
-    y = np.clip(x * gain, -1.0, 1.0)
+    # Apply gain and soft clip
+    y = soft_clip(x * gain)
 
     return y.astype(np.float32)

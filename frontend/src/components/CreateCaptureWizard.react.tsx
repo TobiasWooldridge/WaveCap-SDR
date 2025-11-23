@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Wand2, Radio } from "lucide-react";
 import { useRecipes } from "../hooks/useRecipes";
 import { useDevices } from "../hooks/useDevices";
@@ -26,6 +26,13 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
   const [customFrequency, setCustomFrequency] = useState<number>(100);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
 
+  // Default to first device when devices become available
+  useEffect(() => {
+    if (devices?.length && !selectedDeviceId) {
+      setSelectedDeviceId(devices[0].id);
+    }
+  }, [devices, selectedDeviceId]);
+
   // Group recipes by category
   const recipesByCategory = recipes?.reduce((acc, recipe) => {
     if (!acc[recipe.category]) {
@@ -42,7 +49,7 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
   };
 
   const handleCreate = async () => {
-    if (!selectedRecipe) return;
+    if (!selectedRecipe || !selectedDeviceId) return;
 
     const centerHz = selectedRecipe.allowFrequencyInput
       ? customFrequency * 1_000_000
@@ -51,7 +58,7 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
     try {
       // Create the capture without default channel since we'll create recipe-specific channels
       const newCapture = await createCapture.mutateAsync({
-        deviceId: selectedDeviceId || undefined,
+        deviceId: selectedDeviceId,
         centerHz,
         sampleRate: selectedRecipe.sampleRate,
         gain: selectedRecipe.gain || undefined,
@@ -160,8 +167,8 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
                     className="form-select"
                     value={selectedDeviceId}
                     onChange={(e) => setSelectedDeviceId(e.target.value)}
+                    required
                   >
-                    <option value="">Auto-select device</option>
                     {devices?.map((device) => (
                       <option key={device.id} value={device.id}>
                         {getDeviceDisplayName(device)}
@@ -229,7 +236,7 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
                 use="success"
                 size="sm"
                 onClick={handleCreate}
-                disabled={createCapture.isPending || createChannel.isPending}
+                disabled={createCapture.isPending || createChannel.isPending || !selectedDeviceId}
               >
                 {createCapture.isPending || createChannel.isPending ? (
                   <>

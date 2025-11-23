@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -14,6 +15,19 @@ from .config import AppConfig
 from .api import router as api_router
 from .state import AppState
 from .device_namer import get_device_nickname, generate_capture_name
+
+# Global DSP thread pool executor for CPU-intensive audio processing
+# This keeps DSP work off the main asyncio event loop to prevent HTTP starvation
+_dsp_executor: ThreadPoolExecutor | None = None
+
+
+def get_dsp_executor() -> ThreadPoolExecutor:
+    """Get the global DSP thread pool executor."""
+    global _dsp_executor
+    if _dsp_executor is None:
+        # Use 4 workers - enough for multiple channels without overwhelming CPU
+        _dsp_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="DSP-")
+    return _dsp_executor
 
 
 def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:

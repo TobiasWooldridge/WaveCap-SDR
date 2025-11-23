@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from "react";
-import { Radio, Plus } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Radio, Plus, Volume2, VolumeX } from "lucide-react";
 import type { Capture } from "../types";
 import {
   useChannels,
@@ -15,6 +15,14 @@ import FrequencySelector from "./primitives/FrequencySelector.react";
 import Spinner from "./primitives/Spinner.react";
 import { CompactChannelCard } from "./CompactChannelCard.react";
 import { SkeletonChannelCard } from "./primitives/Skeleton.react";
+
+// Type for tracking individual channel streams
+interface ChannelStream {
+  reader: ReadableStreamDefaultReader<Uint8Array>;
+  gainNode: GainNode;
+  shouldPlay: boolean;
+  nextStartTime: number;
+}
 
 interface ChannelManagerProps {
   capture: Capture;
@@ -33,29 +41,41 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
   const [newChannelSquelch, setNewChannelSquelch] = useState<number>(-60);
   const [newChannelAudioRate, setNewChannelAudioRate] = useState<number>(48000);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
-  const [playingChannel, setPlayingChannel] = useState<string | null>(null);
+  const [playingChannels, setPlayingChannels] = useState<Set<string>>(new Set());
 
   const audioContextRef = useRef<AudioContext | null>(null);
-  const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
-  const shouldPlayRef = useRef<boolean>(false);
-  const nextStartTimeRef = useRef<number>(0);
+  const masterGainRef = useRef<GainNode | null>(null);
+  const channelStreamsRef = useRef<Map<string, ChannelStream>>(new Map());
 
-  const stopAudio = () => {
-    shouldPlayRef.current = false;
-
-    if (streamReaderRef.current) {
-      streamReaderRef.current.cancel();
-      streamReaderRef.current = null;
+  // Stop audio for a specific channel
+  const stopChannelAudio = useCallback((channelId: string) => {
+    const stream = channelStreamsRef.current.get(channelId);
+    if (stream) {
+      stream.shouldPlay = false;
+      stream.reader.cancel().catch(() => {});
+      stream.gainNode.disconnect();
+      channelStreamsRef.current.delete(channelId);
     }
-  };
+  }, []);
+
+  // Stop all audio
+  const stopAllAudio = useCallback(() => {
+    channelStreamsRef.current.forEach((stream) => {
+      stream.shouldPlay = false;
+      stream.reader.cancel().catch(() => {});
+      stream.gainNode.disconnect();
+    });
+    channelStreamsRef.current.clear();
+    setPlayingChannels(new Set());
+  }, []);
 
   // Stop audio when capture changes
   useEffect(() => {
     setNewChannelFrequency(capture.centerHz);
     return () => {
-      stopAudio();
+      stopAllAudio();
     };
-  }, [capture.id]);
+  }, [capture.id, stopAllAudio]);
 
   const handleCreateChannel = () => {
     const offsetHz = newChannelFrequency - capture.centerHz;
@@ -128,15 +148,29 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
     }
   };
 
-  const playPCMAudio = async (channelId: string) => {
-    try {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioContext({ sampleRate: 48000 });
-      }
+  // Initialize audio context and master gain
+  const initAudioContext = useCallback(() => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext({ sampleRate: 48000 });
+      masterGainRef.current = audioContextRef.current.createGain();
+      masterGainRef.current.gain.value = 1.0;
+      masterGainRef.current.connect(audioContextRef.current.destination);
+    }
+    return audioContextRef.current;
+  }, []);
 
-      const audioContext = audioContextRef.current;
-      shouldPlayRef.current = true;
-      nextStartTimeRef.current = audioContext.currentTime;
+  // Play PCM audio for a single channel (connects to mixer)
+  const playPCMAudio = useCallback(async (channelId: string) => {
+    try {
+      const audioContext = initAudioContext();
+      const masterGain = masterGainRef.current!;
+
+      // Create a gain node for this channel (allows individual volume control)
+      const channelGain = audioContext.createGain();
+      // Reduce individual channel volume when mixing multiple channels
+      const numChannels = channelStreamsRef.current.size + 1;
+      channelGain.gain.value = 1.0 / Math.sqrt(numChannels);
+      channelGain.connect(masterGain);
 
       const streamUrl = `${window.location.origin}/api/v1/stream/channels/${channelId}.pcm`;
       const response = await fetch(streamUrl);
@@ -146,13 +180,28 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
       }
 
       const reader = response.body.getReader();
-      streamReaderRef.current = reader;
+
+      // Store stream info
+      const streamInfo: ChannelStream = {
+        reader,
+        gainNode: channelGain,
+        shouldPlay: true,
+        nextStartTime: audioContext.currentTime,
+      };
+      channelStreamsRef.current.set(channelId, streamInfo);
+
+      // Update all channel gains for mixing
+      const totalChannels = channelStreamsRef.current.size;
+      const mixGain = 1.0 / Math.sqrt(totalChannels);
+      channelStreamsRef.current.forEach(stream => {
+        stream.gainNode.gain.value = mixGain;
+      });
 
       const bufferSize = 4096;
       let pcmBuffer: number[] = [];
 
       const processChunk = async () => {
-        while (shouldPlayRef.current) {
+        while (streamInfo.shouldPlay) {
           const { done, value } = await reader.read();
 
           if (done) break;
@@ -164,7 +213,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
             pcmBuffer.push(sample);
           }
 
-          while (pcmBuffer.length >= bufferSize && shouldPlayRef.current) {
+          while (pcmBuffer.length >= bufferSize && streamInfo.shouldPlay) {
             const chunk = pcmBuffer.splice(0, bufferSize);
             const audioBuffer = audioContext.createBuffer(1, chunk.length, 48000);
             const channelData = audioBuffer.getChannelData(0);
@@ -175,37 +224,47 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
 
             const source = audioContext.createBufferSource();
             source.buffer = audioBuffer;
-            source.connect(audioContext.destination);
+            source.connect(channelGain);
 
-            const startTime = Math.max(nextStartTimeRef.current, audioContext.currentTime);
+            const startTime = Math.max(streamInfo.nextStartTime, audioContext.currentTime);
             source.start(startTime);
-            nextStartTimeRef.current = startTime + audioBuffer.duration;
+            streamInfo.nextStartTime = startTime + audioBuffer.duration;
           }
         }
       };
 
       processChunk().catch((error) => {
         console.error('Audio playback error:', error);
-        setPlayingChannel(null);
+        stopChannelAudio(channelId);
+        setPlayingChannels(prev => {
+          const next = new Set(prev);
+          next.delete(channelId);
+          return next;
+        });
       });
 
     } catch (error) {
       console.error('Failed to play audio:', error);
-      setPlayingChannel(null);
+      setPlayingChannels(prev => {
+        const next = new Set(prev);
+        next.delete(channelId);
+        return next;
+      });
     }
-  };
+  }, [initAudioContext, stopChannelAudio]);
 
+  // Toggle playback for a single channel
   const togglePlay = async (channelId: string) => {
-    if (playingChannel === channelId) {
-      stopAudio();
-      setPlayingChannel(null);
+    if (playingChannels.has(channelId)) {
+      // Stop this channel
+      stopChannelAudio(channelId);
       stopChannel.mutate(channelId);
+      setPlayingChannels(prev => {
+        const next = new Set(prev);
+        next.delete(channelId);
+        return next;
+      });
       return;
-    }
-
-    if (playingChannel) {
-      stopAudio();
-      setPlayingChannel(null);
     }
 
     try {
@@ -213,12 +272,48 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
       if (channel && channel.state !== "running") {
         await startChannel.mutateAsync(channelId);
       }
-      setPlayingChannel(channelId);
+      setPlayingChannels(prev => new Set(prev).add(channelId));
       playPCMAudio(channelId);
     } catch (error: any) {
       console.error("Unable to start channel for playback:", error);
       toast.error(error?.message || "Failed to start channel");
-      setPlayingChannel(null);
+    }
+  };
+
+  // Play all channels simultaneously
+  const playAllChannels = async () => {
+    if (!channels || channels.length === 0) return;
+
+    try {
+      // Start all channels that aren't running
+      for (const channel of channels) {
+        if (channel.state !== "running") {
+          await startChannel.mutateAsync(channel.id);
+        }
+      }
+
+      // Start audio for all channels
+      const allChannelIds = new Set(channels.map(ch => ch.id));
+      setPlayingChannels(allChannelIds);
+
+      for (const channel of channels) {
+        if (!channelStreamsRef.current.has(channel.id)) {
+          playPCMAudio(channel.id);
+        }
+      }
+    } catch (error: any) {
+      console.error("Unable to start all channels:", error);
+      toast.error(error?.message || "Failed to start all channels");
+    }
+  };
+
+  // Stop all channels
+  const stopAllChannels = async () => {
+    stopAllAudio();
+    if (channels) {
+      for (const channel of channels) {
+        stopChannel.mutate(channel.id);
+      }
     }
   };
 
@@ -233,14 +328,32 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
               <span className="badge bg-secondary">{channels.length}</span>
             )}
           </Flex>
-          <Button
-            use="primary"
-            size="sm"
-            onClick={() => setShowNewChannel(!showNewChannel)}
-            disabled={capture.state !== "running"}
-          >
-            <Plus size={16} />
-          </Button>
+          <Flex align="center" gap={2}>
+            {channels && channels.length > 0 && (
+              <Button
+                use={playingChannels.size > 0 ? "warning" : "success"}
+                size="sm"
+                onClick={playingChannels.size > 0 ? stopAllChannels : playAllChannels}
+                disabled={capture.state !== "running"}
+                title={playingChannels.size > 0 ? "Stop all channels" : "Listen to all channels"}
+              >
+                <Flex align="center" gap={1}>
+                  {playingChannels.size > 0 ? <VolumeX size={16} /> : <Volume2 size={16} />}
+                  <span className="d-none d-sm-inline">
+                    {playingChannels.size > 0 ? "Stop All" : "Listen All"}
+                  </span>
+                </Flex>
+              </Button>
+            )}
+            <Button
+              use="primary"
+              size="sm"
+              onClick={() => setShowNewChannel(!showNewChannel)}
+              disabled={capture.state !== "running"}
+            >
+              <Plus size={16} />
+            </Button>
+          </Flex>
         </Flex>
       </div>
 
@@ -353,20 +466,19 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
           </div>
         )}
 
-        {/* Grid Layout for Channels */}
+        {/* Channel List */}
         {!isLoading && channels && channels.length > 0 && (
-          <div className="row g-3">
+          <div className="d-flex flex-column gap-2">
             {channels.map((channel) => (
-              <div key={channel.id} className="col-12 col-xl-6">
-                <CompactChannelCard
-                  channel={channel}
-                  capture={capture}
-                  isPlaying={playingChannel === channel.id}
-                  onTogglePlay={() => togglePlay(channel.id)}
-                  onCopyUrl={copyToClipboard}
-                  copiedUrl={copiedUrl}
-                />
-              </div>
+              <CompactChannelCard
+                key={channel.id}
+                channel={channel}
+                capture={capture}
+                isPlaying={playingChannels.has(channel.id)}
+                onTogglePlay={() => togglePlay(channel.id)}
+                onCopyUrl={copyToClipboard}
+                copiedUrl={copiedUrl}
+              />
             ))}
           </div>
         )}

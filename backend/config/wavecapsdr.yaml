@@ -18,254 +18,550 @@ antennas:
     uhf_amateur: Ant A
 presets:
   kexp:
-    center_hz: 90304573
-    sample_rate: 250000
+    center_hz: 90300000
+    sample_rate: 1000000
     offsets:
     - 0.0
-    gain: 36.2
-    bandwidth: 200000.0
+    gain: 21.1
+    bandwidth: 300000.0
     ppm: 0.0
     antenna: Antenna B
-  kexp_rspdx:
-    center_hz: 90300000
-    sample_rate: 500000
+  seattle_aircraft:
+    center_hz: 121000000
+    sample_rate: 6000000
     offsets:
-    - 0.0
-    gain: 30.0
-    bandwidth: 200000.0
-    ppm: 1.3600232051658168e-15
+    - -500000
+    - 0
+    - 500000
+    - 700000
+    gain: 40.0
+    bandwidth: 1800000.0
+    ppm: 0.0
     antenna: Antenna A
 recipes:
   fm_radio_station:
     name: FM Radio Station
-    description: Listen to a single FM broadcast radio station
+    description: Listen to a single FM broadcast radio station with stereo RDS support.
+      WBFM requires ~200 kHz bandwidth for full stereo audio. RDS data (station name,
+      song info) appears in the channel panel when available.
     category: Broadcast
     center_hz: 100000000
-    sample_rate: 250000
+    sample_rate: 1024000
     channels:
     - offset_hz: 0
       name: FM Station
       mode: wbfm
-      squelch_db: -60
+      squelch_db: -70
     allow_frequency_input: true
-    gain: 30
-    bandwidth: 220000
+    gain: 40
+    bandwidth: 200000
     frequency_label: Station Frequency (MHz)
   vhf_marine:
     name: VHF Marine
-    description: Monitor VHF marine channels including emergency frequencies
+    description: Monitor VHF marine channels 156-162 MHz. Includes Ch 16 (distress/calling),
+      Ch 9 (recreational calling), Ch 13 (bridge-to-bridge), and Ch 70 (DSC digital).
+      25 kHz channel spacing with 16 kHz deviation.
     category: Marine
-    center_hz: 156800000
+    center_hz: 156700000
     sample_rate: 2000000
     channels:
-    - offset_hz: 0
-      name: Ch 16 - Emergency
+    - offset_hz: 100000
+      name: Ch 16 - Distress
       mode: nbfm
-      squelch_db: -50
-    - offset_hz: -575000
+      squelch_db: -55
+    - offset_hz: -250000
       name: Ch 9 - Calling
       mode: nbfm
-      squelch_db: -50
-    - offset_hz: 525000
+      squelch_db: -55
+    - offset_hz: -175000
       name: Ch 70 - DSC
       mode: nbfm
-      squelch_db: -50
-    - offset_hz: -350000
+      squelch_db: -55
+    - offset_hz: -25000
       name: Ch 13 - Bridge
       mode: nbfm
-      squelch_db: -50
+      squelch_db: -55
+    - offset_hz: 200000
+      name: Ch 68 - Marina
+      mode: nbfm
+      squelch_db: -55
+    - offset_hz: 225000
+      name: Ch 69 - Marina
+      mode: nbfm
+      squelch_db: -55
+    - offset_hz: 525000
+      name: Ch 22A - Coast Guard
+      mode: nbfm
+      squelch_db: -55
     allow_frequency_input: false
-    gain: 30
+    gain: 35
     bandwidth: 1800000
   vhf_aircraft:
     name: VHF Aircraft
-    description: Monitor aviation frequencies including emergency and tower
+    description: Monitor aviation VHF AM band 118-137 MHz. Includes 121.5 emergency
+      guard, common unicom frequencies, and ATIS. Aviation uses AM modulation with
+      25 kHz channel spacing.
     category: Aviation
-    center_hz: 122000000
-    sample_rate: 2000000
+    center_hz: 122250000
+    sample_rate: 2400000
     channels:
-    - offset_hz: -500000
-      name: 121.5 - Emergency
+    - offset_hz: -750000
+      name: 121.5 - Guard/Emergency
       mode: am
-      squelch_db: -55
-    - offset_hz: 600000
-      name: 122.6 - Flight Service
+      squelch_db: -60
+    - offset_hz: 750000
+      name: 123.0 - Unicom
       mode: am
-      squelch_db: -55
-    - offset_hz: 700000
+      squelch_db: -60
+    - offset_hz: -250000
+      name: 122.0 - Flight Watch
+      mode: am
+      squelch_db: -60
+    - offset_hz: 450000
       name: 122.7 - Unicom
       mode: am
-      squelch_db: -55
-    - offset_hz: 800000
+      squelch_db: -60
+    - offset_hz: 550000
       name: 122.8 - Unicom
       mode: am
-      squelch_db: -55
+      squelch_db: -60
+    - offset_hz: 675000
+      name: 122.925 - Multicom
+      mode: am
+      squelch_db: -60
+    - offset_hz: 825000
+      name: 123.075 - Heli Air-Air
+      mode: am
+      squelch_db: -60
     allow_frequency_input: false
-    gain: 30
-    bandwidth: 1800000
+    gain: 35
+    bandwidth: 2200000
   noaa_weather:
     name: NOAA Weather Radio
-    description: Monitor all NOAA weather radio frequencies
+    description: Monitor all 7 NOAA Weather Radio frequencies (162.400-162.550 MHz).
+      Continuous broadcast with severe weather alerts. NBFM with 5 kHz deviation.
     category: Broadcast
     center_hz: 162475000
-    sample_rate: 1000000
+    sample_rate: 500000
     channels:
-    - offset_hz: -925000
-      name: WX1 - 162.550
-      mode: nbfm
-      squelch_db: -50
-    - offset_hz: -800000
+    - offset_hz: -75000
       name: WX2 - 162.400
       mode: nbfm
-      squelch_db: -50
-    - offset_hz: -675000
+      squelch_db: -55
+    - offset_hz: -50000
+      name: WX4 - 162.425
+      mode: nbfm
+      squelch_db: -55
+    - offset_hz: -25000
+      name: WX5 - 162.450
+      mode: nbfm
+      squelch_db: -55
+    - offset_hz: 0
       name: WX3 - 162.475
       mode: nbfm
-      squelch_db: -50
-    - offset_hz: 0
-      name: WX4 - 162.475
+      squelch_db: -55
+    - offset_hz: 25000
+      name: WX6 - 162.500
       mode: nbfm
-      squelch_db: -50
-    - offset_hz: 150000
-      name: WX5 - 162.425
+      squelch_db: -55
+    - offset_hz: 50000
+      name: WX7 - 162.525
       mode: nbfm
-      squelch_db: -50
+      squelch_db: -55
+    - offset_hz: 75000
+      name: WX1 - 162.550
+      mode: nbfm
+      squelch_db: -55
     allow_frequency_input: false
-    gain: 30
-    bandwidth: 900000
+    gain: 35
+    bandwidth: 400000
   amateur_2m:
     name: 2 Meter Amateur Radio
-    description: Monitor common 2m ham radio repeaters and simplex
+    description: Monitor 2m ham band 144-148 MHz. Includes national calling frequency
+      146.52 MHz and common simplex/repeater outputs. NBFM with 5 kHz deviation.
     category: Amateur Radio
-    center_hz: 146000000
-    sample_rate: 2000000
+    center_hz: 146200000
+    sample_rate: 2400000
     channels:
-    - offset_hz: -480000
-      name: 145.52 - Calling
+    - offset_hz: 320000
+      name: 146.52 - National Calling
       mode: nbfm
-      squelch_db: -55
-    - offset_hz: 0
+      squelch_db: -60
+    - offset_hz: -680000
+      name: 145.52 - Regional Calling
+      mode: nbfm
+      squelch_db: -60
+    - offset_hz: -200000
       name: '146.00'
       mode: nbfm
-      squelch_db: -55
-    - offset_hz: 520000
-      name: 146.52 - Simplex
+      squelch_db: -60
+    - offset_hz: 720000
+      name: 146.92 - Repeater Out
       mode: nbfm
-      squelch_db: -55
+      squelch_db: -60
+    - offset_hz: 880000
+      name: 147.08 - Repeater Out
+      mode: nbfm
+      squelch_db: -60
     allow_frequency_input: false
-    gain: 30
-    bandwidth: 1800000
+    gain: 35
+    bandwidth: 2200000
   amateur_70cm:
     name: 70cm Amateur Radio
-    description: Monitor common 70cm ham radio frequencies
+    description: Monitor 70cm ham band 420-450 MHz. Includes national simplex 446.00
+      MHz and common repeater outputs. NBFM with 5 kHz deviation.
     category: Amateur Radio
-    center_hz: 446000000
-    sample_rate: 2000000
+    center_hz: 445800000
+    sample_rate: 2400000
     channels:
-    - offset_hz: 0
-      name: 446.00 - Simplex
+    - offset_hz: 200000
+      name: 446.00 - National Simplex
       mode: nbfm
-      squelch_db: -55
-    - offset_hz: -500000
+      squelch_db: -60
+    - offset_hz: -300000
       name: '445.50'
       mode: nbfm
-      squelch_db: -55
-    - offset_hz: 500000
+      squelch_db: -60
+    - offset_hz: 700000
       name: '446.50'
       mode: nbfm
-      squelch_db: -55
+      squelch_db: -60
+    - offset_hz: -725000
+      name: 445.075 - Repeater Out
+      mode: nbfm
+      squelch_db: -60
+    - offset_hz: -600000
+      name: 445.20 - Repeater Out
+      mode: nbfm
+      squelch_db: -60
     allow_frequency_input: false
-    gain: 30
-    bandwidth: 1800000
+    gain: 35
+    bandwidth: 2200000
   gmrs_frs:
     name: GMRS/FRS Radio
-    description: Monitor GMRS and FRS consumer radios
+    description: Monitor GMRS/FRS channels 462-467 MHz. FRS channels 1-7 share with
+      GMRS at 2W. GMRS channels 15-22 are 50W capable. 12.5/25 kHz spacing.
     category: Personal Radio
-    center_hz: 462625000
-    sample_rate: 2000000
+    center_hz: 462612500
+    sample_rate: 1000000
     channels:
-    - offset_hz: -62500
+    - offset_hz: -50000
       name: Ch 1 - 462.5625
       mode: nbfm
-      squelch_db: -55
-    - offset_hz: 62500
+      squelch_db: -60
+    - offset_hz: -25000
       name: Ch 2 - 462.5875
       mode: nbfm
-      squelch_db: -55
-    - offset_hz: 187500
+      squelch_db: -60
+    - offset_hz: 0
       name: Ch 3 - 462.6125
       mode: nbfm
-      squelch_db: -55
+      squelch_db: -60
+    - offset_hz: 25000
+      name: Ch 4 - 462.6375
+      mode: nbfm
+      squelch_db: -60
+    - offset_hz: 50000
+      name: Ch 5 - 462.6625
+      mode: nbfm
+      squelch_db: -60
+    - offset_hz: 75000
+      name: Ch 6 - 462.6875
+      mode: nbfm
+      squelch_db: -60
+    - offset_hz: 100000
+      name: Ch 7 - 462.7125
+      mode: nbfm
+      squelch_db: -60
+    - offset_hz: -225000
+      name: Ch 15 - 462.550 GMRS
+      mode: nbfm
+      squelch_db: -60
     allow_frequency_input: false
-    gain: 30
-    bandwidth: 1800000
+    gain: 35
+    bandwidth: 900000
   ism_433:
     name: 433 MHz ISM Band
-    description: Monitor 433 MHz devices (sensors, remotes, etc.)
+    description: Monitor 433 MHz ISM band for wireless sensors, remotes, weather stations,
+      and IoT devices. Common protocols include ASK/OOK and FSK. Raw mode captures
+      baseband for external decoder analysis.
     category: ISM/IoT
     center_hz: 433920000
-    sample_rate: 2000000
+    sample_rate: 1000000
     channels:
     - offset_hz: 0
-      name: 433.92 MHz
+      name: 433.92 MHz Center
       mode: raw
-      squelch_db: -70
+      squelch_db: -75
     allow_frequency_input: false
-    gain: 35
-    bandwidth: 1800000
+    gain: 40
+    bandwidth: 800000
   ism_915:
     name: 915 MHz ISM Band
-    description: Monitor 915 MHz devices (US ISM band)
+    description: Monitor 915 MHz US ISM band for LoRa, Zigbee, Z-Wave, and smart home
+      devices. Raw mode captures baseband for external decoder analysis.
     category: ISM/IoT
     center_hz: 915000000
-    sample_rate: 2000000
+    sample_rate: 1000000
     channels:
     - offset_hz: 0
-      name: 915 MHz
+      name: 915 MHz Center
       mode: raw
-      squelch_db: -70
+      squelch_db: -75
     allow_frequency_input: false
-    gain: 35
-    bandwidth: 1800000
+    gain: 40
+    bandwidth: 800000
   sa_grn_p25:
     name: SA GRN P25 Trunking
-    description: South Australia Government Radio Network (P25 Phase 1). Built-in
-      soft trunking decoder monitors control channel for voice grants and decodes
-      TSBK messages. Configure control channel frequency for your area.
+    description: South Australia Government Radio Network P25 Phase 1 trunking (400
+      MHz band). Monitors control channel for voice grants and decodes TSBK messages.
+      P25 uses C4FM modulation with 12.5 kHz channel spacing.
     category: Public Safety
     center_hz: 406000000
-    sample_rate: 2000000
+    sample_rate: 500000
     channels:
     - offset_hz: 0
       name: Control Channel
       mode: p25
-      squelch_db: -55
+      squelch_db: -65
     allow_frequency_input: true
-    gain: 35
-    bandwidth: 1800000
+    gain: 40
+    bandwidth: 400000
     frequency_label: Control Channel Frequency (MHz)
   wa_state_patrol_p25:
     name: WA State Patrol P25
-    description: Washington State Patrol P25 trunked system (700 MHz). Built-in soft
-      trunking decoder monitors control channel for voice grants. Configure with local
-      control channel. King Simulcast example 774.03125 MHz.
+    description: Washington State Patrol P25 trunked system on 700 MHz band. Monitors
+      control channel for voice grants. King County simulcast control is 774.03125
+      MHz. P25 uses C4FM with 12.5 kHz spacing.
     category: Public Safety
     center_hz: 774031250
-    sample_rate: 2000000
+    sample_rate: 500000
     channels:
     - offset_hz: 0
       name: Control Channel
       mode: p25
-      squelch_db: -55
+      squelch_db: -65
     allow_frequency_input: true
-    gain: 35
-    bandwidth: 1800000
+    gain: 40
+    bandwidth: 400000
     frequency_label: Control Channel Frequency (MHz)
+  sa_grn_pocsag:
+    name: SA GRN POCSAG Pagers
+    description: South Australia Government Radio Network POCSAG paging (148 MHz VHF).
+      Decodes alphanumeric and numeric messages at 1200 baud. Messages appear in the
+      Pager Feed panel. Metro frequency is 148.0625 MHz.
+    category: Paging
+    center_hz: 148062500
+    sample_rate: 48000
+    channels:
+    - offset_hz: 0
+      name: SA Paging
+      mode: nbfm
+      squelch_db: -70
+    allow_frequency_input: true
+    gain: 40
+    bandwidth: 25000
+    frequency_label: Pager Frequency (MHz)
+  us_pocsag_vhf:
+    name: US POCSAG Paging (VHF)
+    description: Monitor VHF POCSAG paging 152-158 MHz used by fire, EMS, and hospitals.
+      Most systems use 1200 baud, some older systems use 512 baud. 25 kHz channel
+      spacing with FSK modulation.
+    category: Paging
+    center_hz: 152480000
+    sample_rate: 48000
+    channels:
+    - offset_hz: 0
+      name: VHF Pager
+      mode: nbfm
+      squelch_db: -70
+    allow_frequency_input: true
+    gain: 40
+    bandwidth: 25000
+    frequency_label: Pager Frequency (MHz)
+  us_pocsag_uhf:
+    name: US POCSAG Paging (UHF)
+    description: Monitor UHF POCSAG paging 450-470 MHz used by commercial and emergency
+      services. Configure with your local paging frequency. Try 512, 1200, or 2400
+      baud.
+    category: Paging
+    center_hz: 454000000
+    sample_rate: 48000
+    channels:
+    - offset_hz: 0
+      name: UHF Pager
+      mode: nbfm
+      squelch_db: -70
+    allow_frequency_input: true
+    gain: 40
+    bandwidth: 25000
+    frequency_label: Pager Frequency (MHz)
+  dmr_uhf:
+    name: DMR UHF Repeater
+    description: Monitor DMR digital voice on UHF 430-450 MHz. DMR uses 4FSK modulation
+      with 12.5 kHz channel spacing and TDMA for two simultaneous talk paths. Configure
+      with your local repeater output frequency.
+    category: Digital Voice
+    center_hz: 438500000
+    sample_rate: 48000
+    channels:
+    - offset_hz: 0
+      name: DMR Repeater
+      mode: dmr
+      squelch_db: -65
+    allow_frequency_input: true
+    gain: 40
+    bandwidth: 12500
+    frequency_label: DMR Frequency (MHz)
+  dmr_vhf:
+    name: DMR VHF Repeater
+    description: Monitor DMR digital voice on VHF 144-174 MHz. DMR uses 4FSK with
+      12.5 kHz spacing and TDMA. Common for amateur (145-148 MHz) and commercial (150-174
+      MHz) use.
+    category: Digital Voice
+    center_hz: 145000000
+    sample_rate: 48000
+    channels:
+    - offset_hz: 0
+      name: DMR Repeater
+      mode: dmr
+      squelch_db: -65
+    allow_frequency_input: true
+    gain: 40
+    bandwidth: 12500
+    frequency_label: DMR Frequency (MHz)
+  p25_vhf:
+    name: P25 VHF System
+    description: Monitor P25 Phase 1 digital voice on VHF 150-174 MHz. P25 uses C4FM
+      modulation with 12.5 kHz channel spacing. Many local government and public safety
+      systems operate on VHF.
+    category: Public Safety
+    center_hz: 155000000
+    sample_rate: 48000
+    channels:
+    - offset_hz: 0
+      name: P25 Channel
+      mode: p25
+      squelch_db: -65
+    allow_frequency_input: true
+    gain: 40
+    bandwidth: 12500
+    frequency_label: P25 Frequency (MHz)
+  p25_uhf:
+    name: P25 UHF System
+    description: Monitor P25 Phase 1 digital voice on UHF 450-470 MHz. P25 uses C4FM
+      modulation with 12.5 kHz spacing. Common for state and local public safety systems.
+    category: Public Safety
+    center_hz: 460000000
+    sample_rate: 48000
+    channels:
+    - offset_hz: 0
+      name: P25 Channel
+      mode: p25
+      squelch_db: -65
+    allow_frequency_input: true
+    gain: 40
+    bandwidth: 12500
+    frequency_label: P25 Frequency (MHz)
+  p25_800mhz:
+    name: P25 800 MHz System
+    description: Monitor P25 Phase 1 on 800 MHz rebanded public safety band (851-869
+      MHz). P25 uses C4FM with 12.5 kHz spacing. Many large metro trunked systems
+      operate here.
+    category: Public Safety
+    center_hz: 860000000
+    sample_rate: 48000
+    channels:
+    - offset_hz: 0
+      name: P25 Channel
+      mode: p25
+      squelch_db: -65
+    allow_frequency_input: true
+    gain: 40
+    bandwidth: 12500
+    frequency_label: P25 Frequency (MHz)
+  brandmeister_dmr:
+    name: BrandMeister DMR Hotspot
+    description: Monitor amateur DMR hotspots on BrandMeister network. Common simplex
+      frequencies include 438.8 MHz (US), 439.0 MHz, and 433.45 MHz (EU). DMR uses
+      4FSK with 12.5 kHz spacing.
+    category: Amateur Radio
+    center_hz: 438800000
+    sample_rate: 48000
+    channels:
+    - offset_hz: 0
+      name: DMR Hotspot
+      mode: dmr
+      squelch_db: -65
+    allow_frequency_input: true
+    gain: 40
+    bandwidth: 12500
+    frequency_label: Hotspot Frequency (MHz)
+  flex_paging:
+    name: FLEX/POCSAG Paging (929 MHz)
+    description: Monitor 929 MHz paging band. Originally FLEX protocol but many systems
+      now use POCSAG or simulcast both. Try 512, 1200, or 2400 baud for POCSAG decoding.
+    category: Paging
+    center_hz: 929600000
+    sample_rate: 250000
+    channels:
+    - offset_hz: -87500
+      name: 929.5125 MHz
+      mode: nbfm
+      squelch_db: -70
+    - offset_hz: 0
+      name: 929.6000 MHz
+      mode: nbfm
+      squelch_db: -70
+    - offset_hz: 12500
+      name: 929.6125 MHz
+      mode: nbfm
+      squelch_db: -70
+    - offset_hz: 25000
+      name: 929.6250 MHz
+      mode: nbfm
+      squelch_db: -70
+    allow_frequency_input: false
+    gain: 40
+    bandwidth: 200000
+  hospital_paging:
+    name: Hospital Paging
+    description: Monitor hospital POCSAG paging systems. Often uses 512 baud for compatibility
+      with older pagers. Common frequencies include 152.48, 157.45, and 163.25 MHz.
+    category: Paging
+    center_hz: 152480000
+    sample_rate: 48000
+    channels:
+    - offset_hz: 0
+      name: Hospital Pager
+      mode: nbfm
+      squelch_db: -70
+    allow_frequency_input: true
+    gain: 40
+    bandwidth: 25000
+    frequency_label: Pager Frequency (MHz)
+  fire_ems_paging:
+    name: Fire/EMS Paging
+    description: Monitor fire department and EMS POCSAG paging for dispatch calls.
+      Most systems use 1200 baud. Volunteer fire departments commonly use 153-155
+      MHz.
+    category: Paging
+    center_hz: 154000000
+    sample_rate: 48000
+    channels:
+    - offset_hz: 0
+      name: Fire/EMS Pager
+      mode: nbfm
+      squelch_db: -70
+    allow_frequency_input: true
+    gain: 40
+    bandwidth: 25000
+    frequency_label: Pager Frequency (MHz)
 captures:
 - preset: kexp
   device_id: 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
     V4,serial=00000001,tuner=Rafael Micro R828D'
-- preset: kexp_rspdx
+- preset: seattle_aircraft
   device_id: driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070
 device_names:
   ? 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog

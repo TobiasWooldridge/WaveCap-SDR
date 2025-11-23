@@ -9,7 +9,9 @@ import Flex from "./primitives/Flex.react";
 import Slider from "./primitives/Slider.react";
 import FrequencySelector from "./primitives/FrequencySelector.react";
 import SMeter from "./primitives/SMeter.react";
+import AudioWaveform from "./primitives/AudioWaveform.react";
 import { FrequencyLabel } from "./FrequencyLabel.react";
+import { POCSAGFeed } from "./POCSAGFeed.react";
 
 interface CompactChannelCardProps {
   channel: Channel;
@@ -262,6 +264,63 @@ export const CompactChannelCard = ({
             </Flex>
           </div>
 
+          {/* RDS Display (WBFM only) */}
+          {channel.mode === "wbfm" && channel.rdsData && (channel.rdsData.psName || channel.rdsData.radioText) && (
+            <div className="border rounded p-2 bg-dark text-light" style={{ fontSize: "10px" }}>
+              <Flex direction="column" gap={1}>
+                {/* Station Name (PS) */}
+                {channel.rdsData.psName && (
+                  <Flex align="center" gap={1}>
+                    <span className="badge bg-info text-dark" style={{ fontSize: "8px", width: "28px" }}>RDS</span>
+                    <span className="fw-bold font-monospace" style={{ fontSize: "14px", letterSpacing: "1px" }}>
+                      {channel.rdsData.psName}
+                    </span>
+                    {channel.rdsData.ptyName && channel.rdsData.ptyName !== "None" && (
+                      <span className="badge bg-secondary ms-auto" style={{ fontSize: "8px" }}>
+                        {channel.rdsData.ptyName}
+                      </span>
+                    )}
+                  </Flex>
+                )}
+                {/* Radio Text (RT) - scrolling marquee style */}
+                {channel.rdsData.radioText && (
+                  <div className="text-truncate font-monospace text-muted" title={channel.rdsData.radioText}>
+                    {channel.rdsData.radioText}
+                  </div>
+                )}
+                {/* Flags row */}
+                {(channel.rdsData.ta || channel.rdsData.tp || channel.rdsData.piCode) && (
+                  <Flex gap={1} align="center">
+                    {channel.rdsData.piCode && (
+                      <span className="text-muted" style={{ fontSize: "8px" }}>PI:{channel.rdsData.piCode}</span>
+                    )}
+                    {channel.rdsData.tp && (
+                      <span className="badge bg-warning text-dark" style={{ fontSize: "7px" }}>TP</span>
+                    )}
+                    {channel.rdsData.ta && (
+                      <span className="badge bg-danger" style={{ fontSize: "7px" }}>TA</span>
+                    )}
+                    {!channel.rdsData.ms && (
+                      <span className="badge bg-primary" style={{ fontSize: "7px" }}>Speech</span>
+                    )}
+                  </Flex>
+                )}
+              </Flex>
+            </div>
+          )}
+
+          {/* POCSAG Feed (NBFM only) */}
+          {channel.mode === "nbfm" && (
+            <POCSAGFeed channelId={channel.id} enabled={channel.state === "running"} />
+          )}
+
+          {/* Audio Waveform Display */}
+          {isPlaying && (
+            <div className="border rounded p-2 bg-dark">
+              <AudioWaveform channelId={channel.id} isPlaying={isPlaying} width={200} height={40} />
+            </div>
+          )}
+
           {/* Stream URL Dropdown */}
           <div className="dropdown" style={{ position: 'relative' }}>
             <Button
@@ -457,6 +516,20 @@ export const CompactChannelCard = ({
                                     style={{ width: "16px", height: "16px" }}
                                   />
                                 </Flex>
+                                {channel.enableMpxFilter && (
+                                  <Slider
+                                    label=""
+                                    value={channel.mpxCutoffHz}
+                                    min={10000}
+                                    max={18000}
+                                    step={500}
+                                    unit="Hz"
+                                    formatValue={(val) => `${(val / 1000).toFixed(1)} kHz`}
+                                    onChange={(val) =>
+                                      updateChannelWithToast({ mpxCutoffHz: val })
+                                    }
+                                  />
+                                )}
                                 <small className="text-muted">
                                   Removes stereo pilot tone and subcarriers (eliminates high-pitch whine)
                                 </small>

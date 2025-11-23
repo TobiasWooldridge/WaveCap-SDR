@@ -118,10 +118,10 @@ class FrequencyNamer:
 
     def _calculate_channel_number(self, frequency_hz: float, band: Dict[str, Any]) -> FrequencyInfo:
         """Calculate channel number from frequency using spacing."""
-        base_freq = band.get('channel_base_freq')
-        spacing = band.get('channel_spacing')
-        channel_start = band.get('channel_start', 1)
-        template = band.get('template', '{channel}')
+        base_freq: float = band.get('channel_base_freq', 0.0)
+        spacing: float = band.get('channel_spacing', 1.0)
+        channel_start: int = band.get('channel_start', 1)
+        template: str = band.get('template', '{channel}')
 
         # Calculate channel number
         channel_offset = (frequency_hz - base_freq) / spacing

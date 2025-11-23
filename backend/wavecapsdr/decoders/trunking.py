@@ -80,7 +80,7 @@ class TrunkingManager:
 
         logger.info(f"Trunking manager initialized: {system.name} ({system.protocol.value})")
 
-    def add_monitored_talkgroup(self, tgid: int, name: str = "", priority: int = 5):
+    def add_monitored_talkgroup(self, tgid: int, name: str = "", priority: int = 5) -> None:
         """Add a talkgroup to monitor"""
         self.monitored_talkgroups.add(tgid)
         if tgid not in self.system.talkgroups:
@@ -91,12 +91,12 @@ class TrunkingManager:
             )
         logger.info(f"Monitoring talkgroup {tgid}: {name}")
 
-    def remove_monitored_talkgroup(self, tgid: int):
+    def remove_monitored_talkgroup(self, tgid: int) -> None:
         """Remove talkgroup from monitoring"""
         self.monitored_talkgroups.discard(tgid)
         logger.info(f"Stopped monitoring talkgroup {tgid}")
 
-    def handle_voice_grant(self, tgid: int, frequency_hz: float, source_id: Optional[int] = None):
+    def handle_voice_grant(self, tgid: int, frequency_hz: float, source_id: Optional[int] = None) -> None:
         """
         Handle a voice channel grant from control channel.
 
@@ -129,7 +129,7 @@ class TrunkingManager:
         if self.on_grant:
             self.on_grant(grant)
 
-    def handle_voice_end(self, tgid: int):
+    def handle_voice_end(self, tgid: int) -> None:
         """Handle end of voice transmission"""
         if tgid in self.active_grants:
             grant = self.active_grants.pop(tgid)
@@ -138,7 +138,7 @@ class TrunkingManager:
             if self.on_release:
                 self.on_release(tgid)
 
-    def _drop_lowest_priority_grant(self):
+    def _drop_lowest_priority_grant(self) -> None:
         """Drop the lowest priority active grant to make room"""
         if not self.active_grants:
             return

@@ -31,13 +31,31 @@ def _enumerate_worker(driver_name: str, queue: multiprocessing.Queue) -> None:
             pass
         # Only enumerate for this specific driver
         results = []
+        seen_devices = set()  # Track unique devices by stable identifier
         for args in SoapySDR.Device.enumerate(f"driver={driver_name}"):  # type: ignore[attr-defined]
             driver = str(args["driver"]) if "driver" in args else "unknown"
             label = str(args["label"]) if "label" in args else "SDR"
-            # Build a canonical args string
+
+            # Create a stable device identifier that doesn't change based on availability
+            # Use serial number if available, otherwise fall back to label
+            # Exclude volatile fields like 'tuner' which changes when device is busy
+            # Note: SoapySDRKwargs doesn't have .get(), use 'in' check instead
+            serial = str(args["serial"]) if "serial" in args else ""
+            stable_id = f"{driver}:{serial}" if serial else f"{driver}:{label}"
+
+            # Skip duplicate devices (e.g., same device with tuner=unavailable vs tuner=R828D)
+            if stable_id in seen_devices:
+                continue
+            seen_devices.add(stable_id)
+
+            # Build a canonical args string, excluding volatile fields
+            # 'tuner' field changes to 'unavailable' when device is busy
+            volatile_fields = {'tuner'}
             try:
                 items = []
                 for k in sorted(args.keys()):
+                    if k in volatile_fields:
+                        continue
                     v = args[k] if k in args else None
                     if v is None:
                         continue
@@ -725,6 +743,12 @@ class SoapyDriver(DeviceDriver):
             if bandwidth_range:
                 bandwidth_min = float(bandwidth_range[0].minimum()) if bandwidth_range else None
                 bandwidth_max = float(bandwidth_range[0].maximum()) if bandwidth_range else None
+                # If min == max, the driver didn't report a useful range - use fallbacks
+                if bandwidth_min is not None and bandwidth_max is not None and bandwidth_min >= bandwidth_max:
+                    if driver == "rtlsdr":
+                        bandwidth_min, bandwidth_max = 200_000.0, 3_200_000.0
+                    elif driver == "sdrplay":
+                        bandwidth_min, bandwidth_max = 200_000.0, 8_000_000.0
             else:
                 # Fallback to driver-specific defaults
                 if driver == "rtlsdr":

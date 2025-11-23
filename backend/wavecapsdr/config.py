@@ -37,6 +37,8 @@ class DeviceConfig:
     driver: DriverName = "soapy"
     # Optional SoapySDR device args string, e.g., "driver=rtlsdr" or specific serial.
     device_args: Optional[str] = None
+    # Show fake/test device even when real devices are available (for development)
+    show_fake_device: bool = False
 
 
 @dataclass
@@ -46,6 +48,9 @@ class RecipeChannel:
     name: str  # Display name like "Channel 16 - Emergency"
     mode: str = "wbfm"
     squelch_db: float = -60
+    # POCSAG decoding settings (NBFM only)
+    enable_pocsag: bool = False
+    pocsag_baud: int = 1200
 
 
 @dataclass
@@ -265,7 +270,7 @@ def save_config(config: AppConfig, path_str: str) -> None:
     existing_data["limits"] = limits_data
 
     # Device config
-    device_data = {"driver": config.device.driver}
+    device_data: dict[str, str] = {"driver": config.device.driver}
     if config.device.device_args is not None:
         device_data["device_args"] = config.device.device_args
     existing_data["device"] = device_data
