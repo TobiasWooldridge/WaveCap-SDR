@@ -11,12 +11,21 @@ from typing import Any, Callable, Dict, Optional, Set, Tuple, TypeVar
 
 import numpy as np
 
+# Import scipy.fft at module level (not inside hot loops)
+try:
+    from scipy.fft import fft, fftshift, fftfreq
+    SCIPY_FFT_AVAILABLE = True
+except ImportError:
+    SCIPY_FFT_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 from .config import AppConfig
 from .devices.base import Device, DeviceDriver, StreamHandle
-from .dsp.fm import wbfm_demod, nbfm_demod
+from .dsp.fm import wbfm_demod, nbfm_demod, quadrature_demod
 from .dsp.am import am_demod, ssb_demod
+from .dsp.rds import RDSDecoder, RDSData
+from .dsp.pocsag import POCSAGDecoder, POCSAGMessage
 from .encoders import create_encoder, AudioEncoder
 from .decoders.p25 import P25Decoder
 from .decoders.dmr import DMRDecoder
@@ -118,10 +127,11 @@ def pack_f32(samples: np.ndarray) -> bytes:
 
 # Cache for frequency shift exponentials using LRU cache (proper eviction)
 @functools.lru_cache(maxsize=64)
-def _get_freq_shift_exp(size: int, offset_hz: float, sample_rate: int) -> np.ndarray:
+def _get_freq_shift_exp(size: int, offset_hz: int, sample_rate: int) -> np.ndarray:
     """Get cached complex exponential for frequency shifting.
 
     Uses LRU cache for proper eviction semantics (vs manual dict with arbitrary removal).
+    Note: offset_hz is int (rounded from float) to ensure consistent cache keys.
     """
     n = np.arange(size, dtype=np.float32)
     return np.exp(-1j * 2.0 * np.pi * (offset_hz / float(sample_rate)) * n).astype(np.complex64)
@@ -136,7 +146,9 @@ def freq_shift(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray
     if offset_hz == 0.0 or iq.size == 0:
         return iq
 
-    ph = _get_freq_shift_exp(iq.shape[0], offset_hz, sample_rate)
+    # Round offset_hz to int for consistent cache keys (prevents unbounded cache growth
+    # from floating-point variations like 1000.0 vs 1000.0000001)
+    ph = _get_freq_shift_exp(iq.shape[0], round(offset_hz), sample_rate)
     return (iq.astype(np.complex64, copy=False) * ph).astype(np.complex64)
 
 
@@ -189,6 +201,13 @@ class ChannelConfig:
     enable_noise_reduction: bool = False  # Default off
     noise_reduction_db: float = 12.0  # 12 dB reduction
 
+    # RDS decoding (WBFM only)
+    enable_rds: bool = True  # Enabled by default for WBFM
+
+    # POCSAG decoding (NBFM only)
+    enable_pocsag: bool = False  # Disabled by default
+    pocsag_baud: int = 1200  # 512, 1200, or 2400
+
 
 @dataclass
 class Channel:
@@ -213,6 +232,13 @@ class Channel:
     # Digital voice decoders (lazily initialized)
     _p25_decoder: Optional[P25Decoder] = None
     _dmr_decoder: Optional[DMRDecoder] = None
+    # RDS decoder for WBFM (lazily initialized)
+    _rds_decoder: Optional[RDSDecoder] = None
+    rds_data: Optional[RDSData] = None  # Current RDS data (exposed via API)
+    # POCSAG decoder for NBFM pager feeds (lazily initialized)
+    _pocsag_decoder: Optional[POCSAGDecoder] = None
+    _pocsag_messages: list[POCSAGMessage] = field(default_factory=list)
+    _pocsag_max_messages: int = 100  # Ring buffer size
     # Drop tracking for rate-limited logging
     _drop_count: int = 0
     _last_drop_log_time: float = 0.0
@@ -225,6 +251,21 @@ class Channel:
 
     def stop(self) -> None:
         self.state = "stopped"
+
+    def get_pocsag_messages(self, limit: int = 50, since_timestamp: Optional[float] = None) -> list[dict]:
+        """Get recent POCSAG messages.
+
+        Args:
+            limit: Maximum number of messages to return
+            since_timestamp: Only return messages after this timestamp (for SSE)
+
+        Returns:
+            List of message dictionaries (most recent first)
+        """
+        msgs = self._pocsag_messages
+        if since_timestamp is not None:
+            msgs = [m for m in msgs if m.timestamp > since_timestamp]
+        return [m.to_dict() for m in reversed(msgs[-limit:])]
 
     def _update_audio_metrics(self, audio: np.ndarray) -> None:
         """Calculate and update audio output level metrics.
@@ -514,6 +555,26 @@ class Channel:
             # FM demodulation (wide or narrow band)
             base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
             if self.cfg.mode == "wbfm":
+                # RDS decoding: Process FM baseband BEFORE MPX filter removes 57 kHz subcarrier
+                if self.cfg.enable_rds and sample_rate >= 114000:
+                    # Initialize RDS decoder if needed
+                    if self._rds_decoder is None:
+                        self._rds_decoder = RDSDecoder(sample_rate)
+                        logger.info(f"Channel {self.cfg.id}: RDS decoder initialized")
+
+                    # Get raw FM baseband (before MPX filter)
+                    fm_baseband = quadrature_demod(base, sample_rate)
+
+                    # Process RDS (extracts 57 kHz subcarrier and decodes)
+                    try:
+                        rds_result = self._rds_decoder.process(fm_baseband)
+                        if rds_result:
+                            self.rds_data = rds_result
+                            if rds_result.ps_name.strip():
+                                logger.debug(f"Channel {self.cfg.id}: RDS PS={rds_result.ps_name.strip()}")
+                    except Exception as e:
+                        logger.error(f"Channel {self.cfg.id}: RDS decoding error: {e}")
+
                 audio = wbfm_demod(
                     base,
                     sample_rate,
@@ -544,6 +605,28 @@ class Channel:
                     noise_reduction_db=self.cfg.noise_reduction_db,
                 )
 
+                # POCSAG decoding: Process demodulated audio for pager messages
+                if self.cfg.enable_pocsag and audio.size > 0:
+                    # Initialize POCSAG decoder if needed
+                    if self._pocsag_decoder is None:
+                        self._pocsag_decoder = POCSAGDecoder(
+                            sample_rate=self.cfg.audio_rate,
+                            baud_rate=self.cfg.pocsag_baud
+                        )
+                        logger.info(f"Channel {self.cfg.id}: POCSAG decoder initialized (baud={self.cfg.pocsag_baud})")
+
+                    # Process audio and extract messages
+                    try:
+                        new_msgs = self._pocsag_decoder.process(audio)
+                        for msg in new_msgs:
+                            self._pocsag_messages.append(msg)
+                            # Keep ring buffer bounded
+                            if len(self._pocsag_messages) > self._pocsag_max_messages:
+                                self._pocsag_messages.pop(0)
+                            logger.info(f"Channel {self.cfg.id}: POCSAG msg addr={msg.address} func={msg.function}: {msg.message[:50] if msg.message else '(empty)'}")
+                    except Exception as e:
+                        logger.error(f"Channel {self.cfg.id}: POCSAG decoding error: {e}")
+
             # Calculate signal power in dB (always, for metrics)
             if audio.size > 0:
                 power = np.mean(audio ** 2)
@@ -559,10 +642,10 @@ class Channel:
             except Exception as e:
                 logger.error(f"Channel {self.cfg.id}: Error in _update_audio_metrics: {e}")
 
-            # Apply squelch if configured
+            # Apply squelch if configured (use RSSI for proper RF-level squelch)
             if self.cfg.squelch_db is not None and audio.size > 0:
                 # Mute audio if below threshold
-                if self.signal_power_db is not None and self.signal_power_db < self.cfg.squelch_db:
+                if self.rssi_db is not None and self.rssi_db < self.cfg.squelch_db:
                     audio = np.zeros_like(audio)
 
             await self._broadcast(audio)
@@ -594,9 +677,9 @@ class Channel:
             # Update audio output level metrics
             self._update_audio_metrics(audio)
 
-            # Apply squelch if configured
+            # Apply squelch if configured (use RSSI for proper RF-level squelch)
             if self.cfg.squelch_db is not None and audio.size > 0:
-                if self.signal_power_db is not None and self.signal_power_db < self.cfg.squelch_db:
+                if self.rssi_db is not None and self.rssi_db < self.cfg.squelch_db:
                     audio = np.zeros_like(audio)
 
             await self._broadcast(audio)
@@ -628,9 +711,9 @@ class Channel:
             # Update audio output level metrics
             self._update_audio_metrics(audio)
 
-            # Apply squelch if configured
+            # Apply squelch if configured (use RSSI for proper RF-level squelch)
             if self.cfg.squelch_db is not None and audio.size > 0:
-                if self.signal_power_db is not None and self.signal_power_db < self.cfg.squelch_db:
+                if self.rssi_db is not None and self.rssi_db < self.cfg.squelch_db:
                     audio = np.zeros_like(audio)
 
             await self._broadcast(audio)
@@ -729,6 +812,229 @@ class Channel:
         else:
             # Unknown mode: ignore
             return
+
+    def process_iq_chunk_sync(self, iq: np.ndarray, sample_rate: int) -> Optional[np.ndarray]:
+        """Synchronous DSP processing - returns audio/IQ data for broadcast.
+
+        This method performs all CPU-intensive DSP work (demodulation, filtering, etc.)
+        and returns the processed audio data. It does NOT broadcast the data - that
+        should be done separately on the event loop to avoid blocking HTTP requests.
+
+        Returns:
+            Processed audio data (np.ndarray) or None if channel not running/no output.
+        """
+        if self.state != "running":
+            return None
+
+        audio: Optional[np.ndarray] = None
+
+        if self.cfg.mode in ("wbfm", "nbfm"):
+            # FM demodulation (wide or narrow band)
+            base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+            if self.cfg.mode == "wbfm":
+                # RDS decoding: Process FM baseband BEFORE MPX filter removes 57 kHz subcarrier
+                if self.cfg.enable_rds and sample_rate >= 114000:
+                    # Initialize RDS decoder if needed
+                    if self._rds_decoder is None:
+                        self._rds_decoder = RDSDecoder(sample_rate)
+                        logger.info(f"Channel {self.cfg.id}: RDS decoder initialized")
+
+                    # Get raw FM baseband (before MPX filter)
+                    fm_baseband = quadrature_demod(base, sample_rate)
+
+                    # Process RDS (extracts 57 kHz subcarrier and decodes)
+                    try:
+                        rds_result = self._rds_decoder.process(fm_baseband)
+                        if rds_result:
+                            self.rds_data = rds_result
+                            if rds_result.ps_name.strip():
+                                logger.debug(f"Channel {self.cfg.id}: RDS PS={rds_result.ps_name.strip()}")
+                    except Exception as e:
+                        logger.error(f"Channel {self.cfg.id}: RDS decoding error: {e}")
+
+                audio = wbfm_demod(
+                    base,
+                    sample_rate,
+                    self.cfg.audio_rate,
+                    enable_deemphasis=self.cfg.enable_deemphasis,
+                    deemphasis_tau=self.cfg.deemphasis_tau_us * 1e-6,
+                    enable_mpx_filter=self.cfg.enable_mpx_filter,
+                    mpx_cutoff_hz=self.cfg.mpx_cutoff_hz,
+                    enable_highpass=self.cfg.enable_fm_highpass,
+                    highpass_hz=self.cfg.fm_highpass_hz,
+                    notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+                    enable_noise_reduction=self.cfg.enable_noise_reduction,
+                    noise_reduction_db=self.cfg.noise_reduction_db,
+                )
+            else:  # nbfm
+                audio = nbfm_demod(
+                    base,
+                    sample_rate,
+                    self.cfg.audio_rate,
+                    enable_deemphasis=self.cfg.enable_deemphasis,
+                    deemphasis_tau=self.cfg.deemphasis_tau_us * 1e-6,
+                    enable_highpass=self.cfg.enable_fm_highpass,
+                    highpass_hz=self.cfg.fm_highpass_hz,
+                    enable_lowpass=self.cfg.enable_fm_lowpass,
+                    lowpass_hz=self.cfg.fm_lowpass_hz,
+                    notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+                    enable_noise_reduction=self.cfg.enable_noise_reduction,
+                    noise_reduction_db=self.cfg.noise_reduction_db,
+                )
+
+                # POCSAG decoding
+                if self.cfg.enable_pocsag and audio.size > 0:
+                    if self._pocsag_decoder is None:
+                        self._pocsag_decoder = POCSAGDecoder(
+                            sample_rate=self.cfg.audio_rate,
+                            baud_rate=self.cfg.pocsag_baud
+                        )
+                        logger.info(f"Channel {self.cfg.id}: POCSAG decoder initialized (baud={self.cfg.pocsag_baud})")
+                    try:
+                        new_msgs = self._pocsag_decoder.process(audio)
+                        for msg in new_msgs:
+                            self._pocsag_messages.append(msg)
+                            if len(self._pocsag_messages) > self._pocsag_max_messages:
+                                self._pocsag_messages.pop(0)
+                            logger.info(f"Channel {self.cfg.id}: POCSAG msg addr={msg.address} func={msg.function}: {msg.message[:50] if msg.message else '(empty)'}")
+                    except Exception as e:
+                        logger.error(f"Channel {self.cfg.id}: POCSAG decoding error: {e}")
+
+            # Calculate signal power in dB
+            if audio is not None and audio.size > 0:
+                power = np.mean(audio ** 2)
+                power_db = 10.0 * np.log10(power + 1e-10)
+                self.signal_power_db = float(power_db)
+                self._update_audio_metrics(audio)
+            else:
+                self.signal_power_db = None
+
+            # Apply squelch
+            if audio is not None and self.cfg.squelch_db is not None and audio.size > 0:
+                if self.rssi_db is not None and self.rssi_db < self.cfg.squelch_db:
+                    audio = np.zeros_like(audio)
+
+        elif self.cfg.mode == "am":
+            base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+            audio = am_demod(
+                base,
+                sample_rate,
+                audio_rate=self.cfg.audio_rate,
+                enable_agc=self.cfg.enable_agc,
+                enable_highpass=self.cfg.enable_am_highpass,
+                highpass_hz=self.cfg.am_highpass_hz,
+                enable_lowpass=self.cfg.enable_am_lowpass,
+                lowpass_hz=self.cfg.am_lowpass_hz,
+                agc_target_db=self.cfg.agc_target_db,
+                notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+            )
+
+            if audio is not None and audio.size > 0:
+                power = np.mean(audio ** 2)
+                power_db = 10.0 * np.log10(power + 1e-10)
+                self.signal_power_db = float(power_db)
+                self._update_audio_metrics(audio)
+            else:
+                self.signal_power_db = None
+
+            if audio is not None and self.cfg.squelch_db is not None and audio.size > 0:
+                if self.rssi_db is not None and self.rssi_db < self.cfg.squelch_db:
+                    audio = np.zeros_like(audio)
+
+        elif self.cfg.mode == "ssb":
+            base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+            audio = ssb_demod(
+                base,
+                sample_rate,
+                audio_rate=self.cfg.audio_rate,
+                mode=self.cfg.ssb_mode,
+                enable_agc=self.cfg.enable_agc,
+                enable_bandpass=self.cfg.enable_ssb_bandpass,
+                bandpass_low=self.cfg.ssb_bandpass_low_hz,
+                bandpass_high=self.cfg.ssb_bandpass_high_hz,
+                agc_target_db=self.cfg.agc_target_db,
+                notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+            )
+
+            if audio is not None and audio.size > 0:
+                power = np.mean(audio ** 2)
+                power_db = 10.0 * np.log10(power + 1e-10)
+                self.signal_power_db = float(power_db)
+                self._update_audio_metrics(audio)
+            else:
+                self.signal_power_db = None
+
+            if audio is not None and self.cfg.squelch_db is not None and audio.size > 0:
+                if self.rssi_db is not None and self.rssi_db < self.cfg.squelch_db:
+                    audio = np.zeros_like(audio)
+
+        elif self.cfg.mode == "p25":
+            # P25 digital voice - metrics only for now
+            if self._p25_decoder is None:
+                self._p25_decoder = P25Decoder(sample_rate)
+                self._p25_decoder.on_voice_frame = lambda voice_data: self._handle_p25_voice(voice_data)
+                self._p25_decoder.on_grant = lambda tgid, freq: self._handle_trunking_grant(tgid, freq)
+                logger.info(f"Channel {self.cfg.id}: P25 decoder initialized")
+
+            base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+            if base.size > 0:
+                power = np.mean(np.abs(base) ** 2)
+                power_db = 10.0 * np.log10(power + 1e-10)
+                self.signal_power_db = float(power_db)
+            else:
+                self.signal_power_db = None
+
+            try:
+                frames = self._p25_decoder.process_iq(base)
+                for frame in frames:
+                    if frame.tgid is not None:
+                        logger.debug(f"Channel {self.cfg.id}: P25 frame type={frame.frame_type.value} TGID={frame.tgid}")
+                    elif frame.tsbk_data:
+                        logger.debug(f"Channel {self.cfg.id}: P25 TSBK: {frame.tsbk_data}")
+            except Exception as e:
+                logger.error(f"Channel {self.cfg.id}: P25 decoding error: {e}")
+            return None  # P25 doesn't output audio yet
+
+        elif self.cfg.mode == "dmr":
+            # DMR digital voice - metrics only for now
+            if self._dmr_decoder is None:
+                self._dmr_decoder = DMRDecoder(sample_rate)
+                self._dmr_decoder.on_voice_frame = lambda slot, tgid, voice_data: self._handle_dmr_voice(slot, tgid, voice_data)
+                self._dmr_decoder.on_csbk_message = lambda msg: self._handle_dmr_csbk(msg)
+                logger.info(f"Channel {self.cfg.id}: DMR decoder initialized")
+
+            base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+            if base.size > 0:
+                power = np.mean(np.abs(base) ** 2)
+                power_db = 10.0 * np.log10(power + 1e-10)
+                self.signal_power_db = float(power_db)
+            else:
+                self.signal_power_db = None
+
+            try:
+                frames = self._dmr_decoder.process_iq(base)
+                for frame in frames:
+                    logger.debug(f"Channel {self.cfg.id}: DMR frame type={frame.frame_type.value} slot={frame.slot.value} dst={frame.dst_id}")
+            except Exception as e:
+                logger.error(f"Channel {self.cfg.id}: DMR decoding error: {e}")
+            return None  # DMR doesn't output audio yet
+
+        elif self.cfg.mode == "raw":
+            base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+            if base.size > 0:
+                power = np.mean(np.abs(base) ** 2)
+                power_db = 10.0 * np.log10(power + 1e-10)
+                self.signal_power_db = float(power_db)
+            else:
+                self.signal_power_db = None
+
+            # Convert IQ to interleaved float32
+            iq_interleaved = np.empty(base.size * 2, dtype=np.float32)
+            iq_interleaved[0::2] = base.real
+            iq_interleaved[1::2] = base.imag
+            audio = iq_interleaved
+
+        return audio
 
     def _handle_p25_voice(self, voice_data: bytes) -> None:
         """Handle decoded P25 voice frames (IMBE codec).
@@ -1042,7 +1348,7 @@ class Capture:
             # Full restart required
             await self.stop()
             self.start()
-        elif was_running:
+        elif was_running and self.device is not None:
             # Try hot reconfiguration
             try:
                 self.device.reconfigure_running(
@@ -1102,12 +1408,12 @@ class Capture:
         windowed = chunk * window
 
         # Perform FFT using scipy.fft (faster than numpy.fft)
-        try:
-            from scipy.fft import fft, fftshift, fftfreq
+        # Uses module-level import for performance (no import overhead in hot loop)
+        if SCIPY_FFT_AVAILABLE:
             fft_result = fft(windowed)
             fft_shifted = fftshift(fft_result)
             freqs = fftshift(fftfreq(fft_size, 1.0 / sample_rate))
-        except ImportError:
+        else:
             # Fallback to numpy.fft
             fft_result = np.fft.fft(windowed)
             fft_shifted = np.fft.fftshift(fft_result)
@@ -1255,7 +1561,10 @@ class Capture:
             self.release_device()
             self._schedule_restart()
             return
-        chunk = 4096
+        # Scale chunk size with sample rate for ~10ms chunks at higher rates
+        # This reduces loop overhead: at 6MHz, 4096 samples = 0.68ms (1465 chunks/sec)
+        # With scaling: 6MHz -> 60000 samples = 10ms (100 chunks/sec)
+        chunk = max(4096, self.cfg.sample_rate // 100)
         while not self._stop_event.is_set():
             try:
                 samples, _ov = self._stream.read(chunk)
@@ -1283,7 +1592,8 @@ class Capture:
             # Duplicate minimal logic of _broadcast_iq without awaiting.
             payload = pack_iq16(samples)
             for (q, loop) in list(self._iq_sinks):
-                def _try_put() -> None:
+                # Use default args to capture loop variables (avoids closure issues)
+                def _try_put(q: asyncio.Queue = q, payload: bytes = payload) -> None:
                     try:
                         q.put_nowait(payload)
                     except asyncio.QueueFull:
@@ -1360,18 +1670,32 @@ class Capture:
                                 except Exception:
                                     pass
 
-            # Dispatch to channels for audio processing (requires event loop)
+            # Dispatch to channels for audio processing
+            # DSP runs in this thread (capture thread) to avoid blocking the main event loop
+            # Only broadcast is scheduled on the event loop (lightweight queue operations)
+            samples_for_channels = samples.copy() if chans else None
             for ch in chans:
-                # Get event loop - try audio sinks first, then IQ sinks, then main loop
+                # Run DSP synchronously in this thread (CPU-intensive work)
+                # This keeps the main event loop free for HTTP requests
+                try:
+                    audio = ch.process_iq_chunk_sync(samples_for_channels, self.cfg.sample_rate)
+                except Exception as e:
+                    import sys
+                    print(f"Error in DSP processing: {e}", file=sys.stderr, flush=True)
+                    continue
+
+                # Only schedule broadcast if we have audio data
+                if audio is None:
+                    continue
+
+                # Get event loop for broadcast - try audio sinks first, then IQ sinks, then main loop
                 target_loop = None
                 try:
-                    # Get loop from first audio sink (tuple is (q, loop, format))
                     if ch._audio_sinks:
                         target_loop = next(iter(ch._audio_sinks))[1]
                 except (StopIteration, IndexError):
                     pass
 
-                # Fallback to IQ sinks if no audio sinks
                 if target_loop is None:
                     try:
                         if self._iq_sinks:
@@ -1379,20 +1703,17 @@ class Capture:
                     except Exception:
                         pass
 
-                # Fallback to main loop for metrics calculation (no subscribers)
                 if target_loop is None:
                     target_loop = self._main_loop
 
-                # Process channel if we have an event loop (always process for metrics)
+                # Schedule only the lightweight broadcast on the event loop
                 if target_loop is not None:
-                    # Capture channel reference vars for closure
-                    coro = ch.process_iq_chunk(samples.copy(), self.cfg.sample_rate)
                     try:
-                        fut = asyncio.run_coroutine_threadsafe(coro, target_loop)
-                        # Don't wait for result, just schedule it
+                        coro = ch._broadcast(audio)
+                        asyncio.run_coroutine_threadsafe(coro, target_loop)
                     except Exception as e:
                         import sys
-                        print(f"Error scheduling audio processing: {e}", file=sys.stderr, flush=True)
+                        print(f"Error scheduling broadcast: {e}", file=sys.stderr, flush=True)
 
 
 class CaptureManager:

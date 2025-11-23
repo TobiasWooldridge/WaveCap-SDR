@@ -27,6 +27,8 @@ from .models import (
     ExtendedMetricsModel,
     MetricsHistoryModel,
     MetricsHistoryPoint,
+    RDSDataModel,
+    POCSAGMessageModel,
 )
 from .state import AppState
 from .frequency_namer import get_frequency_namer
@@ -154,6 +156,23 @@ def get_state(request: Request) -> AppState:
     return state
 
 
+def _to_rds_data_model(rds_data) -> Optional[RDSDataModel]:
+    """Convert RDSData from backend to RDSDataModel for API response."""
+    if rds_data is None:
+        return None
+    data_dict = rds_data.to_dict()
+    return RDSDataModel(
+        piCode=data_dict.get("piCode"),
+        psName=data_dict.get("psName"),
+        radioText=data_dict.get("radioText"),
+        pty=data_dict.get("pty", 0),
+        ptyName=data_dict.get("ptyName", "None"),
+        ta=data_dict.get("ta", False),
+        tp=data_dict.get("tp", False),
+        ms=data_dict.get("ms", True),
+    )
+
+
 def _to_capture_model(cap) -> CaptureModel:
     """Helper to convert a Capture to CaptureModel consistently."""
     return CaptureModel(
@@ -236,10 +255,32 @@ def update_device_name(device_id: str, request: dict, _: None = Depends(auth_che
     return {"device_id": device_id, "nickname": nickname}
 
 
+def _get_stable_device_id(device_id: str) -> str:
+    """Extract a stable identifier from a SoapySDR device ID string.
+
+    Device IDs can contain volatile fields like 'tuner' that change based on
+    device availability. This function extracts driver + serial (or label) to
+    create a stable ID for deduplication.
+    """
+    driver = ""
+    serial = ""
+    label = ""
+    for part in device_id.split(","):
+        if part.startswith("driver="):
+            driver = part.split("=", 1)[1]
+        elif part.startswith("serial="):
+            serial = part.split("=", 1)[1]
+        elif part.startswith("label="):
+            label = part.split("=", 1)[1]
+    # Use serial if available, otherwise fall back to label
+    return f"{driver}:{serial}" if serial else f"{driver}:{label}"
+
+
 @router.get("/devices", response_model=List[DeviceModel], response_model_by_alias=False)
 def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)):
     result = []
-    seen_ids = set()
+    seen_ids = set()  # Full device IDs
+    seen_stable_ids = set()  # Stable IDs for deduplication
 
     # Try to enumerate devices, but don't fail if enumeration errors
     # (e.g., "Broken pipe" when devices are busy)
@@ -248,7 +289,14 @@ def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_st
         for d in devices:
             device_id = d["id"]
             device_label = d["label"]
+            stable_id = _get_stable_device_id(device_id)
+
+            # Skip if we've already seen this physical device
+            if stable_id in seen_stable_ids:
+                continue
+
             seen_ids.add(device_id)
+            seen_stable_ids.add(stable_id)
 
             # Get nickname and shorthand name
             nickname = get_device_nickname(device_id)
@@ -261,11 +309,18 @@ def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_st
         pass
 
     # Also include devices from active captures that aren't in enumeration
-    # (devices in use may not show up in driver enumeration)
+    # (devices in use may not show up in driver enumeration due to timeouts or being busy)
     for cap in state.captures.list_captures():
         device_id = cap.cfg.device_id
-        if device_id not in seen_ids and cap.device is not None:
+        stable_id = _get_stable_device_id(device_id)
+
+        # Skip if we've already seen this physical device (by stable ID)
+        if stable_id in seen_stable_ids:
+            continue
+
+        if device_id not in seen_ids:
             seen_ids.add(device_id)
+            seen_stable_ids.add(stable_id)
             # Extract driver and label from device_id string
             driver = "unknown"
             label = device_id
@@ -315,6 +370,8 @@ def list_recipes(_: None = Depends(auth_check), state: AppState = Depends(get_st
                 name=ch.name,
                 mode=ch.mode,
                 squelchDb=ch.squelch_db,
+                enablePocsag=ch.enable_pocsag,
+                pocsagBaud=ch.pocsag_baud,
             )
             for ch in recipe_cfg.channels
         ]
@@ -421,6 +478,21 @@ async def start_capture(
     cap = state.captures.get_capture(cid)
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
+
+    # Auto-stop other captures using the same device
+    # This ensures only one capture per device is running at a time
+    target_device_id = cap.requested_device_id or cap.cfg.device_id
+    if target_device_id and target_device_id != "auto":
+        # Use stable device ID to compare (ignores volatile fields like 'tuner')
+        target_stable_id = _get_stable_device_id(target_device_id)
+        for other_cap in state.captures.list_captures():
+            if other_cap.cfg.id == cid:
+                continue  # Skip the capture we're starting
+            # Check if other capture is using the same device using stable ID
+            other_stable_id = _get_stable_device_id(other_cap.cfg.device_id)
+            if other_stable_id == target_stable_id and other_cap.state in ("running", "starting"):
+                await other_cap.stop()
+
     cap.start()
     # Auto-start any existing channels so playback works immediately
     for ch in state.captures.list_channels(cid):
@@ -469,9 +541,6 @@ async def update_capture(
     except Exception as e:
         error_msg = f"[ERROR] update_capture failed: {e}\n{traceback.format_exc()}"
         print(error_msg, flush=True)
-        # Also write to temp file for debugging
-        with open("/tmp/wavecapsdr_error.log", "a") as f:
-            f.write(f"\n--- {__import__('datetime').datetime.now()} ---\n{error_msg}\n")
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 
@@ -488,9 +557,29 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
                 detail="Cannot change device while capture is running. Stop the capture first."
             )
 
-        # Validate new device exists
-        devices = state.captures.list_devices()
-        new_device = next((d for d in devices if d["id"] == req.deviceId), None)
+        # Validate new device exists (use stable ID matching to handle volatile fields like 'tuner')
+        # Build device list from enumeration + devices from active captures (same as GET /devices)
+        devices = []
+        seen_stable_ids = set()
+        try:
+            for d in state.captures.list_devices():
+                stable_id = _get_stable_device_id(d["id"])
+                if stable_id not in seen_stable_ids:
+                    seen_stable_ids.add(stable_id)
+                    devices.append(d)
+        except Exception:
+            pass  # Continue to add devices from captures below
+        # Include devices from captures (may not be in enumeration due to USB errors)
+        for cap_iter in state.captures.list_captures():
+            stable_id = _get_stable_device_id(cap_iter.cfg.device_id)
+            if stable_id not in seen_stable_ids:
+                seen_stable_ids.add(stable_id)
+                devices.append({"id": cap_iter.cfg.device_id})
+        req_stable_id = _get_stable_device_id(req.deviceId)
+        new_device = next(
+            (d for d in devices if d["id"] == req.deviceId or _get_stable_device_id(d["id"]) == req_stable_id),
+            None
+        )
         if new_device is None:
             raise HTTPException(
                 status_code=404,
@@ -500,11 +589,17 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
         # Update device in config and requested_device_id (used when opening device)
         cap.cfg.device_id = req.deviceId
         cap.requested_device_id = req.deviceId
+        # Release cached device so the new one will be opened on next start
+        cap.release_device()
         logger.info(f"Changed capture {cid} device to {req.deviceId}")
 
     # Validate changes against device constraints before applying
     devices = state.captures.list_devices()
-    device_info = next((d for d in devices if d["id"] == cap.cfg.device_id), None)
+    cap_stable_id = _get_stable_device_id(cap.cfg.device_id)
+    device_info = next(
+        (d for d in devices if d["id"] == cap.cfg.device_id or _get_stable_device_id(d["id"]) == cap_stable_id),
+        None
+    )
 
     if device_info:
         # Validate frequency range
@@ -706,6 +801,7 @@ def list_channels(
             notchFrequencies=ch.cfg.notch_frequencies,
             enableNoiseReduction=ch.cfg.enable_noise_reduction,
             noiseReductionDb=ch.cfg.noise_reduction_db,
+            rdsData=_to_rds_data_model(ch.rds_data),
         )
         for ch in chans
     ]
@@ -785,6 +881,7 @@ def create_channel(
         notchFrequencies=ch.cfg.notch_frequencies,
         enableNoiseReduction=ch.cfg.enable_noise_reduction,
         noiseReductionDb=ch.cfg.noise_reduction_db,
+        rdsData=_to_rds_data_model(ch.rds_data),
     )
 
 
@@ -840,6 +937,7 @@ def start_channel(
         notchFrequencies=ch.cfg.notch_frequencies,
         enableNoiseReduction=ch.cfg.enable_noise_reduction,
         noiseReductionDb=ch.cfg.noise_reduction_db,
+        rdsData=_to_rds_data_model(ch.rds_data),
     )
 
 
@@ -895,6 +993,7 @@ def stop_channel(
         notchFrequencies=ch.cfg.notch_frequencies,
         enableNoiseReduction=ch.cfg.enable_noise_reduction,
         noiseReductionDb=ch.cfg.noise_reduction_db,
+        rdsData=_to_rds_data_model(ch.rds_data),
     )
 
 
@@ -949,6 +1048,7 @@ def get_channel(
         notchFrequencies=ch.cfg.notch_frequencies,
         enableNoiseReduction=ch.cfg.enable_noise_reduction,
         noiseReductionDb=ch.cfg.noise_reduction_db,
+        rdsData=_to_rds_data_model(ch.rds_data),
     )
 
 
@@ -1076,6 +1176,7 @@ def update_channel(
         notchFrequencies=ch.cfg.notch_frequencies,
         enableNoiseReduction=ch.cfg.enable_noise_reduction,
         noiseReductionDb=ch.cfg.noise_reduction_db,
+        rdsData=_to_rds_data_model(ch.rds_data),
     )
 
 
@@ -1217,6 +1318,44 @@ def get_channel_metrics_history(
         points=[current_point],
         durationSeconds=float(seconds),
     )
+
+
+@router.get("/channels/{chan_id}/decode/pocsag", response_model=List[POCSAGMessageModel])
+def get_channel_pocsag_messages(
+    chan_id: str,
+    limit: int = 50,
+    since: Optional[float] = None,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Get decoded POCSAG pager messages from an NBFM channel.
+
+    Args:
+        chan_id: Channel ID
+        limit: Maximum number of messages to return (default 50)
+        since: Only return messages after this Unix timestamp (for polling)
+
+    Returns:
+        List of decoded POCSAG messages (most recent first)
+    """
+    ch = state.captures.get_channel(chan_id)
+    if ch is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    # Get messages from the channel's POCSAG decoder
+    messages = ch.get_pocsag_messages(limit=limit, since_timestamp=since)
+
+    return [
+        POCSAGMessageModel(
+            address=msg["address"],
+            function=msg["function"],
+            messageType=msg["messageType"],
+            message=msg["message"],
+            timestamp=msg["timestamp"],
+            baudRate=msg["baudRate"],
+        )
+        for msg in messages
+    ]
 
 
 @router.websocket("/stream/captures/{cid}/iq")
@@ -1627,7 +1766,9 @@ def create_scanner(
     # Set up update callback to tune the capture
     async def update_frequency(freq_hz: float):
         try:
-            state.captures.update_capture(req.captureId, center_hz=freq_hz)
+            cap = state.captures.get_capture(req.captureId)
+            if cap:
+                await cap.reconfigure(center_hz=freq_hz)
         except Exception as e:
             logger.error(f"Scanner failed to update frequency: {e}")
 
