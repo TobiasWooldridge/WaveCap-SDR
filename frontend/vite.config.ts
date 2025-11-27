@@ -34,4 +34,8 @@ export default defineConfig({
     minify: false,
     cssMinify: false,
   },
+  // Use React development build for full error messages (disable for production)
+  define: {
+    "process.env.NODE_ENV": JSON.stringify("development"),
+  },
 });
