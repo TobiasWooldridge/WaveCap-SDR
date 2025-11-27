@@ -60,3 +60,12 @@ ignore_missing_imports = true
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+markers = [
+    "hardware: tests that require real SDR hardware to be connected",
+]
+addopts = "-v --tb=short"

@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Wand2, Radio } from "lucide-react";
 import { useRecipes } from "../hooks/useRecipes";
 import { useDevices } from "../hooks/useDevices";
-import { useCreateCapture } from "../hooks/useCaptures";
+import { useCreateCapture, useCaptures } from "../hooks/useCaptures";
 import { useCreateChannel } from "../hooks/useChannels";
 import type { Recipe } from "../types";
 import { getDeviceDisplayName } from "../utils/device";
@@ -16,22 +16,45 @@ interface CreateCaptureWizardProps {
 }
 
 export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardProps) {
-  const { data: recipes, isLoading: recipesLoading } = useRecipes();
   const { data: devices, isLoading: devicesLoading } = useDevices();
+  const { data: captures } = useCaptures();
   const createCapture = useCreateCapture();
   const createChannel = useCreateChannel();
 
-  const [step, setStep] = useState<"select-recipe" | "configure">("select-recipe");
+  const [step, setStep] = useState<"select-device" | "select-recipe" | "configure">("select-device");
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [customFrequency, setCustomFrequency] = useState<number>(100);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
 
-  // Default to first device when devices become available
+  // Get set of device IDs currently in use by running/starting captures
+  const usedDeviceIds = useMemo(() => {
+    if (!captures) return new Set<string>();
+    return new Set(
+      captures
+        .filter((c) => c.state === "running" || c.state === "starting")
+        .map((c) => c.deviceId)
+    );
+  }, [captures]);
+
+  // Filter to only available (not in use) devices
+  const availableDevices = useMemo(() => {
+    if (!devices) return [];
+    return devices.filter((d) => !usedDeviceIds.has(d.id));
+  }, [devices, usedDeviceIds]);
+
+  // Default to first available device when devices become available
   useEffect(() => {
-    if (devices?.length && !selectedDeviceId) {
-      setSelectedDeviceId(devices[0].id);
+    if (availableDevices.length && !selectedDeviceId) {
+      setSelectedDeviceId(availableDevices[0].id);
     }
-  }, [devices, selectedDeviceId]);
+    // If selected device becomes unavailable, clear selection
+    if (selectedDeviceId && availableDevices.length && !availableDevices.find(d => d.id === selectedDeviceId)) {
+      setSelectedDeviceId(availableDevices[0].id);
+    }
+  }, [availableDevices, selectedDeviceId]);
+
+  // Fetch recipes adjusted for selected device's capabilities
+  const { data: recipes, isLoading: recipesLoading } = useRecipes(selectedDeviceId || undefined);
 
   // Group recipes by category
   const recipesByCategory = recipes?.reduce((acc, recipe) => {
@@ -96,7 +119,9 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
             <Flex align="center" gap={2}>
               <Wand2 size={24} />
               <h5 className="modal-title">
-                {step === "select-recipe" ? "Choose a Recipe" : `Configure ${selectedRecipe?.name}`}
+                {step === "select-device" && "Select SDR Device"}
+                {step === "select-recipe" && "Choose a Recipe"}
+                {step === "configure" && `Configure ${selectedRecipe?.name}`}
               </h5>
             </Flex>
             <button type="button" className="btn-close" onClick={onClose} />
@@ -108,8 +133,53 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
               <Flex justify="center" align="center" className="py-5">
                 <Spinner />
               </Flex>
+            ) : step === "select-device" ? (
+              /* Step 1: Device Selection */
+              <Flex direction="column" gap={3}>
+                {availableDevices.length === 0 ? (
+                  <div className="alert alert-warning mb-0">
+                    <strong>No devices available.</strong>
+                    {devices && devices.length > 0 ? (
+                      <span> All SDR devices are currently in use by other captures.</span>
+                    ) : (
+                      <span> No SDR devices detected.</span>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-muted mb-2">
+                      Select which SDR radio to use for this capture.
+                      {usedDeviceIds.size > 0 && (
+                        <span className="ms-1">({usedDeviceIds.size} device{usedDeviceIds.size > 1 ? "s" : ""} already in use)</span>
+                      )}
+                    </p>
+                    <div className="list-group">
+                      {availableDevices.map((device) => (
+                        <button
+                          key={device.id}
+                          type="button"
+                          className={`list-group-item list-group-item-action d-flex justify-content-between align-items-center ${
+                            selectedDeviceId === device.id ? "active" : ""
+                          }`}
+                          onClick={() => setSelectedDeviceId(device.id)}
+                        >
+                          <div>
+                            <div className="fw-semibold">{getDeviceDisplayName(device)}</div>
+                            <small className={selectedDeviceId === device.id ? "text-white-50" : "text-muted"}>
+                              {device.driver} • {(device.freqMinHz / 1e6).toFixed(0)}-{(device.freqMaxHz / 1e6).toFixed(0)} MHz
+                            </small>
+                          </div>
+                          {selectedDeviceId === device.id && (
+                            <span className="badge bg-light text-primary">Selected</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </Flex>
             ) : step === "select-recipe" ? (
-              /* Recipe Selection */
+              /* Step 2: Recipe Selection */
               <Flex direction="column" gap={4}>
                 {Object.keys(recipesByCategory).length === 0 ? (
                   <div className="text-center text-muted py-4">
@@ -158,24 +228,10 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
                 <div className="alert alert-info">
                   <strong>{selectedRecipe?.name}</strong>
                   <p className="mb-0 small">{selectedRecipe?.description}</p>
+                  <div className="small mt-1">
+                    <strong>Device:</strong> {devices?.find(d => d.id === selectedDeviceId)?.label || selectedDeviceId}
+                  </div>
                 </div>
-
-                {/* Device Selection */}
-                <Flex direction="column" gap={2}>
-                  <label className="form-label fw-semibold">SDR Device</label>
-                  <select
-                    className="form-select"
-                    value={selectedDeviceId}
-                    onChange={(e) => setSelectedDeviceId(e.target.value)}
-                    required
-                  >
-                    {devices?.map((device) => (
-                      <option key={device.id} value={device.id}>
-                        {getDeviceDisplayName(device)}
-                      </option>
-                    ))}
-                  </select>
-                </Flex>
 
                 {/* Frequency Input (if allowed) */}
                 {selectedRecipe?.allowFrequencyInput && (
@@ -223,14 +279,33 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
 
           {/* Footer */}
           <div className="modal-footer">
+            {/* Back button */}
+            {step === "select-recipe" && (
+              <Button use="secondary" size="sm" onClick={() => setStep("select-device")}>
+                Back
+              </Button>
+            )}
             {step === "configure" && (
               <Button use="secondary" size="sm" onClick={() => setStep("select-recipe")}>
                 Back
               </Button>
             )}
+
             <Button use="secondary" size="sm" onClick={onClose}>
               Cancel
             </Button>
+
+            {/* Next/Create button */}
+            {step === "select-device" && (
+              <Button
+                use="primary"
+                size="sm"
+                onClick={() => setStep("select-recipe")}
+                disabled={!selectedDeviceId || availableDevices.length === 0}
+              >
+                Next
+              </Button>
+            )}
             {step === "configure" && (
               <Button
                 use="success"

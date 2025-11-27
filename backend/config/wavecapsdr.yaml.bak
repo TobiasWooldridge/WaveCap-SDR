@@ -22,19 +22,19 @@ presets:
     sample_rate: 1000000
     offsets:
     - 0.0
-    gain: 14.6
-    bandwidth: 300000.0
+    gain: 21.1
+    bandwidth: 802000.0
     ppm: 0.0
     antenna: Antenna B
   seattle_aircraft:
-    center_hz: 121000000
+    center_hz: 121500000
     sample_rate: 6000000
     offsets:
     - -500000
     - 0
     - 500000
     - 700000
-    gain: 40.0
+    gain: 30.0
     bandwidth: 1800000.0
     ppm: 0.0
     antenna: Antenna A
@@ -561,10 +561,10 @@ captures:
 - preset: kexp
   device_id: 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
     V4,serial=00000001,tuner=Rafael Micro R828D'
-- preset: seattle_aircraft
+- preset: kexp
   device_id: driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070
 device_names:
   ? 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
     V4,serial=00000001,tuner=Rafael Micro R828D'
   : RTLSDR
-  driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070: SDRPlay
+  driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070: RSPdx-R2

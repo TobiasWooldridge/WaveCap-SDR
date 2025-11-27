@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { AlertTriangle, Droplets, RefreshCw } from "lucide-react";
 import { useErrorContextOptional } from "../context/ErrorContext";
 
@@ -5,15 +6,41 @@ interface Props {
   captureId?: string;
 }
 
+// Track if CSS has been injected
+let cssInjected = false;
+
 export function ErrorStatusBar({ captureId }: Props) {
   const errorCtx = useErrorContextOptional();
 
-  // Don't render if not within ErrorProvider or no connection
-  if (!errorCtx || !errorCtx.isConnected) {
+  // Inject CSS once on first render
+  useEffect(() => {
+    if (cssInjected) return;
+    cssInjected = true;
+
+    const styleSheet = document.createElement("style");
+    styleSheet.textContent = `
+      .spin-animation {
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(styleSheet);
+  }, []);
+
+  // Don't render if not within ErrorProvider
+  if (!errorCtx) {
     return null;
   }
 
-  const { stats, recentErrors } = errorCtx;
+  const { stats, recentErrors, isConnected } = errorCtx;
+
+  // Don't show anything if not connected yet
+  if (!isConnected) {
+    return null;
+  }
 
   const overflowRate = stats.iq_overflow?.rate ?? 0;
   const dropRate = stats.audio_drop?.rate ?? 0;
@@ -62,16 +89,3 @@ export function ErrorStatusBar({ captureId }: Props) {
     </div>
   );
 }
-
-// Add CSS for spin animation
-const styleSheet = document.createElement("style");
-styleSheet.textContent = `
-  .spin-animation {
-    animation: spin 1s linear infinite;
-  }
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
-`;
-document.head.appendChild(styleSheet);

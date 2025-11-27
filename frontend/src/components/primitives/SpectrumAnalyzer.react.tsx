@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronUp, ChevronDown, Minus, Plus } from "lucide-react";
 import type { Capture, Channel } from "../../types";
 import { useSpectrumData } from "../../hooks/useSpectrumData";
+import { getCaptureStatusMessage, drawCaptureStatusOnCanvas } from "../../utils/captureStatus";
 
 export interface SpectrumAnalyzerProps {
   capture: Capture;
@@ -134,52 +135,10 @@ export default function SpectrumAnalyzer({
     ctx.fillStyle = "#f8f9fa";
     ctx.fillRect(0, 0, width, height);
 
-    // If no spectrum data (capture stopped), show graceful message
+    // If no spectrum data, show appropriate message based on capture state
     if (!spectrumData) {
-      // Draw muted grid
-      ctx.strokeStyle = "#e9ecef";
-      ctx.lineWidth = 1;
-
-      // Horizontal grid lines
-      for (let i = 0; i <= 4; i++) {
-        const y = (i / 4) * height;
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(width, y);
-        ctx.stroke();
-      }
-
-      // Vertical grid lines
-      for (let i = 0; i <= 8; i++) {
-        const x = (i / 8) * width;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, height);
-        ctx.stroke();
-      }
-
-      // Draw center line in very muted color
-      const centerX = width / 2;
-      ctx.strokeStyle = "#dee2e6";
-      ctx.lineWidth = 1;
-      ctx.setLineDash([5, 5]);
-      ctx.beginPath();
-      ctx.moveTo(centerX, 0);
-      ctx.lineTo(centerX, height);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Draw "Capture Stopped" message
-      ctx.fillStyle = "#6c757d";
-      ctx.font = "14px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("Capture Stopped", width / 2, height / 2 - 10);
-
-      ctx.font = "12px sans-serif";
-      ctx.fillStyle = "#adb5bd";
-      ctx.fillText("Click Start to begin capturing spectrum", width / 2, height / 2 + 10);
-
+      const status = getCaptureStatusMessage(capture, isConnected);
+      drawCaptureStatusOnCanvas(ctx, width, height, status);
       return;
     }
 

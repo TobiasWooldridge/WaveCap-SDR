@@ -10487,6 +10487,28 @@ const Cpu = createLucideIcon("Cpu", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const Droplets = createLucideIcon("Droplets", [
+  [
+    "path",
+    {
+      d: "M7 16.3c2.2 0 4-1.83 4-4.05 0-1.16-.57-2.26-1.71-3.19S7.29 6.75 7 5.3c-.29 1.45-1.14 2.84-2.29 3.76S3 11.1 3 12.25c0 2.22 1.8 4.05 4 4.05z",
+      key: "1ptgy4"
+    }
+  ],
+  [
+    "path",
+    {
+      d: "M12.56 6.6A10.97 10.97 0 0 0 14 3.02c.5 2.5 2 4.9 4 6.5s3 3.5 3 5.5a6.98 6.98 0 0 1-11.91 4.97",
+      key: "1sl1rz"
+    }
+  ]
+]);
+/**
+ * @license lucide-react v0.294.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const Info = createLucideIcon("Info", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "M12 16v-4", key: "1dtifu" }],
@@ -10548,6 +10570,28 @@ const Radio = createLucideIcon("Radio", [
   ["circle", { cx: "12", cy: "12", r: "2", key: "1c9p78" }],
   ["path", { d: "M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5", key: "1j5fej" }],
   ["path", { d: "M19.1 4.9C23 8.8 23 15.1 19.1 19", key: "10b0cb" }]
+]);
+/**
+ * @license lucide-react v0.294.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const RefreshCw = createLucideIcon("RefreshCw", [
+  ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
+  ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
+  ["path", { d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16", key: "3uifl3" }],
+  ["path", { d: "M8 16H3v5", key: "1cv678" }]
+]);
+/**
+ * @license lucide-react v0.294.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const RotateCcw = createLucideIcon("RotateCcw", [
+  ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
+  ["path", { d: "M3 3v5h5", key: "1xhq8a" }]
 ]);
 /**
  * @license lucide-react v0.294.0 - ISC
@@ -10959,6 +11003,16 @@ async function stopCapture(captureId) {
   }
   return response.json();
 }
+async function restartCapture(captureId) {
+  const response = await fetch(`/api/v1/captures/${captureId}/restart`, {
+    method: "POST"
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || "Failed to restart capture");
+  }
+  return response.json();
+}
 async function deleteCapture(captureId) {
   const response = await fetch(`/api/v1/captures/${captureId}`, {
     method: "DELETE"
@@ -11006,6 +11060,15 @@ function useStopCapture() {
   const queryClient2 = useQueryClient();
   return useMutation({
     mutationFn: (captureId) => stopCapture(captureId),
+    onSuccess: () => {
+      queryClient2.invalidateQueries({ queryKey: ["captures"] });
+    }
+  });
+}
+function useRestartCapture() {
+  const queryClient2 = useQueryClient();
+  return useMutation({
+    mutationFn: (captureId) => restartCapture(captureId),
     onSuccess: () => {
       queryClient2.invalidateQueries({ queryKey: ["captures"] });
     }
@@ -12972,6 +13035,231 @@ function CreateScannerWizard({ captureId, onCancel, onCreate }) {
     /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { use: "primary", onClick: handleCreate, children: "Create" })
   ] });
 }
+const MAX_RECENT_ERRORS = 50;
+const RECONNECT_DELAY_MS = 5e3;
+const MAX_RECONNECT_ATTEMPTS = 10;
+function useHealthStream() {
+  const [state, setState] = reactExports.useState({
+    isConnected: false,
+    stats: {},
+    recentErrors: [],
+    hasActiveErrors: false
+  });
+  const wsRef = reactExports.useRef(null);
+  const errorsRef = reactExports.useRef([]);
+  const reconnectTimeoutRef = reactExports.useRef(null);
+  const reconnectAttemptsRef = reactExports.useRef(0);
+  const mountedRef = reactExports.useRef(true);
+  reactExports.useEffect(() => {
+    mountedRef.current = true;
+    const connect = () => {
+      var _a2, _b2;
+      if (!mountedRef.current)
+        return;
+      if (((_a2 = wsRef.current) == null ? void 0 : _a2.readyState) === WebSocket.OPEN || ((_b2 = wsRef.current) == null ? void 0 : _b2.readyState) === WebSocket.CONNECTING) {
+        return;
+      }
+      if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+        return;
+      }
+      try {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const ws = new WebSocket(`${protocol}//${window.location.host}/api/v1/stream/health`);
+        wsRef.current = ws;
+        ws.onopen = () => {
+          if (!mountedRef.current)
+            return;
+          reconnectAttemptsRef.current = 0;
+          setState((s) => ({ ...s, isConnected: true }));
+        };
+        ws.onclose = () => {
+          if (!mountedRef.current)
+            return;
+          wsRef.current = null;
+          setState((s) => ({ ...s, isConnected: false }));
+          reconnectAttemptsRef.current++;
+          if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+            const delay = RECONNECT_DELAY_MS * Math.min(reconnectAttemptsRef.current, 3);
+            reconnectTimeoutRef.current = setTimeout(connect, delay);
+          }
+        };
+        ws.onerror = () => {
+        };
+        ws.onmessage = (event) => {
+          if (!mountedRef.current)
+            return;
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === "error") {
+              errorsRef.current = [msg.event, ...errorsRef.current.slice(0, MAX_RECENT_ERRORS - 1)];
+              setState((s) => ({
+                ...s,
+                recentErrors: [...errorsRef.current],
+                hasActiveErrors: true
+              }));
+            } else if (msg.type === "stats") {
+              const hasActiveErrors = Object.values(msg.data).some((stat) => stat && stat.rate > 0);
+              setState((s) => ({
+                ...s,
+                stats: { ...msg.data },
+                hasActiveErrors
+              }));
+            }
+          } catch {
+          }
+        };
+      } catch {
+        reconnectAttemptsRef.current++;
+        if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+          reconnectTimeoutRef.current = setTimeout(connect, RECONNECT_DELAY_MS);
+        }
+      }
+    };
+    const initialTimeout = setTimeout(connect, 100);
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(initialTimeout);
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.onclose = null;
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, []);
+  return state;
+}
+const ErrorContext = reactExports.createContext(null);
+function ErrorProvider({ children }) {
+  const health = useHealthStream();
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorContext.Provider, { value: health, children });
+}
+function useErrorContextOptional() {
+  return reactExports.useContext(ErrorContext);
+}
+let cssInjected = false;
+function ErrorStatusBar({ captureId }) {
+  var _a2, _b2, _c2, _d2;
+  const errorCtx = useErrorContextOptional();
+  reactExports.useEffect(() => {
+    if (cssInjected)
+      return;
+    cssInjected = true;
+    const styleSheet = document.createElement("style");
+    styleSheet.textContent = `
+      .spin-animation {
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(styleSheet);
+  }, []);
+  if (!errorCtx) {
+    return null;
+  }
+  const { stats, recentErrors, isConnected } = errorCtx;
+  if (!isConnected) {
+    return null;
+  }
+  const overflowRate = ((_a2 = stats.iq_overflow) == null ? void 0 : _a2.rate) ?? 0;
+  const dropRate = ((_b2 = stats.audio_drop) == null ? void 0 : _b2.rate) ?? 0;
+  const hasOverflows = overflowRate > 0;
+  const hasDrops = dropRate > 0;
+  const retryEvent = recentErrors.find(
+    (e) => e.type === "device_retry" && (!captureId || e.capture_id === captureId)
+  );
+  if (!hasOverflows && !hasDrops && !retryEvent) {
+    return null;
+  }
+  const retryAttempt = (_c2 = retryEvent == null ? void 0 : retryEvent.details) == null ? void 0 : _c2.attempt;
+  const retryMaxAttempts = (_d2 = retryEvent == null ? void 0 : retryEvent.details) == null ? void 0 : _d2.max_attempts;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      className: "alert alert-warning py-2 px-3 mb-2 d-flex align-items-center flex-wrap gap-3",
+      role: "alert",
+      style: { fontSize: "0.875rem" },
+      children: [
+        hasOverflows && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "d-flex align-items-center gap-1", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(AlertTriangle, { size: 16 }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "IQ Overflow:" }),
+          " ",
+          overflowRate.toFixed(1),
+          "/s"
+        ] }),
+        hasDrops && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "d-flex align-items-center gap-1", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Droplets, { size: 16 }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Audio Drops:" }),
+          " ",
+          dropRate.toFixed(1),
+          "/s"
+        ] }),
+        retryEvent && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "d-flex align-items-center gap-1", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(RefreshCw, { size: 16, className: "spin-animation" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Retrying:" }),
+          " ",
+          retryAttempt ?? "?",
+          "/",
+          retryMaxAttempts ?? "?"
+        ] })
+      ]
+    }
+  );
+}
+const icons = {
+  overflow: AlertTriangle,
+  drops: Droplets,
+  retry: RefreshCw
+};
+const labels = {
+  overflow: "IQ Overflow",
+  drops: "Audio Drops",
+  retry: "Retrying"
+};
+function ErrorIndicator({
+  type,
+  rate = 0,
+  count = 0,
+  active = false,
+  className = ""
+}) {
+  if (!active && rate === 0 && count === 0) {
+    return null;
+  }
+  const Icon = icons[type];
+  const isWarning = rate > 0 || active;
+  const label = labels[type];
+  let valueText = "";
+  if (rate > 0) {
+    valueText = ` ${rate.toFixed(0)}/s`;
+  } else if (count > 0) {
+    valueText = ` ${count}`;
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "span",
+    {
+      className: `badge ${isWarning ? "bg-warning text-dark" : "bg-secondary"} ${className}`,
+      title: `${label}: ${rate > 0 ? `${rate.toFixed(1)}/s` : count > 0 ? count : "active"}`,
+      style: { fontSize: "0.7rem" },
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          Icon,
+          {
+            size: 12,
+            className: type === "retry" && active ? "spin-animation" : "",
+            style: { marginRight: valueText ? "0.25rem" : 0 }
+          }
+        ),
+        valueText
+      ]
+    }
+  );
+}
 const gainUnits = [
   {
     name: "dB",
@@ -13044,6 +13332,7 @@ const RadioTuner = ({ capture, device }) => {
   const updateMutation = useUpdateCapture();
   const startMutation = useStartCapture();
   const stopMutation = useStopCapture();
+  const restartMutation = useRestartCapture();
   const { data: channels } = useChannels(capture.id);
   const { getMemoryBank } = useMemoryBanks();
   const createChannel2 = useCreateChannel();
@@ -13169,6 +13458,8 @@ const RadioTuner = ({ capture, device }) => {
   const isStarting = capture.state === "starting";
   const isStopping = capture.state === "stopping";
   const isFailed = capture.state === "failed";
+  const isError = capture.state === "error";
+  const hasError = isFailed || isError;
   const isTransitioning = isStarting || isStopping;
   const isFreqPending = localFreq !== capture.centerHz || debouncedFreq !== capture.centerHz;
   const isGainPending = localGain !== (capture.gain ?? 0) || debouncedGain !== (capture.gain ?? 0);
@@ -13193,7 +13484,7 @@ const RadioTuner = ({ capture, device }) => {
         " MHz"
       ] }),
       updateMutation.isPending && /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { size: "sm" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `badge ms-auto ${isFailed ? "bg-danger" : isRunning ? "bg-success" : isTransitioning ? "bg-warning text-dark" : "bg-secondary"}`, style: { fontSize: "0.7rem" }, children: capture.state.toUpperCase() })
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `badge ms-auto ${hasError ? "bg-danger" : isRunning ? "bg-success" : isTransitioning ? "bg-warning text-dark" : "bg-secondary"}`, style: { fontSize: "0.7rem" }, children: capture.state.toUpperCase() })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card shadow-sm", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card-header bg-body-tertiary py-1 px-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
@@ -13216,18 +13507,36 @@ const RadioTuner = ({ capture, device }) => {
             ),
             isRunning && /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-warning d-block mt-1", style: { fontSize: "0.7rem" }, children: "Stop to change" })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-12 col-md-3", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
             Button,
             {
               use: isRunning || isStopping ? "danger" : isStarting ? "warning" : "success",
               size: "sm",
               onClick: handleStartStop,
-              disabled: startMutation.isPending || stopMutation.isPending || isTransitioning,
+              disabled: startMutation.isPending || stopMutation.isPending || isTransitioning || restartMutation.isPending,
               style: { width: "100%" },
               children: isStarting ? "Starting..." : isStopping ? "Stopping..." : isRunning ? "Stop" : "Start"
             }
           ) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-12 col-md-3", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              use: "warning",
+              size: "sm",
+              onClick: () => restartMutation.mutate(capture.id),
+              disabled: restartMutation.isPending || isTransitioning || stopMutation.isPending || startMutation.isPending,
+              style: { width: "100%" },
+              title: "Restart the capture (stop then start)",
+              children: restartMutation.isPending ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, { size: "sm" }),
+                " Restarting"
+              ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx(RotateCcw, { size: 14 }),
+                " Restart"
+              ] })
+            }
+          ) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-12 col-md-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
             BookmarkManager,
             {
               currentFrequency: localFreq,
@@ -13238,11 +13547,33 @@ const RadioTuner = ({ capture, device }) => {
             }
           ) })
         ] }),
-        isFailed && capture.errorMessage && /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "alert alert-danger mb-0 py-1 px-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Error:" }),
-          " ",
-          capture.errorMessage
-        ] }) })
+        hasError && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "alert alert-danger mb-0 py-1 px-2 d-flex align-items-center justify-content-between", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: isError ? "Device Error:" : "Error:" }),
+            " ",
+            capture.errorMessage || (isError ? "No IQ samples received - device may be stuck" : "Unknown error")
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              use: "warning",
+              size: "sm",
+              onClick: () => restartMutation.mutate(capture.id),
+              disabled: restartMutation.isPending,
+              style: { marginLeft: "0.5rem" },
+              children: restartMutation.isPending ? "Restarting..." : "Restart"
+            }
+          )
+        ] }),
+        isRunning && /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorStatusBar, { captureId: capture.id }),
+        isRunning && capture.iqOverflowRate > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center gap-2 mt-1", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorIndicator, { type: "overflow", rate: capture.iqOverflowRate, active: true }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { className: "text-warning", children: [
+            "IQ data loss detected (",
+            capture.iqOverflowCount,
+            " overflows)"
+          ] })
+        ] })
       ] }) })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card shadow-sm", children: [
@@ -15371,33 +15702,51 @@ const ChannelManager = ({ capture }) => {
   ] });
 };
 const API_BASE = "/api/v1";
-async function fetchRecipes() {
-  const response = await fetch(`${API_BASE}/recipes`);
+async function fetchRecipes(deviceId) {
+  const url = deviceId ? `${API_BASE}/recipes?device_id=${encodeURIComponent(deviceId)}` : `${API_BASE}/recipes`;
+  const response = await fetch(url);
   if (!response.ok) {
     throw new Error("Failed to fetch recipes");
   }
   return response.json();
 }
-function useRecipes() {
+function useRecipes(deviceId) {
   return useQuery({
-    queryKey: ["recipes"],
-    queryFn: fetchRecipes
+    queryKey: ["recipes", deviceId],
+    queryFn: () => fetchRecipes(deviceId)
   });
 }
 function CreateCaptureWizard({ onClose, onSuccess }) {
-  const { data: recipes, isLoading: recipesLoading } = useRecipes();
+  var _a2;
   const { data: devices, isLoading: devicesLoading } = useDevices();
+  const { data: captures } = useCaptures();
   const createCapture2 = useCreateCapture();
   const createChannel2 = useCreateChannel();
-  const [step, setStep] = reactExports.useState("select-recipe");
+  const [step, setStep] = reactExports.useState("select-device");
   const [selectedRecipe, setSelectedRecipe] = reactExports.useState(null);
   const [customFrequency, setCustomFrequency] = reactExports.useState(100);
   const [selectedDeviceId, setSelectedDeviceId] = reactExports.useState("");
+  const usedDeviceIds = reactExports.useMemo(() => {
+    if (!captures)
+      return /* @__PURE__ */ new Set();
+    return new Set(
+      captures.filter((c) => c.state === "running" || c.state === "starting").map((c) => c.deviceId)
+    );
+  }, [captures]);
+  const availableDevices = reactExports.useMemo(() => {
+    if (!devices)
+      return [];
+    return devices.filter((d) => !usedDeviceIds.has(d.id));
+  }, [devices, usedDeviceIds]);
   reactExports.useEffect(() => {
-    if ((devices == null ? void 0 : devices.length) && !selectedDeviceId) {
-      setSelectedDeviceId(devices[0].id);
+    if (availableDevices.length && !selectedDeviceId) {
+      setSelectedDeviceId(availableDevices[0].id);
     }
-  }, [devices, selectedDeviceId]);
+    if (selectedDeviceId && availableDevices.length && !availableDevices.find((d) => d.id === selectedDeviceId)) {
+      setSelectedDeviceId(availableDevices[0].id);
+    }
+  }, [availableDevices, selectedDeviceId]);
+  const { data: recipes, isLoading: recipesLoading } = useRecipes(selectedDeviceId || void 0);
   const recipesByCategory = (recipes == null ? void 0 : recipes.reduce((acc, recipe) => {
     if (!acc[recipe.category]) {
       acc[recipe.category] = [];
@@ -15444,12 +15793,56 @@ function CreateCaptureWizard({ onClose, onSuccess }) {
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-header", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 2, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(Wand2, { size: 24 }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("h5", { className: "modal-title", children: step === "select-recipe" ? "Choose a Recipe" : `Configure ${selectedRecipe == null ? void 0 : selectedRecipe.name}` })
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("h5", { className: "modal-title", children: [
+          step === "select-device" && "Select SDR Device",
+          step === "select-recipe" && "Choose a Recipe",
+          step === "configure" && `Configure ${selectedRecipe == null ? void 0 : selectedRecipe.name}`
+        ] })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", className: "btn-close", onClick: onClose })
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "modal-body", style: { maxHeight: "70vh", overflowY: "auto" }, children: isLoading ? /* @__PURE__ */ jsxRuntimeExports.jsx(Flex, { justify: "center", align: "center", className: "py-5", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, {}) }) : step === "select-recipe" ? (
-      /* Recipe Selection */
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "modal-body", style: { maxHeight: "70vh", overflowY: "auto" }, children: isLoading ? /* @__PURE__ */ jsxRuntimeExports.jsx(Flex, { justify: "center", align: "center", className: "py-5", children: /* @__PURE__ */ jsxRuntimeExports.jsx(Spinner, {}) }) : step === "select-device" ? (
+      /* Step 1: Device Selection */
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Flex, { direction: "column", gap: 3, children: availableDevices.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "alert alert-warning mb-0", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "No devices available." }),
+        devices && devices.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: " All SDR devices are currently in use by other captures." }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: " No SDR devices detected." })
+      ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "text-muted mb-2", children: [
+          "Select which SDR radio to use for this capture.",
+          usedDeviceIds.size > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "ms-1", children: [
+            "(",
+            usedDeviceIds.size,
+            " device",
+            usedDeviceIds.size > 1 ? "s" : "",
+            " already in use)"
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "list-group", children: availableDevices.map((device) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "button",
+          {
+            type: "button",
+            className: `list-group-item list-group-item-action d-flex justify-content-between align-items-center ${selectedDeviceId === device.id ? "active" : ""}`,
+            onClick: () => setSelectedDeviceId(device.id),
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "fw-semibold", children: getDeviceDisplayName(device) }),
+                /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { className: selectedDeviceId === device.id ? "text-white-50" : "text-muted", children: [
+                  device.driver,
+                  " • ",
+                  (device.freqMinHz / 1e6).toFixed(0),
+                  "-",
+                  (device.freqMaxHz / 1e6).toFixed(0),
+                  " MHz"
+                ] })
+              ] }),
+              selectedDeviceId === device.id && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-light text-primary", children: "Selected" })
+            ]
+          },
+          device.id
+        )) })
+      ] }) })
+    ) : step === "select-recipe" ? (
+      /* Step 2: Recipe Selection */
       /* @__PURE__ */ jsxRuntimeExports.jsx(Flex, { direction: "column", gap: 4, children: Object.keys(recipesByCategory).length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-center text-muted py-4", children: "No recipes available. Check your configuration." }) : Object.entries(recipesByCategory).map(([category, categoryRecipes]) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("h6", { className: "text-muted mb-3", children: category }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "row g-3", children: categoryRecipes.map((recipe) => /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-md-6", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -15478,20 +15871,12 @@ function CreateCaptureWizard({ onClose, onSuccess }) {
       /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 4, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "alert alert-info", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: selectedRecipe == null ? void 0 : selectedRecipe.name }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "mb-0 small", children: selectedRecipe == null ? void 0 : selectedRecipe.description })
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-label fw-semibold", children: "SDR Device" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "select",
-            {
-              className: "form-select",
-              value: selectedDeviceId,
-              onChange: (e) => setSelectedDeviceId(e.target.value),
-              required: true,
-              children: devices == null ? void 0 : devices.map((device) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: device.id, children: getDeviceDisplayName(device) }, device.id))
-            }
-          )
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "mb-0 small", children: selectedRecipe == null ? void 0 : selectedRecipe.description }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "small mt-1", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Device:" }),
+            " ",
+            ((_a2 = devices == null ? void 0 : devices.find((d) => d.id === selectedDeviceId)) == null ? void 0 : _a2.label) || selectedDeviceId
+          ] })
         ] }),
         (selectedRecipe == null ? void 0 : selectedRecipe.allowFrequencyInput) && /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-label fw-semibold", children: selectedRecipe.frequencyLabel || "Frequency (MHz)" }),
@@ -15527,8 +15912,19 @@ function CreateCaptureWizard({ onClose, onSuccess }) {
       ] })
     ) }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-footer", children: [
+      step === "select-recipe" && /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { use: "secondary", size: "sm", onClick: () => setStep("select-device"), children: "Back" }),
       step === "configure" && /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { use: "secondary", size: "sm", onClick: () => setStep("select-recipe"), children: "Back" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { use: "secondary", size: "sm", onClick: onClose, children: "Cancel" }),
+      step === "select-device" && /* @__PURE__ */ jsxRuntimeExports.jsx(
+        Button,
+        {
+          use: "primary",
+          size: "sm",
+          onClick: () => setStep("select-recipe"),
+          disabled: !selectedDeviceId || availableDevices.length === 0,
+          children: "Next"
+        }
+      ),
       step === "configure" && /* @__PURE__ */ jsxRuntimeExports.jsx(
         Button,
         {
@@ -15700,6 +16096,90 @@ function useSpectrumData(capture, isPaused = false) {
   }, [capture.id, capture.state, isIdle, isPaused]);
   return { spectrumData, isConnected, isIdle };
 }
+function getCaptureStatusMessage(capture, isConnected) {
+  if (capture.state === "running") {
+    return {
+      title: isConnected ? "Waiting for data..." : "Connecting...",
+      subtitle: "Spectrum data will appear shortly",
+      titleColor: "#0d6efd"
+      // Bootstrap primary blue
+    };
+  }
+  if (capture.state === "starting") {
+    return {
+      title: "Starting capture...",
+      subtitle: "Initializing SDR device",
+      titleColor: "#ffc107"
+      // Bootstrap warning yellow
+    };
+  }
+  if (capture.state === "stopping") {
+    return {
+      title: "Stopping...",
+      subtitle: "",
+      titleColor: "#6c757d"
+      // Bootstrap secondary gray
+    };
+  }
+  if (capture.state === "failed") {
+    return {
+      title: "Capture Failed",
+      subtitle: capture.errorMessage || "Check logs for details",
+      titleColor: "#dc3545"
+      // Bootstrap danger red
+    };
+  }
+  return {
+    title: "Capture Stopped",
+    subtitle: "Click Start to begin capturing",
+    titleColor: "#6c757d"
+    // Bootstrap secondary gray
+  };
+}
+function drawCaptureStatusOnCanvas(ctx, width, height, status, options = {}) {
+  const {
+    backgroundColor = "#f8f9fa",
+    gridColor = "#e9ecef",
+    subtitleColor = "#adb5bd"
+  } = options;
+  ctx.fillStyle = backgroundColor;
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = gridColor;
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y2 = i / 4 * height;
+    ctx.beginPath();
+    ctx.moveTo(0, y2);
+    ctx.lineTo(width, y2);
+    ctx.stroke();
+  }
+  for (let i = 0; i <= 8; i++) {
+    const x2 = i / 8 * width;
+    ctx.beginPath();
+    ctx.moveTo(x2, 0);
+    ctx.lineTo(x2, height);
+    ctx.stroke();
+  }
+  const centerX = width / 2;
+  ctx.strokeStyle = "#dee2e6";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([5, 5]);
+  ctx.beginPath();
+  ctx.moveTo(centerX, 0);
+  ctx.lineTo(centerX, height);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.font = "14px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = status.titleColor;
+  ctx.fillText(status.title, width / 2, height / 2 - (status.subtitle ? 10 : 0));
+  if (status.subtitle) {
+    ctx.font = "12px sans-serif";
+    ctx.fillStyle = subtitleColor;
+    ctx.fillText(status.subtitle, width / 2, height / 2 + 10);
+  }
+}
 const MIN_HEIGHT$1 = 100;
 const MAX_HEIGHT$1 = 600;
 const HEIGHT_STEP$1 = 25;
@@ -15796,39 +16276,8 @@ function SpectrumAnalyzer({
     ctx.fillStyle = "#f8f9fa";
     ctx.fillRect(0, 0, width, height);
     if (!spectrumData) {
-      ctx.strokeStyle = "#e9ecef";
-      ctx.lineWidth = 1;
-      for (let i = 0; i <= 4; i++) {
-        const y2 = i / 4 * height;
-        ctx.beginPath();
-        ctx.moveTo(0, y2);
-        ctx.lineTo(width, y2);
-        ctx.stroke();
-      }
-      for (let i = 0; i <= 8; i++) {
-        const x2 = i / 8 * width;
-        ctx.beginPath();
-        ctx.moveTo(x2, 0);
-        ctx.lineTo(x2, height);
-        ctx.stroke();
-      }
-      const centerX2 = width / 2;
-      ctx.strokeStyle = "#dee2e6";
-      ctx.lineWidth = 1;
-      ctx.setLineDash([5, 5]);
-      ctx.beginPath();
-      ctx.moveTo(centerX2, 0);
-      ctx.lineTo(centerX2, height);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = "#6c757d";
-      ctx.font = "14px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("Capture Stopped", width / 2, height / 2 - 10);
-      ctx.font = "12px sans-serif";
-      ctx.fillStyle = "#adb5bd";
-      ctx.fillText("Click Start to begin capturing spectrum", width / 2, height / 2 + 10);
+      const status = getCaptureStatusMessage(capture, isConnected);
+      drawCaptureStatusOnCanvas(ctx, width, height, status);
       return;
     }
     const { power, freqs, centerHz } = spectrumData;
@@ -16379,22 +16828,12 @@ function WaterfallDisplay({
       ctx.fillRect(0, 0, width, height);
       const history = historyRef.current;
       if (history.length === 0) {
-        ctx.fillStyle = "#6c757d";
-        ctx.font = "14px sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(
-          capture.state === "running" ? "Waiting for data..." : "Capture Stopped",
-          width / 2,
-          height / 2 - 10
-        );
-        ctx.font = "12px sans-serif";
-        ctx.fillStyle = "#adb5bd";
-        ctx.fillText(
-          capture.state === "running" ? "Waterfall will appear shortly" : "Click Start to begin capturing",
-          width / 2,
-          height / 2 + 10
-        );
+        const status = getCaptureStatusMessage(capture, isConnected);
+        drawCaptureStatusOnCanvas(ctx, width, height, status, {
+          backgroundColor: "#1a1a1a",
+          gridColor: "#333333",
+          subtitleColor: "#6c757d"
+        });
         renderRequestRef.current = requestAnimationFrame(render);
         return;
       }
@@ -16777,6 +17216,154 @@ const DeviceSettingsModal = ({ onClose }) => {
     }
   );
 };
+class FrontendLogger {
+  constructor() {
+    __publicField(this, "buffer", []);
+    __publicField(this, "flushInterval", null);
+    __publicField(this, "maxBufferSize", 50);
+    __publicField(this, "flushIntervalMs", 5e3);
+    __publicField(this, "originalConsole");
+    this.originalConsole = {
+      log: console.log.bind(console),
+      info: console.info.bind(console),
+      warn: console.warn.bind(console),
+      error: console.error.bind(console)
+    };
+  }
+  init() {
+    this.interceptConsole();
+    this.setupGlobalErrorHandlers();
+    this.startFlushInterval();
+    this.info("Frontend logger initialized", { userAgent: navigator.userAgent });
+  }
+  interceptConsole() {
+    console.log = (...args) => {
+      this.originalConsole.log(...args);
+      this.log("debug", this.formatArgs(args));
+    };
+    console.info = (...args) => {
+      this.originalConsole.info(...args);
+      this.log("info", this.formatArgs(args));
+    };
+    console.warn = (...args) => {
+      this.originalConsole.warn(...args);
+      this.log("warn", this.formatArgs(args));
+    };
+    console.error = (...args) => {
+      this.originalConsole.error(...args);
+      this.log("error", this.formatArgs(args), this.extractStack(args));
+    };
+  }
+  setupGlobalErrorHandlers() {
+    window.addEventListener("error", (event) => {
+      var _a2;
+      this.log("error", `Uncaught error: ${event.message}`, (_a2 = event.error) == null ? void 0 : _a2.stack, {
+        filename: event.filename,
+        lineno: event.lineno,
+        colno: event.colno
+      });
+    });
+    window.addEventListener("unhandledrejection", (event) => {
+      const reason = event.reason;
+      const message = reason instanceof Error ? reason.message : String(reason);
+      const stack = reason instanceof Error ? reason.stack : void 0;
+      this.log("error", `Unhandled promise rejection: ${message}`, stack);
+    });
+  }
+  formatArgs(args) {
+    return args.map((arg) => {
+      if (typeof arg === "string")
+        return arg;
+      if (arg instanceof Error)
+        return `${arg.name}: ${arg.message}`;
+      try {
+        return JSON.stringify(arg);
+      } catch {
+        return String(arg);
+      }
+    }).join(" ");
+  }
+  extractStack(args) {
+    for (const arg of args) {
+      if (arg instanceof Error && arg.stack) {
+        return arg.stack;
+      }
+    }
+    return void 0;
+  }
+  log(level, message, stack, data) {
+    const entry = {
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      level,
+      message,
+      source: "frontend"
+    };
+    if (stack)
+      entry.stack = stack;
+    if (data)
+      entry.data = data;
+    this.buffer.push(entry);
+    if (this.buffer.length >= this.maxBufferSize) {
+      this.flush();
+    }
+  }
+  debug(message, data) {
+    this.log("debug", message, void 0, data);
+  }
+  info(message, data) {
+    this.log("info", message, void 0, data);
+  }
+  warn(message, data) {
+    this.log("warn", message, void 0, data);
+  }
+  error(message, error) {
+    const stack = error instanceof Error ? error.stack : void 0;
+    const data = error instanceof Error ? void 0 : error;
+    this.log("error", message, stack, data);
+  }
+  logErrorBoundary(error, errorInfo) {
+    this.log("error", `React ErrorBoundary caught: ${error.message}`, error.stack, {
+      componentStack: errorInfo.componentStack
+    });
+    this.flush();
+  }
+  logApiError(url, status, message) {
+    this.log("error", `API Error: ${status} ${url} - ${message}`, void 0, {
+      url,
+      status
+    });
+  }
+  startFlushInterval() {
+    this.flushInterval = window.setInterval(() => {
+      this.flush();
+    }, this.flushIntervalMs);
+  }
+  async flush() {
+    if (this.buffer.length === 0)
+      return;
+    const entries = [...this.buffer];
+    this.buffer = [];
+    try {
+      await fetch("/api/v1/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entries })
+      });
+    } catch {
+      this.buffer = [...entries.slice(-20), ...this.buffer].slice(-this.maxBufferSize);
+    }
+  }
+  destroy() {
+    if (this.flushInterval) {
+      clearInterval(this.flushInterval);
+    }
+    console.log = this.originalConsole.log;
+    console.info = this.originalConsole.info;
+    console.warn = this.originalConsole.warn;
+    console.error = this.originalConsole.error;
+  }
+}
+const logger = new FrontendLogger();
 class ErrorBoundary extends reactExports.Component {
   constructor(props) {
     super(props);
@@ -16797,7 +17384,9 @@ class ErrorBoundary extends reactExports.Component {
     return { hasError: true, error };
   }
   componentDidCatch(error, errorInfo) {
-    console.error("ErrorBoundary caught an error:", error, errorInfo);
+    logger.logErrorBoundary(error, {
+      componentStack: errorInfo.componentStack || void 0
+    });
     this.setState({
       error,
       errorInfo
@@ -17113,9 +17702,11 @@ function AppContent() {
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-muted", children: "Loading..." })
     ] }) });
   }
-  if (devices && devices.length > 0 && !newCaptureDeviceId) {
-    setNewCaptureDeviceId(devices[0].id);
-  }
+  reactExports.useEffect(() => {
+    if (devices && devices.length > 0 && !newCaptureDeviceId) {
+      setNewCaptureDeviceId(devices[0].id);
+    }
+  }, [devices, newCaptureDeviceId]);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "min-vh-100 bg-light", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("nav", { className: "navbar navbar-dark bg-primary shadow-sm mb-0", style: { paddingBottom: 0 }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "container-fluid", style: { flexDirection: "column", alignItems: "stretch", gap: "0.5rem" }, children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", justify: "between", style: { paddingBottom: "0.5rem" }, children: [
@@ -17324,10 +17915,11 @@ function AppContent() {
   ] });
 }
 function App() {
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(QueryClientProvider, { client: queryClient, children: /* @__PURE__ */ jsxRuntimeExports.jsx(ToastProvider, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(AppContent, {}) }) }) });
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(QueryClientProvider, { client: queryClient, children: /* @__PURE__ */ jsxRuntimeExports.jsx(ToastProvider, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorProvider, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorBoundary, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(AppContent, {}) }) }) }) });
 }
 const index = "";
+logger.init();
 client.createRoot(document.getElementById("root")).render(
   /* @__PURE__ */ jsxRuntimeExports.jsx(React.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(App, {}) })
 );
-//# sourceMappingURL=index-e6617e7e.js.map
+//# sourceMappingURL=index-72818c43.js.map

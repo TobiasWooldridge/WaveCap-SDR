@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Service identifier -->
+    <key>Label</key>
+    <string>com.wavecapsdr.server</string>
+
+    <!-- Program to execute -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/thw/Projects/WaveCap-SDR/service/wavecapsdr-service.sh</string>
+    </array>
+
+    <!-- Working directory -->
+    <key>WorkingDirectory</key>
+    <string>/Users/thw/Projects/WaveCap-SDR/backend</string>
+
+    <!-- Environment variables -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOST</key>
+        <string>0.0.0.0</string>
+        <key>PORT</key>
+        <string>8087</string>
+        <key>DRIVER</key>
+        <string>soapy</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!-- Run at load (start immediately when loaded) -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Keep alive - restart if it crashes -->
+    <key>KeepAlive</key>
+    <dict>
+        <!-- Restart on crash -->
+        <key>SuccessfulExit</key>
+        <false/>
+        <!-- Don't restart if manually unloaded -->
+        <key>Crashed</key>
+        <true/>
+    </dict>
+
+    <!-- Throttle restarts (wait 10 seconds between restart attempts) -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Standard output and error logs -->
+    <key>StandardOutPath</key>
+    <string>/Users/thw/Projects/WaveCap-SDR/logs/wavecapsdr-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/thw/Projects/WaveCap-SDR/logs/wavecapsdr-stderr.log</string>
+
+    <!-- Process type for resource management -->
+    <key>ProcessType</key>
+    <string>Standard</string>
+
+    <!-- Nice value (lower priority to not impact system) -->
+    <key>Nice</key>
+    <integer>5</integer>
+
+    <!-- Soft memory limit (512MB warning) -->
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>1024</integer>
+    </dict>
+</dict>
+</plist>

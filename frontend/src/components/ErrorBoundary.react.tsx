@@ -2,10 +2,12 @@ import { Component, ReactNode } from 'react';
 import Flex from './primitives/Flex.react';
 import Button from './primitives/Button.react';
 import { AlertTriangle } from 'lucide-react';
+import { logger } from '../services/logger';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
   fallback?: ReactNode;
+  name?: string; // Optional name for identifying which boundary caught the error
 }
 
 interface ErrorBoundaryState {
@@ -29,7 +31,11 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('ErrorBoundary caught an error:', error, errorInfo);
+    // Log to backend for Claude debugging access
+    logger.logErrorBoundary(error, {
+      componentStack: errorInfo.componentStack || undefined,
+    });
+
     this.setState({
       error,
       errorInfo,

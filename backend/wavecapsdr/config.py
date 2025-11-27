@@ -42,6 +42,21 @@ class DeviceConfig:
 
 
 @dataclass
+class RecoveryConfig:
+    """Configuration for automatic device recovery."""
+
+    # Enable automatic SDRplay service restart on failure
+    sdrplay_service_restart_enabled: bool = True
+    # Minimum seconds between service restart attempts
+    sdrplay_service_restart_cooldown: float = 60.0
+    # Maximum service restarts allowed per hour
+    max_service_restarts_per_hour: int = 5
+    # Enable IQ sample watchdog (restart capture if no samples for this many seconds)
+    iq_watchdog_enabled: bool = True
+    iq_watchdog_timeout: float = 30.0
+
+
+@dataclass
 class RecipeChannel:
     """Definition of a channel to create from a recipe."""
     offset_hz: float
@@ -108,6 +123,7 @@ class AppConfig:
     stream: StreamConfig = field(default_factory=StreamConfig)
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     device: DeviceConfig = field(default_factory=DeviceConfig)
+    recovery: RecoveryConfig = field(default_factory=RecoveryConfig)
     presets: Dict[str, PresetConfig] = field(default_factory=dict)
     recipes: Dict[str, RecipeConfig] = field(default_factory=dict)
     captures: List[CaptureStartConfig] = field(default_factory=list)
@@ -158,6 +174,7 @@ def load_config(path_str: str) -> AppConfig:
     stream = StreamConfig(**raw.get("stream", {}))
     limits = LimitsConfig(**raw.get("limits", {}))
     device = DeviceConfig(**raw.get("device", {}))
+    recovery = RecoveryConfig(**raw.get("recovery", {}))
 
     # Parse presets
     presets: Dict[str, PresetConfig] = {}
@@ -205,6 +222,7 @@ def load_config(path_str: str) -> AppConfig:
         stream=stream,
         limits=limits,
         device=device,
+        recovery=recovery,
         presets=presets,
         recipes=recipes,
         captures=captures,

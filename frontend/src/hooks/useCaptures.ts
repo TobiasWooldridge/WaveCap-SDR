@@ -66,6 +66,19 @@ async function stopCapture(captureId: string): Promise<Capture> {
   return response.json();
 }
 
+async function restartCapture(captureId: string): Promise<Capture> {
+  const response = await fetch(`/api/v1/captures/${captureId}/restart`, {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || "Failed to restart capture");
+  }
+
+  return response.json();
+}
+
 async function deleteCapture(captureId: string): Promise<void> {
   const response = await fetch(`/api/v1/captures/${captureId}`, {
     method: "DELETE",
@@ -123,6 +136,17 @@ export function useStopCapture() {
 
   return useMutation({
     mutationFn: (captureId: string) => stopCapture(captureId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["captures"] });
+    },
+  });
+}
+
+export function useRestartCapture() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (captureId: string) => restartCapture(captureId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["captures"] });
     },

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { ChevronUp, ChevronDown, Minus, Plus } from "lucide-react";
 import type { Capture, Channel } from "../../types";
 import { useSpectrumData } from "../../hooks/useSpectrumData";
+import { getCaptureStatusMessage, drawCaptureStatusOnCanvas } from "../../utils/captureStatus";
 
 export interface WaterfallDisplayProps {
   capture: Capture;
@@ -186,26 +187,13 @@ export default function WaterfallDisplay({
       const history = historyRef.current;
 
       if (history.length === 0) {
-        // Draw "No Data" message
-        ctx.fillStyle = "#6c757d";
-        ctx.font = "14px sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(
-          capture.state === "running" ? "Waiting for data..." : "Capture Stopped",
-          width / 2,
-          height / 2 - 10
-        );
-
-        ctx.font = "12px sans-serif";
-        ctx.fillStyle = "#adb5bd";
-        ctx.fillText(
-          capture.state === "running"
-            ? "Waterfall will appear shortly"
-            : "Click Start to begin capturing",
-          width / 2,
-          height / 2 + 10
-        );
+        // Draw status message using shared utility
+        const status = getCaptureStatusMessage(capture, isConnected);
+        drawCaptureStatusOnCanvas(ctx, width, height, status, {
+          backgroundColor: "#1a1a1a",
+          gridColor: "#333333",
+          subtitleColor: "#6c757d",
+        });
 
         renderRequestRef.current = requestAnimationFrame(render);
         return;

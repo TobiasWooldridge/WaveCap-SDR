@@ -11,7 +11,18 @@ from typing import Any, Callable, Iterable, Optional, Tuple, TypeVar
 import numpy as np
 
 from ..config import DeviceConfig
+# Disabled: automatic recovery tends to cause thrashing
+# from ..sdrplay_recovery import attempt_recovery, get_recovery
 from .base import Device, DeviceDriver, DeviceInfo, StreamHandle
+
+# Global lock for SDRplay device operations to prevent "deletion in-progress" errors
+# The SDRplay API cannot handle concurrent open/close operations
+_sdrplay_device_lock = threading.Lock()
+
+# Cooldown period after closing an SDRplay device before opening another
+# The SDRplay API needs time to fully release the device
+_SDRPLAY_CLOSE_COOLDOWN = 1.0  # seconds
+_sdrplay_last_close_time: float = 0.0
 
 
 F = TypeVar('F', bound=Callable[..., Any])
@@ -612,9 +623,13 @@ class _SoapyDevice(Device):
         _do_reconfigure()
 
     def close(self) -> None:
-        """Close device with timeout protection."""
+        """Close device with timeout protection and cooldown for SDRplay."""
+        global _sdrplay_last_close_time
+
         if self.sdr is None:
             return
+
+        is_sdrplay = self.info.driver == "sdrplay"
 
         @with_timeout(5.0)
         def _unmake() -> None:
@@ -625,14 +640,27 @@ class _SoapyDevice(Device):
             except Exception:
                 pass
 
-        try:
-            _unmake()
-        except TimeoutError:
-            print(f"Warning: Device unmake timed out", flush=True)
-        except Exception as e:
-            print(f"Warning: Device unmake failed: {e}", flush=True)
-        finally:
-            self.sdr = None  # type: ignore[assignment]
+        # For SDRplay, acquire lock and track close time
+        if is_sdrplay:
+            with _sdrplay_device_lock:
+                try:
+                    _unmake()
+                except TimeoutError:
+                    print(f"Warning: SDRplay device unmake timed out", flush=True)
+                except Exception as e:
+                    print(f"Warning: SDRplay device unmake failed: {e}", flush=True)
+                finally:
+                    self.sdr = None  # type: ignore[assignment]
+                    _sdrplay_last_close_time = time.time()
+        else:
+            try:
+                _unmake()
+            except TimeoutError:
+                print(f"Warning: Device unmake timed out", flush=True)
+            except Exception as e:
+                print(f"Warning: Device unmake failed: {e}", flush=True)
+            finally:
+                self.sdr = None  # type: ignore[assignment]
 
 
 class SoapyDriver(DeviceDriver):
@@ -691,14 +719,38 @@ class SoapyDriver(DeviceDriver):
             except Exception as e:
                 print(f"Warning: Failed to enumerate driver '{driver_name}': {e}", flush=True)
 
+        # Log if SDRplay not found - don't attempt automatic recovery as it causes thrashing
+        sdrplay_found = any(d.driver == "sdrplay" for d in results)
+        if not sdrplay_found:
+            print("[SOAPY] No SDRplay devices found - may need to restart SDRplay service", flush=True)
+
         # Cache the results
         self._enumerate_cache = (now, results)
         return results
 
     def open(self, id_or_args: Optional[str] = None) -> Device:
+        global _sdrplay_last_close_time
+
         SoapySDR = self._SoapySDR
         args = id_or_args or self._cfg.device_args or ""
-        sdr = SoapySDR.Device(args)
+
+        # Check if this is an SDRplay device
+        is_sdrplay = "sdrplay" in args.lower()
+
+        # For SDRplay, use lock to serialize device operations and wait for cooldown
+        # Don't retry on errors - just fail cleanly and let user handle it
+        if is_sdrplay:
+            with _sdrplay_device_lock:
+                # Wait for cooldown if needed
+                elapsed = time.time() - _sdrplay_last_close_time
+                if elapsed < _SDRPLAY_CLOSE_COOLDOWN:
+                    wait_time = _SDRPLAY_CLOSE_COOLDOWN - elapsed
+                    print(f"[SOAPY] Waiting {wait_time:.1f}s for SDRplay API cooldown", flush=True)
+                    time.sleep(wait_time)
+
+                sdr = SoapySDR.Device(args)
+        else:
+            sdr = SoapySDR.Device(args)
         # Build DeviceInfo from the live device
         driver = str(sdr.getDriverKey())
 
