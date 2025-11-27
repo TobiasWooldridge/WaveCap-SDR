@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { Radio, Settings, ChevronDown, ChevronUp, Cpu } from "lucide-react";
+import { Radio, Settings, ChevronDown, ChevronUp, Cpu, RotateCcw } from "lucide-react";
 import type { Capture, Device } from "../types";
-import { useUpdateCapture, useStartCapture, useStopCapture } from "../hooks/useCaptures";
+import { useUpdateCapture, useStartCapture, useStopCapture, useRestartCapture } from "../hooks/useCaptures";
 import { useDevices } from "../hooks/useDevices";
 import { useChannels, useCreateChannel } from "../hooks/useChannels";
 import { useMemoryBanks } from "../hooks/useMemoryBanks";
@@ -16,6 +16,8 @@ import NumericSelector, { type UnitConfig } from "./primitives/NumericSelector.r
 import Spinner from "./primitives/Spinner.react";
 import { BookmarkManager } from "./BookmarkManager.react";
 import ScannerControl from "./ScannerControl.react";
+import { ErrorStatusBar } from "./ErrorStatusBar.react";
+import { ErrorIndicator } from "./primitives/ErrorIndicator.react";
 
 interface RadioTunerProps {
   capture: Capture;
@@ -110,6 +112,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   const updateMutation = useUpdateCapture();
   const startMutation = useStartCapture();
   const stopMutation = useStopCapture();
+  const restartMutation = useRestartCapture();
 
   // Get channels for the capture
   const { data: channels } = useChannels(capture.id);
@@ -261,6 +264,8 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   const isStarting = capture.state === "starting";
   const isStopping = capture.state === "stopping";
   const isFailed = capture.state === "failed";
+  const isError = capture.state === "error";
+  const hasError = isFailed || isError;
   const isTransitioning = isStarting || isStopping;
 
   // Track which settings are pending update
@@ -296,7 +301,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
           <Spinner size="sm" />
         )}
         <span className={`badge ms-auto ${
-          isFailed ? "bg-danger" :
+          hasError ? "bg-danger" :
           isRunning ? "bg-success" :
           isTransitioning ? "bg-warning text-dark" :
           "bg-secondary"
@@ -340,20 +345,38 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
               </div>
 
               {/* Start/Stop Button */}
-              <div className="col-12 col-md-3">
+              <div className="col-6 col-md-2">
                 <Button
                   use={isRunning || isStopping ? "danger" : isStarting ? "warning" : "success"}
                   size="sm"
                   onClick={handleStartStop}
-                  disabled={startMutation.isPending || stopMutation.isPending || isTransitioning}
+                  disabled={startMutation.isPending || stopMutation.isPending || isTransitioning || restartMutation.isPending}
                   style={{ width: "100%" }}
                 >
                   {isStarting ? "Starting..." : isStopping ? "Stopping..." : isRunning ? "Stop" : "Start"}
                 </Button>
               </div>
 
+              {/* Restart Button */}
+              <div className="col-6 col-md-2">
+                <Button
+                  use="warning"
+                  size="sm"
+                  onClick={() => restartMutation.mutate(capture.id)}
+                  disabled={restartMutation.isPending || isTransitioning || stopMutation.isPending || startMutation.isPending}
+                  style={{ width: "100%" }}
+                  title="Restart the capture (stop then start)"
+                >
+                  {restartMutation.isPending ? (
+                    <><Spinner size="sm" /> Restarting</>
+                  ) : (
+                    <><RotateCcw size={14} /> Restart</>
+                  )}
+                </Button>
+              </div>
+
               {/* Bookmark Manager */}
-              <div className="col-12 col-md-3">
+              <div className="col-12 col-md-2">
                 <BookmarkManager
                   currentFrequency={localFreq}
                   onTuneToFrequency={(freq) => setLocalFreq(freq)}
@@ -365,9 +388,34 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             </div>
 
             {/* Error Message */}
-            {isFailed && capture.errorMessage && (
-              <div className="alert alert-danger mb-0 py-1 px-2">
-                <small><strong>Error:</strong> {capture.errorMessage}</small>
+            {hasError && (
+              <div className="alert alert-danger mb-0 py-1 px-2 d-flex align-items-center justify-content-between">
+                <small>
+                  <strong>{isError ? "Device Error:" : "Error:"}</strong>{" "}
+                  {capture.errorMessage || (isError ? "No IQ samples received - device may be stuck" : "Unknown error")}
+                </small>
+                <Button
+                  use="warning"
+                  size="sm"
+                  onClick={() => restartMutation.mutate(capture.id)}
+                  disabled={restartMutation.isPending}
+                  style={{ marginLeft: "0.5rem" }}
+                >
+                  {restartMutation.isPending ? "Restarting..." : "Restart"}
+                </Button>
+              </div>
+            )}
+
+            {/* Real-time Error Indicators (IQ overflows, audio drops, retries) */}
+            {isRunning && <ErrorStatusBar captureId={capture.id} />}
+
+            {/* Inline error indicators from capture data */}
+            {isRunning && capture.iqOverflowRate > 0 && (
+              <div className="d-flex align-items-center gap-2 mt-1">
+                <ErrorIndicator type="overflow" rate={capture.iqOverflowRate} active />
+                <small className="text-warning">
+                  IQ data loss detected ({capture.iqOverflowCount} overflows)
+                </small>
               </div>
             )}
           </Flex>

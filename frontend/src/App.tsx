@@ -16,6 +16,7 @@ import Spinner from "./components/primitives/Spinner.react";
 import Button from "./components/primitives/Button.react";
 import { DeviceSettingsModal } from "./components/DeviceSettingsModal.react";
 import ErrorBoundary from "./components/ErrorBoundary.react";
+import { ErrorProvider } from "./context/ErrorContext";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -378,9 +379,11 @@ function AppContent() {
   }
 
   // Initialize new capture form with first device
-  if (devices && devices.length > 0 && !newCaptureDeviceId) {
-    setNewCaptureDeviceId(devices[0].id);
-  }
+  useEffect(() => {
+    if (devices && devices.length > 0 && !newCaptureDeviceId) {
+      setNewCaptureDeviceId(devices[0].id);
+    }
+  }, [devices, newCaptureDeviceId]);
 
   return (
     <div className="min-vh-100 bg-light">
@@ -635,9 +638,11 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <ErrorBoundary>
-          <AppContent />
-        </ErrorBoundary>
+        <ErrorProvider>
+          <ErrorBoundary>
+            <AppContent />
+          </ErrorBoundary>
+        </ErrorProvider>
       </ToastProvider>
     </QueryClientProvider>
   );

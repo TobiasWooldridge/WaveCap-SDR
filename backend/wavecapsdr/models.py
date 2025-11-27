@@ -112,6 +112,12 @@ class CaptureModel(BaseModel):
     errorMessage: Optional[str] = None
     name: Optional[str] = None  # User-provided name (optional)
     autoName: Optional[str] = None  # Auto-generated name (e.g., "FM 90.3 - RTL-SDR")
+    # Error indicators for UI
+    iqOverflowCount: int = 0
+    iqOverflowRate: float = 0.0  # Overflows per second
+    retryAttempt: Optional[int] = None  # Current retry attempt (null if not retrying)
+    retryMaxAttempts: Optional[int] = None
+    retryDelay: Optional[float] = None  # Delay in seconds before next retry
 
 
 class CreateChannelRequest(BaseModel):
@@ -263,6 +269,9 @@ class ChannelModel(BaseModel):
     audioRmsDb: Optional[float] = None  # Output audio RMS level in dB
     audioPeakDb: Optional[float] = None  # Output audio peak level in dB
     audioClippingCount: int = 0  # Number of samples near clipping
+    # Error indicators for UI
+    audioDropCount: int = 0  # Total dropped audio packets
+    audioDropRate: float = 0.0  # Drops per second
 
     # Filter configuration
     # FM filters

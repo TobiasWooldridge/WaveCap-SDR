@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 from .config import AppConfig
 from .devices.base import Device, DeviceDriver, StreamHandle
+# Disabled: automatic recovery tends to cause thrashing
+# from .sdrplay_recovery import attempt_recovery
 from .dsp.fm import wbfm_demod, nbfm_demod, quadrature_demod
 from .dsp.am import am_demod, ssb_demod
 from .dsp.rds import RDSDecoder, RDSData
@@ -302,6 +304,20 @@ class Channel:
         """Rate-limited logging for queue drops (once per 10 seconds)."""
         self._drop_count += 1
         now = time.time()
+
+        # Report to error tracker (once per second)
+        if now - self._last_drop_log_time >= 1.0:
+            from .error_tracker import get_error_tracker, ErrorEvent
+            get_error_tracker().record(ErrorEvent(
+                type="audio_drop",
+                capture_id=self.cfg.capture_id,
+                channel_id=self.cfg.id,
+                timestamp=now,
+                count=self._drop_count,
+                details={"format": fmt},
+            ))
+
+        # Log warning (once per 10 seconds)
         if now - self._last_drop_log_time >= 10.0:
             logger.warning(
                 f"Channel {self.cfg.id}: Audio queue full for format={fmt}, "
@@ -1125,8 +1141,12 @@ class Capture:
     _max_retries: int = 10  # OpenWebRX uses 10
     _retry_delay: float = 15.0  # OpenWebRX uses 15 seconds
     _retry_timer: Optional[threading.Timer] = None
-    _auto_restart_enabled: bool = True  # Enable automatic restart on failure
+    _auto_restart_enabled: bool = False  # Disabled: auto-restart tends to cause thrashing
     _last_run_time: float = 0.0  # Track when the thread was last running
+    # IQ watchdog - detect stuck devices (no samples being received)
+    _last_iq_time: float = 0.0  # Track when IQ samples were last received
+    _iq_watchdog_timeout: float = 30.0  # Trigger recovery if no IQ for this long
+    _iq_watchdog_enabled: bool = True
     # FFT data (server-side spectrum analyzer)
     _fft_power: Optional[np.ndarray] = None  # Power spectrum in dB
     _fft_freqs: Optional[np.ndarray] = None  # Frequency bins in Hz
@@ -1136,6 +1156,25 @@ class Capture:
     _fft_window_cache: Dict[int, np.ndarray] = field(default_factory=dict)  # Cached FFT windows by size
     # Main event loop for scheduling audio processing when no subscribers
     _main_loop: Optional[asyncio.AbstractEventLoop] = None
+    # IQ overflow tracking for error indicator UI
+    _iq_overflow_count: int = 0
+    _iq_overflow_batch: int = 0  # Batched count for rate-limited reporting
+    _iq_overflow_last_report: float = 0.0
+
+    def _report_iq_overflow(self) -> None:
+        """Rate-limited overflow reporting (max once per second)."""
+        now = time.time()
+        if now - self._iq_overflow_last_report >= 1.0 and self._iq_overflow_batch > 0:
+            from .error_tracker import get_error_tracker, ErrorEvent
+            get_error_tracker().record(ErrorEvent(
+                type="iq_overflow",
+                capture_id=self.cfg.id,
+                channel_id=None,
+                timestamp=now,
+                count=self._iq_overflow_batch,
+            ))
+            self._iq_overflow_batch = 0
+            self._iq_overflow_last_report = now
 
     def _ensure_device(self) -> Device:
         """Lazily open the device when the capture actually starts."""
@@ -1197,9 +1236,15 @@ class Capture:
         self._retry_timer.start()
 
     def _health_monitor_thread(self) -> None:
-        """Monitor capture thread health and restart if crashed (OpenWebRX pattern)."""
+        """Monitor capture thread health and restart if crashed (OpenWebRX pattern).
+
+        Also implements IQ watchdog: if no IQ samples received for _iq_watchdog_timeout
+        seconds while state is 'running', attempts SDRplay service recovery.
+        """
         while not self._stop_event.is_set():
             try:
+                now = time.time()
+
                 # Check if thread is alive
                 if self._thread is not None and not self._thread.is_alive():
                     # Thread died unexpectedly
@@ -1210,9 +1255,35 @@ class Capture:
                         )
                         self._schedule_restart()
                         return  # Health monitor exits, will be restarted by new start()
+
                 # Update last run time
                 if self._thread is not None and self._thread.is_alive():
-                    self._last_run_time = time.time()
+                    self._last_run_time = now
+
+                # IQ watchdog: detect stuck device (no samples for too long)
+                if (
+                    self._iq_watchdog_enabled
+                    and self.state == "running"
+                    and self._last_iq_time > 0
+                    and (now - self._last_iq_time) > self._iq_watchdog_timeout
+                ):
+                    driver = "unknown"
+                    if self.device and hasattr(self.device, "info"):
+                        driver = getattr(self.device.info, "driver", "unknown")
+
+                    print(
+                        f"[WARNING] Capture {self.cfg.id} IQ watchdog triggered: "
+                        f"no samples for {now - self._last_iq_time:.1f}s (driver: {driver})",
+                        flush=True
+                    )
+
+                    # Don't attempt automatic recovery - it tends to make things worse.
+                    # Just log the warning and set state to failed so user can see the issue.
+                    # Manual restart of the service/WaveCap is more reliable.
+                    self.state = "failed"
+                    self._last_iq_time = now  # Reset to avoid log spam
+                    # Don't auto-restart - let it stay in error state
+
                 # Sleep for a bit before next check
                 self._stop_event.wait(1.0)  # Check every second
             except Exception as e:
@@ -1283,8 +1354,8 @@ class Capture:
         # The device will be closed when the Capture is deleted.
         self.state = "stopped"
 
-        # Re-enable auto-restart for next start()
-        self._auto_restart_enabled = True
+        # Keep auto-restart disabled - manual restart is more reliable
+        # self._auto_restart_enabled = True
 
     async def reconfigure(
         self,
@@ -1299,12 +1370,16 @@ class Capture:
         stream_format: Optional[str] = None,
         dc_offset_auto: Optional[bool] = None,
         iq_balance_auto: Optional[bool] = None,
-    ) -> None:
+    ) -> list[str]:
         """Reconfigure capture, using hot reconfiguration when possible.
 
         If only hot-reconfigurable parameters are changed (center_hz, gain,
         bandwidth, ppm), the capture will be updated without restarting.
         If sample_rate, antenna, or advanced settings change, a full restart is required.
+
+        Returns:
+            List of channel IDs that were removed because they fell outside
+            the new capture bandwidth.
         """
         # Update config
         if center_hz is not None:
@@ -1363,6 +1438,23 @@ class Capture:
                 print(f"[WARNING] Hot reconfiguration failed: {e}, restarting capture", flush=True)
                 await self.stop()
                 self.start()
+
+        # Clean up channels that are now outside the capture bandwidth
+        # A channel is out-of-band if |offset_hz| > sample_rate / 2
+        removed_channels: list[str] = []
+        max_offset = self.cfg.sample_rate / 2.0
+        for ch_id, ch in list(self._channels.items()):
+            if abs(ch.cfg.offset_hz) > max_offset:
+                print(
+                    f"[INFO] Removing channel {ch_id}: offset {ch.cfg.offset_hz/1e3:.0f} kHz "
+                    f"exceeds capture bandwidth ({max_offset/1e3:.0f} kHz)",
+                    flush=True
+                )
+                ch.stop()
+                del self._channels[ch_id]
+                removed_channels.append(ch_id)
+
+        return removed_channels
 
     async def subscribe_iq(self) -> asyncio.Queue[bytes]:
         q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=8)
@@ -1554,10 +1646,27 @@ class Capture:
             # Successfully started!
             self.state = "running"
             self._retry_count = 0  # Reset retry counter on success
+            # Reset overflow counters on fresh start
+            self._iq_overflow_count = 0
+            self._iq_overflow_batch = 0
         except Exception as e:
             # Failed to start - schedule automatic restart
             self.error_message = f"Failed to start capture: {str(e)}"
             print(f"[ERROR] Capture {self.cfg.id} failed to start: {e}", flush=True)
+            # Report device retry event
+            from .error_tracker import get_error_tracker, ErrorEvent
+            get_error_tracker().record(ErrorEvent(
+                type="device_retry",
+                capture_id=self.cfg.id,
+                channel_id=None,
+                timestamp=time.time(),
+                details={
+                    "attempt": self._retry_count + 1,
+                    "max_attempts": self._max_retries,
+                    "delay_seconds": self._retry_delay,
+                    "error": str(e),
+                },
+            ))
             self.release_device()
             self._schedule_restart()
             return
@@ -1565,9 +1674,15 @@ class Capture:
         # This reduces loop overhead: at 6MHz, 4096 samples = 0.68ms (1465 chunks/sec)
         # With scaling: 6MHz -> 60000 samples = 10ms (100 chunks/sec)
         chunk = max(4096, self.cfg.sample_rate // 100)
+        # Initialize IQ watchdog timestamp
+        self._last_iq_time = time.time()
         while not self._stop_event.is_set():
             try:
-                samples, _ov = self._stream.read(chunk)
+                samples, overflow = self._stream.read(chunk)
+                if overflow:
+                    self._iq_overflow_count += 1
+                    self._iq_overflow_batch += 1
+                    self._report_iq_overflow()
             except Exception:
                 break
             if samples.size == 0:
@@ -1577,6 +1692,8 @@ class Capture:
                 except Exception:
                     pass
                 continue
+            # Update IQ watchdog - we received samples
+            self._last_iq_time = time.time()
             # Broadcast IQ to subscribers (schedule on their loops)
             # Use asyncio.run() is not allowed here; rely on _broadcast_iq scheduling
             try:

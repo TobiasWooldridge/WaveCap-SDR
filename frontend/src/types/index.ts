@@ -20,7 +20,7 @@ export interface Device {
 export interface Capture {
   id: string;
   deviceId: string;
-  state: "created" | "starting" | "running" | "stopping" | "stopped" | "failed";
+  state: "created" | "starting" | "running" | "stopping" | "stopped" | "failed" | "error";
   centerHz: number;
   sampleRate: number;
   gain: number | null;
@@ -35,6 +35,12 @@ export interface Capture {
   errorMessage: string | null;
   name: string | null;  // User-provided name
   autoName: string | null;  // Auto-generated contextual name
+  // Error indicators
+  iqOverflowCount: number;
+  iqOverflowRate: number;  // Overflows per second
+  retryAttempt: number | null;  // Current retry attempt (null if not retrying)
+  retryMaxAttempts: number | null;
+  retryDelay: number | null;  // Delay in seconds before next retry
 }
 
 export interface Channel {
@@ -91,6 +97,15 @@ export interface Channel {
 
   // RDS data (WBFM only)
   rdsData?: RDSData | null;
+
+  // Audio output level metering
+  audioRmsDb?: number | null;
+  audioPeakDb?: number | null;
+  audioClippingCount?: number;
+
+  // Error indicators
+  audioDropCount: number;
+  audioDropRate: number;  // Drops per second
 }
 
 // RDS (Radio Data System) data for FM broadcast
@@ -271,3 +286,36 @@ export interface UpdateScannerRequest {
   lockoutFrequencies?: number[];
   pauseDurationMs?: number;
 }
+
+// ==============================================================================
+// Error tracking types for real-time health stream
+// ==============================================================================
+
+export type ErrorType = "iq_overflow" | "audio_drop" | "device_retry";
+
+export interface ErrorEvent {
+  type: ErrorType;
+  capture_id: string;
+  channel_id: string | null;
+  timestamp: number;
+  count: number;
+  details?: Record<string, unknown>;
+}
+
+export interface ErrorStats {
+  total: number;
+  lastMinute: number;
+  rate: number;
+}
+
+export interface HealthStatsMessage {
+  type: "stats";
+  data: Partial<Record<ErrorType, ErrorStats>>;
+}
+
+export interface HealthErrorMessage {
+  type: "error";
+  event: ErrorEvent;
+}
+
+export type HealthMessage = HealthStatsMessage | HealthErrorMessage;

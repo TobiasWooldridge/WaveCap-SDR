@@ -4,7 +4,7 @@ import asyncio
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,7 @@ from .device_namer import (
     get_device_shorthand,
 )
 from .config import save_config
+from .sdrplay_recovery import get_recovery
 
 
 router = APIRouter()
@@ -141,6 +142,24 @@ def health_check(request: Request):
         health_status["checks"]["streaming"] = {"status": "error", "error": str(e)}
         health_status["status"] = "degraded"
 
+    try:
+        # Check SDRplay recovery status
+        recovery = get_recovery()
+        stats = recovery.stats
+        health_status["checks"]["recovery"] = {
+            "status": "ok",
+            "enabled": recovery.enabled,
+            "cooldown_seconds": recovery.cooldown_seconds,
+            "max_restarts_per_hour": recovery.max_restarts_per_hour,
+            "recovery_count": stats.recovery_count,
+            "recovery_failures": stats.recovery_failures,
+            "last_recovery_attempt": stats.last_recovery_attempt,
+            "last_recovery_success": stats.last_recovery_success,
+            "last_error": stats.last_error,
+        }
+    except Exception as e:
+        health_status["checks"]["recovery"] = {"status": "error", "error": str(e)}
+
     # Overall status
     if any(check.get("status") == "error" for check in health_status["checks"].values()):
         health_status["status"] = "degraded"
@@ -175,6 +194,19 @@ def _to_rds_data_model(rds_data) -> Optional[RDSDataModel]:
 
 def _to_capture_model(cap) -> CaptureModel:
     """Helper to convert a Capture to CaptureModel consistently."""
+    from .error_tracker import get_error_tracker, ErrorStats
+
+    # Get overflow rate from error tracker
+    tracker = get_error_tracker()
+    stats = tracker.get_stats()
+    overflow_stats = stats.get("iq_overflow", ErrorStats())
+
+    # Determine retry status
+    is_retrying = cap.state == "starting" and cap._retry_count > 0
+    retry_attempt = cap._retry_count if is_retrying else None
+    retry_max = cap._max_retries if is_retrying else None
+    retry_delay = cap._retry_delay if is_retrying else None
+
     return CaptureModel(
         id=cap.cfg.id,
         deviceId=cap.cfg.device_id,
@@ -193,6 +225,70 @@ def _to_capture_model(cap) -> CaptureModel:
         errorMessage=cap.error_message,
         name=cap.cfg.name,
         autoName=cap.cfg.auto_name,
+        # Error indicators
+        iqOverflowCount=cap._iq_overflow_count,
+        iqOverflowRate=overflow_stats.rate_per_second,
+        retryAttempt=retry_attempt,
+        retryMaxAttempts=retry_max,
+        retryDelay=retry_delay,
+    )
+
+
+def _to_channel_model(ch) -> ChannelModel:
+    """Helper to convert a Channel to ChannelModel consistently."""
+    from .error_tracker import get_error_tracker, ErrorStats
+
+    # Get drop rate from error tracker
+    tracker = get_error_tracker()
+    stats = tracker.get_stats()
+    drop_stats = stats.get("audio_drop", ErrorStats())
+
+    return ChannelModel(
+        id=ch.cfg.id,
+        captureId=ch.cfg.capture_id,
+        mode=ch.cfg.mode,  # type: ignore[arg-type]
+        state=ch.state,  # type: ignore[arg-type]
+        offsetHz=ch.cfg.offset_hz,
+        audioRate=ch.cfg.audio_rate,
+        squelchDb=ch.cfg.squelch_db,
+        name=ch.cfg.name,
+        autoName=ch.cfg.auto_name,
+        signalPowerDb=ch.signal_power_db,
+        rssiDb=ch.rssi_db,
+        snrDb=ch.snr_db,
+        audioRmsDb=ch.audio_rms_db,
+        audioPeakDb=ch.audio_peak_db,
+        audioClippingCount=ch.audio_clipping_count,
+        # Error indicators
+        audioDropCount=ch._drop_count,
+        audioDropRate=drop_stats.rate_per_second,
+        # Filter configuration
+        enableDeemphasis=ch.cfg.enable_deemphasis,
+        deemphasisTauUs=ch.cfg.deemphasis_tau_us,
+        enableMpxFilter=ch.cfg.enable_mpx_filter,
+        mpxCutoffHz=ch.cfg.mpx_cutoff_hz,
+        enableFmHighpass=ch.cfg.enable_fm_highpass,
+        fmHighpassHz=ch.cfg.fm_highpass_hz,
+        enableFmLowpass=ch.cfg.enable_fm_lowpass,
+        fmLowpassHz=ch.cfg.fm_lowpass_hz,
+        enableAmHighpass=ch.cfg.enable_am_highpass,
+        amHighpassHz=ch.cfg.am_highpass_hz,
+        enableAmLowpass=ch.cfg.enable_am_lowpass,
+        amLowpassHz=ch.cfg.am_lowpass_hz,
+        enableSsbBandpass=ch.cfg.enable_ssb_bandpass,
+        ssbBandpassLowHz=ch.cfg.ssb_bandpass_low_hz,
+        ssbBandpassHighHz=ch.cfg.ssb_bandpass_high_hz,
+        ssbMode=ch.cfg.ssb_mode,
+        enableAgc=ch.cfg.enable_agc,
+        agcTargetDb=ch.cfg.agc_target_db,
+        agcAttackMs=ch.cfg.agc_attack_ms,
+        agcReleaseMs=ch.cfg.agc_release_ms,
+        enableNoiseBlanker=ch.cfg.enable_noise_blanker,
+        noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
+        notchFrequencies=ch.cfg.notch_frequencies,
+        enableNoiseReduction=ch.cfg.enable_noise_reduction,
+        noiseReductionDb=ch.cfg.noise_reduction_db,
+        rdsData=_to_rds_data_model(ch.rds_data),
     )
 
 
@@ -359,9 +455,57 @@ def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_st
     return result
 
 
+def _adjust_recipe_for_device(recipe_cfg, device_info: dict) -> dict:
+    """Adjust recipe parameters to fit device capabilities.
+
+    Returns a dict with adjusted sampleRate, bandwidth, and gain values.
+    """
+    adjustments = {
+        "sampleRate": recipe_cfg.sample_rate,
+        "bandwidth": recipe_cfg.bandwidth,
+        "gain": recipe_cfg.gain,
+    }
+
+    # Adjust sample rate to closest valid rate
+    valid_rates = device_info.get("sample_rates", [])
+    if valid_rates and recipe_cfg.sample_rate not in valid_rates:
+        adjustments["sampleRate"] = min(valid_rates, key=lambda r: abs(r - recipe_cfg.sample_rate))
+
+    # Adjust bandwidth to fit device range
+    bw_min = device_info.get("bandwidth_min")
+    bw_max = device_info.get("bandwidth_max")
+    if bw_min is not None and bw_max is not None and recipe_cfg.bandwidth is not None:
+        adjustments["bandwidth"] = max(bw_min, min(bw_max, recipe_cfg.bandwidth))
+
+    # Adjust gain to fit device range
+    gain_min = device_info.get("gain_min")
+    gain_max = device_info.get("gain_max")
+    if gain_min is not None and gain_max is not None and recipe_cfg.gain is not None:
+        adjustments["gain"] = max(gain_min, min(gain_max, recipe_cfg.gain))
+
+    return adjustments
+
+
 @router.get("/recipes", response_model=List[RecipeModel])
-def list_recipes(_: None = Depends(auth_check), state: AppState = Depends(get_state)):
-    """Get all available capture creation recipes."""
+def list_recipes(
+    device_id: Optional[str] = None,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Get all available capture creation recipes.
+
+    If device_id is provided, recipe parameters are adjusted to fit the device's capabilities.
+    """
+    # Get device info if device_id provided
+    device_info = None
+    if device_id:
+        devices = state.captures.list_devices()
+        device_stable_id = _get_stable_device_id(device_id)
+        device_info = next(
+            (d for d in devices if d["id"] == device_id or _get_stable_device_id(d["id"]) == device_stable_id),
+            None
+        )
+
     recipes = []
     for recipe_id, recipe_cfg in state.config.recipes.items():
         channels = [
@@ -375,6 +519,18 @@ def list_recipes(_: None = Depends(auth_check), state: AppState = Depends(get_st
             )
             for ch in recipe_cfg.channels
         ]
+
+        # Get adjusted values if device provided
+        if device_info:
+            adjusted = _adjust_recipe_for_device(recipe_cfg, device_info)
+            sample_rate = adjusted["sampleRate"]
+            bandwidth = adjusted["bandwidth"]
+            gain = adjusted["gain"]
+        else:
+            sample_rate = recipe_cfg.sample_rate
+            bandwidth = recipe_cfg.bandwidth
+            gain = recipe_cfg.gain
+
         recipes.append(
             RecipeModel(
                 id=recipe_id,
@@ -382,9 +538,9 @@ def list_recipes(_: None = Depends(auth_check), state: AppState = Depends(get_st
                 description=recipe_cfg.description,
                 category=recipe_cfg.category,
                 centerHz=recipe_cfg.center_hz,
-                sampleRate=recipe_cfg.sample_rate,
-                gain=recipe_cfg.gain,
-                bandwidth=recipe_cfg.bandwidth,
+                sampleRate=sample_rate,
+                gain=gain,
+                bandwidth=bandwidth,
                 channels=channels,
                 allowFrequencyInput=recipe_cfg.allow_frequency_input,
                 frequencyLabel=recipe_cfg.frequency_label,
@@ -514,6 +670,39 @@ async def stop_capture(
     return _to_capture_model(cap)
 
 
+@router.post("/captures/{cid}/restart", response_model=CaptureModel)
+async def restart_capture(
+    cid: str,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+):
+    """Restart a capture (stop then start).
+
+    Useful for recovering from error states or refreshing the SDR connection.
+    """
+    cap = state.captures.get_capture(cid)
+    if cap is None:
+        raise HTTPException(status_code=404, detail="Capture not found")
+
+    # Stop first (if running)
+    if cap.state in ("running", "starting", "failed"):
+        await cap.stop()
+
+    # Brief pause to let SDR device settle
+    import asyncio
+    await asyncio.sleep(0.5)
+
+    # Start again
+    cap.start()
+
+    # Auto-start any existing channels
+    for ch in state.captures.list_channels(cid):
+        if ch.state != "running":
+            ch.start()
+
+    return _to_capture_model(cap)
+
+
 @router.get("/captures/{cid}", response_model=CaptureModel)
 def get_capture(
     cid: str,
@@ -550,6 +739,8 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
         raise HTTPException(status_code=404, detail="Capture not found")
 
     # Handle device change if requested
+    device_changed = False
+    new_device_info = None
     if req.deviceId is not None and req.deviceId != cap.cfg.device_id:
         if cap.state in ("running", "starting"):
             raise HTTPException(
@@ -591,15 +782,70 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
         cap.requested_device_id = req.deviceId
         # Release cached device so the new one will be opened on next start
         cap.release_device()
+        device_changed = True
+        new_device_info = new_device
         logger.info(f"Changed capture {cid} device to {req.deviceId}")
 
     # Validate changes against device constraints before applying
     devices = state.captures.list_devices()
     cap_stable_id = _get_stable_device_id(cap.cfg.device_id)
-    device_info = next(
+    device_info = new_device_info or next(
         (d for d in devices if d["id"] == cap.cfg.device_id or _get_stable_device_id(d["id"]) == cap_stable_id),
         None
     )
+
+    # When device changes, auto-adjust parameters that don't fit the new device
+    adjusted_params = []
+    if device_changed and device_info:
+        # Auto-adjust sample rate to closest valid rate
+        valid_rates = device_info.get("sample_rates", [])
+        if valid_rates and cap.cfg.sample_rate not in valid_rates:
+            # Find closest valid rate
+            old_rate = cap.cfg.sample_rate
+            closest_rate = min(valid_rates, key=lambda r: abs(r - old_rate))
+            cap.cfg.sample_rate = closest_rate
+            adjusted_params.append(f"sample_rate: {old_rate} -> {closest_rate}")
+
+        # Auto-adjust bandwidth to fit new device range
+        bw_min = device_info.get("bandwidth_min")
+        bw_max = device_info.get("bandwidth_max")
+        if bw_min is not None and bw_max is not None:
+            if cap.cfg.bandwidth is not None:
+                old_bw = cap.cfg.bandwidth
+                new_bw = max(bw_min, min(bw_max, old_bw))
+                if new_bw != old_bw:
+                    cap.cfg.bandwidth = new_bw
+                    adjusted_params.append(f"bandwidth: {old_bw} -> {new_bw}")
+
+        # Auto-adjust gain to fit new device range
+        gain_min = device_info.get("gain_min")
+        gain_max = device_info.get("gain_max")
+        if gain_min is not None and gain_max is not None:
+            if cap.cfg.gain is not None:
+                old_gain = cap.cfg.gain
+                new_gain = max(gain_min, min(gain_max, old_gain))
+                if new_gain != old_gain:
+                    cap.cfg.gain = new_gain
+                    adjusted_params.append(f"gain: {old_gain} -> {new_gain}")
+
+        # Auto-adjust antenna if current one isn't available
+        valid_antennas = device_info.get("antennas", [])
+        if valid_antennas and cap.cfg.antenna and cap.cfg.antenna not in valid_antennas:
+            old_ant = cap.cfg.antenna
+            cap.cfg.antenna = valid_antennas[0]  # Use first available
+            adjusted_params.append(f"antenna: {old_ant} -> {valid_antennas[0]}")
+
+        # Auto-adjust frequency if out of range
+        freq_min = device_info.get("freq_min_hz", 0)
+        freq_max = device_info.get("freq_max_hz", 6e9)
+        if not (freq_min <= cap.cfg.center_hz <= freq_max):
+            old_freq = cap.cfg.center_hz
+            new_freq = max(freq_min, min(freq_max, old_freq))
+            cap.cfg.center_hz = new_freq
+            adjusted_params.append(f"center_hz: {old_freq} -> {new_freq}")
+
+        if adjusted_params:
+            logger.info(f"Auto-adjusted capture {cid} params for new device: {', '.join(adjusted_params)}")
 
     if device_info:
         # Validate frequency range
@@ -670,7 +916,7 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
     # Use reconfigure method with timeout protection
     try:
         # Add timeout to prevent hanging
-        await asyncio.wait_for(
+        removed_channel_ids = await asyncio.wait_for(
             cap.reconfigure(
                 center_hz=req.centerHz,
                 sample_rate=req.sampleRate,
@@ -686,6 +932,11 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
             ),
             timeout=30.0  # 30 second timeout for reconfiguration
         )
+        # Also remove channels from CaptureManager's tracking
+        for ch_id in removed_channel_ids:
+            state.captures._channels.pop(ch_id, None)
+        if removed_channel_ids:
+            logger.info(f"Removed {len(removed_channel_ids)} out-of-band channels: {removed_channel_ids}")
     except asyncio.TimeoutError:
         raise HTTPException(
             status_code=503,
@@ -748,7 +999,7 @@ async def delete_capture(
     state: AppState = Depends(get_state),
 ):
     await state.captures.delete_capture(cid)
-    return JSONResponse(status_code=204, content={})
+    return Response(status_code=204)
 
 
 @router.get("/captures/{cid}/channels", response_model=List[ChannelModel])
@@ -758,53 +1009,7 @@ def list_channels(
     state: AppState = Depends(get_state),
 ):
     chans = state.captures.list_channels(cid)
-    return [
-        ChannelModel(
-            id=ch.cfg.id,
-            captureId=ch.cfg.capture_id,
-            mode=ch.cfg.mode,  # type: ignore[arg-type]
-            state=ch.state,  # type: ignore[arg-type]
-            offsetHz=ch.cfg.offset_hz,
-            audioRate=ch.cfg.audio_rate,
-            squelchDb=ch.cfg.squelch_db,
-            name=ch.cfg.name,
-            autoName=ch.cfg.auto_name,
-            signalPowerDb=ch.signal_power_db,
-            rssiDb=ch.rssi_db,
-            snrDb=ch.snr_db,
-            audioRmsDb=ch.audio_rms_db,
-            audioPeakDb=ch.audio_peak_db,
-            audioClippingCount=ch.audio_clipping_count,
-            # Filter configuration
-            enableDeemphasis=ch.cfg.enable_deemphasis,
-            deemphasisTauUs=ch.cfg.deemphasis_tau_us,
-            enableMpxFilter=ch.cfg.enable_mpx_filter,
-            mpxCutoffHz=ch.cfg.mpx_cutoff_hz,
-            enableFmHighpass=ch.cfg.enable_fm_highpass,
-            fmHighpassHz=ch.cfg.fm_highpass_hz,
-            enableFmLowpass=ch.cfg.enable_fm_lowpass,
-            fmLowpassHz=ch.cfg.fm_lowpass_hz,
-            enableAmHighpass=ch.cfg.enable_am_highpass,
-            amHighpassHz=ch.cfg.am_highpass_hz,
-            enableAmLowpass=ch.cfg.enable_am_lowpass,
-            amLowpassHz=ch.cfg.am_lowpass_hz,
-            enableSsbBandpass=ch.cfg.enable_ssb_bandpass,
-            ssbBandpassLowHz=ch.cfg.ssb_bandpass_low_hz,
-            ssbBandpassHighHz=ch.cfg.ssb_bandpass_high_hz,
-            ssbMode=ch.cfg.ssb_mode,
-            enableAgc=ch.cfg.enable_agc,
-            agcTargetDb=ch.cfg.agc_target_db,
-            agcAttackMs=ch.cfg.agc_attack_ms,
-            agcReleaseMs=ch.cfg.agc_release_ms,
-            enableNoiseBlanker=ch.cfg.enable_noise_blanker,
-            noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
-            notchFrequencies=ch.cfg.notch_frequencies,
-            enableNoiseReduction=ch.cfg.enable_noise_reduction,
-            noiseReductionDb=ch.cfg.noise_reduction_db,
-            rdsData=_to_rds_data_model(ch.rds_data),
-        )
-        for ch in chans
-    ]
+    return [_to_channel_model(ch) for ch in chans]
 
 
 @router.post("/captures/{cid}/channels", response_model=ChannelModel)
@@ -1187,7 +1392,7 @@ def delete_channel(
     state: AppState = Depends(get_state),
 ):
     state.captures.delete_channel(chan_id)
-    return JSONResponse(status_code=204, content={})
+    return Response(status_code=204)
 
 
 # ==============================================================================
@@ -1707,6 +1912,93 @@ async def stream_channel_audio(websocket: WebSocket, chan_id: str, format: str =
 
 
 # ==============================================================================
+# Health/Error Stream
+# ==============================================================================
+
+@router.websocket("/stream/health")
+async def stream_health(websocket: WebSocket):
+    """Real-time health and error stream.
+
+    Sends JSON messages:
+    - {"type": "error", "event": {...}} - When errors occur
+    - {"type": "stats", "data": {...}} - Every 2 seconds with aggregate stats
+
+    Error event format:
+    {
+        "type": "error",
+        "event": {
+            "type": "iq_overflow" | "audio_drop" | "device_retry",
+            "capture_id": "...",
+            "channel_id": "..." | null,
+            "timestamp": 1234567890.123,
+            "count": 1,
+            "details": {...}
+        }
+    }
+
+    Stats format:
+    {
+        "type": "stats",
+        "data": {
+            "iq_overflow": {"total": 0, "lastMinute": 0, "rate": 0.0},
+            "audio_drop": {"total": 0, "lastMinute": 0, "rate": 0.0},
+            "device_retry": {"total": 0, "lastMinute": 0, "rate": 0.0}
+        }
+    }
+    """
+    from .error_tracker import get_error_tracker
+
+    app_state: AppState = getattr(websocket.app.state, "app_state")
+    token = app_state.config.server.auth_token
+    if token is not None:
+        auth = websocket.headers.get("authorization") or websocket.query_params.get("token")
+        if not auth:
+            await websocket.close(code=4401)
+            return
+        if auth.startswith("Bearer "):
+            auth = auth.split(" ", 1)[1]
+        if auth != token:
+            await websocket.close(code=4403)
+            return
+
+    await websocket.accept()
+
+    tracker = get_error_tracker()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+
+    def on_error(event):
+        try:
+            queue.put_nowait({"type": "error", "event": event.to_dict()})
+        except asyncio.QueueFull:
+            pass  # Drop if queue is full
+
+    unsubscribe = tracker.subscribe(on_error)
+
+    try:
+        while True:
+            # Send error events as they come, or stats every 2 seconds
+            try:
+                msg = await asyncio.wait_for(queue.get(), timeout=2.0)
+                await websocket.send_json(msg)
+            except asyncio.TimeoutError:
+                # Send periodic stats
+                stats = tracker.get_stats()
+                await websocket.send_json({
+                    "type": "stats",
+                    "data": {
+                        error_type: stat.to_dict()
+                        for error_type, stat in stats.items()
+                    },
+                })
+    except WebSocketDisconnect:
+        pass
+    except asyncio.CancelledError:
+        raise
+    finally:
+        unsubscribe()
+
+
+# ==============================================================================
 # Scanner endpoints
 # ==============================================================================
 
@@ -1994,3 +2286,189 @@ def clear_all_lockouts(
 
     scanner.clear_all_lockouts()
     return _to_scanner_model(sid, scanner)
+
+
+# ==============================================================================
+# Frontend error logging endpoint
+# ==============================================================================
+
+from pydantic import BaseModel
+from pathlib import Path
+import json
+
+
+class FrontendErrorReport(BaseModel):
+    """Error report from the frontend JavaScript application."""
+    level: str = "error"  # error, warn, info, debug
+    message: str
+    stack: Optional[str] = None
+    componentStack: Optional[str] = None  # React error boundary stack
+    url: Optional[str] = None
+    userAgent: Optional[str] = None
+    timestamp: Optional[float] = None
+    context: Optional[dict] = None  # Additional context (component name, props, etc.)
+
+
+class FrontendLogEntry(BaseModel):
+    """Single log entry from frontend logger."""
+    timestamp: str
+    level: str
+    message: str
+    data: Optional[dict] = None
+    source: Optional[str] = None
+    stack: Optional[str] = None
+
+
+class FrontendLogBatch(BaseModel):
+    """Batch of log entries from frontend."""
+    entries: List[FrontendLogEntry]
+
+
+# In-memory log buffer for recent frontend errors (for the production engineer agent)
+_frontend_error_log: list[dict] = []
+_MAX_FRONTEND_ERRORS = 500
+
+# File path for persistent frontend logs (accessible to Claude for debugging)
+_FRONTEND_LOG_FILE = Path(__file__).parent.parent / "logs" / "frontend.log"
+
+
+def _ensure_log_dir():
+    """Ensure the logs directory exists."""
+    _FRONTEND_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _write_to_log_file(entry: dict):
+    """Append a log entry to the frontend log file."""
+    try:
+        _ensure_log_dir()
+        with open(_FRONTEND_LOG_FILE, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+        # Rotate log file if too large (> 1MB)
+        if _FRONTEND_LOG_FILE.stat().st_size > 1_000_000:
+            _rotate_log_file()
+    except Exception as e:
+        logger.warning(f"Failed to write frontend log to file: {e}")
+
+
+def _rotate_log_file():
+    """Rotate the log file, keeping only the last 500 lines."""
+    try:
+        with open(_FRONTEND_LOG_FILE, "r") as f:
+            lines = f.readlines()
+        with open(_FRONTEND_LOG_FILE, "w") as f:
+            f.writelines(lines[-500:])
+    except Exception as e:
+        logger.warning(f"Failed to rotate frontend log file: {e}")
+
+
+def _process_log_entry(entry: dict, request: Request) -> dict:
+    """Process and store a single log entry."""
+    import time
+
+    log_entry = {
+        "level": entry.get("level", "info"),
+        "message": entry.get("message", ""),
+        "stack": entry.get("stack"),
+        "componentStack": entry.get("componentStack"),
+        "url": entry.get("url") or str(request.url),
+        "userAgent": entry.get("userAgent") or request.headers.get("user-agent"),
+        "timestamp": entry.get("timestamp") or time.time(),
+        "context": entry.get("context") or entry.get("data"),
+        "clientIp": request.client.host if request.client else None,
+        "source": entry.get("source", "frontend"),
+    }
+
+    # Log to Python logger
+    level = log_entry["level"]
+    log_msg = f"[FRONTEND {level.upper()}] {log_entry['message']}"
+    if log_entry.get("stack"):
+        log_msg += f"\nStack: {log_entry['stack']}"
+
+    if level == "error":
+        logger.error(log_msg)
+    elif level == "warn":
+        logger.warning(log_msg)
+    elif level == "debug":
+        logger.debug(log_msg)
+    else:
+        logger.info(log_msg)
+
+    # Store in memory buffer
+    _frontend_error_log.append(log_entry)
+    if len(_frontend_error_log) > _MAX_FRONTEND_ERRORS:
+        _frontend_error_log.pop(0)
+
+    # Write to file for Claude access
+    _write_to_log_file(log_entry)
+
+    return log_entry
+
+
+@router.post("/logs")
+def log_frontend_batch(
+    batch: FrontendLogBatch,
+    request: Request,
+):
+    """Receive batch of log entries from the frontend logger.
+
+    This endpoint receives multiple log entries at once for efficiency.
+    Logs are stored in memory and written to a file for debugging.
+    """
+    processed = 0
+    for entry in batch.entries:
+        _process_log_entry(entry.model_dump(), request)
+        processed += 1
+
+    return {"status": "logged", "count": processed}
+
+
+@router.post("/log/frontend")
+def log_frontend_error(
+    report: FrontendErrorReport,
+    request: Request,
+):
+    """Receive and log errors from the frontend JavaScript application.
+
+    This endpoint allows the frontend to report JavaScript errors, React
+    component crashes, and other issues to the server for centralized logging.
+    Errors are stored in memory for retrieval by debugging tools.
+    """
+    _process_log_entry(report.model_dump(), request)
+    return {"status": "logged"}
+
+
+@router.get("/log/frontend")
+def get_frontend_errors(
+    limit: int = 50,
+    level: Optional[str] = None,
+    since: Optional[float] = None,
+    _: None = Depends(auth_check),
+):
+    """Retrieve recent frontend errors from the log buffer.
+
+    Args:
+        limit: Maximum number of errors to return (default 50)
+        level: Filter by level (error, warn, info)
+        since: Only return errors after this Unix timestamp
+
+    Returns:
+        List of error log entries (most recent first)
+    """
+    results = _frontend_error_log.copy()
+
+    # Apply filters
+    if level:
+        results = [e for e in results if e["level"] == level]
+    if since:
+        results = [e for e in results if (e.get("timestamp") or 0) > since]
+
+    # Sort by timestamp descending and limit
+    results.sort(key=lambda e: e.get("timestamp") or 0, reverse=True)
+    return results[:limit]
+
+
+@router.delete("/log/frontend")
+def clear_frontend_errors(_: None = Depends(auth_check)):
+    """Clear the frontend error log buffer."""
+    _frontend_error_log.clear()
+    return {"status": "cleared"}
