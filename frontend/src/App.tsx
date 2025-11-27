@@ -168,20 +168,25 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
       )}
 
       {!isEditing && isSelected && (
-        <button
+        <span
+          role="button"
+          tabIndex={0}
           className="btn btn-sm p-0 text-dark"
           style={{ width: "14px", height: "14px", lineHeight: 1 }}
           onClick={handleStartEdit}
+          onKeyDown={(e) => e.key === "Enter" && handleStartEdit(e as unknown as React.MouseEvent)}
           title="Edit name"
         >
           <Edit2 size={10} />
-        </button>
+        </span>
       )}
 
       <span className={`small ${isSelected ? 'text-muted' : 'text-white opacity-75'}`}>
         {formatFrequencyMHz(capture.centerHz)} MHz • {channelCount} ch
       </span>
-      <button
+      <span
+        role="button"
+        tabIndex={0}
         className={`btn btn-sm p-0 ms-1 ${isSelected ? 'text-dark' : 'text-white'}`}
         style={{ width: "16px", height: "16px", lineHeight: 1 }}
         onClick={(e) => {
@@ -190,10 +195,18 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
             onDelete();
           }
         }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.stopPropagation();
+            if (window.confirm(`Delete capture "${displayName}"?\n\nThis will stop the capture and remove all channels.`)) {
+              onDelete();
+            }
+          }
+        }}
         title="Delete capture"
       >
         <X size={12} />
-      </button>
+      </span>
     </button>
   );
 }

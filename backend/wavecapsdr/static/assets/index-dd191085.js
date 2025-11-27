@@ -34449,11 +34449,14 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
           }
         ),
         !isEditing && isSelected && /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "button",
+          "span",
           {
+            role: "button",
+            tabIndex: 0,
             className: "btn btn-sm p-0 text-dark",
             style: { width: "14px", height: "14px", lineHeight: 1 },
             onClick: handleStartEdit,
+            onKeyDown: (e) => e.key === "Enter" && handleStartEdit(e),
             title: "Edit name",
             children: /* @__PURE__ */ jsxRuntimeExports.jsx(Pen, { size: 10 })
           }
@@ -34465,8 +34468,10 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
           " ch"
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "button",
+          "span",
           {
+            role: "button",
+            tabIndex: 0,
             className: `btn btn-sm p-0 ms-1 ${isSelected ? "text-dark" : "text-white"}`,
             style: { width: "16px", height: "16px", lineHeight: 1 },
             onClick: (e) => {
@@ -34475,6 +34480,16 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
 
 This will stop the capture and remove all channels.`)) {
                 onDelete();
+              }
+            },
+            onKeyDown: (e) => {
+              if (e.key === "Enter") {
+                e.stopPropagation();
+                if (window.confirm(`Delete capture "${displayName}"?
+
+This will stop the capture and remove all channels.`)) {
+                  onDelete();
+                }
               }
             },
             title: "Delete capture",
@@ -34836,4 +34851,4 @@ logger.init();
 client.createRoot(document.getElementById("root")).render(
   /* @__PURE__ */ jsxRuntimeExports.jsx(React.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(App, {}) })
 );
-//# sourceMappingURL=index-4e7f28ac.js.map
+//# sourceMappingURL=index-dd191085.js.map

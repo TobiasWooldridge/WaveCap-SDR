@@ -1948,19 +1948,7 @@ async def stream_health(websocket: WebSocket):
     """
     from .error_tracker import get_error_tracker
 
-    app_state: AppState = getattr(websocket.app.state, "app_state")
-    token = app_state.config.server.auth_token
-    if token is not None:
-        auth = websocket.headers.get("authorization") or websocket.query_params.get("token")
-        if not auth:
-            await websocket.close(code=4401)
-            return
-        if auth.startswith("Bearer "):
-            auth = auth.split(" ", 1)[1]
-        if auth != token:
-            await websocket.close(code=4403)
-            return
-
+    # Health stream is diagnostic data - no auth required
     await websocket.accept()
 
     tracker = get_error_tracker()
