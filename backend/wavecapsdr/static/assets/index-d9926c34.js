@@ -17614,6 +17614,11 @@ function AppContent() {
       setSelectedCaptureId(captures[0].id);
     }
   }, [selectedCaptureId, captures]);
+  reactExports.useEffect(() => {
+    if (devices && devices.length > 0 && !newCaptureDeviceId) {
+      setNewCaptureDeviceId(devices[0].id);
+    }
+  }, [devices, newCaptureDeviceId]);
   const selectedCapture = (captures == null ? void 0 : captures.find((c) => c.id === selectedCaptureId)) ?? (captures == null ? void 0 : captures[0]);
   const selectedDevice = devices == null ? void 0 : devices.find((d) => {
     if (!(selectedCapture == null ? void 0 : selectedCapture.deviceId))
@@ -17702,11 +17707,6 @@ function AppContent() {
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-muted", children: "Loading..." })
     ] }) });
   }
-  reactExports.useEffect(() => {
-    if (devices && devices.length > 0 && !newCaptureDeviceId) {
-      setNewCaptureDeviceId(devices[0].id);
-    }
-  }, [devices, newCaptureDeviceId]);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "min-vh-100 bg-light", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("nav", { className: "navbar navbar-dark bg-primary shadow-sm mb-0", style: { paddingBottom: 0 }, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "container-fluid", style: { flexDirection: "column", alignItems: "stretch", gap: "0.5rem" }, children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", justify: "between", style: { paddingBottom: "0.5rem" }, children: [
@@ -17922,4 +17922,4 @@ logger.init();
 client.createRoot(document.getElementById("root")).render(
   /* @__PURE__ */ jsxRuntimeExports.jsx(React.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(App, {}) })
 );
-//# sourceMappingURL=index-72818c43.js.map
+//# sourceMappingURL=index-d9926c34.js.map

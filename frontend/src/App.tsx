@@ -256,6 +256,13 @@ function AppContent() {
     }
   }, [selectedCaptureId, captures]);
 
+  // Initialize new capture form with first device
+  useEffect(() => {
+    if (devices && devices.length > 0 && !newCaptureDeviceId) {
+      setNewCaptureDeviceId(devices[0].id);
+    }
+  }, [devices, newCaptureDeviceId]);
+
   // Find the selected capture, or use first available
   const selectedCapture = captures?.find((c) => c.id === selectedCaptureId) ?? captures?.[0];
 
@@ -377,13 +384,6 @@ function AppContent() {
       </Flex>
     );
   }
-
-  // Initialize new capture form with first device
-  useEffect(() => {
-    if (devices && devices.length > 0 && !newCaptureDeviceId) {
-      setNewCaptureDeviceId(devices[0].id);
-    }
-  }, [devices, newCaptureDeviceId]);
 
   return (
     <div className="min-vh-100 bg-light">
