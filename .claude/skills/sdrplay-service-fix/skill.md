@@ -86,29 +86,29 @@ fi
 
 ### macOS
 
-**Option 1: Using launchctl (preferred)**
+**Option 1: Using launchctl kickstart (preferred, returns new PID)**
+```bash
+sudo /bin/launchctl kickstart -kp system/com.sdrplay.service
+```
+This kills the existing service and starts a fresh instance, returning the new PID.
+
+**Option 2: Using launchctl stop/start**
 ```bash
 sudo launchctl stop com.sdrplay.apiservice
 sleep 2
 sudo launchctl start com.sdrplay.apiservice
 ```
 
-**Option 2: Kill and auto-restart**
+**Option 3: Kill and auto-restart**
 ```bash
 sudo killall sdrplay_apiService
 ```
 The service will auto-restart via launchd.
 
-**Option 3: Manual restart**
-```bash
-sudo killall sdrplay_apiService
-sleep 1
-sudo /Library/SDRplayAPI/3.15.1/bin/sdrplay_apiService &
-```
-
 **To allow passwordless restart**, add to `/etc/sudoers.d/sdrplay`:
 ```
-# Allow users to restart SDRplay service without password
+# Allow users to restart SDRplay service without password (kickstart is preferred)
+%admin ALL=(ALL) NOPASSWD: /bin/launchctl kickstart -kp system/com.sdrplay.service
 %admin ALL=(ALL) NOPASSWD: /bin/launchctl stop com.sdrplay.apiservice
 %admin ALL=(ALL) NOPASSWD: /bin/launchctl start com.sdrplay.apiservice
 %admin ALL=(ALL) NOPASSWD: /usr/bin/killall sdrplay_apiService

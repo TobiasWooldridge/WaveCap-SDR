@@ -104,17 +104,26 @@ test_enumeration() {
 restart_service_macos() {
     log_info "Restarting SDRplay service on macOS..."
 
-    # Try launchctl first
-    if sudo launchctl stop com.sdrplay.apiservice 2>/dev/null; then
-        sleep 2
-        sudo launchctl start com.sdrplay.apiservice 2>/dev/null
-        log_info "Service restarted via launchctl"
-    else
-        # Fall back to killall
-        log_info "Using killall (service will auto-restart)"
-        sudo killall sdrplay_apiService 2>/dev/null || true
-        sleep 2
+    # Try launchctl kickstart first (preferred - kills and restarts, returns new PID)
+    local new_pid
+    new_pid=$(sudo -n /bin/launchctl kickstart -kp system/com.sdrplay.service 2>/dev/null)
+    if [ -n "$new_pid" ]; then
+        log_info "Service restarted via launchctl kickstart (new PID: $new_pid)"
+        return 0
     fi
+
+    # Fall back to launchctl stop/start
+    if sudo -n launchctl stop com.sdrplay.apiservice 2>/dev/null; then
+        sleep 2
+        sudo -n launchctl start com.sdrplay.apiservice 2>/dev/null
+        log_info "Service restarted via launchctl stop/start"
+        return 0
+    fi
+
+    # Fall back to killall (requires sudo password if not in sudoers)
+    log_info "Using killall (service will auto-restart)"
+    sudo killall sdrplay_apiService 2>/dev/null || true
+    sleep 2
 }
 
 restart_service_linux() {
@@ -170,6 +179,8 @@ setup_sudoers_macos() {
 # Run: sudo visudo -f /etc/sudoers.d/sdrplay
 
 # Allow admin group to restart SDRplay service without password
+# kickstart is preferred - it kills and restarts in one command, returning the new PID
+%admin ALL=(ALL) NOPASSWD: /bin/launchctl kickstart -kp system/com.sdrplay.service
 %admin ALL=(ALL) NOPASSWD: /bin/launchctl stop com.sdrplay.apiservice
 %admin ALL=(ALL) NOPASSWD: /bin/launchctl start com.sdrplay.apiservice
 %admin ALL=(ALL) NOPASSWD: /usr/bin/killall sdrplay_apiService
