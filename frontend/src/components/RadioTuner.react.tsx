@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
-import { Radio, Settings, ChevronDown, ChevronUp, Cpu, RotateCcw } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Radio, Settings, ChevronDown, ChevronUp, Cpu, RotateCcw, RefreshCw, Check } from "lucide-react";
 import type { Capture, Device } from "../types";
 import { useUpdateCapture, useStartCapture, useStopCapture, useRestartCapture } from "../hooks/useCaptures";
-import { useDevices } from "../hooks/useDevices";
+import { useDevices, useRestartSDRplayService } from "../hooks/useDevices";
 import { useChannels, useCreateChannel } from "../hooks/useChannels";
 import { useMemoryBanks } from "../hooks/useMemoryBanks";
 import { useDebounce } from "../hooks/useDebounce";
@@ -113,6 +113,36 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   const startMutation = useStartCapture();
   const stopMutation = useStopCapture();
   const restartMutation = useRestartCapture();
+  const restartServiceMutation = useRestartSDRplayService();
+
+  // Check if this is an SDRplay device
+  const isSDRplayDevice = capture.deviceId?.toLowerCase().includes("sdrplay");
+
+  // Confirm state for destructive buttons (touch-friendly two-tap pattern)
+  const [confirmingAction, setConfirmingAction] = useState<"stop" | "restart" | "service" | null>(null);
+
+  // Reset confirm state after timeout
+  useEffect(() => {
+    if (confirmingAction) {
+      const timer = setTimeout(() => setConfirmingAction(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [confirmingAction]);
+
+  // Handle confirm-required button clicks
+  const handleConfirmableAction = useCallback((
+    action: "stop" | "restart" | "service",
+    execute: () => void
+  ) => {
+    if (confirmingAction === action) {
+      // Second tap - execute the action
+      execute();
+      setConfirmingAction(null);
+    } else {
+      // First tap - enter confirm mode
+      setConfirmingAction(action);
+    }
+  }, [confirmingAction]);
 
   // Get channels for the capture
   const { data: channels } = useChannels(capture.id);
@@ -252,14 +282,6 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
     });
   };
 
-  const handleStartStop = () => {
-    if (capture.state === "running") {
-      stopMutation.mutate(capture.id);
-    } else {
-      startMutation.mutate(capture.id);
-    }
-  };
-
   const isRunning = capture.state === "running";
   const isStarting = capture.state === "starting";
   const isStopping = capture.state === "stopping";
@@ -320,89 +342,120 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
         </div>
         <div className="card-body" style={{ padding: "0.75rem" }}>
           <Flex direction="column" gap={2}>
-            {/* Horizontal Layout: Device + Start/Stop + Bookmarks */}
-            <div className="row g-2 align-items-end">
-              {/* Device Selector */}
-              <div className="col-12 col-md-6">
-                <label className="form-label mb-1 small fw-semibold">Radio Device</label>
-                <select
-                  className="form-select form-select-sm"
-                  value={localDeviceId}
-                  onChange={(e) => handleDeviceChange(e.target.value)}
-                  disabled={isRunning}
+            {/* Row 1: Device Selector */}
+            <div>
+              <label className="form-label mb-1 small fw-semibold">Radio Device</label>
+              <select
+                className="form-select form-select-sm"
+                value={localDeviceId}
+                onChange={(e) => handleDeviceChange(e.target.value)}
+                disabled={isRunning}
+              >
+                {(devices || []).map((dev) => (
+                  <option key={dev.id} value={dev.id}>
+                    {getDeviceDisplayName(dev)}
+                  </option>
+                ))}
+              </select>
+              {isRunning && (
+                <small className="text-warning d-block mt-1" style={{ fontSize: "0.7rem" }}>
+                  Stop to change
+                </small>
+              )}
+            </div>
+
+            {/* Row 2: Control Buttons + Bookmarks */}
+            <div className="d-flex gap-2 align-items-center flex-wrap">
+              {/* Start/Stop + Restart + Service Button Group */}
+              <div className="btn-group" role="group">
+                {/* Start/Stop - requires confirm when stopping */}
+                <Button
+                  use={confirmingAction === "stop" ? "warning" : (isRunning || isStopping ? "danger" : isStarting ? "warning" : "success")}
+                  size="sm"
+                  onClick={() => {
+                    if (isRunning) {
+                      handleConfirmableAction("stop", () => stopMutation.mutate(capture.id));
+                    } else {
+                      startMutation.mutate(capture.id);
+                    }
+                  }}
+                  disabled={startMutation.isPending || stopMutation.isPending || isTransitioning || restartMutation.isPending}
                 >
-                  {(devices || []).map((dev) => (
-                    <option key={dev.id} value={dev.id}>
-                      {getDeviceDisplayName(dev)}
-                    </option>
-                  ))}
-                </select>
-                {isRunning && (
-                  <small className="text-warning d-block mt-1" style={{ fontSize: "0.7rem" }}>
-                    Stop to change
-                  </small>
+                  {isStarting ? "Starting..." : isStopping ? "Stopping..." :
+                   confirmingAction === "stop" ? <><Check size={14} /> Confirm</> :
+                   isRunning ? "Stop" : "Start"}
+                </Button>
+                {/* Restart - always requires confirm */}
+                <Button
+                  use={confirmingAction === "restart" ? "warning" : "secondary"}
+                  size="sm"
+                  onClick={() => handleConfirmableAction("restart", () => restartMutation.mutate(capture.id))}
+                  disabled={restartMutation.isPending || isTransitioning || stopMutation.isPending || startMutation.isPending || restartServiceMutation.isPending}
+                  title={confirmingAction === "restart" ? "Tap again to confirm restart" : "Restart capture (stop then start)"}
+                >
+                  {restartMutation.isPending ? <Spinner size="sm" /> :
+                   confirmingAction === "restart" ? <Check size={14} /> : <RotateCcw size={14} />}
+                </Button>
+                {/* Service restart - always requires confirm */}
+                {isSDRplayDevice && (
+                  <Button
+                    use={confirmingAction === "service" ? "warning" : "danger"}
+                    size="sm"
+                    onClick={() => handleConfirmableAction("service", () => restartServiceMutation.mutate())}
+                    disabled={restartMutation.isPending || restartServiceMutation.isPending}
+                    title={confirmingAction === "service" ? "Tap again to confirm service restart" : "Restart SDRplay API service (fixes stuck devices)"}
+                  >
+                    {restartServiceMutation.isPending ? <Spinner size="sm" /> :
+                     confirmingAction === "service" ? <Check size={14} /> : <RefreshCw size={14} />}
+                  </Button>
                 )}
               </div>
 
-              {/* Start/Stop Button */}
-              <div className="col-6 col-md-2">
-                <Button
-                  use={isRunning || isStopping ? "danger" : isStarting ? "warning" : "success"}
-                  size="sm"
-                  onClick={handleStartStop}
-                  disabled={startMutation.isPending || stopMutation.isPending || isTransitioning || restartMutation.isPending}
-                  style={{ width: "100%" }}
-                >
-                  {isStarting ? "Starting..." : isStopping ? "Stopping..." : isRunning ? "Stop" : "Start"}
-                </Button>
-              </div>
-
-              {/* Restart Button */}
-              <div className="col-6 col-md-2">
-                <Button
-                  use="warning"
-                  size="sm"
-                  onClick={() => restartMutation.mutate(capture.id)}
-                  disabled={restartMutation.isPending || isTransitioning || stopMutation.isPending || startMutation.isPending}
-                  style={{ width: "100%" }}
-                  title="Restart the capture (stop then start)"
-                >
-                  {restartMutation.isPending ? (
-                    <><Spinner size="sm" /> Restarting</>
-                  ) : (
-                    <><RotateCcw size={14} /> Restart</>
-                  )}
-                </Button>
-              </div>
-
               {/* Bookmark Manager */}
-              <div className="col-12 col-md-2">
-                <BookmarkManager
-                  currentFrequency={localFreq}
-                  onTuneToFrequency={(freq) => setLocalFreq(freq)}
-                  currentCapture={capture}
-                  currentChannels={channels}
-                  onLoadMemoryBank={handleLoadMemoryBank}
-                />
-              </div>
+              <BookmarkManager
+                currentFrequency={localFreq}
+                onTuneToFrequency={(freq) => setLocalFreq(freq)}
+                currentCapture={capture}
+                currentChannels={channels}
+                onLoadMemoryBank={handleLoadMemoryBank}
+              />
             </div>
 
             {/* Error Message */}
             {hasError && (
-              <div className="alert alert-danger mb-0 py-1 px-2 d-flex align-items-center justify-content-between">
-                <small>
-                  <strong>{isError ? "Device Error:" : "Error:"}</strong>{" "}
-                  {capture.errorMessage || (isError ? "No IQ samples received - device may be stuck" : "Unknown error")}
-                </small>
-                <Button
-                  use="warning"
-                  size="sm"
-                  onClick={() => restartMutation.mutate(capture.id)}
-                  disabled={restartMutation.isPending}
-                  style={{ marginLeft: "0.5rem" }}
-                >
-                  {restartMutation.isPending ? "Restarting..." : "Restart"}
-                </Button>
+              <div className="alert alert-danger mb-0 py-1 px-2">
+                <div className="d-flex align-items-center justify-content-between">
+                  <small>
+                    <strong>{isError ? "Device Error:" : "Error:"}</strong>{" "}
+                    {capture.errorMessage || (isError ? "No IQ samples received - device may be stuck" : "Unknown error")}
+                  </small>
+                  <div className="d-flex gap-1">
+                    <Button
+                      use="warning"
+                      size="sm"
+                      onClick={() => restartMutation.mutate(capture.id)}
+                      disabled={restartMutation.isPending || restartServiceMutation.isPending}
+                    >
+                      {restartMutation.isPending ? "Restarting..." : "Restart Capture"}
+                    </Button>
+                    {isSDRplayDevice && (
+                      <Button
+                        use="danger"
+                        size="sm"
+                        onClick={() => restartServiceMutation.mutate()}
+                        disabled={restartMutation.isPending || restartServiceMutation.isPending}
+                        title="Restart the SDRplay API service if device is stuck"
+                      >
+                        {restartServiceMutation.isPending ? "Restarting..." : "Restart Service"}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                {restartServiceMutation.isError && (
+                  <small className="text-danger d-block mt-1">
+                    Service restart failed: {restartServiceMutation.error?.message}
+                  </small>
+                )}
               </div>
             )}
 
@@ -514,6 +567,12 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
                   <small className="text-warning">
                     Changing sample rate will briefly interrupt the stream
                   </small>
+                )}
+                {device?.sampleRates && device.sampleRates.length > 0 && !device.sampleRates.includes(localSampleRate) && (
+                  <div className="alert alert-warning py-1 px-2 mt-2 mb-0" style={{ fontSize: "0.8rem" }}>
+                    <strong>Warning:</strong> Current sample rate ({formatSampleRate(localSampleRate)}) is not supported by this device.
+                    Select a valid rate from the dropdown above.
+                  </div>
                 )}
                 {localSampleRate < 200_000 && (
                   <div className="alert alert-info py-1 px-2 mt-2 mb-0" style={{ fontSize: "0.8rem" }}>

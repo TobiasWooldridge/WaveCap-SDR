@@ -18,7 +18,7 @@ import { SkeletonChannelCard } from "./primitives/Skeleton.react";
 
 // Type for tracking individual channel streams
 interface ChannelStream {
-  reader: ReadableStreamDefaultReader<Uint8Array>;
+  ws: WebSocket;
   gainNode: GainNode;
   shouldPlay: boolean;
   nextStartTime: number;
@@ -52,7 +52,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
     const stream = channelStreamsRef.current.get(channelId);
     if (stream) {
       stream.shouldPlay = false;
-      stream.reader.cancel().catch(() => {});
+      stream.ws.close();
       stream.gainNode.disconnect();
       channelStreamsRef.current.delete(channelId);
     }
@@ -62,7 +62,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
   const stopAllAudio = useCallback(() => {
     channelStreamsRef.current.forEach((stream) => {
       stream.shouldPlay = false;
-      stream.reader.cancel().catch(() => {});
+      stream.ws.close();
       stream.gainNode.disconnect();
     });
     channelStreamsRef.current.clear();
@@ -149,17 +149,26 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
   };
 
   // Initialize audio context and master gain
+  // Safari/iOS requires AudioContext to be resumed after user interaction
   const initAudioContext = useCallback(() => {
     if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext({ sampleRate: 48000 });
+      // Use webkitAudioContext for older Safari versions
+      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      audioContextRef.current = new AudioContextClass({ sampleRate: 48000 });
       masterGainRef.current = audioContextRef.current.createGain();
       masterGainRef.current.gain.value = 1.0;
       masterGainRef.current.connect(audioContextRef.current.destination);
     }
+    // Resume if suspended (required for Safari/iOS after user gesture)
+    if (audioContextRef.current.state === "suspended") {
+      audioContextRef.current.resume().catch((err) => {
+        console.error("Failed to resume AudioContext:", err);
+      });
+    }
     return audioContextRef.current;
   }, []);
 
-  // Play PCM audio for a single channel (connects to mixer)
+  // Play PCM audio for a single channel using WebSocket (Safari-compatible)
   const playPCMAudio = useCallback(async (channelId: string) => {
     try {
       const audioContext = initAudioContext();
@@ -172,18 +181,21 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
       channelGain.gain.value = 1.0 / Math.sqrt(numChannels);
       channelGain.connect(masterGain);
 
-      const streamUrl = `${window.location.origin}/api/v1/stream/channels/${channelId}.pcm`;
-      const response = await fetch(streamUrl);
+      // Use WebSocket for audio streaming - more reliable than fetch for Safari/iOS
+      const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${wsProtocol}//${window.location.host}/api/v1/stream/channels/${channelId}?format=pcm16`;
+      console.log("[ChannelManager] Connecting to WebSocket:", wsUrl);
 
-      if (!response.ok || !response.body) {
-        throw new Error('Failed to fetch audio stream');
-      }
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = "arraybuffer";
 
-      const reader = response.body.getReader();
+      const bufferSize = 4096;
+      let pcmBuffer: number[] = [];
+      let nextStartTime = audioContext.currentTime;
 
-      // Store stream info
+      // Store stream info before WebSocket opens
       const streamInfo: ChannelStream = {
-        reader,
+        ws,
         gainNode: channelGain,
         shouldPlay: true,
         nextStartTime: audioContext.currentTime,
@@ -197,54 +209,71 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
         stream.gainNode.gain.value = mixGain;
       });
 
-      const bufferSize = 4096;
-      let pcmBuffer: number[] = [];
+      ws.onopen = () => {
+        console.log("[ChannelManager] WebSocket connected for channel:", channelId);
+      };
 
-      const processChunk = async () => {
-        while (streamInfo.shouldPlay) {
-          const { done, value } = await reader.read();
+      ws.onmessage = (event) => {
+        if (!streamInfo.shouldPlay) return;
 
-          if (done) break;
+        const data = event.data;
+        if (!(data instanceof ArrayBuffer)) {
+          return; // Skip non-binary messages
+        }
 
-          const dataView = new DataView(value.buffer, value.byteOffset, value.byteLength);
-          const sampleCount = Math.floor(value.length / 2);
-          for (let i = 0; i < sampleCount; i++) {
-            const sample = dataView.getInt16(i * 2, true) / 32768.0;
-            pcmBuffer.push(sample);
+        const dataView = new DataView(data);
+        const sampleCount = Math.floor(data.byteLength / 2);
+        for (let i = 0; i < sampleCount; i++) {
+          const sample = dataView.getInt16(i * 2, true) / 32768.0;
+          pcmBuffer.push(sample);
+        }
+
+        // Process buffered audio
+        while (pcmBuffer.length >= bufferSize && streamInfo.shouldPlay) {
+          const chunk = pcmBuffer.splice(0, bufferSize);
+          const audioBuffer = audioContext.createBuffer(1, chunk.length, 48000);
+          const channelData = audioBuffer.getChannelData(0);
+
+          for (let i = 0; i < chunk.length; i++) {
+            channelData[i] = chunk[i];
           }
 
-          while (pcmBuffer.length >= bufferSize && streamInfo.shouldPlay) {
-            const chunk = pcmBuffer.splice(0, bufferSize);
-            const audioBuffer = audioContext.createBuffer(1, chunk.length, 48000);
-            const channelData = audioBuffer.getChannelData(0);
+          const source = audioContext.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(channelGain);
 
-            for (let i = 0; i < chunk.length; i++) {
-              channelData[i] = chunk[i];
-            }
-
-            const source = audioContext.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(channelGain);
-
-            const startTime = Math.max(streamInfo.nextStartTime, audioContext.currentTime);
-            source.start(startTime);
-            streamInfo.nextStartTime = startTime + audioBuffer.duration;
-          }
+          const startTime = Math.max(nextStartTime, audioContext.currentTime);
+          source.start(startTime);
+          nextStartTime = startTime + audioBuffer.duration;
+          streamInfo.nextStartTime = nextStartTime;
         }
       };
 
-      processChunk().catch((error) => {
-        console.error('Audio playback error:', error);
+      ws.onerror = (error) => {
+        console.error("[ChannelManager] WebSocket error:", error);
         stopChannelAudio(channelId);
         setPlayingChannels(prev => {
           const next = new Set(prev);
           next.delete(channelId);
           return next;
         });
-      });
+      };
+
+      ws.onclose = (event) => {
+        console.log("[ChannelManager] WebSocket closed:", event.code, event.reason);
+        if (streamInfo.shouldPlay) {
+          // Unexpected close
+          stopChannelAudio(channelId);
+          setPlayingChannels(prev => {
+            const next = new Set(prev);
+            next.delete(channelId);
+            return next;
+          });
+        }
+      };
 
     } catch (error) {
-      console.error('Failed to play audio:', error);
+      console.error("[ChannelManager] Failed to play audio:", error);
       setPlayingChannels(prev => {
         const next = new Set(prev);
         next.delete(channelId);

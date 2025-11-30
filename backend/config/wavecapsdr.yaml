@@ -23,7 +23,7 @@ presets:
     offsets:
     - 0.0
     gain: 21.1
-    bandwidth: 267000.0
+    bandwidth: 300000.0
     ppm: 0.0
     antenna: Antenna B
   seattle_aircraft:

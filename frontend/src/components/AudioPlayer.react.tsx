@@ -17,17 +17,29 @@ const MAX_RETRIES = 10;
 
 type AudioFormat = "pcm" | "mp3" | "opus" | "aac";
 
+// Detect Safari/iOS for special audio handling
+const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent) ||
+  /iPad|iPhone|iPod/.test(navigator.userAgent);
+
 export const AudioPlayer = ({ channelId, captureState }: AudioPlayerProps) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [volume, setVolume] = useState(0.7);
   const [isMuted, setIsMuted] = useState(false);
-  const [audioFormat, setAudioFormat] = useState<AudioFormat>("mp3");
+  // Safari works best with PCM via AudioContext
+  const [audioFormat, setAudioFormat] = useState<AudioFormat>(isSafari ? "pcm" : "mp3");
   const [connectionState, setConnectionState] = useState<ConnectionState>("connected");
   const [retryCount, setRetryCount] = useState(0);
   const [userPaused, setUserPaused] = useState(false);
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastPlayAttemptRef = useRef<number>(0);
+
+  // AudioContext for PCM streaming (Safari-compatible approach)
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const gainNodeRef = useRef<GainNode | null>(null);
+  const shouldPlayRef = useRef<boolean>(false);
+  const nextStartTimeRef = useRef<number>(0);
 
   const streamUrl = channelId ? `/api/v1/stream/channels/${channelId}.${audioFormat}?t=${Date.now()}` : null;
 
@@ -37,6 +49,140 @@ export const AudioPlayer = ({ channelId, captureState }: AudioPlayerProps) => {
       retryTimeoutRef.current = null;
     }
   }, []);
+
+  // Initialize AudioContext (Safari-compatible with webkitAudioContext fallback)
+  const initAudioContext = useCallback(() => {
+    if (!audioContextRef.current) {
+      const AudioContextClass = window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      audioContextRef.current = new AudioContextClass({ sampleRate: 48000 });
+      gainNodeRef.current = audioContextRef.current.createGain();
+      gainNodeRef.current.connect(audioContextRef.current.destination);
+    }
+    // Resume if suspended (required for Safari/iOS after user gesture)
+    if (audioContextRef.current.state === "suspended") {
+      audioContextRef.current.resume().catch((err) => {
+        console.error("Failed to resume AudioContext:", err);
+      });
+    }
+    return audioContextRef.current;
+  }, []);
+
+  // Stop PCM streaming (handles both WebSocket and ReadableStream)
+  const stopPCMStream = useCallback(() => {
+    shouldPlayRef.current = false;
+    if (streamReaderRef.current) {
+      // Check if it's a WebSocket wrapper or a ReadableStreamReader
+      const ref = streamReaderRef.current as unknown as { ws?: WebSocket; closed?: boolean; cancel?: () => Promise<void> };
+      if (ref.ws) {
+        // WebSocket cleanup
+        ref.closed = true;
+        ref.ws.close();
+      } else if (ref.cancel) {
+        // ReadableStreamReader cleanup
+        ref.cancel().catch(() => {});
+      }
+      streamReaderRef.current = null;
+    }
+  }, []);
+
+  // Play PCM audio using WebSocket + AudioContext (most reliable for Safari)
+  const playPCMStream = useCallback(async () => {
+    if (!channelId) return;
+
+    try {
+      console.log("[AudioPlayer] Starting PCM stream for channel:", channelId);
+      const audioContext = initAudioContext();
+      console.log("[AudioPlayer] AudioContext state:", audioContext.state, "sampleRate:", audioContext.sampleRate);
+
+      const gainNode = gainNodeRef.current!;
+      gainNode.gain.value = isMuted ? 0 : volume;
+
+      // Use WebSocket for Safari - more reliable than fetch streaming
+      const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${wsProtocol}//${window.location.host}/api/v1/stream/channels/${channelId}?format=pcm16`;
+      console.log("[AudioPlayer] Connecting to WebSocket:", wsUrl);
+
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = "arraybuffer";
+
+      // Store WebSocket reference for cleanup
+      const wsRef = { ws, closed: false };
+      streamReaderRef.current = wsRef as unknown as ReadableStreamDefaultReader<Uint8Array>;
+      shouldPlayRef.current = true;
+      nextStartTimeRef.current = audioContext.currentTime;
+
+      const bufferSize = 4096;
+      let pcmBuffer: number[] = [];
+
+      ws.onopen = () => {
+        console.log("[AudioPlayer] WebSocket connected");
+        setIsPlaying(true);
+        setConnectionState("connected");
+        setRetryCount(0);
+      };
+
+      ws.onmessage = (event) => {
+        if (!shouldPlayRef.current || wsRef.closed) return;
+
+        const data = event.data;
+        if (!(data instanceof ArrayBuffer)) {
+          console.log("[AudioPlayer] Received non-binary message:", data);
+          return;
+        }
+
+        const dataView = new DataView(data);
+        const sampleCount = Math.floor(data.byteLength / 2);
+        for (let i = 0; i < sampleCount; i++) {
+          const sample = dataView.getInt16(i * 2, true) / 32768.0;
+          pcmBuffer.push(sample);
+        }
+
+        // Process buffered audio
+        while (pcmBuffer.length >= bufferSize && shouldPlayRef.current) {
+          const chunk = pcmBuffer.splice(0, bufferSize);
+          const audioBuffer = audioContext.createBuffer(1, chunk.length, 48000);
+          const channelData = audioBuffer.getChannelData(0);
+
+          for (let i = 0; i < chunk.length; i++) {
+            channelData[i] = chunk[i];
+          }
+
+          const source = audioContext.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(gainNode);
+
+          const startTime = Math.max(nextStartTimeRef.current, audioContext.currentTime);
+          source.start(startTime);
+          nextStartTimeRef.current = startTime + audioBuffer.duration;
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error("[AudioPlayer] WebSocket error:", error);
+        if (!wsRef.closed) {
+          setConnectionState("failed");
+          setIsPlaying(false);
+        }
+      };
+
+      ws.onclose = (event) => {
+        console.log("[AudioPlayer] WebSocket closed:", event.code, event.reason);
+        wsRef.closed = true;
+        if (shouldPlayRef.current) {
+          // Unexpected close - try to reconnect
+          console.log("[AudioPlayer] Unexpected WebSocket close, will show failed state");
+          setConnectionState("failed");
+        }
+        setIsPlaying(false);
+      };
+
+    } catch (error) {
+      console.error("[AudioPlayer] Failed to start PCM stream:", error);
+      setConnectionState("failed");
+      setIsPlaying(false);
+    }
+  }, [channelId, volume, isMuted, initAudioContext]);
 
   const attemptReconnect = useCallback(() => {
     if (!audioRef.current || !streamUrl || userPaused) return;
@@ -144,43 +290,68 @@ export const AudioPlayer = ({ channelId, captureState }: AudioPlayerProps) => {
     };
   }, [streamUrl, isPlaying, userPaused, retryCount, attemptReconnect, clearRetryTimeout]);
 
+  // Update volume for both HTMLAudioElement and AudioContext gain
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = isMuted ? 0 : volume;
     }
+    if (gainNodeRef.current) {
+      gainNodeRef.current.gain.value = isMuted ? 0 : volume;
+    }
   }, [volume, isMuted]);
 
-  const handlePlayPause = () => {
-    const audio = audioRef.current;
-    if (!audio) return;
+  // Cleanup PCM stream on unmount or channel change
+  useEffect(() => {
+    return () => {
+      stopPCMStream();
+    };
+  }, [channelId, stopPCMStream]);
 
+  const handlePlayPause = () => {
     if (isPlaying || connectionState === "reconnecting") {
       // User explicitly paused
       setUserPaused(true);
       setConnectionState("connected");
       setRetryCount(0);
       clearRetryTimeout();
-      audio.pause();
-      // Explicitly close the stream
-      audio.src = "";
+
+      // Stop PCM stream if active
+      stopPCMStream();
+
+      // Stop HTMLAudioElement if active
+      const audio = audioRef.current;
+      if (audio) {
+        audio.pause();
+        audio.src = "";
+      }
+      setIsPlaying(false);
     } else {
       // User explicitly played
       setUserPaused(false);
       setConnectionState("connected");
       setRetryCount(0);
 
-      // Explicitly abort any existing stream before loading new one
-      audio.src = "";
+      if (audioFormat === "pcm") {
+        // Use AudioContext-based streaming for PCM (Safari-compatible)
+        playPCMStream();
+      } else {
+        // Use HTMLAudioElement for compressed formats
+        const audio = audioRef.current;
+        if (!audio) return;
 
-      // Reload the stream with a new timestamp to avoid caching
-      const newUrl = `/api/v1/stream/channels/${channelId}.${audioFormat}?t=${Date.now()}`;
-      audio.src = newUrl;
-      audio.load();
+        // Explicitly abort any existing stream before loading new one
+        audio.src = "";
 
-      audio.play().catch((error) => {
-        console.error("Failed to play audio:", error);
-        setConnectionState("failed");
-      });
+        // Reload the stream with a new timestamp to avoid caching
+        const newUrl = `/api/v1/stream/channels/${channelId}.${audioFormat}?t=${Date.now()}`;
+        audio.src = newUrl;
+        audio.load();
+
+        audio.play().catch((error) => {
+          console.error("Failed to play audio:", error);
+          setConnectionState("failed");
+        });
+      }
     }
   };
 
@@ -190,20 +361,29 @@ export const AudioPlayer = ({ channelId, captureState }: AudioPlayerProps) => {
     setConnectionState("connected");
     clearRetryTimeout();
 
+    // Stop any existing streams
+    stopPCMStream();
     const audio = audioRef.current;
-    if (!audio) return;
+    if (audio) {
+      audio.src = "";
+    }
 
-    // Explicitly abort existing stream before loading new one
-    audio.src = "";
+    if (audioFormat === "pcm") {
+      // Use AudioContext-based streaming for PCM (Safari-compatible)
+      playPCMStream();
+    } else {
+      // Use HTMLAudioElement for compressed formats
+      if (!audio) return;
 
-    const newUrl = `/api/v1/stream/channels/${channelId}.${audioFormat}?t=${Date.now()}`;
-    audio.src = newUrl;
-    audio.load();
+      const newUrl = `/api/v1/stream/channels/${channelId}.${audioFormat}?t=${Date.now()}`;
+      audio.src = newUrl;
+      audio.load();
 
-    audio.play().catch((error) => {
-      console.error("Failed to play audio:", error);
-      setConnectionState("failed");
-    });
+      audio.play().catch((error) => {
+        console.error("Failed to play audio:", error);
+        setConnectionState("failed");
+      });
+    }
   };
 
   const toggleMute = () => {
@@ -220,7 +400,7 @@ export const AudioPlayer = ({ channelId, captureState }: AudioPlayerProps) => {
       <div className="card-body">
         <Flex direction="column" gap={3}>
           {streamUrl && (
-            <audio ref={audioRef} src={streamUrl} preload="none" />
+            <audio ref={audioRef} src={streamUrl} preload="none" playsInline />
           )}
 
           <Flex gap={2} align="center">
@@ -266,13 +446,15 @@ export const AudioPlayer = ({ channelId, captureState }: AudioPlayerProps) => {
               onChange={(e) => setAudioFormat(e.target.value as AudioFormat)}
               disabled={isDisabled || isPlaying}
             >
+              <option value="pcm">PCM (Uncompressed){isSafari ? " - Recommended" : ""}</option>
               <option value="mp3">MP3 (Compressed, Low Latency)</option>
               <option value="opus">Opus (Best Quality, Low Bandwidth)</option>
               <option value="aac">AAC (Balanced Quality)</option>
-              <option value="pcm">PCM (Uncompressed, High Bandwidth)</option>
             </select>
             <small className="text-muted">
-              Change quality when stopped. Format affects bandwidth and latency.
+              {isSafari
+                ? "Safari detected - PCM is recommended for best compatibility."
+                : "Change quality when stopped. Format affects bandwidth and latency."}
             </small>
           </Flex>
 
