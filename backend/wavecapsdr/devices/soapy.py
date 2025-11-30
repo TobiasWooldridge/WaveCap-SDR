@@ -11,8 +11,8 @@ from typing import Any, Callable, Iterable, Optional, Tuple, TypeVar
 import numpy as np
 
 from ..config import DeviceConfig
-# Disabled: automatic recovery tends to cause thrashing
-# from ..sdrplay_recovery import attempt_recovery, get_recovery
+# Re-enabled for proactive recovery during enumeration (not during streaming)
+from ..sdrplay_recovery import attempt_recovery, get_recovery
 from .base import Device, DeviceDriver, DeviceInfo, StreamHandle
 
 # Global lock for SDRplay device operations to prevent "deletion in-progress" errors
@@ -23,6 +23,52 @@ _sdrplay_device_lock = threading.Lock()
 # The SDRplay API needs time to fully release the device
 _SDRPLAY_CLOSE_COOLDOWN = 1.0  # seconds
 _sdrplay_last_close_time: float = 0.0
+
+# SDRplay health tracking for proactive recovery
+_sdrplay_last_enumeration_success: float = 0.0
+_sdrplay_consecutive_timeouts: int = 0
+_SDRPLAY_MAX_TIMEOUTS_BEFORE_RECOVERY = 2  # Attempt recovery after 2 consecutive timeouts
+
+# Health cache for pre-flight checks
+_SDRPLAY_HEALTH_CACHE_TTL = 5.0  # seconds - how long to trust cached health status
+_sdrplay_last_health_check: float = 0.0
+_sdrplay_health_status: bool = False  # True = healthy, False = unknown/unhealthy
+
+
+class SDRplayServiceError(Exception):
+    """SDRplay API service is unresponsive or device open failed.
+
+    This exception indicates the SDRplay service needs to be restarted.
+    Use: POST /api/v1/devices/sdrplay/restart-service
+    """
+    pass
+
+
+def get_sdrplay_health_status() -> dict:
+    """Get current SDRplay service health status for monitoring.
+
+    Returns:
+        Dictionary with health metrics:
+        - is_healthy: True if last enumeration succeeded
+        - consecutive_timeouts: Number of consecutive enumeration failures
+        - last_success_timestamp: Unix timestamp of last successful enumeration
+        - seconds_since_success: Seconds since last successful enumeration (or None if never)
+    """
+    now = time.time()
+    return {
+        "is_healthy": _sdrplay_consecutive_timeouts == 0,
+        "consecutive_timeouts": _sdrplay_consecutive_timeouts,
+        "last_success_timestamp": _sdrplay_last_enumeration_success if _sdrplay_last_enumeration_success > 0 else None,
+        "seconds_since_success": (now - _sdrplay_last_enumeration_success) if _sdrplay_last_enumeration_success > 0 else None,
+        "recovery_threshold": _SDRPLAY_MAX_TIMEOUTS_BEFORE_RECOVERY,
+    }
+
+
+def reset_sdrplay_health_counters() -> None:
+    """Reset SDRplay health counters after manual intervention."""
+    global _sdrplay_consecutive_timeouts, _sdrplay_last_enumeration_success
+    _sdrplay_consecutive_timeouts = 0
+    _sdrplay_last_enumeration_success = time.time()
 
 
 F = TypeVar('F', bound=Callable[..., Any])
@@ -124,6 +170,63 @@ def _enumerate_worker(driver_name: str, queue: multiprocessing.Queue) -> None:
         queue.put(("success", results))
     except Exception as e:
         queue.put(("error", str(e)))
+
+
+def _device_open_worker(device_args: str, result_queue: multiprocessing.Queue) -> None:
+    """Worker function to open SoapySDR device in subprocess.
+
+    This isolates the blocking SoapySDR.Device() call so it can be
+    terminated if it hangs (unlike threads which cannot be killed).
+
+    The subprocess opens the device, queries its capabilities, then closes it.
+    If successful, the main process knows it's safe to open the device.
+    """
+    try:
+        import SoapySDR  # type: ignore
+
+        # Open the device (this is the blocking call that can hang)
+        sdr = SoapySDR.Device(device_args)
+
+        # Query device info (these can also hang)
+        driver = str(sdr.getDriverKey())
+        hardware = str(sdr.getHardwareKey())
+
+        # Get frequency range
+        try:
+            rx_ranges = sdr.getFrequencyRange(SoapySDR.SOAPY_SDR_RX, 0)
+            freq_min = float(rx_ranges[0].minimum()) if rx_ranges else 1e4
+            freq_max = float(rx_ranges[0].maximum()) if rx_ranges else 6e9
+        except Exception:
+            freq_min, freq_max = 1e4, 6e9
+
+        # Get sample rates
+        try:
+            sample_rates = list(sdr.listSampleRates(SoapySDR.SOAPY_SDR_RX, 0))
+        except Exception:
+            sample_rates = []
+
+        # Get antennas
+        try:
+            antennas = list(sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0))
+        except Exception:
+            antennas = []
+
+        # Close device in subprocess (main process will reopen)
+        try:
+            SoapySDR.Device.unmake(sdr)
+        except Exception:
+            pass
+
+        result_queue.put(("success", {
+            "driver": driver,
+            "hardware": hardware,
+            "freq_min": freq_min,
+            "freq_max": freq_max,
+            "sample_rates": sample_rates,
+            "antennas": antennas,
+        }))
+    except Exception as e:
+        result_queue.put(("error", str(e)))
 
 
 class TimeoutError(Exception):
@@ -702,6 +805,8 @@ class SoapyDriver(DeviceDriver):
         return results
 
     def enumerate(self) -> Iterable[DeviceInfo]:
+        global _sdrplay_consecutive_timeouts, _sdrplay_last_enumeration_success
+
         # Check cache first
         now = time.time()
         if self._enumerate_cache is not None:
@@ -712,21 +817,176 @@ class SoapyDriver(DeviceDriver):
         # Enumerate specific drivers we support, with timeout protection
         # This prevents hangs from problematic drivers (audio, uhd, etc.)
         results = []
-        for driver_name in ["rtlsdr", "sdrplay"]:
-            try:
-                driver_results = self._enumerate_driver(driver_name, timeout=5.0)
-                results.extend(driver_results)
-            except Exception as e:
-                print(f"Warning: Failed to enumerate driver '{driver_name}': {e}", flush=True)
 
-        # Log if SDRplay not found - don't attempt automatic recovery as it causes thrashing
+        # Enumerate RTL-SDR first (usually reliable)
+        try:
+            rtlsdr_results = self._enumerate_driver("rtlsdr", timeout=5.0)
+            results.extend(rtlsdr_results)
+        except Exception as e:
+            print(f"Warning: Failed to enumerate driver 'rtlsdr': {e}", flush=True)
+
+        # Enumerate SDRplay with proactive recovery on timeout
+        try:
+            sdrplay_results = self._enumerate_driver("sdrplay", timeout=5.0)
+            if sdrplay_results:
+                results.extend(sdrplay_results)
+                # Success - reset timeout counter
+                _sdrplay_consecutive_timeouts = 0
+                _sdrplay_last_enumeration_success = now
+                print(f"[SOAPY] SDRplay enumeration success: {len(sdrplay_results)} device(s)", flush=True)
+            else:
+                # Empty result could indicate stuck service
+                _sdrplay_consecutive_timeouts += 1
+                print(f"[SOAPY] SDRplay enumeration returned no devices (timeout count: {_sdrplay_consecutive_timeouts})", flush=True)
+        except Exception as e:
+            _sdrplay_consecutive_timeouts += 1
+            print(f"Warning: Failed to enumerate driver 'sdrplay': {e} (timeout count: {_sdrplay_consecutive_timeouts})", flush=True)
+
+        # Proactive recovery: If SDRplay has timed out multiple times, attempt service restart
+        # This is safe during enumeration (no active streams to disrupt)
         sdrplay_found = any(d.driver == "sdrplay" for d in results)
-        if not sdrplay_found:
+        if not sdrplay_found and _sdrplay_consecutive_timeouts >= _SDRPLAY_MAX_TIMEOUTS_BEFORE_RECOVERY:
+            recovery = get_recovery()
+            allowed, reason = recovery.can_restart()
+            if allowed:
+                print(
+                    f"[SOAPY] SDRplay stuck detected ({_sdrplay_consecutive_timeouts} consecutive failures), "
+                    f"attempting automatic recovery...",
+                    flush=True
+                )
+                success = attempt_recovery(reason="Enumeration timeout - proactive recovery")
+                if success:
+                    print("[SOAPY] Recovery successful, retrying enumeration...", flush=True)
+                    # Retry enumeration after recovery
+                    try:
+                        sdrplay_results = self._enumerate_driver("sdrplay", timeout=5.0)
+                        if sdrplay_results:
+                            results.extend(sdrplay_results)
+                            _sdrplay_consecutive_timeouts = 0
+                            _sdrplay_last_enumeration_success = now
+                            print(f"[SOAPY] SDRplay recovery enumeration success: {len(sdrplay_results)} device(s)", flush=True)
+                    except Exception as e:
+                        print(f"[SOAPY] SDRplay enumeration failed after recovery: {e}", flush=True)
+                else:
+                    print(f"[SOAPY] Recovery failed: {recovery.stats.last_error}", flush=True)
+            else:
+                print(f"[SOAPY] Cannot attempt recovery: {reason}", flush=True)
+        elif not sdrplay_found:
             print("[SOAPY] No SDRplay devices found - may need to restart SDRplay service", flush=True)
 
         # Cache the results
         self._enumerate_cache = (now, results)
         return results
+
+    def _ensure_sdrplay_healthy(self, max_recovery_attempts: int = 2) -> bool:
+        """Ensure SDRplay service is healthy before device operations.
+
+        This is a MANDATORY pre-flight check that always runs (uses cache if recent).
+        If unhealthy, attempts automatic recovery.
+
+        Args:
+            max_recovery_attempts: Maximum recovery attempts before giving up
+
+        Returns:
+            True if service is healthy (or was recovered), False otherwise.
+        """
+        global _sdrplay_consecutive_timeouts, _sdrplay_health_status, _sdrplay_last_health_check
+
+        now = time.time()
+
+        # Use cache if fresh (< 5 seconds old)
+        if _sdrplay_health_status and (now - _sdrplay_last_health_check) < _SDRPLAY_HEALTH_CACHE_TTL:
+            return True
+
+        # Fresh health check via subprocess enumeration
+        for attempt in range(max_recovery_attempts + 1):
+            try:
+                results = self._enumerate_driver("sdrplay", timeout=3.0)
+                if results:
+                    _sdrplay_health_status = True
+                    _sdrplay_last_health_check = now
+                    _sdrplay_consecutive_timeouts = 0
+                    print(f"[SOAPY] SDRplay health check passed ({len(results)} device(s))", flush=True)
+                    return True
+                else:
+                    _sdrplay_consecutive_timeouts += 1
+                    print(f"[SOAPY] SDRplay health check: no devices (attempt {attempt + 1})", flush=True)
+            except Exception as e:
+                _sdrplay_consecutive_timeouts += 1
+                print(f"[SOAPY] SDRplay health check failed: {e} (attempt {attempt + 1})", flush=True)
+
+            # Try recovery (except on last attempt)
+            if attempt < max_recovery_attempts:
+                recovery = get_recovery()
+                allowed, reason = recovery.can_restart()
+                if allowed:
+                    print(f"[SOAPY] Attempting recovery ({attempt + 1}/{max_recovery_attempts})...", flush=True)
+                    if attempt_recovery(f"Health check failed (attempt {attempt + 1})"):
+                        print("[SOAPY] Recovery completed, retrying health check...", flush=True)
+                        continue
+                    else:
+                        print(f"[SOAPY] Recovery failed: {recovery.stats.last_error}", flush=True)
+                else:
+                    print(f"[SOAPY] Recovery not allowed: {reason}", flush=True)
+                    break
+
+        _sdrplay_health_status = False
+        return False
+
+    def _open_device_subprocess(self, args: str, timeout: float = 15.0) -> dict:
+        """Open device in subprocess with timeout protection.
+
+        If subprocess hangs (SDRplay service stuck), it can be killed cleanly.
+        This is safer than threads which cannot be forcibly terminated.
+
+        Args:
+            args: Device arguments string
+            timeout: Maximum seconds to wait for device open
+
+        Returns:
+            Device info dict on success
+
+        Raises:
+            TimeoutError: If device open times out
+            SDRplayServiceError: If device open fails
+        """
+        global _sdrplay_health_status
+
+        queue: multiprocessing.Queue = multiprocessing.Queue()
+        process = multiprocessing.Process(
+            target=_device_open_worker,
+            args=(args, queue)
+        )
+        process.start()
+        process.join(timeout=timeout)
+
+        if process.is_alive():
+            # Timeout - kill the subprocess cleanly
+            print(f"[SOAPY] Device open timed out after {timeout}s, killing subprocess...", flush=True)
+            process.terminate()
+            process.join(timeout=2.0)
+            if process.is_alive():
+                process.kill()
+                process.join()
+
+            # Invalidate health cache
+            _sdrplay_health_status = False
+
+            raise TimeoutError(
+                f"Device open timed out after {timeout}s. "
+                "SDRplay service may be stuck. "
+                "Try: POST /api/v1/devices/sdrplay/restart-service"
+            )
+
+        if queue.empty():
+            _sdrplay_health_status = False
+            raise SDRplayServiceError("Device open failed - no response from subprocess")
+
+        status, data = queue.get()
+        if status == "error":
+            raise SDRplayServiceError(f"Device open failed: {data}")
+
+        return data
 
     def open(self, id_or_args: Optional[str] = None) -> Device:
         global _sdrplay_last_close_time
@@ -737,17 +997,30 @@ class SoapyDriver(DeviceDriver):
         # Check if this is an SDRplay device
         is_sdrplay = "sdrplay" in args.lower()
 
-        # For SDRplay, use lock to serialize device operations and wait for cooldown
-        # Don't retry on errors - just fail cleanly and let user handle it
+        # For SDRplay, use subprocess isolation for reliability
         if is_sdrplay:
             with _sdrplay_device_lock:
-                # Wait for cooldown if needed
+                # 1. MANDATORY pre-flight health check (always runs, uses cache)
+                if not self._ensure_sdrplay_healthy():
+                    raise SDRplayServiceError(
+                        "SDRplay service is unresponsive after recovery attempts. "
+                        "Try manually: POST /api/v1/devices/sdrplay/restart-service"
+                    )
+
+                # 2. Wait for cooldown if needed
                 elapsed = time.time() - _sdrplay_last_close_time
                 if elapsed < _SDRPLAY_CLOSE_COOLDOWN:
                     wait_time = _SDRPLAY_CLOSE_COOLDOWN - elapsed
                     print(f"[SOAPY] Waiting {wait_time:.1f}s for SDRplay API cooldown", flush=True)
                     time.sleep(wait_time)
 
+                # 3. Verify device opens in subprocess (can be killed if hangs)
+                # This protects against the main hang point: SoapySDR.Device()
+                print("[SOAPY] Testing device open in subprocess...", flush=True)
+                device_info = self._open_device_subprocess(args, timeout=15.0)
+                print(f"[SOAPY] Subprocess test successful: {device_info.get('driver', 'unknown')}", flush=True)
+
+                # 4. Now safe to open in main process (service confirmed responsive)
                 sdr = SoapySDR.Device(args)
         else:
             sdr = SoapySDR.Device(args)

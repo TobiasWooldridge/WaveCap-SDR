@@ -1147,6 +1147,10 @@ class Capture:
     _last_iq_time: float = 0.0  # Track when IQ samples were last received
     _iq_watchdog_timeout: float = 30.0  # Trigger recovery if no IQ for this long
     _iq_watchdog_enabled: bool = True
+    # Startup watchdog - detect stuck device initialization
+    _startup_time: float = 0.0  # When capture entered "starting" state
+    _startup_timeout: float = 45.0  # Max time allowed in "starting" state (fallback)
+    _startup_watchdog_enabled: bool = True
     # FFT data (server-side spectrum analyzer)
     _fft_power: Optional[np.ndarray] = None  # Power spectrum in dB
     _fft_freqs: Optional[np.ndarray] = None  # Frequency bins in Hz
@@ -1260,6 +1264,34 @@ class Capture:
                 if self._thread is not None and self._thread.is_alive():
                     self._last_run_time = now
 
+                # Startup watchdog: detect stuck device initialization
+                if (
+                    self._startup_watchdog_enabled
+                    and self.state == "starting"
+                    and self._startup_time > 0
+                    and (now - self._startup_time) > self._startup_timeout
+                ):
+                    elapsed = now - self._startup_time
+                    driver = "unknown"
+                    if self.requested_device_id:
+                        driver = "sdrplay" if "sdrplay" in self.requested_device_id.lower() else "other"
+
+                    print(
+                        f"[WARNING] Capture {self.cfg.id} startup timeout: "
+                        f"stuck in 'starting' for {elapsed:.1f}s (driver: {driver})",
+                        flush=True
+                    )
+
+                    # Set state to failed with descriptive error
+                    self.state = "failed"
+                    self.error_message = (
+                        f"Startup timeout: device initialization hung for {elapsed:.0f}s. "
+                        "The SDRplay service may be stuck. "
+                        "Try: POST /api/v1/devices/sdrplay/restart-service"
+                    )
+                    self._startup_time = 0.0  # Reset to prevent repeated triggers
+                    continue  # Skip IQ watchdog check
+
                 # IQ watchdog: detect stuck device (no samples for too long)
                 if (
                     self._iq_watchdog_enabled
@@ -1308,6 +1340,7 @@ class Capture:
 
         self.state = "starting"
         self.error_message = None
+        self._startup_time = time.time()  # Record startup time for watchdog
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_thread, name=f"Capture-{self.cfg.id}", daemon=True)
         self._thread.start()
@@ -1645,12 +1678,35 @@ class Capture:
             self._stream = _configure_and_start()
             # Successfully started!
             self.state = "running"
+            self._startup_time = 0.0  # Clear startup time - we're running now
             self._retry_count = 0  # Reset retry counter on success
             # Reset overflow counters on fresh start
             self._iq_overflow_count = 0
             self._iq_overflow_batch = 0
         except Exception as e:
-            # Failed to start - schedule automatic restart
+            # Import SDRplay-specific exceptions for special handling
+            from .devices.soapy import SDRplayServiceError, TimeoutError as SoapyTimeoutError
+
+            # Handle SDRplay service errors specially - don't auto-retry, need manual intervention
+            if isinstance(e, SDRplayServiceError):
+                self.error_message = str(e)
+                self.state = "failed"
+                print(f"[ERROR] Capture {self.cfg.id} SDRplay service error: {e}", flush=True)
+                self.release_device()
+                # Don't schedule restart - service needs manual intervention
+                return
+
+            # Handle timeout errors - may succeed after recovery
+            if isinstance(e, SoapyTimeoutError):
+                self.error_message = str(e)
+                self.state = "failed"
+                print(f"[ERROR] Capture {self.cfg.id} device timeout: {e}", flush=True)
+                self.release_device()
+                # Schedule restart - recovery may have fixed the issue
+                self._schedule_restart()
+                return
+
+            # Generic error - schedule automatic restart
             self.error_message = f"Failed to start capture: {str(e)}"
             print(f"[ERROR] Capture {self.cfg.id} failed to start: {e}", flush=True)
             # Report device retry event

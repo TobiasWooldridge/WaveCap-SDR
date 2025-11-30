@@ -455,6 +455,74 @@ def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_st
     return result
 
 
+@router.get("/devices/sdrplay/health")
+def get_sdrplay_health():
+    """Get SDRplay service health status for monitoring.
+
+    Returns metrics about SDRplay enumeration success/failure history,
+    which can be used to detect stuck service states proactively.
+    """
+    from .devices.soapy import get_sdrplay_health_status
+    health = get_sdrplay_health_status()
+
+    # Also include recovery module status
+    recovery = get_recovery()
+    allowed, reason = recovery.can_restart()
+
+    return {
+        "health": health,
+        "recovery": {
+            "enabled": recovery.enabled,
+            "can_restart": allowed,
+            "can_restart_reason": reason,
+            "cooldown_seconds": recovery.cooldown_seconds,
+            "recovery_count": recovery.stats.recovery_count,
+            "recovery_failures": recovery.stats.recovery_failures,
+            "last_recovery_attempt": recovery.stats.last_recovery_attempt,
+            "last_recovery_success": recovery.stats.last_recovery_success,
+            "last_error": recovery.stats.last_error,
+        }
+    }
+
+
+@router.post("/devices/sdrplay/restart-service")
+def restart_sdrplay_service(_: None = Depends(auth_check)):
+    """Restart the SDRplay API service to recover from stuck states.
+
+    Use this when SDRplay captures are stuck in 'starting' state or
+    device enumeration hangs. The service will be killed and restarted
+    by the system service manager (launchd on macOS, systemd on Linux).
+
+    Rate limited: max 5 restarts per hour with 60-second cooldown between attempts.
+    """
+    from .devices.soapy import reset_sdrplay_health_counters
+
+    recovery = get_recovery()
+    allowed, reason = recovery.can_restart()
+
+    if not allowed:
+        raise HTTPException(status_code=429, detail=f"Service restart not allowed: {reason}")
+
+    success = recovery.restart_service(reason="User requested via API")
+
+    if success:
+        # Reset health tracking counters after successful restart
+        reset_sdrplay_health_counters()
+        return {
+            "status": "ok",
+            "message": "SDRplay service restarted successfully",
+            "stats": {
+                "recovery_count": recovery.stats.recovery_count,
+                "last_recovery_success": recovery.stats.last_recovery_success,
+            }
+        }
+    else:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Failed to restart SDRplay service: {recovery.stats.last_error or 'Unknown error'}"
+        )
+
+
 def _adjust_recipe_for_device(recipe_cfg, device_info: dict) -> dict:
     """Adjust recipe parameters to fit device capabilities.
 
@@ -580,6 +648,31 @@ def create_capture(
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
 ):
+    # Validate sample rate against device capabilities before creating
+    if req.deviceId:
+        try:
+            devices = state.captures.list_devices()
+            device_stable_id = _get_stable_device_id(req.deviceId)
+            device_info = next(
+                (d for d in devices if d["id"] == req.deviceId or _get_stable_device_id(d["id"]) == device_stable_id),
+                None
+            )
+            if device_info:
+                valid_rates = device_info.get("sample_rates", [])
+                if valid_rates and req.sampleRate not in valid_rates:
+                    closest = min(valid_rates, key=lambda r: abs(r - req.sampleRate))
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Sample rate {req.sampleRate} is not supported by this device. "
+                               f"Valid rates: {[int(r) for r in valid_rates]}. Closest: {int(closest)}"
+                    )
+        except HTTPException:
+            raise  # Re-raise validation errors
+        except Exception:
+            # Device enumeration failed - continue without validation
+            # (device will validate on start)
+            pass
+
     cap = state.captures.create_capture(
         device_id=req.deviceId,
         center_hz=req.centerHz,

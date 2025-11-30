@@ -122,12 +122,40 @@ The SDRplay API service can become stuck, causing captures to hang in "starting"
 - Spectrum analyzer shows "starting" but never updates
 - SDRplay device not detected even though USB is connected
 
+### Automatic Recovery (Proactive)
+
+WaveCap-SDR has proactive SDRplay health monitoring that automatically:
+1. Detects stuck state during device enumeration (2 consecutive timeouts trigger recovery)
+2. Attempts service restart before retrying enumeration
+3. Runs pre-flight health checks before opening SDRplay devices
+
+Check SDRplay health via API:
+```bash
+curl http://localhost:8087/api/v1/devices/sdrplay/health
+```
+
+### Manual Recovery (API)
+
+Restart the service via API:
+```bash
+curl -X POST http://localhost:8087/api/v1/devices/sdrplay/restart-service
+```
+
+### Manual Recovery (CLI)
+
 To restart the service (macOS, configured in sudoers for passwordless operation):
 ```bash
 sudo /bin/launchctl kickstart -kp system/com.sdrplay.service
 ```
 
 The fix script with full diagnostics: `.claude/skills/sdrplay-service-fix/fix_sdrplay.sh`
+
+### Architecture Notes
+
+- Recovery is enabled during enumeration (safe - no active streams)
+- Recovery is **disabled** during streaming (avoids thrashing)
+- Rate limited: max 5 restarts per hour with 60-second cooldown
+- Health counters reset on successful restart
 
 ## Claude Code Skills
 
