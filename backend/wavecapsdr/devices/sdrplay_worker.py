@@ -15,17 +15,89 @@ The main process reads from shared memory via SDRplayProxyStream.
 
 from __future__ import annotations
 
+import logging
+import logging.handlers
 import multiprocessing
+import os
 import signal
 import struct
+import sys
 import time
+import traceback
 from dataclasses import dataclass
 from multiprocessing import Process, Pipe
 from multiprocessing.connection import Connection
 from multiprocessing.shared_memory import SharedMemory
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
+
+# Module-level logger (configured per-process)
+logger: Optional[logging.Logger] = None
+
+
+def _setup_subprocess_logging(device_serial: str) -> logging.Logger:
+    """Configure file + IPC logging for subprocess.
+
+    Args:
+        device_serial: Serial number of the device (for log file naming)
+
+    Returns:
+        Configured logger instance
+    """
+    # Create log directory
+    log_dir = Path(__file__).parent.parent.parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+
+    # Create logger for this worker
+    worker_logger = logging.getLogger(f"sdrplay_worker.{os.getpid()}")
+    worker_logger.setLevel(logging.DEBUG)
+
+    # Clear any existing handlers
+    worker_logger.handlers.clear()
+
+    # File handler with rotation (5MB max, 3 backups)
+    log_file = log_dir / f"sdrplay_worker_{device_serial}.log"
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_file,
+        maxBytes=5 * 1024 * 1024,  # 5MB
+        backupCount=3,
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s [%(levelname)s] [PID:%(process)d] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+    worker_logger.addHandler(file_handler)
+
+    # Also log to stderr (captured by parent if configured)
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.INFO)
+    stderr_handler.setFormatter(logging.Formatter(
+        '[SDRplayWorker:%(process)d] %(levelname)s: %(message)s'
+    ))
+    worker_logger.addHandler(stderr_handler)
+
+    return worker_logger
+
+
+def _log_to_pipe(status_pipe: Connection, level: str, message: str) -> None:
+    """Send log message to main process via IPC pipe.
+
+    Args:
+        status_pipe: Connection to main process
+        level: Log level (debug, info, warning, error)
+        message: Log message
+    """
+    try:
+        status_pipe.send({
+            "type": "log",
+            "level": level,
+            "message": message,
+        })
+    except Exception:
+        pass  # Don't crash if pipe is broken
 
 
 # Ring buffer header format (64 bytes total):
@@ -40,9 +112,10 @@ import numpy as np
 HEADER_SIZE = 64
 HEADER_FORMAT = "<QQQQIId16x"  # 8+8+8+8+4+4+8+16 = 64 bytes
 
-# Buffer size for IQ samples (2MB = 262144 complex64 samples)
-# At 6 MHz sample rate, this is ~44ms of buffer
-BUFFER_SAMPLES = 262144
+# Buffer size for IQ samples (8MB = 1,048,576 complex64 samples)
+# At 6 MHz sample rate, this is ~175ms of buffer
+# Larger buffer provides more margin for DSP processing delays
+BUFFER_SAMPLES = 1048576
 BUFFER_SIZE = BUFFER_SAMPLES * 8  # complex64 = 8 bytes per sample
 
 # Total shared memory size
@@ -134,6 +207,24 @@ def sdrplay_worker_main(
         cmd_pipe: Pipe for receiving commands from main process
         status_pipe: Pipe for sending status updates to main process
     """
+    global logger
+
+    # Extract serial from device_args for log file naming
+    serial = "unknown"
+    for part in device_args.split(","):
+        if part.strip().startswith("serial="):
+            serial = part.strip().split("=")[1]
+            break
+
+    # Setup logging FIRST
+    logger = _setup_subprocess_logging(serial)
+    logger.info(f"Worker starting for device: {device_args}")
+    logger.info(f"Shared memory name: {shm_name}")
+    logger.info(f"PID: {os.getpid()}")
+
+    # Forward startup to main process
+    _log_to_pipe(status_pipe, "info", f"Worker started for device serial={serial}")
+
     # Ignore SIGINT in worker - let main process handle shutdown
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
@@ -141,9 +232,17 @@ def sdrplay_worker_main(
     try:
         worker.run()
     except Exception as e:
-        status_pipe.send({"type": "error", "message": str(e)})
+        error_msg = f"Worker crashed: {e}\n{traceback.format_exc()}"
+        logger.error(error_msg)
+        _log_to_pipe(status_pipe, "error", error_msg)
+        try:
+            status_pipe.send({"type": "error", "message": str(e)})
+        except Exception:
+            pass
     finally:
+        logger.info("Worker shutting down, cleaning up...")
         worker.cleanup()
+        logger.info("Worker cleanup complete")
 
 
 class SDRplayWorker:
@@ -236,7 +335,9 @@ class SDRplayWorker:
         try:
             import SoapySDR  # type: ignore
 
-            print(f"[SDRplayWorker] Opening device: {self.device_args}", flush=True)
+            logger.info(f"Opening device: {self.device_args}")
+            _log_to_pipe(self.status_pipe, "info", f"Opening device: {self.device_args}")
+
             self.sdr = SoapySDR.Device(self.device_args)
 
             # Query device info
@@ -244,21 +345,26 @@ class SDRplayWorker:
             hardware = str(self.sdr.getHardwareKey())
             antennas = list(self.sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0))
 
+            logger.info(f"Device opened: driver={driver}, hardware={hardware}, antennas={antennas}")
+
             self.status_pipe.send({
                 "type": "opened",
                 "driver": driver,
                 "hardware": hardware,
                 "antennas": antennas,
             })
-            print(f"[SDRplayWorker] Device opened: {driver} / {hardware}", flush=True)
 
         except Exception as e:
+            error_msg = f"Failed to open device: {e}\n{traceback.format_exc()}"
+            logger.error(error_msg)
+            _log_to_pipe(self.status_pipe, "error", f"Failed to open device: {e}")
             self.status_pipe.send({"type": "open_error", "message": str(e)})
             raise
 
     def _configure(self, cmd: dict) -> None:
         """Configure the device."""
         if self.sdr is None:
+            logger.error("Configure called but device not open")
             self.status_pipe.send({"type": "error", "message": "Device not open"})
             return
 
@@ -277,48 +383,58 @@ class SDRplayWorker:
             device_settings = cmd.get("device_settings", {})
             element_gains = cmd.get("element_gains", {})
 
-            print(f"[SDRplayWorker] Configuring: center={center_hz/1e6}MHz, rate={sample_rate/1e6}MHz", flush=True)
+            logger.info(f"Configuring: center={center_hz/1e6:.3f}MHz, rate={sample_rate/1e6:.3f}MHz, antenna={antenna}")
+            logger.debug(f"Full config: gain={gain}, bandwidth={bandwidth}, ppm={ppm}")
+            logger.debug(f"Device settings: {device_settings}, element_gains: {element_gains}")
 
             # Apply configuration
+            logger.debug("Setting sample rate...")
             self.sdr.setSampleRate(SoapySDR.SOAPY_SDR_RX, 0, float(sample_rate))
+            logger.debug("Setting frequency...")
             self.sdr.setFrequency(SoapySDR.SOAPY_SDR_RX, 0, center_hz)
 
             if device_settings:
                 for key, value in device_settings.items():
                     try:
                         self.sdr.writeSetting(key, str(value))
+                        logger.debug(f"Applied setting {key}={value}")
                     except Exception as e:
-                        print(f"[SDRplayWorker] Setting {key}={value} failed: {e}", flush=True)
+                        logger.warning(f"Setting {key}={value} failed: {e}")
 
             if element_gains:
                 for elem, g in element_gains.items():
                     try:
                         self.sdr.setGain(SoapySDR.SOAPY_SDR_RX, 0, elem, g)
+                        logger.debug(f"Set gain {elem}={g}")
                     except Exception as e:
-                        print(f"[SDRplayWorker] Gain {elem}={g} failed: {e}", flush=True)
+                        logger.warning(f"Gain {elem}={g} failed: {e}")
             elif gain is not None:
                 try:
                     self.sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, False)
                 except Exception:
                     pass
                 self.sdr.setGain(SoapySDR.SOAPY_SDR_RX, 0, gain)
+                logger.debug(f"Set overall gain={gain}")
             else:
                 try:
                     self.sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, True)
+                    logger.debug("Enabled AGC mode")
                 except Exception:
                     pass
 
             if bandwidth is not None:
                 try:
                     self.sdr.setBandwidth(SoapySDR.SOAPY_SDR_RX, 0, bandwidth)
-                except Exception:
-                    pass
+                    logger.debug(f"Set bandwidth={bandwidth}")
+                except Exception as e:
+                    logger.warning(f"setBandwidth failed: {e}")
 
             if ppm is not None:
                 try:
                     self.sdr.setFrequencyCorrection(SoapySDR.SOAPY_SDR_RX, 0, ppm)
-                except Exception:
-                    pass
+                    logger.debug(f"Set PPM correction={ppm}")
+                except Exception as e:
+                    logger.warning(f"setFrequencyCorrection failed: {e}")
 
             try:
                 self.sdr.setDCOffsetMode(SoapySDR.SOAPY_SDR_RX, 0, dc_offset_auto)
@@ -332,6 +448,7 @@ class SDRplayWorker:
 
             if antenna is not None:
                 self.sdr.setAntenna(SoapySDR.SOAPY_SDR_RX, 0, antenna)
+                logger.debug(f"Set antenna={antenna}")
 
             self.sample_rate = sample_rate
             self.center_hz = center_hz
@@ -348,34 +465,76 @@ class SDRplayWorker:
             )
 
             self.status_pipe.send({"type": "configured"})
-            print("[SDRplayWorker] Configuration complete", flush=True)
+            logger.info("Configuration complete")
 
         except Exception as e:
+            error_msg = f"Configure failed: {e}\n{traceback.format_exc()}"
+            logger.error(error_msg)
+            _log_to_pipe(self.status_pipe, "error", f"Configure failed: {e}")
             self.status_pipe.send({"type": "configure_error", "message": str(e)})
             raise
 
     def _start_stream(self) -> None:
         """Start IQ streaming."""
         if self.sdr is None:
+            logger.error("Start stream called but device not open")
             self.status_pipe.send({"type": "error", "message": "Device not open"})
             return
 
         if self.streaming:
+            logger.debug("Start stream called but already streaming - returning current state")
+            # Still send success response since we're in the desired state
+            try:
+                import SoapySDR  # type: ignore
+                current_antenna = self.sdr.getAntenna(SoapySDR.SOAPY_SDR_RX, 0)
+            except Exception:
+                current_antenna = None
+            self.status_pipe.send({"type": "started", "antenna": current_antenna})
             return
 
         try:
             import SoapySDR  # type: ignore
 
-            print("[SDRplayWorker] Starting stream...", flush=True)
+            logger.info("Starting stream...")
+            _log_to_pipe(self.status_pipe, "info", "Starting IQ stream")
 
             # Set default antenna if not set
             antennas = self.sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0)
             current_antenna = self.sdr.getAntenna(SoapySDR.SOAPY_SDR_RX, 0)
-            print(f"[SDRplayWorker] Current antenna: {current_antenna}, available: {antennas}", flush=True)
+            logger.info(f"Antenna: current={current_antenna}, available={antennas}")
 
-            # Setup stream
-            self.stream = self.sdr.setupStream(SoapySDR.SOAPY_SDR_RX, SoapySDR.SOAPY_SDR_CF32, [0])
-            self.sdr.activateStream(self.stream)
+            # Setup stream with retry for transient SDRplay API errors
+            # Error -5 (sdrplay_api_Fail) often occurs when:
+            # - Another process just released the device
+            # - USB settling time needed
+            # - API cleanup still in progress
+            max_retries = 3
+            retry_delay = 0.5  # seconds, doubles each retry
+
+            for attempt in range(max_retries):
+                logger.debug("Calling setupStream...")
+                self.stream = self.sdr.setupStream(SoapySDR.SOAPY_SDR_RX, SoapySDR.SOAPY_SDR_CF32, [0])
+                logger.debug("Calling activateStream...")
+                result = self.sdr.activateStream(self.stream)
+
+                if result == 0:
+                    # Success!
+                    break
+
+                # activateStream failed - clean up and potentially retry
+                logger.warning(f"activateStream failed with code {result} (attempt {attempt + 1}/{max_retries})")
+                self.sdr.closeStream(self.stream)
+                self.stream = None
+
+                # Error -5 is sdrplay_api_Fail - often transient, worth retrying
+                if result == -5 and attempt < max_retries - 1:
+                    delay = retry_delay * (2 ** attempt)
+                    logger.info(f"Retrying in {delay:.1f}s...")
+                    _log_to_pipe(self.status_pipe, "warning", f"Stream activation failed, retrying in {delay:.1f}s")
+                    time.sleep(delay)
+                else:
+                    # Non-retryable error or exhausted retries
+                    raise RuntimeError(f"activateStream failed with error code {result}")
 
             self.streaming = True
             self.write_idx = 0
@@ -394,9 +553,13 @@ class SDRplayWorker:
             )
 
             self.status_pipe.send({"type": "started", "antenna": current_antenna})
-            print("[SDRplayWorker] Stream started", flush=True)
+            logger.info(f"Stream started successfully, rate={self.sample_rate}")
+            _log_to_pipe(self.status_pipe, "info", f"Stream started at {self.sample_rate/1e6:.1f} MHz")
 
         except Exception as e:
+            error_msg = f"Start stream failed: {e}\n{traceback.format_exc()}"
+            logger.error(error_msg)
+            _log_to_pipe(self.status_pipe, "error", f"Start stream failed: {e}")
             self.status_pipe.send({"type": "start_error", "message": str(e)})
             raise
 
@@ -406,7 +569,7 @@ class SDRplayWorker:
             return
 
         try:
-            print("[SDRplayWorker] Stopping stream...", flush=True)
+            logger.info("Stopping stream...")
             self.streaming = False
 
             self.sdr.deactivateStream(self.stream)
@@ -425,9 +588,10 @@ class SDRplayWorker:
             )
 
             self.status_pipe.send({"type": "stopped"})
-            print("[SDRplayWorker] Stream stopped", flush=True)
+            logger.info(f"Stream stopped, total samples: {self.sample_count}, overflows: {self.overflow_count}")
 
         except Exception as e:
+            logger.error(f"Error stopping stream: {e}")
             self.status_pipe.send({"type": "stop_error", "message": str(e)})
 
     def _stream_samples(self) -> None:
@@ -502,7 +666,8 @@ class SDRplayWorker:
 
     def cleanup(self) -> None:
         """Clean up resources."""
-        print("[SDRplayWorker] Cleaning up...", flush=True)
+        if logger:
+            logger.info("Cleaning up resources...")
 
         if self.streaming:
             self._stop_stream()
@@ -510,9 +675,14 @@ class SDRplayWorker:
         if self.sdr is not None:
             try:
                 import SoapySDR  # type: ignore
+                if logger:
+                    logger.debug("Calling SoapySDR.Device.unmake...")
                 SoapySDR.Device.unmake(self.sdr)
+                if logger:
+                    logger.debug("Device unmake succeeded")
             except Exception as e:
-                print(f"[SDRplayWorker] Device unmake error: {e}", flush=True)
+                if logger:
+                    logger.error(f"Device unmake error: {e}")
             self.sdr = None
 
         if self.shm is not None:
@@ -522,4 +692,5 @@ class SDRplayWorker:
                 pass
             self.shm = None
 
-        print("[SDRplayWorker] Cleanup complete", flush=True)
+        if logger:
+            logger.info("Cleanup complete")

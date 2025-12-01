@@ -34,6 +34,33 @@ _SDRPLAY_HEALTH_CACHE_TTL = 5.0  # seconds - how long to trust cached health sta
 _sdrplay_last_health_check: float = 0.0
 _sdrplay_health_status: bool = False  # True = healthy, False = unknown/unhealthy
 
+# Track active SDRplay captures to prevent recovery while streaming
+# Recovery during active streaming would kill the captures
+_sdrplay_active_captures: int = 0
+_sdrplay_active_captures_lock = threading.Lock()
+
+
+def increment_sdrplay_active_captures() -> None:
+    """Increment active SDRplay capture count (called when capture starts)."""
+    global _sdrplay_active_captures
+    with _sdrplay_active_captures_lock:
+        _sdrplay_active_captures += 1
+        print(f"[SOAPY] SDRplay active captures: {_sdrplay_active_captures}", flush=True)
+
+
+def decrement_sdrplay_active_captures() -> None:
+    """Decrement active SDRplay capture count (called when capture stops)."""
+    global _sdrplay_active_captures
+    with _sdrplay_active_captures_lock:
+        _sdrplay_active_captures = max(0, _sdrplay_active_captures - 1)
+        print(f"[SOAPY] SDRplay active captures: {_sdrplay_active_captures}", flush=True)
+
+
+def get_sdrplay_active_captures() -> int:
+    """Get count of active SDRplay captures."""
+    with _sdrplay_active_captures_lock:
+        return _sdrplay_active_captures
+
 
 class SDRplayServiceError(Exception):
     """SDRplay API service is unresponsive or device open failed.
@@ -843,9 +870,18 @@ class SoapyDriver(DeviceDriver):
             print(f"Warning: Failed to enumerate driver 'sdrplay': {e} (timeout count: {_sdrplay_consecutive_timeouts})", flush=True)
 
         # Proactive recovery: If SDRplay has timed out multiple times, attempt service restart
-        # This is safe during enumeration (no active streams to disrupt)
+        # CRITICAL: Only do this when NO active SDRplay captures are running!
+        # Recovery while streaming would kill active captures.
         sdrplay_found = any(d.driver == "sdrplay" for d in results)
-        if not sdrplay_found and _sdrplay_consecutive_timeouts >= _SDRPLAY_MAX_TIMEOUTS_BEFORE_RECOVERY:
+        active_captures = get_sdrplay_active_captures()
+
+        if not sdrplay_found and active_captures > 0:
+            # Devices are busy with active captures - this is EXPECTED behavior
+            # Don't count this as a failure and don't trigger recovery
+            print(f"[SOAPY] SDRplay enumeration returned no devices ({active_captures} active captures - expected)", flush=True)
+            # Reset timeout counter since devices are legitimately busy
+            _sdrplay_consecutive_timeouts = 0
+        elif not sdrplay_found and _sdrplay_consecutive_timeouts >= _SDRPLAY_MAX_TIMEOUTS_BEFORE_RECOVERY:
             recovery = get_recovery()
             allowed, reason = recovery.can_restart()
             if allowed:
@@ -1032,16 +1068,19 @@ class SoapyDriver(DeviceDriver):
 
             print(f"[SOAPY] Using subprocess proxy for SDRplay device: {args}", flush=True)
 
-            # Build DeviceInfo via subprocess enumeration (doesn't consume API slot)
-            device_info = self._build_device_info_subprocess(args)
-
+            # IMPORTANT: DO NOT probe device here! Device probing via subprocess
+            # happens BEFORE the global SDRplay lock is acquired, which can corrupt
+            # the SDRplay API state when multiple captures start simultaneously.
+            #
+            # Use hardcoded defaults instead - the worker subprocess will query
+            # actual device capabilities when it opens (inside the lock).
             info = DeviceInfo(
                 id=str(id_or_args or "device0"),
-                driver=device_info.get("driver", "sdrplay"),
-                label=device_info.get("hardware", "SDRplay RSP"),
-                freq_min_hz=device_info.get("freq_min", 1e4),
-                freq_max_hz=device_info.get("freq_max", 6e9),
-                sample_rates=tuple(device_info.get("sample_rates", [])) or (
+                driver="sdrplay",
+                label="SDRplay RSP",
+                freq_min_hz=1e4,
+                freq_max_hz=6e9,
+                sample_rates=(
                     200_000, 250_000, 500_000, 1_000_000, 2_000_000,
                     3_000_000, 4_000_000, 5_000_000, 6_000_000,
                 ),
@@ -1052,7 +1091,7 @@ class SoapyDriver(DeviceDriver):
                 bandwidth_max=8_000_000.0,
                 ppm_min=-100.0,
                 ppm_max=100.0,
-                antennas=tuple(device_info.get("antennas", [])) or ("Antenna A", "Antenna B", "Antenna C"),
+                antennas=("Antenna A", "Antenna B", "Antenna C"),
             )
 
             return SDRplayProxyDevice(info=info, device_args=args)
