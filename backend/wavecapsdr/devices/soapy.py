@@ -988,6 +988,34 @@ class SoapyDriver(DeviceDriver):
 
         return data
 
+    def _build_device_info_subprocess(self, args: str, timeout: float = 10.0) -> dict:
+        """Query device info via subprocess without consuming API slot.
+
+        Uses the existing _device_open_worker which opens, queries, and closes
+        the device in a subprocess. This provides device info for SDRplayProxyDevice
+        without blocking the SDRplay API for the actual capture.
+
+        Args:
+            args: Device arguments string
+
+        Returns:
+            Device info dict with driver, hardware, freq_min, freq_max, sample_rates, antennas
+        """
+        try:
+            # Reuse existing subprocess worker
+            return self._open_device_subprocess(args, timeout=timeout)
+        except Exception as e:
+            # Return fallback info if subprocess fails
+            print(f"[SOAPY] Device info query failed: {e}, using defaults", flush=True)
+            return {
+                "driver": "sdrplay",
+                "hardware": "SDRplay RSP",
+                "freq_min": 1e4,
+                "freq_max": 6e9,
+                "sample_rates": [200_000, 500_000, 1_000_000, 2_000_000, 4_000_000, 6_000_000],
+                "antennas": ["Antenna A", "Antenna B", "Antenna C"],
+            }
+
     def open(self, id_or_args: Optional[str] = None) -> Device:
         global _sdrplay_last_close_time
 
@@ -997,33 +1025,40 @@ class SoapyDriver(DeviceDriver):
         # Check if this is an SDRplay device
         is_sdrplay = "sdrplay" in args.lower()
 
-        # For SDRplay, use subprocess isolation for reliability
+        # For SDRplay, use subprocess proxy to bypass API single-device limitation
+        # Each SDRplay device runs in its own isolated subprocess
         if is_sdrplay:
-            with _sdrplay_device_lock:
-                # 1. MANDATORY pre-flight health check (always runs, uses cache)
-                if not self._ensure_sdrplay_healthy():
-                    raise SDRplayServiceError(
-                        "SDRplay service is unresponsive after recovery attempts. "
-                        "Try manually: POST /api/v1/devices/sdrplay/restart-service"
-                    )
+            from .sdrplay_proxy import SDRplayProxyDevice
 
-                # 2. Wait for cooldown if needed
-                elapsed = time.time() - _sdrplay_last_close_time
-                if elapsed < _SDRPLAY_CLOSE_COOLDOWN:
-                    wait_time = _SDRPLAY_CLOSE_COOLDOWN - elapsed
-                    print(f"[SOAPY] Waiting {wait_time:.1f}s for SDRplay API cooldown", flush=True)
-                    time.sleep(wait_time)
+            print(f"[SOAPY] Using subprocess proxy for SDRplay device: {args}", flush=True)
 
-                # 3. Verify device opens in subprocess (can be killed if hangs)
-                # This protects against the main hang point: SoapySDR.Device()
-                print("[SOAPY] Testing device open in subprocess...", flush=True)
-                device_info = self._open_device_subprocess(args, timeout=15.0)
-                print(f"[SOAPY] Subprocess test successful: {device_info.get('driver', 'unknown')}", flush=True)
+            # Build DeviceInfo via subprocess enumeration (doesn't consume API slot)
+            device_info = self._build_device_info_subprocess(args)
 
-                # 4. Now safe to open in main process (service confirmed responsive)
-                sdr = SoapySDR.Device(args)
-        else:
-            sdr = SoapySDR.Device(args)
+            info = DeviceInfo(
+                id=str(id_or_args or "device0"),
+                driver=device_info.get("driver", "sdrplay"),
+                label=device_info.get("hardware", "SDRplay RSP"),
+                freq_min_hz=device_info.get("freq_min", 1e4),
+                freq_max_hz=device_info.get("freq_max", 6e9),
+                sample_rates=tuple(device_info.get("sample_rates", [])) or (
+                    200_000, 250_000, 500_000, 1_000_000, 2_000_000,
+                    3_000_000, 4_000_000, 5_000_000, 6_000_000,
+                ),
+                gains=("IFGR", "RFGR"),
+                gain_min=0.0,
+                gain_max=59.0,
+                bandwidth_min=200_000.0,
+                bandwidth_max=8_000_000.0,
+                ppm_min=-100.0,
+                ppm_max=100.0,
+                antennas=tuple(device_info.get("antennas", [])) or ("Antenna A", "Antenna B", "Antenna C"),
+            )
+
+            return SDRplayProxyDevice(info=info, device_args=args)
+
+        # Non-SDRplay devices use direct SoapySDR access
+        sdr = SoapySDR.Device(args)
         # Build DeviceInfo from the live device
         driver = str(sdr.getDriverKey())
 
