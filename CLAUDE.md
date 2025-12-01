@@ -120,6 +120,21 @@ client = TestClient(app)
 
 Hardware tests are marked with `@pytest.mark.hardware` and skipped by default.
 
+## SDRplay Dependencies
+
+**Important:** This project requires a custom SoapySDRPlay3 driver with multi-device serialization fixes:
+- Repository: https://github.com/TobiasWooldridge/SoapySDRPlay3
+- This fork includes API-level locking to prevent crashes on rapid config changes
+
+Build and install:
+```bash
+cd ../SoapySDRPlay3
+mkdir -p build && cd build
+cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ..
+make -j4
+sudo make install
+```
+
 ## SDRplay Service Recovery
 
 The SDRplay API service can become stuck, causing captures to hang in "starting" state.

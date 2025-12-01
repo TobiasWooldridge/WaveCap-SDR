@@ -19,11 +19,11 @@ antennas:
 presets:
   kexp:
     center_hz: 90300000
-    sample_rate: 1000000
+    sample_rate: 250000
     offsets:
     - 0.0
     gain: 21.1
-    bandwidth: 300000.0
+    bandwidth: 200000.0
     ppm: 0.0
     antenna: Antenna B
   seattle_aircraft:
@@ -46,7 +46,7 @@ recipes:
       song info) appears in the channel panel when available.
     category: Broadcast
     center_hz: 100000000
-    sample_rate: 1024000
+    sample_rate: 250000
     channels:
     - offset_hz: 0
       name: FM Station
@@ -563,8 +563,17 @@ captures:
     V4,serial=00000001,tuner=Rafael Micro R828D'
 - preset: kexp
   device_id: driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070
+- preset: kexp
+  device_id: driver=sdrplay,label=SDRplay Dev1 RSPdx-R2 240305E670,serial=240305E670
 device_names:
   ? 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
     V4,serial=00000001,tuner=Rafael Micro R828D'
   : RTLSDR
   driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070: RSPdx-R2
+    F070
+  driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240305E670,serial=240305E670: RSPdx-R2
+    E670
+  'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog V4,serial=00000001': RTL-SDR
+    Blog V4
+  driver=sdrplay,label=SDRplay Dev1 RSPdx-R2 240305E670,serial=240305E670: RSPdx-R2
+    E670

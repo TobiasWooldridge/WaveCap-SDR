@@ -51,6 +51,9 @@ class RecoveryConfig:
     sdrplay_service_restart_cooldown: float = 60.0
     # Maximum service restarts allowed per hour
     max_service_restarts_per_hour: int = 5
+    # Minimum seconds between SDRplay device operations (configure, close)
+    # Prevents rapid reconfiguration from overwhelming the SDRplay API service
+    sdrplay_operation_cooldown: float = 0.5
     # Enable IQ sample watchdog (restart capture if no samples for this many seconds)
     iq_watchdog_enabled: bool = True
     iq_watchdog_timeout: float = 30.0
