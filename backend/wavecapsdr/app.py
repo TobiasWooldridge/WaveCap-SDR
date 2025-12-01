@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import logging.handlers
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -16,21 +18,76 @@ from .api import router as api_router
 from .state import AppState
 from .device_namer import get_device_nickname, generate_capture_name
 
+
+def setup_file_logging() -> None:
+    """Configure file-based logging with rotation.
+
+    Logs to backend/logs/wavecapsdr.log with 5MB rotation, 3 backups.
+    """
+    log_dir = Path(__file__).parent.parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / "wavecapsdr.log"
+
+    # Create rotating file handler (5MB max, 3 backups = 20MB total max)
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_file,
+        maxBytes=5 * 1024 * 1024,  # 5MB
+        backupCount=3,
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    ))
+
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(file_handler)
+
+    # Also add console handler for INFO and above
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(logging.Formatter(
+        '[%(levelname)s] %(name)s: %(message)s'
+    ))
+    root_logger.addHandler(console_handler)
+
+    logging.info("File logging initialized: %s", log_file)
+
 # Global DSP thread pool executor for CPU-intensive audio processing
 # This keeps DSP work off the main asyncio event loop to prevent HTTP starvation
 _dsp_executor: ThreadPoolExecutor | None = None
 
 
 def get_dsp_executor() -> ThreadPoolExecutor:
-    """Get the global DSP thread pool executor."""
+    """Get the global DSP thread pool executor.
+
+    Sized for 3 SDRs with multiple channels each. NumPy/SciPy release the GIL
+    during heavy computation, enabling true parallelism in thread pools.
+    """
     global _dsp_executor
     if _dsp_executor is None:
-        # Use 4 workers - enough for multiple channels without overwhelming CPU
-        _dsp_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="DSP-")
+        import os
+        # Use 8 workers or CPU count + 2, whichever is smaller
+        # This handles 3 SDRs with 4+ channels each efficiently
+        max_workers = min(8, (os.cpu_count() or 4) + 2)
+        _dsp_executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="DSP-")
     return _dsp_executor
 
 
+def shutdown_dsp_executor() -> None:
+    """Shutdown the DSP executor on application exit."""
+    global _dsp_executor
+    if _dsp_executor is not None:
+        _dsp_executor.shutdown(wait=True, cancel_futures=True)
+        _dsp_executor = None
+
+
 def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
+    # Setup file logging before anything else
+    setup_file_logging()
+
     app = FastAPI(title="WaveCap-SDR", version="0.1.0")
 
     # Configure CORS middleware

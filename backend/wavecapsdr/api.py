@@ -168,6 +168,59 @@ def health_check(request: Request):
     return JSONResponse(status_code=status_code, content=health_status)
 
 
+@router.get("/debug/perf")
+def get_performance_metrics(request: Request):
+    """Get detailed performance metrics for all captures.
+
+    Returns timing statistics (loop time, DSP time, FFT time) and queue depths
+    for performance profiling and optimization validation.
+    """
+    state = getattr(request.app.state, "app_state", None)
+    if state is None:
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": "AppState not initialized"}
+        )
+
+    import time
+    result = {
+        "timestamp": time.time(),
+        "captures": {},
+    }
+
+    try:
+        for cap in state.captures.list_captures():
+            # Get performance stats from capture
+            perf_stats = cap.get_perf_stats() if hasattr(cap, 'get_perf_stats') else {}
+
+            # Get channel queue depths
+            channels = state.captures.list_channels(cap.cfg.id)
+            channel_stats = {}
+            for ch in channels:
+                stats = ch.get_queue_stats()
+                channel_stats[ch.cfg.id] = {
+                    "subscribers": stats.get("total_subscribers", 0),
+                    "drops": stats.get("drops_since_last_log", 0),
+                    "mode": ch.cfg.mode,
+                    "rssi_db": ch.rssi_db,
+                }
+
+            result["captures"][cap.cfg.id] = {
+                "state": cap.state,
+                "device_id": cap.cfg.device_id[:30] + "..." if len(cap.cfg.device_id) > 30 else cap.cfg.device_id,
+                "sample_rate": cap.cfg.sample_rate,
+                "timing": perf_stats,
+                "channels": channel_stats,
+            }
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": str(e)}
+        )
+
+    return result
+
+
 def get_state(request: Request) -> AppState:
     state = getattr(request.app.state, "app_state", None)
     if state is None:
@@ -327,10 +380,23 @@ def update_device_name(device_id: str, request: dict, _: None = Depends(auth_che
     """Set custom nickname for a device."""
     nickname = request.get("nickname", "")
 
-    # Validate device exists
-    devices = state.captures.list_devices()
-    device = next((d for d in devices if d["id"] == device_id), None)
-    if not device:
+    # Validate device exists - check enumeration AND active captures
+    # (SDRplay devices don't appear in enumeration when busy streaming)
+    device_found = False
+    try:
+        devices = state.captures.list_devices()
+        device_found = any(d["id"] == device_id for d in devices)
+    except Exception:
+        pass  # Enumeration may fail if all devices are busy
+
+    # Also check devices from active captures
+    if not device_found:
+        for cap in state.captures.list_captures():
+            if cap.cfg.device_id == device_id:
+                device_found = True
+                break
+
+    if not device_found:
         raise HTTPException(status_code=404, detail="Device not found")
 
     # Update nickname
@@ -816,13 +882,17 @@ async def update_capture(
     state: AppState = Depends(get_state),
 ):
     import traceback
+    logger.info(f"PATCH /captures/{cid} - request: {req}")
     try:
-        return await _update_capture_impl(cid, req, state)
-    except HTTPException:
+        result = await _update_capture_impl(cid, req, state)
+        logger.info(f"PATCH /captures/{cid} - success")
+        return result
+    except HTTPException as e:
+        logger.warning(f"PATCH /captures/{cid} - HTTPException: {e.status_code} {e.detail}")
         raise
     except Exception as e:
-        error_msg = f"[ERROR] update_capture failed: {e}\n{traceback.format_exc()}"
-        print(error_msg, flush=True)
+        error_msg = f"update_capture failed: {e}\n{traceback.format_exc()}"
+        logger.error(f"PATCH /captures/{cid} - {error_msg}")
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 
