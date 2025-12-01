@@ -6,6 +6,7 @@ import { useDevices, useRestartSDRplayService } from "../hooks/useDevices";
 import { useChannels, useCreateChannel } from "../hooks/useChannels";
 import { useMemoryBanks } from "../hooks/useMemoryBanks";
 import { useDebounce } from "../hooks/useDebounce";
+import { useToast } from "../hooks/useToast";
 import { formatFrequencyMHz, formatSampleRate } from "../utils/frequency";
 import { getDeviceDisplayName, getDeviceNameFromId } from "../utils/device";
 import Button from "./primitives/Button.react";
@@ -17,7 +18,6 @@ import Spinner from "./primitives/Spinner.react";
 import { BookmarkManager } from "./BookmarkManager.react";
 import ScannerControl from "./ScannerControl.react";
 import { ErrorStatusBar } from "./ErrorStatusBar.react";
-import { ErrorIndicator } from "./primitives/ErrorIndicator.react";
 
 interface RadioTunerProps {
   capture: Capture;
@@ -114,12 +114,20 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   const stopMutation = useStopCapture();
   const restartMutation = useRestartCapture();
   const restartServiceMutation = useRestartSDRplayService();
+  const toast = useToast();
+
+  // Show error toast when update fails
+  useEffect(() => {
+    if (updateMutation.isError && updateMutation.error) {
+      toast.error(`Update failed: ${updateMutation.error.message}`);
+    }
+  }, [updateMutation.isError, updateMutation.error]);
 
   // Check if this is an SDRplay device
   const isSDRplayDevice = capture.deviceId?.toLowerCase().includes("sdrplay");
 
   // Confirm state for destructive buttons (touch-friendly two-tap pattern)
-  const [confirmingAction, setConfirmingAction] = useState<"stop" | "restart" | "service" | null>(null);
+  const [confirmingAction, setConfirmingAction] = useState<"restart" | "service" | null>(null);
 
   // Reset confirm state after timeout
   useEffect(() => {
@@ -131,7 +139,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
 
   // Handle confirm-required button clicks
   const handleConfirmableAction = useCallback((
-    action: "stop" | "restart" | "service",
+    action: "restart" | "service",
     execute: () => void
   ) => {
     if (confirmingAction === action) {
@@ -368,22 +376,20 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             <div className="d-flex gap-2 align-items-center flex-wrap">
               {/* Start/Stop + Restart + Service Button Group */}
               <div className="btn-group" role="group">
-                {/* Start/Stop - requires confirm when stopping */}
+                {/* Start/Stop */}
                 <Button
-                  use={confirmingAction === "stop" ? "warning" : (isRunning || isStopping ? "danger" : isStarting ? "warning" : "success")}
+                  use={isRunning || isStopping ? "danger" : isStarting ? "warning" : "success"}
                   size="sm"
                   onClick={() => {
                     if (isRunning) {
-                      handleConfirmableAction("stop", () => stopMutation.mutate(capture.id));
+                      stopMutation.mutate(capture.id);
                     } else {
                       startMutation.mutate(capture.id);
                     }
                   }}
                   disabled={startMutation.isPending || stopMutation.isPending || isTransitioning || restartMutation.isPending}
                 >
-                  {isStarting ? "Starting..." : isStopping ? "Stopping..." :
-                   confirmingAction === "stop" ? <><Check size={14} /> Confirm</> :
-                   isRunning ? "Stop" : "Start"}
+                  {isStarting ? "Starting..." : isStopping ? "Stopping..." : isRunning ? "Stop" : "Start"}
                 </Button>
                 {/* Restart - always requires confirm */}
                 <Button
@@ -460,17 +466,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             )}
 
             {/* Real-time Error Indicators (IQ overflows, audio drops, retries) */}
-            {isRunning && <ErrorStatusBar captureId={capture.id} />}
-
-            {/* Inline error indicators from capture data */}
-            {isRunning && capture.iqOverflowRate > 0 && (
-              <div className="d-flex align-items-center gap-2 mt-1">
-                <ErrorIndicator type="overflow" rate={capture.iqOverflowRate} active />
-                <small className="text-warning">
-                  IQ data loss detected ({capture.iqOverflowCount} overflows)
-                </small>
-              </div>
-            )}
+            {isRunning && <ErrorStatusBar captureId={capture.id} capture={capture} />}
           </Flex>
         </div>
       </div>

@@ -119,10 +119,14 @@ function CaptureTab({ capture, captureDevice: _captureDevice, isSelected, onClic
       style={{
         position: "relative",
         borderRadius: "0.375rem 0.375rem 0 0",
-        borderBottom: "none",
         whiteSpace: "nowrap",
-        ...(isSelected ? {} : {
-          border: "1px solid rgba(255,255,255,0.5)",
+        ...(isSelected ? {
+          borderBottom: "none",
+        } : {
+          borderTop: "1px solid rgba(255,255,255,0.5)",
+          borderLeft: "1px solid rgba(255,255,255,0.5)",
+          borderRight: "1px solid rgba(255,255,255,0.5)",
+          borderBottom: "none",
           color: "white",
           backgroundColor: "transparent",
         }),

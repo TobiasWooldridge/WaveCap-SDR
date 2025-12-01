@@ -42,6 +42,7 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
   const [newChannelAudioRate, setNewChannelAudioRate] = useState<number>(48000);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [playingChannels, setPlayingChannels] = useState<Set<string>>(new Set());
+  const [masterVolume, setMasterVolume] = useState<number>(0.7);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
@@ -76,6 +77,13 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
       stopAllAudio();
     };
   }, [capture.id, stopAllAudio]);
+
+  // Update master volume when slider changes
+  useEffect(() => {
+    if (masterGainRef.current) {
+      masterGainRef.current.gain.value = masterVolume;
+    }
+  }, [masterVolume]);
 
   const handleCreateChannel = () => {
     const offsetHz = newChannelFrequency - capture.centerHz;
@@ -384,6 +392,27 @@ export const ChannelManager = ({ capture }: ChannelManagerProps) => {
             </Button>
           </Flex>
         </Flex>
+        {/* Volume control - shown when any channel is playing */}
+        {playingChannels.size > 0 && (
+          <div className="mt-2 pt-2 border-top">
+            <Flex align="center" gap={2}>
+              <Volume2 size={14} className="text-muted flex-shrink-0" />
+              <input
+                type="range"
+                className="form-range flex-grow-1"
+                min={0}
+                max={1}
+                step={0.01}
+                value={masterVolume}
+                onChange={(e) => setMasterVolume(parseFloat(e.target.value))}
+                style={{ minWidth: "80px" }}
+              />
+              <span className="small text-muted" style={{ minWidth: "35px" }}>
+                {Math.round(masterVolume * 100)}%
+              </span>
+            </Flex>
+          </div>
+        )}
       </div>
 
       {/* New Channel Form */}

@@ -119,6 +119,12 @@ export default function SpectrumAnalyzer({
     return () => window.removeEventListener("resize", updateWidth);
   }, []);
 
+  // Clear peak hold and averaging history when capture (radio) changes
+  useEffect(() => {
+    peakHoldData.current = [];
+    avgHistory.current = [];
+  }, [capture.id]);
+
   // Draw spectrum on canvas
   useEffect(() => {
     if (!canvasRef.current) {
@@ -605,8 +611,8 @@ export default function SpectrumAnalyzer({
           </div>
         </div>
       </div>
-      {!isCollapsed && (
-        <div className="card-body" ref={containerRef} style={{ padding: "0.5rem", position: "relative" }}>
+      <div className="card-body" ref={containerRef} style={{ padding: "0.5rem", position: "relative", display: isCollapsed ? "none" : "block" }}>
+        <div style={{ position: "relative" }}>
           <canvas
             ref={canvasRef}
             width={width}
@@ -620,38 +626,63 @@ export default function SpectrumAnalyzer({
               display: "block",
               width: "100%",
               cursor: onFrequencyClick ? "crosshair" : "default",
+              filter: isIdle ? "grayscale(80%) opacity(0.6)" : "none",
+              transition: "filter 0.3s ease",
             }}
           />
-          {/* Frequency tooltip */}
-          {hoverFrequency !== null && hoverPosition !== null && (
+          {/* Paused overlay */}
+          {isIdle && (
             <div
               style={{
-                position: "fixed",
-                left: `${hoverPosition.x + 10}px`,
-                top: `${hoverPosition.y - 30}px`,
-                backgroundColor: "rgba(0, 0, 0, 0.85)",
-                color: "white",
-                padding: "4px 8px",
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                backgroundColor: "rgba(0, 0, 0, 0.7)",
+                color: "#ffc107",
+                padding: "8px 16px",
                 borderRadius: "4px",
-                fontSize: "12px",
-                fontWeight: 600,
-                fontFamily: "monospace",
+                fontSize: "14px",
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "1px",
                 pointerEvents: "none",
-                zIndex: 1000,
-                whiteSpace: "nowrap",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+                zIndex: 10,
               }}
             >
-              {(hoverFrequency / 1e6).toFixed(4)} MHz
-              {onFrequencyClick && (
-                <div style={{ fontSize: "10px", opacity: 0.8, marginTop: "2px" }}>
-                  Click to tune
-                </div>
-              )}
+              Paused
             </div>
           )}
         </div>
-      )}
+        {/* Frequency tooltip */}
+        {hoverFrequency !== null && hoverPosition !== null && !isIdle && (
+          <div
+            style={{
+              position: "fixed",
+              left: `${hoverPosition.x + 10}px`,
+              top: `${hoverPosition.y - 30}px`,
+              backgroundColor: "rgba(0, 0, 0, 0.85)",
+              color: "white",
+              padding: "4px 8px",
+              borderRadius: "4px",
+              fontSize: "12px",
+              fontWeight: 600,
+              fontFamily: "monospace",
+              pointerEvents: "none",
+              zIndex: 1000,
+              whiteSpace: "nowrap",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+            }}
+          >
+            {(hoverFrequency / 1e6).toFixed(4)} MHz
+            {onFrequencyClick && (
+              <div style={{ fontSize: "10px", opacity: 0.8, marginTop: "2px" }}>
+                Click to tune
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

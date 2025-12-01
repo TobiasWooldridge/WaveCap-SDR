@@ -20,8 +20,21 @@ async function updateCapture(
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to update capture");
+    // Try to parse JSON error, but handle plain text responses too
+    let errorMessage = "Failed to update capture";
+    try {
+      const error = await response.json();
+      errorMessage = error.detail || errorMessage;
+    } catch {
+      // Response wasn't JSON, try to get text
+      try {
+        const text = await response.text();
+        if (text) errorMessage = text;
+      } catch {
+        // Ignore
+      }
+    }
+    throw new Error(errorMessage);
   }
 
   return response.json();
@@ -104,6 +117,11 @@ export function useUpdateCapture() {
     mutationFn: ({ captureId, request }: { captureId: string; request: UpdateCaptureRequest }) =>
       updateCapture(captureId, request),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["captures"] });
+    },
+    onError: () => {
+      // Refetch captures to reset UI to server state
+      // This ensures local state gets reset via the useEffect in RadioTuner
       queryClient.invalidateQueries({ queryKey: ["captures"] });
     },
   });

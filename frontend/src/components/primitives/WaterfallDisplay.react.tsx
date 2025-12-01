@@ -102,6 +102,13 @@ export default function WaterfallDisplay({
     return () => window.removeEventListener("resize", updateWidth);
   }, []);
 
+  // Clear waterfall history when capture (radio) changes
+  useEffect(() => {
+    historyRef.current = [];
+    setSpectrumInfo(null);
+    needsRenderRef.current = true;
+  }, [capture.id]);
+
   // Handle incoming spectrum data
   useEffect(() => {
     if (!spectrumData) {
@@ -467,8 +474,8 @@ export default function WaterfallDisplay({
           </div>
         </div>
       </div>
-      {!isCollapsed && (
-        <div className="card-body" ref={containerRef} style={{ padding: "0.5rem" }}>
+      <div className="card-body" ref={containerRef} style={{ padding: "0.5rem", display: isCollapsed ? "none" : "block" }}>
+        <div style={{ position: "relative" }}>
           <canvas
             ref={canvasRef}
             width={width}
@@ -479,10 +486,35 @@ export default function WaterfallDisplay({
               display: "block",
               width: "100%",
               imageRendering: "pixelated", // Crisp pixels for waterfall
+              filter: isIdle ? "grayscale(80%) opacity(0.6)" : "none",
+              transition: "filter 0.3s ease",
             }}
           />
+          {/* Paused overlay */}
+          {isIdle && (
+            <div
+              style={{
+                position: "absolute",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                backgroundColor: "rgba(0, 0, 0, 0.7)",
+                color: "#ffc107",
+                padding: "8px 16px",
+                borderRadius: "4px",
+                fontSize: "14px",
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "1px",
+                pointerEvents: "none",
+                zIndex: 10,
+              }}
+            >
+              Paused
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
