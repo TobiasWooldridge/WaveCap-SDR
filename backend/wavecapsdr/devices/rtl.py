@@ -1,25 +1,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional, Type, cast
 
 import numpy as np
 
 from .base import Device, DeviceDriver, DeviceInfo, StreamHandle
 
 
-def _import_pyrtlsdr():
+def _import_pyrtlsdr() -> Type[Any]:
     try:
         from rtlsdr import RtlSdr  # type: ignore
 
-        return RtlSdr
+        return cast(Type[Any], RtlSdr)
     except Exception as exc:  # pragma: no cover
         raise RuntimeError("pyrtlsdr not available; install with pip install pyrtlsdr") from exc
 
 
 @dataclass
 class _RtlStream(StreamHandle):
-    sdr: "RtlSdr"
+    sdr: Any  # RtlSdr dynamically imported
 
     def read(self, num_samples: int) -> tuple[np.ndarray, bool]:
         data = self.sdr.read_samples(num_samples)
@@ -34,7 +34,7 @@ class _RtlStream(StreamHandle):
 @dataclass
 class _RtlDevice(Device):
     info: DeviceInfo
-    sdr: "RtlSdr"
+    sdr: Any  # RtlSdr dynamically imported
 
     def configure(
         self,
@@ -43,6 +43,12 @@ class _RtlDevice(Device):
         gain: Optional[float] = None,
         bandwidth: Optional[float] = None,
         ppm: Optional[float] = None,
+        antenna: Optional[str] = None,
+        device_settings: Optional[dict[str, Any]] = None,
+        element_gains: Optional[dict[str, float]] = None,
+        stream_format: Optional[str] = None,
+        dc_offset_auto: bool = True,
+        iq_balance_auto: bool = True,
     ) -> None:
         self.sdr.sample_rate = sample_rate
         self.sdr.center_freq = center_hz
@@ -64,6 +70,25 @@ class _RtlDevice(Device):
 
     def start_stream(self) -> StreamHandle:
         return _RtlStream(self.sdr)
+
+    def get_antenna(self) -> Optional[str]:
+        """RTL-SDR has no antenna selection."""
+        return None
+
+    def reconfigure_running(
+        self,
+        center_hz: Optional[float] = None,
+        gain: Optional[float] = None,
+        bandwidth: Optional[float] = None,
+        ppm: Optional[float] = None,
+    ) -> None:
+        """Reconfigure device while running."""
+        if center_hz is not None:
+            self.sdr.center_freq = center_hz
+        if gain is not None:
+            self.sdr.gain = gain
+        if ppm is not None:
+            self.sdr.freq_correction = int(ppm)
 
     def close(self) -> None:
         try:
