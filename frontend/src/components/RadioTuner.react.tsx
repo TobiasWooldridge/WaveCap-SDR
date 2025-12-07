@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { Radio, Settings, ChevronDown, ChevronUp, Cpu, RotateCcw, RefreshCw, Check, Zap } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Radio, Settings, ChevronDown, ChevronUp, Cpu, RotateCcw, RefreshCw, Zap } from "lucide-react";
 import type { Capture, Device } from "../types";
 import { useUpdateCapture, useStartCapture, useStopCapture, useRestartCapture } from "../hooks/useCaptures";
 import { useDevices, useRestartSDRplayService, usePowerCycleDevice } from "../hooks/useDevices";
@@ -15,6 +15,7 @@ import Slider from "./primitives/Slider.react";
 import FrequencySelector from "./primitives/FrequencySelector.react";
 import NumericSelector, { type UnitConfig } from "./primitives/NumericSelector.react";
 import Spinner from "./primitives/Spinner.react";
+import SplitButtonDropdown from "./primitives/SplitButtonDropdown.react";
 import { BookmarkManager } from "./BookmarkManager.react";
 import ScannerControl from "./ScannerControl.react";
 import { ErrorStatusBar } from "./ErrorStatusBar.react";
@@ -126,32 +127,6 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
 
   // Check if this is an SDRplay device
   const isSDRplayDevice = capture.deviceId?.toLowerCase().includes("sdrplay");
-
-  // Confirm state for destructive buttons (touch-friendly two-tap pattern)
-  const [confirmingAction, setConfirmingAction] = useState<"restart" | "service" | "powercycle" | null>(null);
-
-  // Reset confirm state after timeout
-  useEffect(() => {
-    if (confirmingAction) {
-      const timer = setTimeout(() => setConfirmingAction(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [confirmingAction]);
-
-  // Handle confirm-required button clicks
-  const handleConfirmableAction = useCallback((
-    action: "restart" | "service" | "powercycle",
-    execute: () => void
-  ) => {
-    if (confirmingAction === action) {
-      // Second tap - execute the action
-      execute();
-      setConfirmingAction(null);
-    } else {
-      // First tap - enter confirm mode
-      setConfirmingAction(action);
-    }
-  }, [confirmingAction]);
 
   // Get channels for the capture
   const { data: channels } = useChannels(capture.id);
@@ -375,59 +350,59 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
 
             {/* Row 2: Control Buttons + Bookmarks */}
             <div className="d-flex gap-2 align-items-center flex-wrap">
-              {/* Start/Stop + Restart + Service Button Group */}
-              <div className="btn-group" role="group">
-                {/* Start/Stop */}
-                <Button
-                  use={isRunning || isStopping ? "danger" : isStarting ? "warning" : "success"}
-                  size="sm"
-                  onClick={() => {
-                    if (isRunning) {
-                      stopMutation.mutate(capture.id);
-                    } else {
-                      startMutation.mutate(capture.id);
-                    }
-                  }}
-                  disabled={startMutation.isPending || stopMutation.isPending || isTransitioning || restartMutation.isPending}
-                >
-                  {isStarting ? "Starting..." : isStopping ? "Stopping..." : isRunning ? "Stop" : "Start"}
-                </Button>
-                {/* Restart - always requires confirm */}
-                <Button
-                  use={confirmingAction === "restart" ? "warning" : "secondary"}
-                  size="sm"
-                  onClick={() => handleConfirmableAction("restart", () => restartMutation.mutate(capture.id))}
-                  disabled={restartMutation.isPending || isTransitioning || stopMutation.isPending || startMutation.isPending || restartServiceMutation.isPending}
-                  title={confirmingAction === "restart" ? "Tap again to confirm restart" : "Restart capture (stop then start)"}
-                >
-                  {restartMutation.isPending ? <Spinner size="sm" /> :
-                   confirmingAction === "restart" ? <Check size={14} /> : <RotateCcw size={14} />}
-                </Button>
-                {/* Service restart - always requires confirm */}
-                {isSDRplayDevice && (
-                  <Button
-                    use={confirmingAction === "service" ? "warning" : "danger"}
-                    size="sm"
-                    onClick={() => handleConfirmableAction("service", () => restartServiceMutation.mutate())}
-                    disabled={restartMutation.isPending || restartServiceMutation.isPending || powerCycleMutation.isPending}
-                    title={confirmingAction === "service" ? "Tap again to confirm service restart" : "Restart SDRplay API service (fixes stuck devices)"}
-                  >
-                    {restartServiceMutation.isPending ? <Spinner size="sm" /> :
-                     confirmingAction === "service" ? <Check size={14} /> : <RefreshCw size={14} />}
-                  </Button>
-                )}
-                {/* USB Power Cycle - always requires confirm */}
-                <Button
-                  use={confirmingAction === "powercycle" ? "warning" : "danger"}
-                  size="sm"
-                  onClick={() => handleConfirmableAction("powercycle", () => powerCycleMutation.mutate(capture.id))}
-                  disabled={restartMutation.isPending || restartServiceMutation.isPending || powerCycleMutation.isPending || isTransitioning}
-                  title={confirmingAction === "powercycle" ? "Tap again to confirm USB power cycle" : "Power cycle USB port (hardware reset)"}
-                >
-                  {powerCycleMutation.isPending ? <Spinner size="sm" /> :
-                   confirmingAction === "powercycle" ? <Check size={14} /> : <Zap size={14} />}
-                </Button>
-              </div>
+              {/* Start/Stop with dropdown for advanced actions */}
+              <SplitButtonDropdown
+                mainLabel={isStarting ? "Starting..." : isStopping ? "Stopping..." : isRunning ? "Stop" : "Start"}
+                onMainClick={() => {
+                  if (isRunning) {
+                    stopMutation.mutate(capture.id);
+                  } else {
+                    startMutation.mutate(capture.id);
+                  }
+                }}
+                mainDisabled={startMutation.isPending || stopMutation.isPending || isTransitioning || restartMutation.isPending}
+                use={isRunning || isStopping ? "danger" : isStarting ? "warning" : "success"}
+                isPending={startMutation.isPending || stopMutation.isPending || restartMutation.isPending || restartServiceMutation.isPending || powerCycleMutation.isPending}
+                pendingContent={<Spinner size="sm" />}
+                menuItems={[
+                  {
+                    id: "restart",
+                    label: "Restart Capture",
+                    icon: <RotateCcw size={14} />,
+                    onClick: () => restartMutation.mutate(capture.id),
+                    disabled: restartMutation.isPending || isTransitioning,
+                    requireConfirm: true,
+                    confirmLabel: "Confirm Restart",
+                  },
+                  {
+                    id: "divider1",
+                    label: "",
+                    divider: true,
+                    onClick: () => {},
+                  },
+                  {
+                    id: "service",
+                    label: "Restart SDRplay Service",
+                    icon: <RefreshCw size={14} />,
+                    onClick: () => restartServiceMutation.mutate(),
+                    disabled: restartServiceMutation.isPending,
+                    hidden: !isSDRplayDevice,
+                    use: "danger",
+                    requireConfirm: true,
+                    confirmLabel: "Confirm Service Restart",
+                  },
+                  {
+                    id: "powercycle",
+                    label: "USB Power Cycle",
+                    icon: <Zap size={14} />,
+                    onClick: () => powerCycleMutation.mutate(capture.id),
+                    disabled: powerCycleMutation.isPending || isTransitioning,
+                    use: "danger",
+                    requireConfirm: true,
+                    confirmLabel: "Confirm Power Cycle",
+                  },
+                ]}
+              />
 
               {/* Bookmark Manager */}
               <BookmarkManager
