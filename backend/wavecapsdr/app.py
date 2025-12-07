@@ -156,7 +156,7 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
     app.state.app_state = AppState.from_config(config, config_path)
 
     @app.on_event("startup")
-    async def startup_event():
+    async def startup_event() -> None:
         """Auto-start configured captures on server startup.
 
         If no captures are configured, initialize a default capture so the UI
@@ -234,8 +234,8 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
         if not created_any:
             try:
                 # Prefer the first preset if available (e.g., 'kexp')
-                preset_name = next(iter(config.presets.keys()), None)
-                preset = config.presets.get(preset_name) if preset_name else None
+                default_preset_name: str = next(iter(config.presets.keys()), "")
+                preset = config.presets.get(default_preset_name) if default_preset_name else None
 
                 # Choose device if one is available
                 devices = app_state.captures.list_devices()
@@ -311,16 +311,16 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
         # Keep /static mount for backward compatibility
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-    @app.get("/favicon.svg")
-    def favicon():
+    @app.get("/favicon.svg", response_model=None)
+    def favicon() -> FileResponse | dict[str, str]:
         """Serve the favicon."""
         favicon_path = static_dir / "favicon.svg"
         if favicon_path.exists():
             return FileResponse(favicon_path, media_type="image/svg+xml")
         return {"message": "Favicon not found"}
 
-    @app.get("/")
-    def root():
+    @app.get("/", response_model=None)
+    def root() -> FileResponse | dict[str, str]:
         """Serve the React app."""
         index_path = static_dir / "index.html"
         if index_path.exists():

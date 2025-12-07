@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, AsyncGenerator, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect, Response
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -605,7 +605,7 @@ def get_usb_hubs(_: None = Depends(auth_check)) -> Dict[str, Any]:
 
 
 @router.post("/devices/usb/power-cycle/{capture_id}")
-def power_cycle_capture_device(capture_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)) -> Dict[str, Any]:
+async def power_cycle_capture_device(capture_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)) -> Dict[str, Any]:
     """Power cycle the USB port for a capture's device.
 
     This performs a hardware reset by cycling the USB port power,
@@ -634,7 +634,7 @@ def power_cycle_capture_device(capture_id: str, _: None = Depends(auth_check), s
     was_running = capture.state == "running"
     if was_running:
         try:
-            capture.stop()
+            await capture.stop()
             logger.info(f"Stopped capture {capture_id} before USB power cycle")
         except Exception as e:
             logger.warning(f"Failed to stop capture before power cycle: {e}")
@@ -654,7 +654,7 @@ def power_cycle_capture_device(capture_id: str, _: None = Depends(auth_check), s
     }
 
 
-def _adjust_recipe_for_device(recipe_cfg, device_info: dict) -> dict:
+def _adjust_recipe_for_device(recipe_cfg: Any, device_info: Dict[str, Any]) -> Dict[str, Any]:
     """Adjust recipe parameters to fit device capabilities.
 
     Returns a dict with adjusted sampleRate, bandwidth, and gain values.
@@ -1356,7 +1356,7 @@ def get_channel(
     chan_id: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ChannelModel:
     ch = state.captures.get_channel(chan_id)
     if ch is None:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -1412,7 +1412,7 @@ def update_channel(
     req: UpdateChannelRequest,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ChannelModel:
     ch = state.captures.get_channel(chan_id)
     if ch is None:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -1500,7 +1500,7 @@ def delete_channel(
     chan_id: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> Response:
     state.captures.delete_channel(chan_id)
 
     # Emit state change for WebSocket subscribers
@@ -1535,7 +1535,7 @@ def get_spectrum_snapshot(
     cid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> SpectrumSnapshotModel:
     """Get a single FFT spectrum snapshot (no WebSocket required).
 
     Returns the most recent FFT calculation for the capture.
@@ -1568,7 +1568,7 @@ def get_channel_extended_metrics(
     chan_id: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ExtendedMetricsModel:
     """Get extended signal metrics for a channel.
 
     Includes RSSI, SNR, signal power, S-meter reading, squelch state,
@@ -1611,7 +1611,7 @@ def get_channel_metrics_history(
     seconds: int = 60,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> MetricsHistoryModel:
     """Get time-series history of signal metrics.
 
     Note: Currently returns a single point (current values) since
@@ -1646,7 +1646,7 @@ def get_channel_pocsag_messages(
     since: Optional[float] = None,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> List[POCSAGMessageModel]:
     """Get decoded POCSAG pager messages from an NBFM channel.
 
     Args:
@@ -1678,7 +1678,7 @@ def get_channel_pocsag_messages(
 
 
 @router.websocket("/stream/captures/{cid}/iq")
-async def stream_capture_iq(websocket: WebSocket, cid: str):
+async def stream_capture_iq(websocket: WebSocket, cid: str) -> None:
     # Auth: optional token via header or query `token`
     app_state: AppState = getattr(websocket.app.state, "app_state")
     token = app_state.config.server.auth_token
@@ -1711,7 +1711,7 @@ async def stream_capture_iq(websocket: WebSocket, cid: str):
 
 
 @router.websocket("/stream/captures/{cid}/spectrum")
-async def stream_capture_spectrum(websocket: WebSocket, cid: str):
+async def stream_capture_spectrum(websocket: WebSocket, cid: str) -> None:
     """Stream FFT/spectrum data for waterfall/spectrum analyzer display.
 
     Only calculates FFT when there are active subscribers for efficiency.
@@ -1755,14 +1755,14 @@ async def stream_capture_spectrum(websocket: WebSocket, cid: str):
         logger.info(f"Spectrum WebSocket stream ended for capture {cid}")
 
 
-@router.get("/stream/channels/{chan_id}.pcm")
+@router.get("/stream/channels/{chan_id}.pcm", response_model=None)
 async def stream_channel_http(
     request: Request,
     chan_id: str,
     format: str = "pcm16",
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> StreamingResponse:
     """Stream channel audio over HTTP for VLC and other players.
 
     Query parameters:
@@ -1779,7 +1779,7 @@ async def stream_channel_http(
     # Get channel config to set proper content-type header
     audio_rate = ch.cfg.audio_rate
 
-    async def audio_generator():
+    async def audio_generator() -> AsyncGenerator[bytes, None]:
         q = await ch.subscribe_audio(format=format)
         logger.info(f"HTTP stream started for channel {chan_id}, format={format}, client={request.client}")
         packet_count = 0
@@ -1827,19 +1827,19 @@ async def stream_channel_http(
     )
 
 
-@router.get("/stream/channels/{chan_id}.mp3")
+@router.get("/stream/channels/{chan_id}.mp3", response_model=None)
 async def stream_channel_mp3(
     request: Request,
     chan_id: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> StreamingResponse:
     """Stream channel audio as MP3."""
     ch = state.captures.get_channel(chan_id)
     if ch is None:
         raise HTTPException(status_code=404, detail="Channel not found")
 
-    async def audio_generator():
+    async def audio_generator() -> AsyncGenerator[bytes, None]:
         q = await ch.subscribe_audio(format="mp3")
         logger.info(f"MP3 stream started for channel {chan_id}, client={request.client}")
         packet_count = 0
@@ -1876,19 +1876,19 @@ async def stream_channel_mp3(
     )
 
 
-@router.get("/stream/channels/{chan_id}.opus")
+@router.get("/stream/channels/{chan_id}.opus", response_model=None)
 async def stream_channel_opus(
     request: Request,
     chan_id: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> StreamingResponse:
     """Stream channel audio as Opus."""
     ch = state.captures.get_channel(chan_id)
     if ch is None:
         raise HTTPException(status_code=404, detail="Channel not found")
 
-    async def audio_generator():
+    async def audio_generator() -> AsyncGenerator[bytes, None]:
         q = await ch.subscribe_audio(format="opus")
         logger.info(f"Opus stream started for channel {chan_id}, client={request.client}")
         packet_count = 0
@@ -1925,19 +1925,19 @@ async def stream_channel_opus(
     )
 
 
-@router.get("/stream/channels/{chan_id}.aac")
+@router.get("/stream/channels/{chan_id}.aac", response_model=None)
 async def stream_channel_aac(
     request: Request,
     chan_id: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> StreamingResponse:
     """Stream channel audio as AAC."""
     ch = state.captures.get_channel(chan_id)
     if ch is None:
         raise HTTPException(status_code=404, detail="Channel not found")
 
-    async def audio_generator():
+    async def audio_generator() -> AsyncGenerator[bytes, None]:
         q = await ch.subscribe_audio(format="aac")
         logger.info(f"AAC stream started for channel {chan_id}, client={request.client}")
         packet_count = 0
@@ -1975,7 +1975,7 @@ async def stream_channel_aac(
 
 
 @router.websocket("/stream/channels/{chan_id}")
-async def stream_channel_audio(websocket: WebSocket, chan_id: str, format: str = "pcm16"):
+async def stream_channel_audio(websocket: WebSocket, chan_id: str, format: str = "pcm16") -> None:
     """Stream channel audio with configurable format.
 
     Query parameters:
@@ -2030,7 +2030,7 @@ async def stream_channel_audio(websocket: WebSocket, chan_id: str, format: str =
 # ==============================================================================
 
 @router.websocket("/stream/health")
-async def stream_health(websocket: WebSocket):
+async def stream_health(websocket: WebSocket) -> None:
     """Real-time health and error stream.
 
     Sends JSON messages:
@@ -2105,7 +2105,7 @@ async def stream_health(websocket: WebSocket):
 # ==============================================================================
 
 @router.websocket("/stream/state")
-async def stream_state(websocket: WebSocket):
+async def stream_state(websocket: WebSocket) -> None:
     """Real-time state change stream for captures, channels, and scanners.
 
     Replaces HTTP polling with WebSocket push for state updates.
@@ -2200,7 +2200,7 @@ def create_scanner(
     req: CreateScannerRequest,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ScannerModel:
     """Create a new scanner for a capture."""
     # Validate capture exists
     capture = state.captures.get_capture(req.captureId)
@@ -2226,7 +2226,7 @@ def create_scanner(
     scanner = ScannerService(capture_id=req.captureId, config=config)
 
     # Set up update callback to tune the capture
-    async def update_frequency(freq_hz: float):
+    async def update_frequency(freq_hz: float) -> None:
         try:
             cap = state.captures.get_capture(req.captureId)
             if cap:
@@ -2237,12 +2237,13 @@ def create_scanner(
     scanner.set_update_callback(update_frequency)
 
     # Set up RSSI callback to get current RSSI from capture
-    def get_rssi() -> Optional[float]:
+    def get_rssi() -> float:
         # Get first channel's RSSI as a proxy for activity
-        channels = list(capture.channels.values())
+        channels = list(capture._channels.values())
         if channels:
-            return channels[0].rssi_db
-        return None
+            rssi = channels[0].rssi_db
+            return rssi if rssi is not None else -120.0
+        return -120.0  # No signal
 
     scanner.set_rssi_callback(get_rssi)
 
@@ -2253,7 +2254,7 @@ def create_scanner(
 
 
 @router.get("/scanners", response_model=List[ScannerModel])
-def list_scanners(_: None = Depends(auth_check), state: AppState = Depends(get_state)):
+def list_scanners(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> List[ScannerModel]:
     """List all scanners."""
     return [_to_scanner_model(sid, scanner) for sid, scanner in state.scanners.items()]
 
@@ -2263,7 +2264,7 @@ def get_scanner(
     sid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ScannerModel:
     """Get scanner by ID."""
     scanner = state.scanners.get(sid)
     if scanner is None:
@@ -2277,7 +2278,7 @@ def update_scanner(
     req: UpdateScannerRequest,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ScannerModel:
     """Update scanner configuration."""
     scanner = state.scanners.get(sid)
     if scanner is None:
@@ -2309,7 +2310,7 @@ def delete_scanner(
     sid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> None:
     """Delete a scanner."""
     scanner = state.scanners.get(sid)
     if scanner is None:
@@ -2327,7 +2328,7 @@ def start_scanner(
     sid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ScannerModel:
     """Start scanning."""
     scanner = state.scanners.get(sid)
     if scanner is None:
@@ -2342,7 +2343,7 @@ def stop_scanner(
     sid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ScannerModel:
     """Stop scanning."""
     scanner = state.scanners.get(sid)
     if scanner is None:
@@ -2357,7 +2358,7 @@ def pause_scanner(
     sid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ScannerModel:
     """Pause scanning."""
     scanner = state.scanners.get(sid)
     if scanner is None:
@@ -2372,7 +2373,7 @@ def resume_scanner(
     sid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ScannerModel:
     """Resume scanning from pause."""
     scanner = state.scanners.get(sid)
     if scanner is None:
@@ -2387,7 +2388,7 @@ def lock_scanner(
     sid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ScannerModel:
     """Lock on current frequency."""
     scanner = state.scanners.get(sid)
     if scanner is None:
@@ -2402,7 +2403,7 @@ def unlock_scanner(
     sid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ScannerModel:
     """Unlock and resume scanning."""
     scanner = state.scanners.get(sid)
     if scanner is None:
@@ -2417,7 +2418,7 @@ def lockout_frequency(
     sid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ScannerModel:
     """Add current frequency to lockout list."""
     scanner = state.scanners.get(sid)
     if scanner is None:
@@ -2433,7 +2434,7 @@ def clear_lockout(
     freq: float,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ScannerModel:
     """Remove frequency from lockout list."""
     scanner = state.scanners.get(sid)
     if scanner is None:
@@ -2448,7 +2449,7 @@ def clear_all_lockouts(
     sid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ScannerModel:
     """Clear all lockouts."""
     scanner = state.scanners.get(sid)
     if scanner is None:
@@ -2502,7 +2503,7 @@ _MAX_FRONTEND_ERRORS = 500
 _FRONTEND_LOG_FILE = Path(__file__).parent.parent / "logs" / "frontend.log"
 
 
-def _ensure_log_dir():
+def _ensure_log_dir() -> None:
     """Ensure the logs directory exists."""
     _FRONTEND_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
@@ -2520,7 +2521,7 @@ def _write_to_log_file(entry: Dict[str, Any]) -> None:
         logger.warning(f"Failed to write frontend log to file: {e}")
 
 
-def _rotate_log_file():
+def _rotate_log_file() -> None:
     """Rotate the log file, keeping only the last 500 lines."""
     try:
         with open(_FRONTEND_LOG_FILE, "r") as f:
@@ -2578,7 +2579,7 @@ def _process_log_entry(entry: Dict[str, Any], request: Request) -> Dict[str, Any
 def log_frontend_batch(
     batch: FrontendLogBatch,
     request: Request,
-):
+) -> Dict[str, Any]:
     """Receive batch of log entries from the frontend logger.
 
     This endpoint receives multiple log entries at once for efficiency.
@@ -2596,7 +2597,7 @@ def log_frontend_batch(
 def log_frontend_error(
     report: FrontendErrorReport,
     request: Request,
-):
+) -> Dict[str, str]:
     """Receive and log errors from the frontend JavaScript application.
 
     This endpoint allows the frontend to report JavaScript errors, React
@@ -2613,7 +2614,7 @@ def get_frontend_errors(
     level: Optional[str] = None,
     since: Optional[float] = None,
     _: None = Depends(auth_check),
-):
+) -> List[Dict[str, Any]]:
     """Retrieve recent frontend errors from the log buffer.
 
     Args:
@@ -2638,7 +2639,7 @@ def get_frontend_errors(
 
 
 @router.delete("/log/frontend")
-def clear_frontend_errors(_: None = Depends(auth_check)):
+def clear_frontend_errors(_: None = Depends(auth_check)) -> Dict[str, str]:
     """Clear the frontend error log buffer."""
     _frontend_error_log.clear()
     return {"status": "cleared"}

@@ -24,7 +24,7 @@ class StateChange:
     data: Optional[Dict[str, Any]] = None  # Full entity data (for created/updated)
     timestamp: float = field(default_factory=time.time)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "type": self.type,
             "action": self.action,
@@ -39,6 +39,7 @@ class StateBroadcaster:
 
     _instance: Optional["StateBroadcaster"] = None
     _lock = threading.Lock()
+    _initialized: bool = False
 
     def __new__(cls) -> "StateBroadcaster":
         if cls._instance is None:
@@ -67,7 +68,7 @@ class StateBroadcaster:
             self._subscribers.add(callback)
             logger.debug(f"[STATE] Subscriber added, total: {len(self._subscribers)}")
 
-        def unsubscribe():
+        def unsubscribe() -> None:
             with self._lock:
                 self._subscribers.discard(callback)
                 logger.debug(f"[STATE] Subscriber removed, total: {len(self._subscribers)}")

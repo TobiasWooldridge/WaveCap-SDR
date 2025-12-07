@@ -114,7 +114,7 @@ def deemphasis_filter(x: np.ndarray, sample_rate: int, tau: float = 75e-6) -> np
         tau_us = int(tau * 1e6)
         b, a = _get_deemphasis_coeffs(sample_rate, tau_us)
 
-        y = cast(np.ndarray, signal.lfilter(b, a, x)).astype(np.float32)
+        y: np.ndarray = cast(np.ndarray, signal.lfilter(b, a, x)).astype(np.float32)
         return y
     except ImportError:
         return x.astype(np.float32, copy=False)
@@ -169,7 +169,7 @@ def lpf_audio(x: np.ndarray, sample_rate: int, cutoff: float = 15_000) -> np.nda
             return x.astype(np.float32, copy=False)
 
         b, a = coeffs
-        y = cast(np.ndarray, signal.lfilter(b, a, x)).astype(np.float32)
+        y: np.ndarray = cast(np.ndarray, signal.lfilter(b, a, x)).astype(np.float32)
         return y
     except ImportError:
         return x.astype(np.float32, copy=False)
