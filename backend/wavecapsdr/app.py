@@ -5,7 +5,7 @@ import logging.handlers
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +17,54 @@ from .config import AppConfig
 from .api import router as api_router
 from .state import AppState
 from .device_namer import get_device_nickname, generate_capture_name
+
+
+def cleanup_orphan_sdrplay_workers() -> None:
+    """Kill any orphaned SDRplay worker processes from previous crashes.
+
+    These are multiprocessing workers that weren't cleaned up when the parent
+    process crashed or was forcefully terminated. They show up as high-CPU
+    processes with PPID=1 (inherited by init).
+    """
+    import subprocess
+    import os
+
+    try:
+        # Find Python multiprocessing workers that are orphaned (PPID=1)
+        result = subprocess.run(
+            ["ps", "-eo", "pid,ppid,command"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+        orphan_pids = []
+        for line in result.stdout.splitlines():
+            # Look for multiprocessing spawn workers with PPID=1
+            if "multiprocessing.spawn" in line and "spawn_main" in line:
+                parts = line.split()
+                if len(parts) >= 2:
+                    try:
+                        pid = int(parts[0])
+                        ppid = int(parts[1])
+                        if ppid == 1:  # Orphaned (parent is init)
+                            orphan_pids.append(pid)
+                    except ValueError:
+                        continue
+
+        if orphan_pids:
+            logging.warning(f"Found {len(orphan_pids)} orphaned worker processes: {orphan_pids}")
+            for pid in orphan_pids:
+                try:
+                    os.kill(pid, 9)  # SIGKILL
+                    logging.info(f"Killed orphaned worker process {pid}")
+                except ProcessLookupError:
+                    pass  # Already dead
+                except PermissionError:
+                    logging.warning(f"Permission denied killing process {pid}")
+            logging.info(f"Cleaned up {len(orphan_pids)} orphaned worker processes")
+    except Exception as e:
+        logging.warning(f"Failed to clean up orphaned workers: {e}")
 
 
 def setup_file_logging() -> None:
@@ -114,6 +162,9 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
         If no captures are configured, initialize a default capture so the UI
         has something to show. The default capture is created but not started.
         """
+        # Clean up any orphaned worker processes from previous crashes
+        cleanup_orphan_sdrplay_workers()
+
         app_state: AppState = app.state.app_state
 
         created_any = False

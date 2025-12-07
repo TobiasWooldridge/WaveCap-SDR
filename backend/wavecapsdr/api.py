@@ -589,6 +589,69 @@ def restart_sdrplay_service(_: None = Depends(auth_check)):
         )
 
 
+@router.get("/devices/usb/hubs")
+def get_usb_hubs(_: None = Depends(auth_check)):
+    """Get USB hub status for power management.
+
+    Returns list of controllable USB hubs and their port status,
+    including connected devices with vendor/product IDs and serials.
+    Requires uhubctl to be installed.
+    """
+    from .uhubctl import get_hub_status_dict
+
+    return get_hub_status_dict()
+
+
+@router.post("/devices/usb/power-cycle/{capture_id}")
+def power_cycle_capture_device(capture_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)):
+    """Power cycle the USB port for a capture's device.
+
+    This performs a hardware reset by cycling the USB port power,
+    which can recover devices from stuck states that software
+    restart cannot fix.
+
+    Requires uhubctl to be installed and the device to be connected
+    to a controllable USB hub.
+    """
+    from .uhubctl import power_cycle_device, is_uhubctl_available
+
+    if not is_uhubctl_available():
+        raise HTTPException(
+            status_code=503,
+            detail="uhubctl not installed. Install with: brew install uhubctl"
+        )
+
+    # Get the capture to find its device
+    capture = state.captures.get_capture(capture_id)
+    if not capture:
+        raise HTTPException(status_code=404, detail=f"Capture {capture_id} not found")
+
+    device_id = capture.cfg.device_id
+
+    # Stop the capture first if it's running
+    was_running = capture.state == "running"
+    if was_running:
+        try:
+            capture.stop()
+            logger.info(f"Stopped capture {capture_id} before USB power cycle")
+        except Exception as e:
+            logger.warning(f"Failed to stop capture before power cycle: {e}")
+
+    # Power cycle the device
+    success, message = power_cycle_device(device_id, delay=2.0)
+
+    if not success:
+        raise HTTPException(status_code=503, detail=message)
+
+    return {
+        "status": "ok",
+        "message": message,
+        "captureId": capture_id,
+        "deviceId": device_id,
+        "wasRunning": was_running,
+    }
+
+
 def _adjust_recipe_for_device(recipe_cfg, device_info: dict) -> dict:
     """Adjust recipe parameters to fit device capabilities.
 

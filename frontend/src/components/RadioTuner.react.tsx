@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { Radio, Settings, ChevronDown, ChevronUp, Cpu, RotateCcw, RefreshCw, Check } from "lucide-react";
+import { Radio, Settings, ChevronDown, ChevronUp, Cpu, RotateCcw, RefreshCw, Check, Zap } from "lucide-react";
 import type { Capture, Device } from "../types";
 import { useUpdateCapture, useStartCapture, useStopCapture, useRestartCapture } from "../hooks/useCaptures";
-import { useDevices, useRestartSDRplayService } from "../hooks/useDevices";
+import { useDevices, useRestartSDRplayService, usePowerCycleDevice } from "../hooks/useDevices";
 import { useChannels, useCreateChannel } from "../hooks/useChannels";
 import { useMemoryBanks } from "../hooks/useMemoryBanks";
 import { useDebounce } from "../hooks/useDebounce";
@@ -114,6 +114,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   const stopMutation = useStopCapture();
   const restartMutation = useRestartCapture();
   const restartServiceMutation = useRestartSDRplayService();
+  const powerCycleMutation = usePowerCycleDevice();
   const toast = useToast();
 
   // Show error toast when update fails
@@ -127,7 +128,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
   const isSDRplayDevice = capture.deviceId?.toLowerCase().includes("sdrplay");
 
   // Confirm state for destructive buttons (touch-friendly two-tap pattern)
-  const [confirmingAction, setConfirmingAction] = useState<"restart" | "service" | null>(null);
+  const [confirmingAction, setConfirmingAction] = useState<"restart" | "service" | "powercycle" | null>(null);
 
   // Reset confirm state after timeout
   useEffect(() => {
@@ -139,7 +140,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
 
   // Handle confirm-required button clicks
   const handleConfirmableAction = useCallback((
-    action: "restart" | "service",
+    action: "restart" | "service" | "powercycle",
     execute: () => void
   ) => {
     if (confirmingAction === action) {
@@ -408,13 +409,24 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
                     use={confirmingAction === "service" ? "warning" : "danger"}
                     size="sm"
                     onClick={() => handleConfirmableAction("service", () => restartServiceMutation.mutate())}
-                    disabled={restartMutation.isPending || restartServiceMutation.isPending}
+                    disabled={restartMutation.isPending || restartServiceMutation.isPending || powerCycleMutation.isPending}
                     title={confirmingAction === "service" ? "Tap again to confirm service restart" : "Restart SDRplay API service (fixes stuck devices)"}
                   >
                     {restartServiceMutation.isPending ? <Spinner size="sm" /> :
                      confirmingAction === "service" ? <Check size={14} /> : <RefreshCw size={14} />}
                   </Button>
                 )}
+                {/* USB Power Cycle - always requires confirm */}
+                <Button
+                  use={confirmingAction === "powercycle" ? "warning" : "danger"}
+                  size="sm"
+                  onClick={() => handleConfirmableAction("powercycle", () => powerCycleMutation.mutate(capture.id))}
+                  disabled={restartMutation.isPending || restartServiceMutation.isPending || powerCycleMutation.isPending || isTransitioning}
+                  title={confirmingAction === "powercycle" ? "Tap again to confirm USB power cycle" : "Power cycle USB port (hardware reset)"}
+                >
+                  {powerCycleMutation.isPending ? <Spinner size="sm" /> :
+                   confirmingAction === "powercycle" ? <Check size={14} /> : <Zap size={14} />}
+                </Button>
               </div>
 
               {/* Bookmark Manager */}
