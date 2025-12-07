@@ -47,7 +47,7 @@ class AppState:
             # Soapy driver mode - use CompositeDriver to manage real + fake devices
             if SoapyDriver is None:
                 # SoapySDR not available, fall back to fake driver
-                driver = FakeDriver()
+                driver = FakeDriver()  # type: ignore[unreachable]
             else:
                 try:
                     soapy_driver = SoapyDriver(cfg.device)

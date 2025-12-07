@@ -10,7 +10,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import numpy as np
 
@@ -105,7 +105,10 @@ def preset_channels(preset: str, cfg_path: Optional[str]) -> Tuple[float, int, L
             presets = (data or {}).get("presets", {}) or {}
             if preset in presets:
                 spec = presets[preset] or {}
-                center = float(spec.get("center_hz"))
+                center_val = spec.get("center_hz")
+                if center_val is None:
+                    raise ValueError("center_hz is required")
+                center = float(center_val)
                 sr = int(spec.get("sample_rate", 1_000_000))
                 offsets = [float(x) for x in (spec.get("offsets") or [0.0])]
                 return center, sr, offsets
@@ -149,7 +152,7 @@ async def http_post_json(client: httpx.AsyncClient, path: str, body: Dict[str, A
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     r = await client.post(path, json=body, headers=headers)
     r.raise_for_status()
-    return r.json()
+    return cast(Dict[str, Any], r.json())
 
 
 async def run_harness(args: argparse.Namespace) -> int:

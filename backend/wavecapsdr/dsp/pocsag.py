@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 import numpy as np
 import time
 
@@ -49,7 +49,7 @@ class POCSAGMessage:
     timestamp: float = field(default_factory=time.time)
     baud_rate: int = 1200
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dict."""
         return {
             "address": self.address,
@@ -81,7 +81,7 @@ def _bch_check(codeword: int) -> bool:
 
 def _decode_numeric(data_bits: List[int]) -> str:
     """Decode BCD numeric message."""
-    result = []
+    result: List[str] = []
     # Process 4 bits at a time (BCD)
     for i in range(0, len(data_bits) - 3, 4):
         value = (data_bits[i] << 3) | (data_bits[i+1] << 2) | (data_bits[i+2] << 1) | data_bits[i+3]
@@ -313,7 +313,7 @@ class POCSAGDecoder:
 
         return result
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset decoder state."""
         self._bit_buffer = []
         self._sample_buffer = np.array([], dtype=np.float32)
@@ -324,7 +324,7 @@ class POCSAGDecoder:
         self._current_function = 0
         self._data_bits = []
 
-    def get_messages(self, limit: int = 10) -> List[dict]:
+    def get_messages(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get recent decoded messages as dicts.
 
         Args:

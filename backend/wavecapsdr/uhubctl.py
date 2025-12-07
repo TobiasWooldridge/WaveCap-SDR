@@ -11,7 +11,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -247,7 +247,7 @@ def power_cycle_device(device_id: str, delay: float = 2.0) -> tuple[bool, str]:
         return False, "Failed to power cycle USB port"
 
 
-def get_hub_status_dict() -> dict:
+def get_hub_status_dict() -> Dict[str, Any]:
     """Get hub status as a dictionary for API response."""
     hubs = get_hub_status()
     return {

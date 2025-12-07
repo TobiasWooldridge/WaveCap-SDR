@@ -10,7 +10,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import asdict, dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -75,7 +75,7 @@ class ErrorTracker:
         self._subscribers_lock = threading.Lock()
 
         # Rate calculation window
-        self._rate_window: Dict[str, deque] = {}  # type -> deque of (timestamp, count)
+        self._rate_window: Dict[str, Deque[Tuple[float, int]]] = {}  # type -> deque of (timestamp, count)
         self._rate_window_seconds = 10.0  # Calculate rate over 10 seconds
 
     def record(self, event: ErrorEvent) -> None:

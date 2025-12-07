@@ -393,7 +393,7 @@ class RDSDecoder:
             # Clear RT if A/B flag changed (new message)
             if ab_flag != self.data._rt_ab_flag:
                 self.data._rt_segments = {}
-                self.data._rt_ab_flag = ab_flag
+                self.data._rt_ab_flag = bool(ab_flag)
 
             if group_version == 0:
                 # 2A: 4 characters per segment (blocks C and D)
@@ -433,7 +433,7 @@ class RDSDecoder:
 
         return False
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset decoder state."""
         self.data = RDSData()
         self._bit_buffer = []

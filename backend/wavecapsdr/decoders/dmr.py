@@ -52,7 +52,7 @@ class DMR4FSKDemodulator:
     def demodulate(self, iq: np.ndarray) -> np.ndarray:
         """Demodulate to dibits"""
         if iq.size == 0:
-            return np.array([], dtype=np.uint8)
+            return cast(np.ndarray, np.array([], dtype=np.uint8))
 
         x: np.ndarray = iq.astype(np.complex64, copy=False)
         prod = x[1:] * np.conj(x[:-1])
