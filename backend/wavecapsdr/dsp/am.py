@@ -10,6 +10,8 @@ SSB demodulation uses frequency shifting and filtering.
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 
 from .agc import apply_agc, soft_clip
@@ -36,7 +38,7 @@ def freq_shift(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray
     shift = np.exp(2j * np.pi * offset_hz * t).astype(np.complex64)
 
     # Multiply to shift frequency
-    return (iq * shift).astype(np.complex64)
+    return cast(np.ndarray, (iq * shift).astype(np.complex64))
 
 
 def am_demod(
@@ -90,7 +92,7 @@ def am_demod(
         - Broadcast AM: lowpass_hz=5000, enable_agc=True
     """
     if iq.size == 0:
-        return np.empty(0, dtype=np.float32)
+        return cast(np.ndarray, np.empty(0, dtype=np.float32))
 
     # 1. Envelope detection: Take magnitude of complex IQ signal
     # This extracts the amplitude modulation
@@ -189,7 +191,7 @@ def ssb_demod(
         - Marine SSB: bandpass 300-2500 Hz, enable_agc=True
     """
     if iq.size == 0:
-        return np.empty(0, dtype=np.float32)
+        return cast(np.ndarray, np.empty(0, dtype=np.float32))
 
     # 1. Frequency shift to center the audio in baseband
     # USB: shift up by +1.5 kHz

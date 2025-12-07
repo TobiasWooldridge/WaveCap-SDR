@@ -330,7 +330,7 @@ def noise_blanker(
     y = x.copy()
     y[expanded_mask] = 0
 
-    return y.astype(np.float32 if not np.iscomplexobj(x) else np.complex64)
+    return cast(np.ndarray, y.astype(np.float32 if not np.iscomplexobj(x) else np.complex64))
 
 
 def spectral_noise_reduction(

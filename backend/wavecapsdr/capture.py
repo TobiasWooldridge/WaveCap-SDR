@@ -8,7 +8,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar, cast
 
 import numpy as np
 
@@ -94,12 +94,13 @@ def pack_iq16(samples: np.ndarray) -> bytes:
     if samples.size == 0:
         return b""
     # View complex64 as pairs of float32 (already interleaved I,Q,I,Q,...)
-    x = samples.astype(np.complex64, copy=False)
+    x: np.ndarray = samples.astype(np.complex64, copy=False)
     # Use view to get interleaved float32 without copying
     interleaved_f32 = x.view(np.float32)
     # Clip and scale in one operation, then convert to int16
     np.clip(interleaved_f32, -1.0, 1.0, out=interleaved_f32)
-    return (interleaved_f32 * 32767.0).astype(np.int16).tobytes()
+    result: bytes = (interleaved_f32 * 32767.0).astype(np.int16).tobytes()
+    return result
 
 
 def pack_pcm16(samples: np.ndarray) -> bytes:
@@ -110,10 +111,11 @@ def pack_pcm16(samples: np.ndarray) -> bytes:
     if samples.size == 0:
         return b""
     # Use contiguous array for efficient conversion
-    x = np.ascontiguousarray(samples, dtype=np.float32)
+    x: np.ndarray = np.ascontiguousarray(samples, dtype=np.float32)
     np.clip(x, -1.0, 1.0, out=x)
     x *= 32767.0
-    return x.astype(np.int16).tobytes()
+    result: bytes = x.astype(np.int16).tobytes()
+    return result
 
 
 def pack_f32(samples: np.ndarray) -> bytes:
@@ -123,9 +125,10 @@ def pack_f32(samples: np.ndarray) -> bytes:
     """
     if samples.size == 0:
         return b""
-    x = np.ascontiguousarray(samples, dtype=np.float32)
+    x: np.ndarray = np.ascontiguousarray(samples, dtype=np.float32)
     np.clip(x, -1.0, 1.0, out=x)
-    return x.tobytes()
+    result: bytes = x.tobytes()
+    return result
 
 
 # Cache for frequency shift exponentials using LRU cache (proper eviction)
@@ -137,7 +140,8 @@ def _get_freq_shift_exp(size: int, offset_hz: int, sample_rate: int) -> np.ndarr
     Note: offset_hz is int (rounded from float) to ensure consistent cache keys.
     """
     n = np.arange(size, dtype=np.float32)
-    return np.exp(-1j * 2.0 * np.pi * (offset_hz / float(sample_rate)) * n).astype(np.complex64)
+    result: np.ndarray = np.exp(-1j * 2.0 * np.pi * (offset_hz / float(sample_rate)) * n).astype(np.complex64)
+    return result
 
 
 def freq_shift(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray:
@@ -152,14 +156,15 @@ def freq_shift(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray
     # Round offset_hz to int for consistent cache keys (prevents unbounded cache growth
     # from floating-point variations like 1000.0 vs 1000.0000001)
     ph = _get_freq_shift_exp(iq.shape[0], round(offset_hz), sample_rate)
-    return (iq.astype(np.complex64, copy=False) * ph).astype(np.complex64)
+    result: np.ndarray = (iq.astype(np.complex64, copy=False) * ph).astype(np.complex64)
+    return result
 
 
 def _process_channel_dsp_stateless(
     samples: np.ndarray,
     sample_rate: int,
     cfg: "ChannelConfig",
-) -> Tuple[Optional[np.ndarray], dict]:
+) -> Tuple[Optional[np.ndarray], Dict[str, Any]]:
     """Stateless DSP processing for a single channel.
 
     Thread-safe: operates only on input arrays and immutable config.
@@ -177,7 +182,7 @@ def _process_channel_dsp_stateless(
     Returns:
         Tuple of (audio_samples or None, metrics_dict)
     """
-    metrics: dict = {}
+    metrics: Dict[str, Any] = {}
 
     # Frequency shift to channel offset
     if cfg.offset_hz == 0.0:
@@ -368,6 +373,8 @@ class Channel:
     # Drop tracking for rate-limited logging
     _drop_count: int = 0
     _last_drop_log_time: float = 0.0
+    # Metrics counter for throttled signal metrics calculation
+    _metrics_counter: int = 0
 
     def start(self) -> None:
         self.state = "running"
@@ -378,7 +385,7 @@ class Channel:
     def stop(self) -> None:
         self.state = "stopped"
 
-    def get_pocsag_messages(self, limit: int = 50, since_timestamp: Optional[float] = None) -> list[dict]:
+    def get_pocsag_messages(self, limit: int = 50, since_timestamp: Optional[float] = None) -> List[Dict[str, Any]]:
         """Get recent POCSAG messages.
 
         Args:
@@ -405,14 +412,14 @@ class Channel:
             return
 
         # Calculate RMS level in dB
-        rms = np.sqrt(np.mean(audio ** 2))
+        rms: float = float(np.sqrt(np.mean(audio ** 2)))
         if rms > 1e-10:
             self.audio_rms_db = float(20.0 * np.log10(rms))
         else:
             self.audio_rms_db = -100.0  # Effectively silence
 
         # Calculate peak level in dB
-        peak = np.max(np.abs(audio))
+        peak: float = float(np.max(np.abs(audio)))
         if peak > 1e-10:
             self.audio_peak_db = float(20.0 * np.log10(peak))
         else:
@@ -420,8 +427,8 @@ class Channel:
 
         # Count samples that would have clipped (before soft clipping)
         # Threshold of 0.95 to catch samples that are near clipping
-        clipping_samples = np.sum(np.abs(audio) > 0.95)
-        self.audio_clipping_count += int(clipping_samples)
+        clipping_samples: int = int(np.sum(np.abs(audio) > 0.95))
+        self.audio_clipping_count += clipping_samples
 
 
     def _log_drop_warning(self, fmt: str) -> None:
@@ -483,13 +490,13 @@ class Channel:
 
         return len(zombies)
 
-    def get_queue_stats(self) -> dict:
+    def get_queue_stats(self) -> Dict[str, Any]:
         """Get queue statistics for monitoring and health checks.
 
         Returns:
             Dictionary with subscriber counts, queue depths, and format breakdown
         """
-        format_stats: Dict[str, dict] = {}
+        format_stats: Dict[str, Dict[str, int]] = {}
 
         for q, loop, fmt in list(self._audio_sinks):
             if fmt not in format_stats:
@@ -932,11 +939,11 @@ class Channel:
 
             # Decode DMR frames
             try:
-                frames = self._dmr_decoder.process_iq(base)
+                dmr_frames = self._dmr_decoder.process_iq(base)
 
                 # Log decoded frames
-                for frame in frames:
-                    logger.debug(f"Channel {self.cfg.id}: DMR frame type={frame.frame_type.value} slot={frame.slot.value} dst={frame.dst_id}")
+                for dmr_frame in dmr_frames:
+                    logger.debug(f"Channel {self.cfg.id}: DMR frame type={dmr_frame.frame_type.value} slot={dmr_frame.slot.value} dst={dmr_frame.dst_id}")
 
                 # Note: Voice audio will be handled by the on_voice_frame callback
                 # Future: Add AMBE decoder to convert voice_data to PCM
@@ -1167,9 +1174,9 @@ class Channel:
                 self.signal_power_db = None
 
             try:
-                frames = self._dmr_decoder.process_iq(base)
-                for frame in frames:
-                    logger.debug(f"Channel {self.cfg.id}: DMR frame type={frame.frame_type.value} slot={frame.slot.value} dst={frame.dst_id}")
+                dmr_frames = self._dmr_decoder.process_iq(base)
+                for dmr_frame in dmr_frames:
+                    logger.debug(f"Channel {self.cfg.id}: DMR frame type={dmr_frame.frame_type.value} slot={dmr_frame.slot.value} dst={dmr_frame.dst_id}")
             except Exception as e:
                 logger.error(f"Channel {self.cfg.id}: DMR decoding error: {e}")
             return None  # DMR doesn't output audio yet
@@ -1226,7 +1233,7 @@ class Channel:
         logger.info(f"Channel {self.cfg.id}: P25 voice grant - TGID {tgid} on {freq_hz/1e6:.4f} MHz")
         # TODO: Implement automatic voice channel following
 
-    def _handle_dmr_csbk(self, msg: dict) -> None:
+    def _handle_dmr_csbk(self, msg: Dict[str, Any]) -> None:
         """Handle DMR Control Signaling Block messages.
 
         CSBK messages contain control information similar to P25 TSBK.
@@ -1270,7 +1277,7 @@ class Capture:
     _iq_sinks: Set[Tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop]] = field(
         default_factory=set
     )
-    _fft_sinks: Set[Tuple[asyncio.Queue[dict], asyncio.AbstractEventLoop]] = field(
+    _fft_sinks: Set[Tuple[asyncio.Queue[Dict[str, Any]], asyncio.AbstractEventLoop]] = field(
         default_factory=set
     )  # Spectrum/FFT subscribers (only calculated when needed for efficiency)
     _stop_event: threading.Event = field(default_factory=threading.Event)
@@ -1293,8 +1300,8 @@ class Capture:
     # FFT data (server-side spectrum analyzer)
     _fft_power: Optional[np.ndarray] = None  # Power spectrum in dB
     _fft_freqs: Optional[np.ndarray] = None  # Frequency bins in Hz
-    _fft_power_list: Optional[list] = None  # Cached Python list (avoids repeated .tolist())
-    _fft_freqs_list: Optional[list] = None  # Cached Python list (avoids repeated .tolist())
+    _fft_power_list: Optional[List[float]] = None  # Cached Python list (avoids repeated .tolist())
+    _fft_freqs_list: Optional[List[float]] = None  # Cached Python list (avoids repeated .tolist())
     _fft_counter: int = 0  # Frame counter for adaptive FFT throttling
     _fft_window_cache: Dict[int, np.ndarray] = field(default_factory=dict)  # Cached FFT windows by size
     # Main event loop for scheduling audio processing when no subscribers
@@ -1310,9 +1317,9 @@ class Capture:
     _perf_max_samples: int = 100  # Keep last 100 samples for rolling average
     _perf_loop_counter: int = 0   # Counter for periodic logging
 
-    def get_perf_stats(self) -> dict:
+    def get_perf_stats(self) -> Dict[str, Any]:
         """Get performance statistics for this capture."""
-        def _stats(times: List[float]) -> dict:
+        def _stats(times: List[float]) -> Dict[str, Any]:
             if not times:
                 return {"mean_ms": 0.0, "max_ms": 0.0, "samples": 0}
             return {
@@ -1677,15 +1684,15 @@ class Capture:
             if item[0] is q:
                 self._iq_sinks.discard(item)
 
-    async def subscribe_fft(self) -> asyncio.Queue[dict]:
+    async def subscribe_fft(self) -> asyncio.Queue[Dict[str, Any]]:
         """Subscribe to FFT/spectrum data. Only calculated when there are active subscribers."""
-        q: asyncio.Queue[dict] = asyncio.Queue(maxsize=4)
+        q: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=4)
         loop = asyncio.get_running_loop()
         self._fft_sinks.add((q, loop))
         logger.info(f"FFT subscriber added for capture {self.cfg.id}, total subs: {len(self._fft_sinks)}")
         return q
 
-    def unsubscribe_fft(self, q: asyncio.Queue[dict]) -> None:
+    def unsubscribe_fft(self, q: asyncio.Queue[Dict[str, Any]]) -> None:
         """Unsubscribe from FFT/spectrum data."""
         for item in list(self._fft_sinks):
             if item[0] is q:
@@ -1862,7 +1869,7 @@ class Capture:
             return [(ch, audio)]
 
         # Submit DSP work to executor (parallel)
-        futures: Dict[Future, "Channel"] = {}
+        futures: Dict[Future[Tuple[Optional[np.ndarray], Dict[str, Any]]], "Channel"] = {}
         for ch in channels:
             future = executor.submit(
                 _process_channel_dsp_stateless,
@@ -2010,7 +2017,7 @@ class Capture:
                 stream = device.start_stream()
             # Store the actual antenna being used
             self.antenna = device.get_antenna()
-            return stream
+            return cast(StreamHandle, stream)
 
         try:
             self._stream = _configure_and_start()
@@ -2108,7 +2115,7 @@ class Capture:
             payload = pack_iq16(samples)
             for (q, loop) in list(self._iq_sinks):
                 # Use default args to capture loop variables (avoids closure issues)
-                def _try_put(q: asyncio.Queue = q, payload: bytes = payload) -> None:
+                def _try_put(q: asyncio.Queue[bytes] = q, payload: bytes = payload) -> None:
                     try:
                         q.put_nowait(payload)
                     except asyncio.QueueFull:
@@ -2176,9 +2183,9 @@ class Capture:
                             "centerHz": self.cfg.center_hz,
                             "sampleRate": self.cfg.sample_rate,
                         }
-                        for (q, loop) in list(self._fft_sinks):
+                        for (fft_q, fft_loop) in list(self._fft_sinks):
                             # Use default args to capture loop variables (avoids closure issues)
-                            def _try_put_fft(q: asyncio.Queue = q, payload: dict = payload_fft) -> None:
+                            def _try_put_fft(q: asyncio.Queue[Dict[str, Any]] = fft_q, payload: Dict[str, Any] = payload_fft) -> None:
                                 try:
                                     q.put_nowait(payload)
                                 except asyncio.QueueFull:
@@ -2191,10 +2198,10 @@ class Capture:
                                     except asyncio.QueueFull:
                                         pass
                             try:
-                                loop.call_soon_threadsafe(_try_put_fft)
+                                fft_loop.call_soon_threadsafe(_try_put_fft)
                             except Exception:
                                 try:
-                                    self._fft_sinks.discard((q, loop))
+                                    self._fft_sinks.discard((fft_q, fft_loop))
                                 except Exception:
                                     pass
 
@@ -2271,7 +2278,7 @@ class CaptureManager:
         self._next_cap_id = 1
         self._next_chan_id = 1
 
-    def list_devices(self) -> list[dict]:
+    def list_devices(self) -> List[Dict[str, Any]]:
         return [d.__dict__ for d in self._driver.enumerate()]
 
     def list_captures(self) -> list[Capture]:

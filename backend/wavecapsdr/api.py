@@ -2180,11 +2180,11 @@ def _to_scanner_model(scanner_id: str, scanner: ScannerService) -> ScannerModel:
     return ScannerModel(
         id=scanner_id,
         captureId=scanner.capture_id,
-        state=scanner.status.state.value,  # type: ignore[arg-type]
+        state=scanner.status.state.value,
         currentFrequency=scanner.status.current_frequency,
         currentIndex=scanner.status.current_index,
         scanList=scanner.config.scan_list,
-        mode=scanner.config.mode.value,  # type: ignore[arg-type]
+        mode=scanner.config.mode.value,
         dwellTimeMs=scanner.config.dwell_time_ms,
         priorityFrequencies=scanner.config.priority_frequencies,
         priorityIntervalS=scanner.config.priority_interval_s,

@@ -72,7 +72,7 @@ def quadrature_demod(iq: np.ndarray, sample_rate: int) -> np.ndarray:
         Demodulated FM audio (instantaneous frequency / max_deviation)
     """
     if iq.size == 0:
-        return np.empty(0, dtype=np.float32)
+        return cast(np.ndarray, np.empty(0, dtype=np.float32))
 
     # y[n] = angle(x[n] * conj(x[n-1]))
     x: np.ndarray = iq.astype(np.complex64, copy=False)
@@ -88,7 +88,7 @@ def quadrature_demod(iq: np.ndarray, sample_rate: int) -> np.ndarray:
     scale = np.float32(sample_rate / (2.0 * np.pi * 75000.0))
     out[1:] = cast(np.ndarray, np.angle(prod) * scale)
 
-    return out
+    return cast(np.ndarray, out)
 
 
 # Cache for deemphasis filter coefficients

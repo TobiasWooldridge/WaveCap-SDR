@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 import yaml
 
-DriverName = Literal["soapy", "fake"]
+DriverName = Literal["soapy", "fake", "rtl"]
 
 
 @dataclass
