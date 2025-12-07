@@ -141,249 +141,254 @@ export const BookmarkManager = ({ currentFrequency, onTuneToFrequency, currentCa
         )}
       </Flex>
 
-      {/* Main Dropdown with Tabs */}
+      {/* Bookmarks/History/Memory Modal */}
       {showDropdown && (
         <div
-          style={{
-            position: "absolute",
-            top: "100%",
-            right: 0,
-            marginTop: "4px",
-            backgroundColor: "white",
-            border: "1px solid #dee2e6",
-            borderRadius: "4px",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-            minWidth: "350px",
-            maxHeight: "450px",
-            display: "flex",
-            flexDirection: "column",
-            zIndex: 1000,
-          }}
+          className="modal d-block"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={() => setShowDropdown(false)}
         >
-          {/* Tab Navigation */}
-          <div style={{
-            display: "flex",
-            borderBottom: "2px solid #dee2e6",
-            backgroundColor: "#f8f9fa"
-          }}>
-            <button
-              className={`btn btn-sm ${activeTab === "bookmarks" ? "btn-primary" : "btn-light"}`}
-              style={{
-                flex: 1,
-                borderRadius: 0,
-                borderTopLeftRadius: "4px",
-                fontSize: "12px"
-              }}
-              onClick={() => setActiveTab("bookmarks")}
-            >
-              Bookmarks ({bookmarks.length})
-            </button>
-            <button
-              className={`btn btn-sm ${activeTab === "recent" ? "btn-primary" : "btn-light"}`}
-              style={{
-                flex: 1,
-                borderRadius: 0,
-                fontSize: "12px"
-              }}
-              onClick={() => setActiveTab("recent")}
-            >
-              Recent ({recentHistory.length})
-            </button>
-            <button
-              className={`btn btn-sm ${activeTab === "memory" ? "btn-primary" : "btn-light"}`}
-              style={{
-                flex: 1,
-                borderRadius: 0,
-                borderTopRightRadius: "4px",
-                fontSize: "12px"
-              }}
-              onClick={() => setActiveTab("memory")}
-            >
-              Memory ({memoryBanks.length})
-            </button>
-          </div>
+          <div
+            className="modal-dialog modal-dialog-centered"
+            style={{ maxWidth: "400px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-content">
+              {/* Tab Navigation as Modal Header */}
+              <div className="modal-header p-0" style={{ borderBottom: "none" }}>
+                <div style={{ display: "flex", width: "100%" }}>
+                  <button
+                    className={`btn btn-sm ${activeTab === "bookmarks" ? "btn-primary" : "btn-light"}`}
+                    style={{
+                      flex: 1,
+                      borderRadius: 0,
+                      borderTopLeftRadius: "0.375rem",
+                      fontSize: "12px",
+                      padding: "10px"
+                    }}
+                    onClick={() => setActiveTab("bookmarks")}
+                  >
+                    <Star size={14} className="me-1" />
+                    Bookmarks ({bookmarks.length})
+                  </button>
+                  <button
+                    className={`btn btn-sm ${activeTab === "recent" ? "btn-primary" : "btn-light"}`}
+                    style={{
+                      flex: 1,
+                      borderRadius: 0,
+                      fontSize: "12px",
+                      padding: "10px"
+                    }}
+                    onClick={() => setActiveTab("recent")}
+                  >
+                    <Clock size={14} className="me-1" />
+                    Recent ({recentHistory.length})
+                  </button>
+                  <button
+                    className={`btn btn-sm ${activeTab === "memory" ? "btn-primary" : "btn-light"}`}
+                    style={{
+                      flex: 1,
+                      borderRadius: 0,
+                      borderTopRightRadius: "0.375rem",
+                      fontSize: "12px",
+                      padding: "10px"
+                    }}
+                    onClick={() => setActiveTab("memory")}
+                  >
+                    <Save size={14} className="me-1" />
+                    Memory ({memoryBanks.length})
+                  </button>
+                </div>
+              </div>
 
-          {/* Tab Content */}
-          <div style={{ overflowY: "auto", maxHeight: "380px" }}>
-            {/* Bookmarks Tab */}
-            {activeTab === "bookmarks" && (
-              <div>
-                {bookmarks.length === 0 ? (
-                  <div style={{ padding: "20px", textAlign: "center", color: "#6c757d" }}>
-                    <Star size={32} style={{ opacity: 0.3, marginBottom: "8px" }} />
-                    <div style={{ fontSize: "12px" }}>No bookmarks yet</div>
-                    <div style={{ fontSize: "11px", marginTop: "4px" }}>Click the star icon to add a bookmark</div>
-                  </div>
-                ) : (
-                  bookmarks.map((bookmark) => (
-                    <div
-                      key={bookmark.id}
-                      style={{
-                        padding: "8px 12px",
-                        borderBottom: "1px solid #f0f0f0",
-                        cursor: "pointer",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = "#f8f9fa";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = "white";
-                      }}
-                    >
-                      <Flex justify="between" align="center">
+              {/* Tab Content */}
+              <div className="modal-body p-0" style={{ maxHeight: "400px", overflowY: "auto" }}>
+                {/* Bookmarks Tab */}
+                {activeTab === "bookmarks" && (
+                  <div>
+                    {bookmarks.length === 0 ? (
+                      <div style={{ padding: "30px", textAlign: "center", color: "#6c757d" }}>
+                        <Star size={32} style={{ opacity: 0.3, marginBottom: "8px" }} />
+                        <div style={{ fontSize: "13px" }}>No bookmarks yet</div>
+                        <div style={{ fontSize: "12px", marginTop: "4px" }}>Click the star icon to add a bookmark</div>
+                      </div>
+                    ) : (
+                      bookmarks.map((bookmark) => (
                         <div
-                          style={{ flex: 1 }}
-                          onClick={() => handleTuneToBookmark(bookmark)}
+                          key={bookmark.id}
+                          className="list-group-item list-group-item-action"
+                          style={{
+                            cursor: "pointer",
+                            borderLeft: "none",
+                            borderRight: "none",
+                            borderRadius: 0,
+                          }}
                         >
-                          <div style={{ fontWeight: 500 }}>{bookmark.name}</div>
-                          <div style={{ fontSize: "12px", color: "#6c757d" }}>
-                            {formatFrequency(bookmark.frequency)}
-                          </div>
-                          {bookmark.notes && (
-                            <div style={{ fontSize: "12px", color: "#6c757d", marginTop: "2px" }}>
-                              {bookmark.notes}
-                            </div>
-                          )}
-                        </div>
-                        <Flex gap={1}>
-                          <button
-                            className="btn btn-sm btn-icon-sm"
-                            style={{ padding: "2px 6px" }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleEditBookmark(bookmark);
-                              setShowDropdown(false);
-                            }}
-                            title="Edit bookmark"
-                          >
-                            <Edit2 size={14} />
-                          </button>
-                          <button
-                            className="btn btn-sm btn-danger btn-icon-sm"
-                            style={{ padding: "2px 6px" }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteBookmark(bookmark.id);
-                            }}
-                            title="Delete bookmark"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </Flex>
-                      </Flex>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-
-            {/* Recent Tab */}
-            {activeTab === "recent" && (
-              <div>
-                {recentHistory.length === 0 ? (
-                  <div style={{ padding: "20px", textAlign: "center", color: "#6c757d" }}>
-                    <Clock size={32} style={{ opacity: 0.3, marginBottom: "8px" }} />
-                    <div style={{ fontSize: "12px" }}>No recent history</div>
-                  </div>
-                ) : (
-                  recentHistory.map((entry) => (
-                    <div
-                      key={`${entry.frequencyHz}-${entry.timestamp}`}
-                      style={{
-                        padding: "8px 12px",
-                        borderBottom: "1px solid #f0f0f0",
-                        cursor: "pointer",
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = "#f8f9fa";
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = "white";
-                      }}
-                      onClick={() => handleTuneToRecent(entry.frequencyHz)}
-                    >
-                      <Flex justify="between" align="center">
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 500, fontSize: "14px" }}>
-                            {formatFrequency(entry.frequencyHz)}
-                          </div>
-                          <div style={{ fontSize: "11px", color: "#6c757d" }}>
-                            {new Date(entry.timestamp).toLocaleString()}
-                            {entry.captureName && ` • ${entry.captureName}`}
-                            {entry.mode && ` • ${entry.mode.toUpperCase()}`}
-                          </div>
-                        </div>
-                      </Flex>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-
-            {/* Memory Tab */}
-            {activeTab === "memory" && (
-              <div>
-                {memoryBanks.length === 0 ? (
-                  <div style={{ padding: "20px", textAlign: "center", color: "#6c757d" }}>
-                    <Save size={32} style={{ opacity: 0.3, marginBottom: "8px" }} />
-                    <div style={{ fontSize: "12px" }}>No saved memory banks</div>
-                    <div style={{ fontSize: "11px", marginTop: "4px" }}>Click the save icon to save current configuration</div>
-                  </div>
-                ) : (
-                  memoryBanks.map((bank) => (
-                    <div
-                      key={bank.id}
-                      style={{
-                        padding: "8px 12px",
-                        borderBottom: "1px solid #f0f0f0",
-                      }}
-                    >
-                      <Flex justify="between" align="center">
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 500 }}>{bank.name}</div>
-                          <div style={{ fontSize: "11px", color: "#6c757d" }}>
-                            {formatFrequency(bank.captureConfig.centerHz)} •
-                            {(bank.captureConfig.sampleRate / 1e6).toFixed(1)} MS/s •
-                            {bank.channels.length} channel{bank.channels.length !== 1 ? 's' : ''}
-                          </div>
-                          <div style={{ fontSize: "10px", color: "#6c757d", marginTop: "2px" }}>
-                            {new Date(bank.timestamp).toLocaleString()}
-                          </div>
-                        </div>
-                        <Flex gap={1}>
-                          {onLoadMemoryBank && (
-                            <button
-                              className="btn btn-sm btn-primary"
-                              style={{ padding: "2px 8px", fontSize: "11px" }}
-                              onClick={() => {
-                                onLoadMemoryBank(bank.id);
-                                setShowDropdown(false);
-                              }}
-                              title="Load this memory bank"
+                          <Flex justify="between" align="center">
+                            <div
+                              style={{ flex: 1 }}
+                              onClick={() => handleTuneToBookmark(bookmark)}
                             >
-                              Load
-                            </button>
-                          )}
-                          <button
-                            className="btn btn-sm btn-danger btn-icon-sm"
-                            style={{ padding: "2px 6px" }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (confirm(`Delete memory bank "${bank.name}"?`)) {
-                                deleteMemoryBank(bank.id);
-                              }
-                            }}
-                            title="Delete memory bank"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </Flex>
-                      </Flex>
-                    </div>
-                  ))
+                              <div style={{ fontWeight: 500 }}>{bookmark.name}</div>
+                              <div style={{ fontSize: "12px", color: "#6c757d" }}>
+                                {formatFrequency(bookmark.frequency)}
+                              </div>
+                              {bookmark.notes && (
+                                <div style={{ fontSize: "12px", color: "#6c757d", marginTop: "2px" }}>
+                                  {bookmark.notes}
+                                </div>
+                              )}
+                            </div>
+                            <Flex gap={1}>
+                              <button
+                                className="btn btn-sm btn-outline-secondary"
+                                style={{ padding: "2px 6px" }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEditBookmark(bookmark);
+                                  setShowDropdown(false);
+                                }}
+                                title="Edit bookmark"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button
+                                className="btn btn-sm btn-outline-danger"
+                                style={{ padding: "2px 6px" }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteBookmark(bookmark.id);
+                                }}
+                                title="Delete bookmark"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </Flex>
+                          </Flex>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {/* Recent Tab */}
+                {activeTab === "recent" && (
+                  <div>
+                    {recentHistory.length === 0 ? (
+                      <div style={{ padding: "30px", textAlign: "center", color: "#6c757d" }}>
+                        <Clock size={32} style={{ opacity: 0.3, marginBottom: "8px" }} />
+                        <div style={{ fontSize: "13px" }}>No recent history</div>
+                      </div>
+                    ) : (
+                      recentHistory.map((entry) => (
+                        <div
+                          key={`${entry.frequencyHz}-${entry.timestamp}`}
+                          className="list-group-item list-group-item-action"
+                          style={{
+                            cursor: "pointer",
+                            borderLeft: "none",
+                            borderRight: "none",
+                            borderRadius: 0,
+                          }}
+                          onClick={() => handleTuneToRecent(entry.frequencyHz)}
+                        >
+                          <Flex justify="between" align="center">
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 500, fontSize: "14px" }}>
+                                {formatFrequency(entry.frequencyHz)}
+                              </div>
+                              <div style={{ fontSize: "11px", color: "#6c757d" }}>
+                                {new Date(entry.timestamp).toLocaleString()}
+                                {entry.captureName && ` • ${entry.captureName}`}
+                                {entry.mode && ` • ${entry.mode.toUpperCase()}`}
+                              </div>
+                            </div>
+                          </Flex>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+
+                {/* Memory Tab */}
+                {activeTab === "memory" && (
+                  <div>
+                    {memoryBanks.length === 0 ? (
+                      <div style={{ padding: "30px", textAlign: "center", color: "#6c757d" }}>
+                        <Save size={32} style={{ opacity: 0.3, marginBottom: "8px" }} />
+                        <div style={{ fontSize: "13px" }}>No saved memory banks</div>
+                        <div style={{ fontSize: "12px", marginTop: "4px" }}>Click the save icon to save current configuration</div>
+                      </div>
+                    ) : (
+                      memoryBanks.map((bank) => (
+                        <div
+                          key={bank.id}
+                          className="list-group-item"
+                          style={{
+                            borderLeft: "none",
+                            borderRight: "none",
+                            borderRadius: 0,
+                          }}
+                        >
+                          <Flex justify="between" align="center">
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontWeight: 500 }}>{bank.name}</div>
+                              <div style={{ fontSize: "11px", color: "#6c757d" }}>
+                                {formatFrequency(bank.captureConfig.centerHz)} •
+                                {(bank.captureConfig.sampleRate / 1e6).toFixed(1)} MS/s •
+                                {bank.channels.length} channel{bank.channels.length !== 1 ? 's' : ''}
+                              </div>
+                              <div style={{ fontSize: "10px", color: "#6c757d", marginTop: "2px" }}>
+                                {new Date(bank.timestamp).toLocaleString()}
+                              </div>
+                            </div>
+                            <Flex gap={1}>
+                              {onLoadMemoryBank && (
+                                <button
+                                  className="btn btn-sm btn-primary"
+                                  style={{ padding: "2px 8px", fontSize: "11px" }}
+                                  onClick={() => {
+                                    onLoadMemoryBank(bank.id);
+                                    setShowDropdown(false);
+                                  }}
+                                  title="Load this memory bank"
+                                >
+                                  Load
+                                </button>
+                              )}
+                              <button
+                                className="btn btn-sm btn-outline-danger"
+                                style={{ padding: "2px 6px" }}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm(`Delete memory bank "${bank.name}"?`)) {
+                                    deleteMemoryBank(bank.id);
+                                  }
+                                }}
+                                title="Delete memory bank"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </Flex>
+                          </Flex>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 )}
               </div>
-            )}
+
+              {/* Modal Footer */}
+              <div className="modal-footer py-2">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => setShowDropdown(false)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

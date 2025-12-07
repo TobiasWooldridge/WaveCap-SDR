@@ -125,6 +125,26 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
     }
   }, [updateMutation.isError, updateMutation.error]);
 
+  // Show feedback for power cycle
+  useEffect(() => {
+    if (powerCycleMutation.isSuccess) {
+      toast.success("USB power cycle complete");
+    }
+    if (powerCycleMutation.isError && powerCycleMutation.error) {
+      toast.error(`Power cycle failed: ${powerCycleMutation.error.message}`);
+    }
+  }, [powerCycleMutation.isSuccess, powerCycleMutation.isError, powerCycleMutation.error]);
+
+  // Show feedback for restart service
+  useEffect(() => {
+    if (restartServiceMutation.isSuccess) {
+      toast.success("SDRplay service restarted");
+    }
+    if (restartServiceMutation.isError && restartServiceMutation.error) {
+      toast.error(`Service restart failed: ${restartServiceMutation.error.message}`);
+    }
+  }, [restartServiceMutation.isSuccess, restartServiceMutation.isError, restartServiceMutation.error]);
+
   // Check if this is an SDRplay device
   const isSDRplayDevice = capture.deviceId?.toLowerCase().includes("sdrplay");
 
@@ -352,7 +372,7 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
             <div className="d-flex gap-2 align-items-center flex-wrap">
               {/* Start/Stop with dropdown for advanced actions */}
               <SplitButtonDropdown
-                mainLabel={isStarting ? "Starting..." : isStopping ? "Stopping..." : isRunning ? "Stop" : "Start"}
+                mainLabel={isStarting ? "Starting..." : isStopping ? "Stopping..." : isRunning ? "Stop Capture" : "Start Capture"}
                 onMainClick={() => {
                   if (isRunning) {
                     stopMutation.mutate(capture.id);
@@ -367,12 +387,12 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
                 menuItems={[
                   {
                     id: "restart",
-                    label: "Restart Capture",
+                    label: "Restart This Capture",
                     icon: <RotateCcw size={14} />,
                     onClick: () => restartMutation.mutate(capture.id),
                     disabled: restartMutation.isPending || isTransitioning,
                     requireConfirm: true,
-                    confirmLabel: "Confirm Restart",
+                    confirmLabel: "Restart",
                   },
                   {
                     id: "divider1",
@@ -382,24 +402,24 @@ export const RadioTuner = ({ capture, device }: RadioTunerProps) => {
                   },
                   {
                     id: "service",
-                    label: "Restart SDRplay Service",
+                    label: "Restart SDRplay API Service",
                     icon: <RefreshCw size={14} />,
                     onClick: () => restartServiceMutation.mutate(),
                     disabled: restartServiceMutation.isPending,
                     hidden: !isSDRplayDevice,
                     use: "danger",
                     requireConfirm: true,
-                    confirmLabel: "Confirm Service Restart",
+                    confirmLabel: "Restart Service",
                   },
                   {
                     id: "powercycle",
-                    label: "USB Power Cycle",
+                    label: "Power Cycle USB Device",
                     icon: <Zap size={14} />,
                     onClick: () => powerCycleMutation.mutate(capture.id),
                     disabled: powerCycleMutation.isPending || isTransitioning,
                     use: "danger",
                     requireConfirm: true,
-                    confirmLabel: "Confirm Power Cycle",
+                    confirmLabel: "Power Cycle",
                   },
                 ]}
               />

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, type ReactNode } from "react";
 import clsx from "clsx";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, AlertTriangle } from "lucide-react";
 import type { ButtonUse, ButtonSize } from "./Button.react";
 
 export interface DropdownMenuItem {
@@ -64,7 +64,7 @@ export default function SplitButtonDropdown({
   pendingContent,
 }: SplitButtonDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [confirmingItem, setConfirmingItem] = useState<DropdownMenuItem | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
@@ -72,7 +72,6 @@ export default function SplitButtonDropdown({
     const handleClickOutside = (event: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
         setIsOpen(false);
-        setConfirmingId(null);
       }
     };
 
@@ -82,31 +81,28 @@ export default function SplitButtonDropdown({
     }
   }, [isOpen]);
 
-  // Reset confirm state after timeout
-  useEffect(() => {
-    if (confirmingId) {
-      const timer = setTimeout(() => setConfirmingId(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [confirmingId]);
-
   const handleMenuItemClick = (item: DropdownMenuItem) => {
     if (item.disabled) return;
 
     if (item.requireConfirm) {
-      if (confirmingId === item.id) {
-        // Second click - execute
-        item.onClick();
-        setConfirmingId(null);
-        setIsOpen(false);
-      } else {
-        // First click - enter confirm mode
-        setConfirmingId(item.id);
-      }
+      // Show confirmation modal
+      setConfirmingItem(item);
+      setIsOpen(false);
     } else {
       item.onClick();
       setIsOpen(false);
     }
+  };
+
+  const handleConfirm = () => {
+    if (confirmingItem) {
+      confirmingItem.onClick();
+      setConfirmingItem(null);
+    }
+  };
+
+  const handleCancelConfirm = () => {
+    setConfirmingItem(null);
   };
 
   const btnClass = BUTTON_STYLES[use]?.filled ?? BUTTON_STYLES.default.filled;
@@ -115,67 +111,118 @@ export default function SplitButtonDropdown({
   const visibleItems = menuItems.filter((item) => !item.hidden);
 
   return (
-    <div ref={containerRef} className={clsx("btn-group", className)}>
-      {/* Main button */}
-      <button
-        type="button"
-        className={clsx("btn", btnClass, sizeClass)}
-        onClick={onMainClick}
-        disabled={mainDisabled || isPending}
-      >
-        {isPending && pendingContent ? pendingContent : mainLabel}
-      </button>
-
-      {/* Dropdown toggle */}
-      <button
-        type="button"
-        className={clsx("btn dropdown-toggle dropdown-toggle-split", btnClass, sizeClass)}
-        onClick={() => setIsOpen(!isOpen)}
-        disabled={isPending}
-        aria-expanded={isOpen}
-      >
-        <ChevronDown size={12} />
-        <span className="visually-hidden">Toggle Dropdown</span>
-      </button>
-
-      {/* Dropdown menu */}
-      {isOpen && visibleItems.length > 0 && (
-        <ul
-          className="dropdown-menu dropdown-menu-end show"
-          style={{ position: "absolute", right: 0, top: "100%", zIndex: 1050 }}
+    <>
+      <div ref={containerRef} className={clsx("btn-group", className)}>
+        {/* Main button */}
+        <button
+          type="button"
+          className={clsx("btn", btnClass, sizeClass)}
+          onClick={onMainClick}
+          disabled={mainDisabled || isPending}
         >
-          {visibleItems.map((item, index) => {
-            if (item.divider) {
-              return <li key={`divider-${index}`}><hr className="dropdown-divider" /></li>;
-            }
+          {isPending && pendingContent ? pendingContent : mainLabel}
+        </button>
 
-            const isConfirming = confirmingId === item.id;
-            const itemUse = isConfirming ? "warning" : (item.use ?? "default");
-            const itemClass = itemUse === "danger" ? "text-danger" :
-                            itemUse === "warning" ? "text-warning" : "";
+        {/* Dropdown toggle */}
+        <button
+          type="button"
+          className={clsx("btn dropdown-toggle dropdown-toggle-split", btnClass, sizeClass)}
+          onClick={() => setIsOpen(!isOpen)}
+          disabled={isPending}
+          aria-expanded={isOpen}
+        >
+          <ChevronDown size={12} />
+          <span className="visually-hidden">Toggle Dropdown</span>
+        </button>
 
-            return (
-              <li key={item.id}>
+        {/* Dropdown menu */}
+        {isOpen && visibleItems.length > 0 && (
+          <ul
+            className="dropdown-menu show"
+            style={{ position: "absolute", left: 0, top: "100%", zIndex: 1050, minWidth: "max-content" }}
+          >
+            {visibleItems.map((item, index) => {
+              if (item.divider) {
+                return <li key={`divider-${index}`}><hr className="dropdown-divider" /></li>;
+              }
+
+              const itemClass = item.use === "danger" ? "text-danger" :
+                              item.use === "warning" ? "text-warning" : "";
+
+              return (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className={clsx(
+                      "dropdown-item d-flex align-items-center gap-2",
+                      itemClass,
+                      item.disabled && "disabled"
+                    )}
+                    onClick={() => handleMenuItemClick(item)}
+                    disabled={item.disabled}
+                  >
+                    {item.icon}
+                    <span>{item.label}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {/* Confirmation Modal */}
+      {confirmingItem && (
+        <div
+          className="modal d-block"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={handleCancelConfirm}
+        >
+          <div
+            className="modal-dialog modal-dialog-centered modal-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-content">
+              <div className="modal-header py-2">
+                <h6 className="modal-title d-flex align-items-center gap-2">
+                  <AlertTriangle size={18} className="text-warning" />
+                  Confirm Action
+                </h6>
+                <button
+                  type="button"
+                  className="btn-close btn-close-sm"
+                  onClick={handleCancelConfirm}
+                  aria-label="Close"
+                />
+              </div>
+              <div className="modal-body py-3">
+                <p className="mb-0">
+                  Are you sure you want to <strong>{confirmingItem.label}</strong>?
+                </p>
+              </div>
+              <div className="modal-footer py-2">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  onClick={handleCancelConfirm}
+                >
+                  Cancel
+                </button>
                 <button
                   type="button"
                   className={clsx(
-                    "dropdown-item d-flex align-items-center gap-2",
-                    itemClass,
-                    item.disabled && "disabled"
+                    "btn btn-sm",
+                    confirmingItem.use === "danger" ? "btn-danger" : "btn-warning"
                   )}
-                  onClick={() => handleMenuItemClick(item)}
-                  disabled={item.disabled}
+                  onClick={handleConfirm}
                 >
-                  {item.icon}
-                  <span>
-                    {isConfirming && item.confirmLabel ? item.confirmLabel : item.label}
-                  </span>
+                  {confirmingItem.confirmLabel || "Confirm"}
                 </button>
-              </li>
-            );
-          })}
-        </ul>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
-    </div>
+    </>
   );
 }
