@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import numpy as np
-from typing import Optional, Callable, Dict, Any
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 from dataclasses import dataclass
 from enum import Enum
 
@@ -65,7 +65,7 @@ class C4FMDemodulator:
         self.deviations = np.array([-1800, -600, 600, 1800])
 
         # Symbol history for tracking
-        self.symbol_history = []
+        self.symbol_history: List[int] = []
 
     def demodulate(self, iq: np.ndarray) -> np.ndarray:
         """
@@ -81,9 +81,9 @@ class C4FMDemodulator:
             return np.array([], dtype=np.uint8)
 
         # Frequency discriminator (same as FM demodulation)
-        x = iq.astype(np.complex64, copy=False)
+        x: np.ndarray = iq.astype(np.complex64, copy=False)
         prod = x[1:] * np.conj(x[:-1])
-        inst_freq = np.angle(prod) * self.sample_rate / (2 * np.pi)
+        inst_freq = cast(np.ndarray, np.angle(prod)) * self.sample_rate / (2 * np.pi)
 
         # Symbol timing recovery (simple decimation for now)
         num_symbols = len(inst_freq) // self.samples_per_symbol
@@ -98,9 +98,9 @@ class C4FMDemodulator:
 
             # Map to nearest deviation level (0-3)
             distances = np.abs(self.deviations - symbol_freq)
-            symbols[i] = np.argmin(distances)
+            symbols[i] = int(np.argmin(distances))
 
-        return symbols
+        return cast(np.ndarray, symbols)
 
 
 class P25FrameSync:
@@ -123,7 +123,7 @@ class P25FrameSync:
         }
         self.sync_threshold = 2  # Allow 2 bit errors in sync
 
-    def find_sync(self, dibits: np.ndarray) -> tuple[Optional[int], Optional[P25FrameType]]:
+    def find_sync(self, dibits: np.ndarray) -> Tuple[Optional[int], Optional[P25FrameType]]:
         """
         Search for frame sync pattern in dibit stream.
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import numpy as np
-from typing import Optional, Callable, Dict, Any
+from typing import Any, Callable, Dict, List, Optional, cast
 from dataclasses import dataclass
 from enum import Enum
 
@@ -54,9 +54,9 @@ class DMR4FSKDemodulator:
         if iq.size == 0:
             return np.array([], dtype=np.uint8)
 
-        x = iq.astype(np.complex64, copy=False)
+        x: np.ndarray = iq.astype(np.complex64, copy=False)
         prod = x[1:] * np.conj(x[:-1])
-        inst_freq = np.angle(prod) * self.sample_rate / (2 * np.pi)
+        inst_freq = cast(np.ndarray, np.angle(prod)) * self.sample_rate / (2 * np.pi)
 
         num_symbols = len(inst_freq) // self.samples_per_symbol
         symbols = np.zeros(num_symbols, dtype=np.uint8)
@@ -64,11 +64,11 @@ class DMR4FSKDemodulator:
         for i in range(num_symbols):
             start_idx = i * self.samples_per_symbol
             end_idx = start_idx + self.samples_per_symbol
-            symbol_freq = np.mean(inst_freq[start_idx:end_idx])
+            symbol_freq = float(np.mean(inst_freq[start_idx:end_idx]))
             distances = np.abs(self.deviations - symbol_freq)
-            symbols[i] = np.argmin(distances)
+            symbols[i] = int(np.argmin(distances))
 
-        return symbols
+        return cast(np.ndarray, symbols)
 
 
 class DMRDecoder:

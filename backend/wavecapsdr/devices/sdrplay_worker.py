@@ -333,7 +333,7 @@ class SDRplayWorker:
     def _open_device(self) -> None:
         """Open SoapySDR device."""
         try:
-            import SoapySDR  # type: ignore
+            import SoapySDR
 
             logger.info(f"Opening device: {self.device_args}")
             _log_to_pipe(self.status_pipe, "info", f"Opening device: {self.device_args}")
@@ -369,7 +369,7 @@ class SDRplayWorker:
             return
 
         try:
-            import SoapySDR  # type: ignore
+            import SoapySDR
 
             # Extract configuration
             center_hz = cmd.get("center_hz", self.center_hz)
@@ -485,7 +485,7 @@ class SDRplayWorker:
             logger.debug("Start stream called but already streaming - returning current state")
             # Still send success response since we're in the desired state
             try:
-                import SoapySDR  # type: ignore
+                import SoapySDR
                 current_antenna = self.sdr.getAntenna(SoapySDR.SOAPY_SDR_RX, 0)
             except Exception:
                 current_antenna = None
@@ -493,7 +493,7 @@ class SDRplayWorker:
             return
 
         try:
-            import SoapySDR  # type: ignore
+            import SoapySDR
 
             logger.info("Starting stream...")
             _log_to_pipe(self.status_pipe, "info", "Starting IQ stream")
@@ -674,7 +674,7 @@ class SDRplayWorker:
 
         if self.sdr is not None:
             try:
-                import SoapySDR  # type: ignore
+                import SoapySDR
                 if logger:
                     logger.debug("Calling SoapySDR.Device.unmake...")
                 SoapySDR.Device.unmake(self.sdr)

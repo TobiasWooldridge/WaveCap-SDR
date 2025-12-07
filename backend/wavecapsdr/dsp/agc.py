@@ -12,6 +12,8 @@ Performance: Uses vectorized scipy.signal.lfilter for 4-8x speedup over pure Pyt
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 
 # Try to import scipy for optimized filtering
@@ -38,7 +40,7 @@ def soft_clip(x: np.ndarray) -> np.ndarray:
     Returns:
         Soft-clipped signal in range [-1, 1]
     """
-    return np.tanh(x * _SOFT_CLIP_K) * _SOFT_CLIP_NORM
+    return cast(np.ndarray, np.tanh(x * _SOFT_CLIP_K) * _SOFT_CLIP_NORM)
 
 
 def _envelope_detector_vectorized(
@@ -72,7 +74,7 @@ def _envelope_detector_vectorized(
 
     # Combine: use attack envelope where signal is rising, release where falling
     # This is approximated by taking the maximum of both envelopes
-    envelope = np.maximum(env_attack, env_release).astype(np.float32)
+    envelope: np.ndarray = cast(np.ndarray, np.maximum(env_attack, env_release)).astype(np.float32)
 
     return envelope
 
@@ -91,7 +93,7 @@ def _envelope_detector_python(
         else:
             envelope[i] = release_coef * current_sample + (1.0 - release_coef) * envelope[i - 1]
 
-    return envelope
+    return cast(np.ndarray, envelope)
 
 
 def apply_agc(

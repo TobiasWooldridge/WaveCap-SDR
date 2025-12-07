@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Tuple
+from typing import Optional, Tuple, cast
 
 import numpy as np
 
@@ -30,7 +30,7 @@ def soft_clip(x: np.ndarray) -> np.ndarray:
     Returns:
         Soft-clipped signal in range [-0.95, 0.95]
     """
-    return np.tanh(x * _SOFT_CLIP_K) * _SOFT_CLIP_NORM * _SOFT_CLIP_HEADROOM
+    return cast(np.ndarray, np.tanh(x * _SOFT_CLIP_K) * _SOFT_CLIP_NORM * _SOFT_CLIP_HEADROOM)
 
 
 def rms_normalize(x: np.ndarray, target_rms: float = 0.18, min_rms: float = 1e-4) -> np.ndarray:
@@ -50,9 +50,9 @@ def rms_normalize(x: np.ndarray, target_rms: float = 0.18, min_rms: float = 1e-4
     if x.size == 0:
         return x
 
-    rms = np.sqrt(np.mean(x ** 2))
+    rms = float(np.sqrt(np.mean(x ** 2)))
     if rms > min_rms:
-        return x * (target_rms / rms)
+        return cast(np.ndarray, x * (target_rms / rms))
     return x
 
 
@@ -75,7 +75,7 @@ def quadrature_demod(iq: np.ndarray, sample_rate: int) -> np.ndarray:
         return np.empty(0, dtype=np.float32)
 
     # y[n] = angle(x[n] * conj(x[n-1]))
-    x = iq.astype(np.complex64, copy=False)
+    x: np.ndarray = iq.astype(np.complex64, copy=False)
 
     # Compute product with conjugate of previous sample
     prod = x[1:] * np.conj(x[:-1])
@@ -86,7 +86,7 @@ def quadrature_demod(iq: np.ndarray, sample_rate: int) -> np.ndarray:
 
     # Extract phase and scale in one step
     scale = np.float32(sample_rate / (2.0 * np.pi * 75000.0))
-    out[1:] = np.angle(prod) * scale
+    out[1:] = cast(np.ndarray, np.angle(prod) * scale)
 
     return out
 
@@ -114,7 +114,7 @@ def deemphasis_filter(x: np.ndarray, sample_rate: int, tau: float = 75e-6) -> np
         tau_us = int(tau * 1e6)
         b, a = _get_deemphasis_coeffs(sample_rate, tau_us)
 
-        y = signal.lfilter(b, a, x).astype(np.float32)
+        y = cast(np.ndarray, signal.lfilter(b, a, x)).astype(np.float32)
         return y
     except ImportError:
         return x.astype(np.float32, copy=False)
@@ -122,7 +122,9 @@ def deemphasis_filter(x: np.ndarray, sample_rate: int, tau: float = 75e-6) -> np
 
 # Cache for MPX lowpass filter coefficients
 @lru_cache(maxsize=32)
-def _get_lpf_coeffs(sample_rate: int, cutoff: int, order: int = 5) -> Tuple[np.ndarray, np.ndarray]:
+def _get_lpf_coeffs(
+    sample_rate: int, cutoff: int, order: int = 5
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
     """Get cached lowpass filter coefficients for MPX filtering."""
     from scipy import signal
 
@@ -130,7 +132,7 @@ def _get_lpf_coeffs(sample_rate: int, cutoff: int, order: int = 5) -> Tuple[np.n
     normalized_cutoff = cutoff / nyquist
 
     if normalized_cutoff >= 1.0:
-        return None, None
+        return None
 
     b, a = signal.butter(order, normalized_cutoff, btype='low')
     return b, a
@@ -161,12 +163,13 @@ def lpf_audio(x: np.ndarray, sample_rate: int, cutoff: float = 15_000) -> np.nda
 
         # Use integer cutoff for cache key
         cutoff_int = int(cutoff)
-        b, a = _get_lpf_coeffs(sample_rate, cutoff_int, 5)
+        coeffs = _get_lpf_coeffs(sample_rate, cutoff_int, 5)
 
-        if b is None:
+        if coeffs is None:
             return x.astype(np.float32, copy=False)
 
-        y = signal.lfilter(b, a, x).astype(np.float32)
+        b, a = coeffs
+        y = cast(np.ndarray, signal.lfilter(b, a, x)).astype(np.float32)
         return y
     except ImportError:
         return x.astype(np.float32, copy=False)
@@ -200,15 +203,15 @@ def resample_poly(x: np.ndarray, in_rate: int, out_rate: int) -> np.ndarray:
 
         # resample_poly handles anti-aliasing automatically
         y = scipy_resample_poly(x.astype(np.float64), up, down)
-        return y.astype(np.float32)
+        return cast(np.ndarray, y).astype(np.float32)
     except ImportError:
         # Fallback to linear interpolation if scipy not available
         t_in = np.arange(x.shape[0], dtype=np.float64) / float(in_rate)
-        duration = t_in[-1] if x.shape[0] > 0 else 0.0
+        duration = float(t_in[-1]) if x.shape[0] > 0 else 0.0
         n_out = max(1, int(round(duration * out_rate)))
         t_out = np.arange(n_out, dtype=np.float64) / float(out_rate)
         y = np.interp(t_out, t_in, x.astype(np.float64))
-        return y.astype(np.float32)
+        return cast(np.ndarray, y).astype(np.float32)
 
 
 # Keep alias for backwards compatibility

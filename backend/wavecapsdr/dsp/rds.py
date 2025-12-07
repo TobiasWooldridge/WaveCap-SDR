@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, cast
 import numpy as np
 
 
@@ -87,11 +87,11 @@ class RDSData:
     ms: bool = True  # Music/Speech switch (True = Music)
 
     # Internal state for building strings
-    _ps_segments: dict = field(default_factory=lambda: {0: "  ", 1: "  ", 2: "  ", 3: "  "})
-    _rt_segments: dict = field(default_factory=dict)
+    _ps_segments: Dict[int, str] = field(default_factory=lambda: {0: "  ", 1: "  ", 2: "  ", 3: "  "})
+    _rt_segments: Dict[int, str] = field(default_factory=dict)
     _rt_ab_flag: bool = False
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         """Convert to JSON-serializable dict."""
         return {
             "piCode": self.pi_code,
@@ -106,7 +106,9 @@ class RDSData:
 
 
 @lru_cache(maxsize=8)
-def _get_bpf_coeffs(sample_rate: int, center_freq: int, bandwidth: int) -> Tuple[np.ndarray, np.ndarray]:
+def _get_bpf_coeffs(
+    sample_rate: int, center_freq: int, bandwidth: int
+) -> Optional[Tuple[np.ndarray, np.ndarray]]:
     """Get bandpass filter coefficients for RDS subcarrier extraction."""
     from scipy import signal
 
@@ -119,7 +121,7 @@ def _get_bpf_coeffs(sample_rate: int, center_freq: int, bandwidth: int) -> Tuple
     high = max(0.001, min(0.999, high))
 
     if low >= high:
-        return None, None
+        return None
 
     b, a = signal.butter(4, [low, high], btype='band')
     return b, a
@@ -206,9 +208,10 @@ class RDSDecoder:
             from scipy import signal
 
             # Extract 57 kHz RDS subcarrier using bandpass filter
-            b, a = _get_bpf_coeffs(self.sample_rate, RDS_SUBCARRIER_HZ, 4000)
-            if b is None:
+            coeffs = _get_bpf_coeffs(self.sample_rate, RDS_SUBCARRIER_HZ, 4000)
+            if coeffs is None:
                 return None
+            b, a = coeffs
 
             rds_signal = signal.lfilter(b, a, fm_baseband).astype(np.float32)
 

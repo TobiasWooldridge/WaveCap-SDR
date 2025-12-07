@@ -13,7 +13,7 @@ Filter coefficients are cached for performance (10-15% faster).
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Tuple
+from typing import Optional, Tuple, cast
 
 import numpy as np
 
@@ -105,7 +105,7 @@ def highpass_filter(
 
         # Use cached filter coefficients for performance
         b, a = _get_butter_coeffs("high", (normalized_cutoff,), order, sample_rate)
-        y = signal.lfilter(b, a, x).astype(np.float32)
+        y: np.ndarray = cast(np.ndarray, signal.lfilter(b, a, x)).astype(np.float32)
         return y
     except ImportError:
         # Fallback: no filtering if scipy not available
@@ -151,7 +151,7 @@ def lowpass_filter(
 
         # Use cached filter coefficients for performance
         b, a = _get_butter_coeffs("low", (normalized_cutoff,), order, sample_rate)
-        y = signal.lfilter(b, a, x).astype(np.float32)
+        y: np.ndarray = cast(np.ndarray, signal.lfilter(b, a, x)).astype(np.float32)
         return y
     except ImportError:
         # Fallback: no filtering if scipy not available
@@ -202,7 +202,7 @@ def bandpass_filter(
 
         # Use cached filter coefficients for performance
         b, a = _get_butter_coeffs("band", (normalized_low, normalized_high), order, sample_rate)
-        y = signal.lfilter(b, a, x).astype(np.float32)
+        y: np.ndarray = cast(np.ndarray, signal.lfilter(b, a, x)).astype(np.float32)
         return y
     except ImportError:
         # Fallback: no filtering if scipy not available
@@ -247,7 +247,7 @@ def notch_filter(
 
         # Use cached notch filter coefficients for performance
         b, a = _get_notch_coeffs(normalized_freq, q, sample_rate)
-        y = signal.lfilter(b, a, x).astype(np.float32)
+        y: np.ndarray = cast(np.ndarray, signal.lfilter(b, a, x)).astype(np.float32)
         return y
     except ImportError:
         # Fallback: no filtering if scipy not available
@@ -445,4 +445,5 @@ def spectral_noise_reduction(
     output /= window_sum
 
     # Return original length
-    return output[:len(x) - (padded_length - len(x)) if padded_length > len(x) else len(x)].astype(np.float32)
+    result_len = len(x) - (padded_length - len(x)) if padded_length > len(x) else len(x)
+    return cast(np.ndarray, output[:result_len].astype(np.float32))
