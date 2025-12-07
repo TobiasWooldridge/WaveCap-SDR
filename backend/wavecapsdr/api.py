@@ -862,7 +862,7 @@ async def start_capture(
     cid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> CaptureModel:
     cap = state.captures.get_capture(cid)
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
@@ -901,7 +901,7 @@ async def stop_capture(
     cid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> CaptureModel:
     cap = state.captures.get_capture(cid)
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
@@ -918,7 +918,7 @@ async def restart_capture(
     cid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> CaptureModel:
     """Restart a capture (stop then start).
 
     Useful for recovering from error states or refreshing the SDR connection.
