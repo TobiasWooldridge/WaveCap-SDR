@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, AsyncGenerator, Dict, List, Optional, Union
+from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Union, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect, Response
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -301,8 +301,8 @@ def _to_channel_model(ch: Any) -> ChannelModel:
     return ChannelModel(
         id=ch.cfg.id,
         captureId=ch.cfg.capture_id,
-        mode=ch.cfg.mode,
-        state=ch.state,
+        mode=cast(Literal["wbfm", "nbfm", "am", "ssb", "raw", "p25", "dmr"], ch.cfg.mode),
+        state=cast(Literal["created", "running", "stopped"], ch.state),
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
         squelchDb=ch.cfg.squelch_db,
@@ -1363,8 +1363,8 @@ def get_channel(
     return ChannelModel(
         id=ch.cfg.id,
         captureId=ch.cfg.capture_id,
-        mode=ch.cfg.mode,
-        state=ch.state,
+        mode=cast(Literal["wbfm", "nbfm", "am", "ssb", "raw", "p25", "dmr"], ch.cfg.mode),
+        state=cast(Literal["created", "running", "stopped"], ch.state),
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
         squelchDb=ch.cfg.squelch_db,
@@ -2180,11 +2180,11 @@ def _to_scanner_model(scanner_id: str, scanner: ScannerService) -> ScannerModel:
     return ScannerModel(
         id=scanner_id,
         captureId=scanner.capture_id,
-        state=scanner.status.state,
+        state=scanner.status.state.value,  # type: ignore[arg-type]
         currentFrequency=scanner.status.current_frequency,
         currentIndex=scanner.status.current_index,
         scanList=scanner.config.scan_list,
-        mode=scanner.config.mode,
+        mode=scanner.config.mode.value,  # type: ignore[arg-type]
         dwellTimeMs=scanner.config.dwell_time_ms,
         priorityFrequencies=scanner.config.priority_frequencies,
         priorityIntervalS=scanner.config.priority_interval_s,
