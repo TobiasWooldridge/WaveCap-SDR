@@ -955,7 +955,7 @@ def get_capture(
     cid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> CaptureModel:
     cap = state.captures.get_capture(cid)
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
@@ -968,7 +968,7 @@ async def update_capture(
     req: UpdateCaptureRequest,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> CaptureModel:
     import traceback
     logger.info(f"PATCH /captures/{cid} - request: {req}")
     try:
@@ -984,7 +984,7 @@ async def update_capture(
         raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
 
 
-async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppState):
+async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppState) -> CaptureModel:
     cap = state.captures.get_capture(cid)
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
@@ -1252,7 +1252,7 @@ async def delete_capture(
     cid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> Response:
     # Get channel IDs before deletion to emit events
     channel_ids = [ch.cfg.id for ch in state.captures.list_channels(cid)]
 
@@ -1271,7 +1271,7 @@ def list_channels(
     cid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> List[ChannelModel]:
     chans = state.captures.list_channels(cid)
     return [_to_channel_model(ch) for ch in chans]
 
@@ -1282,7 +1282,7 @@ def create_channel(
     req: CreateChannelRequest,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ChannelModel:
     ch = state.captures.create_channel(
         cid=cid,
         mode=req.mode,
@@ -1320,7 +1320,7 @@ def start_channel(
     chan_id: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ChannelModel:
     ch = state.captures.get_channel(chan_id)
     if ch is None:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -1338,7 +1338,7 @@ def stop_channel(
     chan_id: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> ChannelModel:
     ch = state.captures.get_channel(chan_id)
     if ch is None:
         raise HTTPException(status_code=404, detail="Channel not found")
