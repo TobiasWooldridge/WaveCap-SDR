@@ -155,7 +155,9 @@ export function useScanners() {
   return useQuery({
     queryKey: ['scanners'],
     queryFn: fetchScanners,
-    refetchInterval: 2000, // Poll every 2 seconds for scanner updates
+    // Fallback polling - WebSocket provides real-time updates
+    // Polling is kept as backup for reconnection and stale data recovery
+    refetchInterval: 10_000,
   });
 }
 
@@ -164,7 +166,9 @@ export function useScanner(scannerId: string | undefined) {
     queryKey: ['scanners', scannerId],
     queryFn: () => fetchScanner(scannerId!),
     enabled: !!scannerId,
-    refetchInterval: 1000, // Poll every 1 second for active scanner
+    // Active scanners can use faster polling for real-time updates
+    // WebSocket handles major state changes, polling for detailed metrics
+    refetchInterval: 5_000,
   });
 }
 

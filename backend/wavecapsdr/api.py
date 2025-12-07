@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect, Response
@@ -40,6 +41,7 @@ from .device_namer import (
 )
 from .config import save_config
 from .sdrplay_recovery import get_recovery
+from .state_broadcaster import get_broadcaster
 
 
 router = APIRouter()
@@ -835,8 +837,9 @@ def create_capture(
         )
 
     # Automatically create a default channel with offset 0 (unless disabled)
+    default_channel = None
     if req.createDefaultChannel:
-        state.captures.create_channel(
+        default_channel = state.captures.create_channel(
             cid=cap.cfg.id,
             mode="wbfm",
             offset_hz=0,
@@ -844,7 +847,14 @@ def create_capture(
             squelch_db=-60,
         )
 
-    return _to_capture_model(cap)
+    # Emit state change for WebSocket subscribers
+    capture_model = _to_capture_model(cap)
+    get_broadcaster().emit_capture_change("created", cap.cfg.id, capture_model.model_dump())
+    if default_channel:
+        channel_model = _to_channel_model(default_channel)
+        get_broadcaster().emit_channel_change("created", default_channel.cfg.id, channel_model.model_dump())
+
+    return capture_model
 
 
 @router.post("/captures/{cid}/start", response_model=CaptureModel)
@@ -876,7 +886,14 @@ async def start_capture(
     for ch in state.captures.list_channels(cid):
         if ch.state != "running":
             ch.start()
-    return _to_capture_model(cap)
+            # Emit channel started
+            channel_model = _to_channel_model(ch)
+            get_broadcaster().emit_channel_change("started", ch.cfg.id, channel_model.model_dump())
+
+    # Emit capture started
+    capture_model = _to_capture_model(cap)
+    get_broadcaster().emit_capture_change("started", cid, capture_model.model_dump())
+    return capture_model
 
 
 @router.post("/captures/{cid}/stop", response_model=CaptureModel)
@@ -889,7 +906,11 @@ async def stop_capture(
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
     await cap.stop()
-    return _to_capture_model(cap)
+
+    # Emit capture stopped
+    capture_model = _to_capture_model(cap)
+    get_broadcaster().emit_capture_change("stopped", cid, capture_model.model_dump())
+    return capture_model
 
 
 @router.post("/captures/{cid}/restart", response_model=CaptureModel)
@@ -909,9 +930,9 @@ async def restart_capture(
     # Stop first (if running)
     if cap.state in ("running", "starting", "failed"):
         await cap.stop()
+        get_broadcaster().emit_capture_change("stopped", cid, _to_capture_model(cap).model_dump())
 
     # Brief pause to let SDR device settle
-    import asyncio
     await asyncio.sleep(0.5)
 
     # Start again
@@ -921,8 +942,12 @@ async def restart_capture(
     for ch in state.captures.list_channels(cid):
         if ch.state != "running":
             ch.start()
+            get_broadcaster().emit_channel_change("started", ch.cfg.id, _to_channel_model(ch).model_dump())
 
-    return _to_capture_model(cap)
+    # Emit capture started
+    capture_model = _to_capture_model(cap)
+    get_broadcaster().emit_capture_change("started", cid, capture_model.model_dump())
+    return capture_model
 
 
 @router.get("/captures/{cid}", response_model=CaptureModel)
@@ -1215,7 +1240,11 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
                 # Log error but don't fail the request - the settings are already applied in memory
                 print(f"Warning: Failed to persist config changes to file: {e}")
 
-    return _to_capture_model(cap)
+    # Emit state change for WebSocket subscribers
+    capture_model = _to_capture_model(cap)
+    get_broadcaster().emit_capture_change("updated", cid, capture_model.model_dump())
+
+    return capture_model
 
 
 @router.delete("/captures/{cid}")
@@ -1224,7 +1253,16 @@ async def delete_capture(
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
 ):
+    # Get channel IDs before deletion to emit events
+    channel_ids = [ch.cfg.id for ch in state.captures.list_channels(cid)]
+
     await state.captures.delete_capture(cid)
+
+    # Emit deletion events
+    for chan_id in channel_ids:
+        get_broadcaster().emit_channel_change("deleted", chan_id, None)
+    get_broadcaster().emit_capture_change("deleted", cid, None)
+
     return Response(status_code=204)
 
 
@@ -1270,50 +1308,11 @@ def create_channel(
     if cap is not None and cap.state == "running" and ch.state != "running":
         ch.start()
 
-    return ChannelModel(
-        id=ch.cfg.id,
-        captureId=ch.cfg.capture_id,
-        mode=ch.cfg.mode,  # type: ignore[arg-type]
-        state=ch.state,  # type: ignore[arg-type]
-        offsetHz=ch.cfg.offset_hz,
-        audioRate=ch.cfg.audio_rate,
-        squelchDb=ch.cfg.squelch_db,
-        name=ch.cfg.name,
-        autoName=ch.cfg.auto_name,
-        signalPowerDb=ch.signal_power_db,
-        rssiDb=ch.rssi_db,
-        snrDb=ch.snr_db,
-        audioRmsDb=ch.audio_rms_db,
-        audioPeakDb=ch.audio_peak_db,
-        audioClippingCount=ch.audio_clipping_count,
-        # Filter configuration
-        enableDeemphasis=ch.cfg.enable_deemphasis,
-        deemphasisTauUs=ch.cfg.deemphasis_tau_us,
-        enableMpxFilter=ch.cfg.enable_mpx_filter,
-        mpxCutoffHz=ch.cfg.mpx_cutoff_hz,
-        enableFmHighpass=ch.cfg.enable_fm_highpass,
-        fmHighpassHz=ch.cfg.fm_highpass_hz,
-        enableFmLowpass=ch.cfg.enable_fm_lowpass,
-        fmLowpassHz=ch.cfg.fm_lowpass_hz,
-        enableAmHighpass=ch.cfg.enable_am_highpass,
-        amHighpassHz=ch.cfg.am_highpass_hz,
-        enableAmLowpass=ch.cfg.enable_am_lowpass,
-        amLowpassHz=ch.cfg.am_lowpass_hz,
-        enableSsbBandpass=ch.cfg.enable_ssb_bandpass,
-        ssbBandpassLowHz=ch.cfg.ssb_bandpass_low_hz,
-        ssbBandpassHighHz=ch.cfg.ssb_bandpass_high_hz,
-        ssbMode=ch.cfg.ssb_mode,
-        enableAgc=ch.cfg.enable_agc,
-        agcTargetDb=ch.cfg.agc_target_db,
-        agcAttackMs=ch.cfg.agc_attack_ms,
-        agcReleaseMs=ch.cfg.agc_release_ms,
-        enableNoiseBlanker=ch.cfg.enable_noise_blanker,
-        noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
-        notchFrequencies=ch.cfg.notch_frequencies,
-        enableNoiseReduction=ch.cfg.enable_noise_reduction,
-        noiseReductionDb=ch.cfg.noise_reduction_db,
-        rdsData=_to_rds_data_model(ch.rds_data),
-    )
+    # Emit state change for WebSocket subscribers
+    channel_model = _to_channel_model(ch)
+    get_broadcaster().emit_channel_change("created", ch.cfg.id, channel_model.model_dump())
+
+    return channel_model
 
 
 @router.post("/channels/{chan_id}/start", response_model=ChannelModel)
@@ -1326,50 +1325,12 @@ def start_channel(
     if ch is None:
         raise HTTPException(status_code=404, detail="Channel not found")
     ch.start()
-    return ChannelModel(
-        id=ch.cfg.id,
-        captureId=ch.cfg.capture_id,
-        mode=ch.cfg.mode,  # type: ignore[arg-type]
-        state=ch.state,  # type: ignore[arg-type]
-        offsetHz=ch.cfg.offset_hz,
-        audioRate=ch.cfg.audio_rate,
-        squelchDb=ch.cfg.squelch_db,
-        name=ch.cfg.name,
-        autoName=ch.cfg.auto_name,
-        signalPowerDb=ch.signal_power_db,
-        rssiDb=ch.rssi_db,
-        snrDb=ch.snr_db,
-        audioRmsDb=ch.audio_rms_db,
-        audioPeakDb=ch.audio_peak_db,
-        audioClippingCount=ch.audio_clipping_count,
-        # Filter configuration
-        enableDeemphasis=ch.cfg.enable_deemphasis,
-        deemphasisTauUs=ch.cfg.deemphasis_tau_us,
-        enableMpxFilter=ch.cfg.enable_mpx_filter,
-        mpxCutoffHz=ch.cfg.mpx_cutoff_hz,
-        enableFmHighpass=ch.cfg.enable_fm_highpass,
-        fmHighpassHz=ch.cfg.fm_highpass_hz,
-        enableFmLowpass=ch.cfg.enable_fm_lowpass,
-        fmLowpassHz=ch.cfg.fm_lowpass_hz,
-        enableAmHighpass=ch.cfg.enable_am_highpass,
-        amHighpassHz=ch.cfg.am_highpass_hz,
-        enableAmLowpass=ch.cfg.enable_am_lowpass,
-        amLowpassHz=ch.cfg.am_lowpass_hz,
-        enableSsbBandpass=ch.cfg.enable_ssb_bandpass,
-        ssbBandpassLowHz=ch.cfg.ssb_bandpass_low_hz,
-        ssbBandpassHighHz=ch.cfg.ssb_bandpass_high_hz,
-        ssbMode=ch.cfg.ssb_mode,
-        enableAgc=ch.cfg.enable_agc,
-        agcTargetDb=ch.cfg.agc_target_db,
-        agcAttackMs=ch.cfg.agc_attack_ms,
-        agcReleaseMs=ch.cfg.agc_release_ms,
-        enableNoiseBlanker=ch.cfg.enable_noise_blanker,
-        noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
-        notchFrequencies=ch.cfg.notch_frequencies,
-        enableNoiseReduction=ch.cfg.enable_noise_reduction,
-        noiseReductionDb=ch.cfg.noise_reduction_db,
-        rdsData=_to_rds_data_model(ch.rds_data),
-    )
+
+    # Emit state change for WebSocket subscribers
+    channel_model = _to_channel_model(ch)
+    get_broadcaster().emit_channel_change("started", chan_id, channel_model.model_dump())
+
+    return channel_model
 
 
 @router.post("/channels/{chan_id}/stop", response_model=ChannelModel)
@@ -1382,50 +1343,12 @@ def stop_channel(
     if ch is None:
         raise HTTPException(status_code=404, detail="Channel not found")
     ch.stop()
-    return ChannelModel(
-        id=ch.cfg.id,
-        captureId=ch.cfg.capture_id,
-        mode=ch.cfg.mode,  # type: ignore[arg-type]
-        state=ch.state,  # type: ignore[arg-type]
-        offsetHz=ch.cfg.offset_hz,
-        audioRate=ch.cfg.audio_rate,
-        squelchDb=ch.cfg.squelch_db,
-        name=ch.cfg.name,
-        autoName=ch.cfg.auto_name,
-        signalPowerDb=ch.signal_power_db,
-        rssiDb=ch.rssi_db,
-        snrDb=ch.snr_db,
-        audioRmsDb=ch.audio_rms_db,
-        audioPeakDb=ch.audio_peak_db,
-        audioClippingCount=ch.audio_clipping_count,
-        # Filter configuration
-        enableDeemphasis=ch.cfg.enable_deemphasis,
-        deemphasisTauUs=ch.cfg.deemphasis_tau_us,
-        enableMpxFilter=ch.cfg.enable_mpx_filter,
-        mpxCutoffHz=ch.cfg.mpx_cutoff_hz,
-        enableFmHighpass=ch.cfg.enable_fm_highpass,
-        fmHighpassHz=ch.cfg.fm_highpass_hz,
-        enableFmLowpass=ch.cfg.enable_fm_lowpass,
-        fmLowpassHz=ch.cfg.fm_lowpass_hz,
-        enableAmHighpass=ch.cfg.enable_am_highpass,
-        amHighpassHz=ch.cfg.am_highpass_hz,
-        enableAmLowpass=ch.cfg.enable_am_lowpass,
-        amLowpassHz=ch.cfg.am_lowpass_hz,
-        enableSsbBandpass=ch.cfg.enable_ssb_bandpass,
-        ssbBandpassLowHz=ch.cfg.ssb_bandpass_low_hz,
-        ssbBandpassHighHz=ch.cfg.ssb_bandpass_high_hz,
-        ssbMode=ch.cfg.ssb_mode,
-        enableAgc=ch.cfg.enable_agc,
-        agcTargetDb=ch.cfg.agc_target_db,
-        agcAttackMs=ch.cfg.agc_attack_ms,
-        agcReleaseMs=ch.cfg.agc_release_ms,
-        enableNoiseBlanker=ch.cfg.enable_noise_blanker,
-        noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
-        notchFrequencies=ch.cfg.notch_frequencies,
-        enableNoiseReduction=ch.cfg.enable_noise_reduction,
-        noiseReductionDb=ch.cfg.noise_reduction_db,
-        rdsData=_to_rds_data_model(ch.rds_data),
-    )
+
+    # Emit state change for WebSocket subscribers
+    channel_model = _to_channel_model(ch)
+    get_broadcaster().emit_channel_change("stopped", chan_id, channel_model.model_dump())
+
+    return channel_model
 
 
 @router.get("/channels/{chan_id}", response_model=ChannelModel)
@@ -1565,50 +1488,11 @@ def update_channel(
             namer = get_frequency_namer()
             ch.cfg.auto_name = namer.suggest_channel_name(cap.cfg.center_hz, ch.cfg.offset_hz)
 
-    return ChannelModel(
-        id=ch.cfg.id,
-        captureId=ch.cfg.capture_id,
-        mode=ch.cfg.mode,  # type: ignore[arg-type]
-        state=ch.state,  # type: ignore[arg-type]
-        offsetHz=ch.cfg.offset_hz,
-        audioRate=ch.cfg.audio_rate,
-        squelchDb=ch.cfg.squelch_db,
-        name=ch.cfg.name,
-        autoName=ch.cfg.auto_name,
-        signalPowerDb=ch.signal_power_db,
-        rssiDb=ch.rssi_db,
-        snrDb=ch.snr_db,
-        audioRmsDb=ch.audio_rms_db,
-        audioPeakDb=ch.audio_peak_db,
-        audioClippingCount=ch.audio_clipping_count,
-        # Filter configuration
-        enableDeemphasis=ch.cfg.enable_deemphasis,
-        deemphasisTauUs=ch.cfg.deemphasis_tau_us,
-        enableMpxFilter=ch.cfg.enable_mpx_filter,
-        mpxCutoffHz=ch.cfg.mpx_cutoff_hz,
-        enableFmHighpass=ch.cfg.enable_fm_highpass,
-        fmHighpassHz=ch.cfg.fm_highpass_hz,
-        enableFmLowpass=ch.cfg.enable_fm_lowpass,
-        fmLowpassHz=ch.cfg.fm_lowpass_hz,
-        enableAmHighpass=ch.cfg.enable_am_highpass,
-        amHighpassHz=ch.cfg.am_highpass_hz,
-        enableAmLowpass=ch.cfg.enable_am_lowpass,
-        amLowpassHz=ch.cfg.am_lowpass_hz,
-        enableSsbBandpass=ch.cfg.enable_ssb_bandpass,
-        ssbBandpassLowHz=ch.cfg.ssb_bandpass_low_hz,
-        ssbBandpassHighHz=ch.cfg.ssb_bandpass_high_hz,
-        ssbMode=ch.cfg.ssb_mode,
-        enableAgc=ch.cfg.enable_agc,
-        agcTargetDb=ch.cfg.agc_target_db,
-        agcAttackMs=ch.cfg.agc_attack_ms,
-        agcReleaseMs=ch.cfg.agc_release_ms,
-        enableNoiseBlanker=ch.cfg.enable_noise_blanker,
-        noiseBlankerThresholdDb=ch.cfg.noise_blanker_threshold_db,
-        notchFrequencies=ch.cfg.notch_frequencies,
-        enableNoiseReduction=ch.cfg.enable_noise_reduction,
-        noiseReductionDb=ch.cfg.noise_reduction_db,
-        rdsData=_to_rds_data_model(ch.rds_data),
-    )
+    # Emit state change for WebSocket subscribers
+    channel_model = _to_channel_model(ch)
+    get_broadcaster().emit_channel_change("updated", chan_id, channel_model.model_dump())
+
+    return channel_model
 
 
 @router.delete("/channels/{chan_id}")
@@ -1618,6 +1502,10 @@ def delete_channel(
     state: AppState = Depends(get_state),
 ):
     state.captures.delete_channel(chan_id)
+
+    # Emit state change for WebSocket subscribers
+    get_broadcaster().emit_channel_change("deleted", chan_id, None)
+
     return Response(status_code=204)
 
 
@@ -2206,6 +2094,74 @@ async def stream_health(websocket: WebSocket):
                 })
     except WebSocketDisconnect:
         pass
+    except asyncio.CancelledError:
+        raise
+    finally:
+        unsubscribe()
+
+
+# ==============================================================================
+# State Stream (replaces polling)
+# ==============================================================================
+
+@router.websocket("/stream/state")
+async def stream_state(websocket: WebSocket):
+    """Real-time state change stream for captures, channels, and scanners.
+
+    Replaces HTTP polling with WebSocket push for state updates.
+
+    Sends JSON messages:
+    - {"type": "capture", "action": "created|updated|deleted|started|stopped", "id": "...", "data": {...}}
+    - {"type": "channel", "action": "created|updated|deleted|started|stopped", "id": "...", "data": {...}}
+    - {"type": "scanner", "action": "created|updated|deleted|started|stopped", "id": "...", "data": {...}}
+    - {"type": "snapshot", "captures": [...], "channels": [...], "scanners": [...]}
+
+    On connect, sends a full state snapshot, then pushes incremental changes.
+    """
+    from .state_broadcaster import get_broadcaster
+
+    # State stream is for UI updates - no auth required (same as health stream)
+    await websocket.accept()
+    logger.info("WebSocket /api/v1/stream/state connected")
+
+    app_state: AppState = getattr(websocket.app.state, "app_state")
+    broadcaster = get_broadcaster()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+
+    def on_state_change(change):
+        try:
+            queue.put_nowait(change.to_dict())
+        except asyncio.QueueFull:
+            pass  # Drop if queue is full
+
+    unsubscribe = broadcaster.subscribe(on_state_change)
+
+    try:
+        # Send initial full state snapshot
+        captures = [_to_capture_model(c).model_dump() for c in app_state.captures.list_captures()]
+        channels = [_to_channel_model(ch).model_dump() for ch in app_state.captures.list_channels()]
+        scanners = [
+            _to_scanner_model(sid, s).model_dump()
+            for sid, s in app_state.scanners.items()
+        ]
+
+        await websocket.send_json({
+            "type": "snapshot",
+            "captures": captures,
+            "channels": channels,
+            "scanners": scanners,
+        })
+
+        # Then stream incremental changes with periodic keepalive
+        while True:
+            try:
+                msg = await asyncio.wait_for(queue.get(), timeout=30.0)
+                await websocket.send_json(msg)
+            except asyncio.TimeoutError:
+                # Send keepalive ping
+                await websocket.send_json({"type": "ping", "timestamp": time.time()})
+    except WebSocketDisconnect:
+        logger.info("WebSocket /api/v1/stream/state disconnected")
     except asyncio.CancelledError:
         raise
     finally:

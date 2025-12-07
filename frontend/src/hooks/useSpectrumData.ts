@@ -24,6 +24,12 @@ class SpectrumWebSocketManager {
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private disconnectTimeout: NodeJS.Timeout | null = null;
 
+  // Reconnection with exponential backoff
+  private reconnectAttempts: number = 0;
+  private readonly MAX_RECONNECT_ATTEMPTS = 10;
+  private readonly INITIAL_RECONNECT_DELAY = 1000;
+  private readonly MAX_RECONNECT_DELAY = 30000;
+
   // Shared idle tracking
   private isIdle: boolean = false;
   private idleTimeout: NodeJS.Timeout | null = null;
@@ -90,13 +96,18 @@ class SpectrumWebSocketManager {
     this.connectionListeners.add(onConnectionChange);
 
     // Check if we need to reconnect with different capture
-    const needsReconnect =
-      this.captureId !== captureId ||
-      this.captureState !== captureState;
+    // Only reconnect if capture ID changed or if capture just started running
+    const captureChanged = this.captureId !== captureId;
+    const justStartedRunning = this.captureState !== 'running' && captureState === 'running';
+    const needsReconnect = captureChanged || justStartedRunning;
+
+    // Update tracked state
+    this.captureId = captureId;
+    this.captureState = captureState;
 
     if (needsReconnect) {
-      this.captureId = captureId;
-      this.captureState = captureState;
+      // Reset reconnection attempts on capture change
+      this.reconnectAttempts = 0;
       this.connect();
     } else if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) && !isPaused) {
       // Already connected or connecting, notify new subscriber
@@ -159,7 +170,8 @@ class SpectrumWebSocketManager {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
-        console.log('Shared spectrum WebSocket connected');
+        console.log('Spectrum WebSocket connected');
+        this.reconnectAttempts = 0; // Reset on successful connection
         this.notifyConnectionChange(true);
       };
 
@@ -176,8 +188,8 @@ class SpectrumWebSocketManager {
         console.error('Shared spectrum WebSocket error:', error);
       };
 
-      this.ws.onclose = () => {
-        console.log('Shared spectrum WebSocket disconnected');
+      this.ws.onclose = (event) => {
+        console.log(`Spectrum WebSocket closed: code=${event.code}, wasClean=${event.wasClean}`);
         this.notifyConnectionChange(false);
         this.ws = null;
 
@@ -187,14 +199,27 @@ class SpectrumWebSocketManager {
           this.captureState === 'running' &&
           !this.isIdle
         ) {
+          // Check if we've exceeded max attempts
+          if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
+            console.error('Spectrum WebSocket: max reconnection attempts reached');
+            return;
+          }
+
           // Exponential backoff reconnection
           if (this.reconnectTimeout) {
             clearTimeout(this.reconnectTimeout);
           }
+
+          const delay = Math.min(
+            this.INITIAL_RECONNECT_DELAY * Math.pow(2, this.reconnectAttempts),
+            this.MAX_RECONNECT_DELAY
+          );
+          this.reconnectAttempts++;
+
+          console.log(`Spectrum WebSocket: reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
           this.reconnectTimeout = setTimeout(() => {
-            console.log('Attempting to reconnect spectrum WebSocket...');
             this.connect();
-          }, 2000);
+          }, delay);
         }
       };
     } catch (error) {

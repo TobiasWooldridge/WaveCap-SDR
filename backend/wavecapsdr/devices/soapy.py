@@ -801,6 +801,8 @@ class SoapyDriver(DeviceDriver):
         self._SoapySDR = _import_soapy()
         self._enumerate_cache: Optional[tuple[float, list[DeviceInfo]]] = None
         self._enumerate_cache_ttl = 30.0  # seconds
+        # Cache of SDRplay devices for use when devices are busy
+        self._sdrplay_device_cache: list[DeviceInfo] = []
 
     def _enumerate_driver(self, driver_name: str, timeout: float = 5.0) -> list[DeviceInfo]:
         """Enumerate devices for a specific driver with timeout protection."""
@@ -853,35 +855,41 @@ class SoapyDriver(DeviceDriver):
             print(f"Warning: Failed to enumerate driver 'rtlsdr': {e}", flush=True)
 
         # Enumerate SDRplay with proactive recovery on timeout
-        try:
-            sdrplay_results = self._enumerate_driver("sdrplay", timeout=5.0)
-            if sdrplay_results:
-                results.extend(sdrplay_results)
-                # Success - reset timeout counter
-                _sdrplay_consecutive_timeouts = 0
-                _sdrplay_last_enumeration_success = now
-                print(f"[SOAPY] SDRplay enumeration success: {len(sdrplay_results)} device(s)", flush=True)
-            else:
-                # Empty result could indicate stuck service
+        # OPTIMIZATION: Skip enumeration if SDRplay devices are busy with active captures
+        # The SDRplay API locks devices during streaming, so enumeration will timeout
+        # Use cached device list instead to avoid the 5-second timeout penalty
+        active_captures = get_sdrplay_active_captures()
+        if active_captures > 0 and self._sdrplay_device_cache:
+            # Use cached SDRplay devices when captures are active
+            print(f"[SOAPY] Skipping SDRplay enumeration ({active_captures} active captures), using cached devices", flush=True)
+            results.extend(self._sdrplay_device_cache)
+        else:
+            try:
+                sdrplay_results = self._enumerate_driver("sdrplay", timeout=5.0)
+                if sdrplay_results:
+                    results.extend(sdrplay_results)
+                    # Cache successful results for use when devices are busy
+                    self._sdrplay_device_cache = list(sdrplay_results)
+                    # Success - reset timeout counter
+                    _sdrplay_consecutive_timeouts = 0
+                    _sdrplay_last_enumeration_success = now
+                    print(f"[SOAPY] SDRplay enumeration success: {len(sdrplay_results)} device(s)", flush=True)
+                else:
+                    # Empty result could indicate stuck service
+                    _sdrplay_consecutive_timeouts += 1
+                    print(f"[SOAPY] SDRplay enumeration returned no devices (timeout count: {_sdrplay_consecutive_timeouts})", flush=True)
+            except Exception as e:
                 _sdrplay_consecutive_timeouts += 1
-                print(f"[SOAPY] SDRplay enumeration returned no devices (timeout count: {_sdrplay_consecutive_timeouts})", flush=True)
-        except Exception as e:
-            _sdrplay_consecutive_timeouts += 1
-            print(f"Warning: Failed to enumerate driver 'sdrplay': {e} (timeout count: {_sdrplay_consecutive_timeouts})", flush=True)
+                print(f"Warning: Failed to enumerate driver 'sdrplay': {e} (timeout count: {_sdrplay_consecutive_timeouts})", flush=True)
 
         # Proactive recovery: If SDRplay has timed out multiple times, attempt service restart
         # CRITICAL: Only do this when NO active SDRplay captures are running!
         # Recovery while streaming would kill active captures.
         sdrplay_found = any(d.driver == "sdrplay" for d in results)
-        active_captures = get_sdrplay_active_captures()
 
-        if not sdrplay_found and active_captures > 0:
-            # Devices are busy with active captures - this is EXPECTED behavior
-            # Don't count this as a failure and don't trigger recovery
-            print(f"[SOAPY] SDRplay enumeration returned no devices ({active_captures} active captures - expected)", flush=True)
-            # Reset timeout counter since devices are legitimately busy
-            _sdrplay_consecutive_timeouts = 0
-        elif not sdrplay_found and _sdrplay_consecutive_timeouts >= _SDRPLAY_MAX_TIMEOUTS_BEFORE_RECOVERY:
+        # Note: active_captures check is now handled above (skip enumeration when busy)
+        # Recovery is only triggered when enumeration actually fails/times out
+        if not sdrplay_found and active_captures == 0 and _sdrplay_consecutive_timeouts >= _SDRPLAY_MAX_TIMEOUTS_BEFORE_RECOVERY:
             recovery = get_recovery()
             allowed, reason = recovery.can_restart()
             if allowed:
@@ -907,8 +915,8 @@ class SoapyDriver(DeviceDriver):
                     print(f"[SOAPY] Recovery failed: {recovery.stats.last_error}", flush=True)
             else:
                 print(f"[SOAPY] Cannot attempt recovery: {reason}", flush=True)
-        elif not sdrplay_found:
-            print("[SOAPY] No SDRplay devices found - may need to restart SDRplay service", flush=True)
+        elif not sdrplay_found and active_captures == 0:
+            print(f"[SOAPY] No SDRplay devices found (timeout count: {_sdrplay_consecutive_timeouts})", flush=True)
 
         # Cache the results
         self._enumerate_cache = (now, results)

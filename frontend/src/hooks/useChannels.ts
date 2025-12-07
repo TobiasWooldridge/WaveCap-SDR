@@ -82,7 +82,9 @@ export function useChannels(captureId: string | undefined) {
     queryKey: ["channels", captureId],
     queryFn: () => fetchChannels(captureId!),
     enabled: !!captureId,
-    refetchInterval: 2_000, // Poll every 2 seconds
+    // Fallback polling - WebSocket provides real-time updates
+    // Polling is kept as backup for reconnection and stale data recovery
+    refetchInterval: 10_000,
   });
 }
 

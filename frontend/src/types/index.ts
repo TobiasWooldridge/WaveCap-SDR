@@ -319,3 +319,32 @@ export interface HealthErrorMessage {
 }
 
 export type HealthMessage = HealthStatsMessage | HealthErrorMessage;
+
+// ==============================================================================
+// State stream types for real-time capture/channel updates
+// ==============================================================================
+
+export type StateChangeAction = "created" | "updated" | "deleted" | "started" | "stopped";
+export type StateChangeType = "capture" | "channel" | "scanner";
+
+export interface StateChangeMessage {
+  type: StateChangeType;
+  action: StateChangeAction;
+  id: string;
+  data: Capture | Channel | Scanner | null;
+  timestamp: number;
+}
+
+export interface StateSnapshotMessage {
+  type: "snapshot";
+  captures: Capture[];
+  channels: Channel[];
+  scanners: Scanner[];
+}
+
+export interface StatePingMessage {
+  type: "ping";
+  timestamp: number;
+}
+
+export type StateMessage = StateChangeMessage | StateSnapshotMessage | StatePingMessage;

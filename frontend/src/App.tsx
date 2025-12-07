@@ -6,6 +6,7 @@ import { ErrorProvider } from "./context/ErrorContext";
 import { useSelectedCapture } from "./hooks/useSelectedCapture";
 import { useChannels } from "./hooks/useChannels";
 import { useDeleteCapture } from "./hooks/useCaptures";
+import { useStateWebSocket } from "./hooks/useStateWebSocket";
 import { RadioTabBar, RadioPanel } from "./features/radio";
 import { ChannelList } from "./features/channel";
 import { SpectrumPanel } from "./features/spectrum";
@@ -24,6 +25,10 @@ const queryClient = new QueryClient({
 });
 
 function AppContent() {
+  // Subscribe to real-time state updates via WebSocket
+  // This updates React Query cache when captures/channels change
+  useStateWebSocket();
+
   const {
     selectedCaptureId,
     selectedCapture,
