@@ -62,7 +62,7 @@ export function ChannelList({ capture }: ChannelListProps) {
   }
 
   return (
-    <Flex direction="column" gap={2} style={{ height: "100%", overflowY: "auto" }}>
+    <Flex direction="column" gap={2}>
       {/* Header with controls */}
       <div className="d-flex align-items-center gap-2 p-2 bg-light rounded border">
         <span className="fw-semibold small">
