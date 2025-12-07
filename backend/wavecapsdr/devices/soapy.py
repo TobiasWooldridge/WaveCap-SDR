@@ -7,7 +7,7 @@ from multiprocessing import Queue as MPQueue
 import signal
 import threading
 import time
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, TypeVar, Union, cast
 
 import numpy as np
 
@@ -154,6 +154,8 @@ def _enumerate_worker(driver_name: str, queue: "MPQueue[Any]") -> None:
             gains = ("LNA", "VGA")
 
             # Set device-specific limits based on driver
+            sample_rates: Tuple[int, ...]
+            antennas: Tuple[str, ...]
             if driver == "rtlsdr":
                 # RTL-SDR common sample rates
                 sample_rates = (250_000, 1_000_000, 1_024_000, 1_800_000, 1_920_000, 2_000_000, 2_048_000, 2_400_000, 2_560_000)
@@ -317,8 +319,8 @@ def _import_soapy() -> Any:
 
 @dataclass
 class _SoapyStream(StreamHandle):
-    sdr: "SoapySDR.Device"
-    stream: "SoapySDR.Stream"
+    sdr: Any  # SoapySDR.Device (dynamically imported)
+    stream: Any  # SoapySDR.Stream (dynamically imported)
 
     def read(self, num_samples: int) -> tuple[np.ndarray, bool]:
         buff = np.empty(num_samples, dtype=np.complex64)
@@ -373,7 +375,7 @@ class _SoapyStream(StreamHandle):
 @dataclass
 class _SoapyDevice(Device):
     info: DeviceInfo
-    sdr: "SoapySDR.Device"
+    sdr: Any  # SoapySDR.Device (dynamically imported)
     _antenna: Optional[str] = None
     _stream_format: Optional[str] = None  # Store stream format for start_stream()
 
@@ -569,7 +571,7 @@ class _SoapyDevice(Device):
         """Return the currently configured antenna, if any."""
         return self._antenna
 
-    def get_capabilities(self) -> dict[str, Any]:
+    def get_capabilities(self) -> Dict[str, Any]:
         """Query and return device capabilities dynamically.
 
         This provides runtime information about what the device supports,
@@ -577,7 +579,7 @@ class _SoapyDevice(Device):
         """
         import SoapySDR
 
-        caps = {}
+        caps: Dict[str, Any] = {}
 
         try:
             # Query available gain elements
@@ -688,7 +690,7 @@ class _SoapyDevice(Device):
 
         return caps
 
-    def read_sensors(self) -> dict[str, Any]:
+    def read_sensors(self) -> Dict[str, Any]:
         """Read all available sensors from the device.
 
         Returns a dict mapping sensor names to their current values.
@@ -696,7 +698,7 @@ class _SoapyDevice(Device):
         """
         import SoapySDR
 
-        sensor_values = {}
+        sensor_values: Dict[str, Any] = {}
 
         try:
             # Get list of available sensors
@@ -782,7 +784,7 @@ class _SoapyDevice(Device):
                 except Exception as e:
                     print(f"Warning: SDRplay device unmake failed: {e}", flush=True)
                 finally:
-                    self.sdr = None  # type: ignore[assignment]
+                    self.sdr = None
                     _sdrplay_last_close_time = time.time()
         else:
             try:
@@ -792,7 +794,7 @@ class _SoapyDevice(Device):
             except Exception as e:
                 print(f"Warning: Device unmake failed: {e}", flush=True)
             finally:
-                self.sdr = None  # type: ignore[assignment]
+                self.sdr = None
 
 
 class SoapyDriver(DeviceDriver):
@@ -810,7 +812,7 @@ class SoapyDriver(DeviceDriver):
         """Enumerate devices for a specific driver with timeout protection."""
         # Use multiprocessing to isolate and timeout the enumeration
         # Note: _enumerate_worker is a module-level function so it can be pickled
-        queue: multiprocessing.Queue = multiprocessing.Queue()
+        queue: "multiprocessing.Queue[Any]" = multiprocessing.Queue()
         process = multiprocessing.Process(target=_enumerate_worker, args=(driver_name, queue))
         process.start()
         process.join(timeout=timeout)
@@ -979,7 +981,7 @@ class SoapyDriver(DeviceDriver):
         _sdrplay_health_status = False
         return False
 
-    def _open_device_subprocess(self, args: str, timeout: float = 15.0) -> dict:
+    def _open_device_subprocess(self, args: str, timeout: float = 15.0) -> Dict[str, Any]:
         """Open device in subprocess with timeout protection.
 
         If subprocess hangs (SDRplay service stuck), it can be killed cleanly.
@@ -998,7 +1000,7 @@ class SoapyDriver(DeviceDriver):
         """
         global _sdrplay_health_status
 
-        queue: multiprocessing.Queue = multiprocessing.Queue()
+        queue: "multiprocessing.Queue[Any]" = multiprocessing.Queue()
         process = multiprocessing.Process(
             target=_device_open_worker,
             args=(args, queue)
@@ -1032,9 +1034,9 @@ class SoapyDriver(DeviceDriver):
         if status == "error":
             raise SDRplayServiceError(f"Device open failed: {data}")
 
-        return data
+        return cast(Dict[str, Any], data)
 
-    def _build_device_info_subprocess(self, args: str, timeout: float = 10.0) -> dict:
+    def _build_device_info_subprocess(self, args: str, timeout: float = 10.0) -> Dict[str, Any]:
         """Query device info via subprocess without consuming API slot.
 
         Uses the existing _device_open_worker which opens, queries, and closes
@@ -1191,7 +1193,7 @@ class SoapyDriver(DeviceDriver):
             freq_min_hz=freq_min,
             freq_max_hz=freq_max,
             sample_rates=sample_rates,
-            gains=tuple(g.name for g in []),
+            gains=(),
             gain_min=gain_min,
             gain_max=gain_max,
             bandwidth_min=bandwidth_min,

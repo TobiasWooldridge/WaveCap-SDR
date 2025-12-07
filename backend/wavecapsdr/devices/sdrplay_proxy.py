@@ -222,7 +222,7 @@ class SDRplayProxyDevice(Device):
     _started: bool = False
     _configured: bool = False
 
-    def _handle_worker_message(self, msg: dict) -> None:
+    def _handle_worker_message(self, msg: Dict[str, Any]) -> None:
         """Handle a message from the worker subprocess.
 
         Args:
@@ -404,6 +404,9 @@ class SDRplayProxyDevice(Device):
             self._antenna = antenna
             self._stream_format = stream_format
 
+            if self._cmd_pipe is None or self._status_pipe is None:
+                raise RuntimeError("Worker not initialized")
+
             # Send configure command
             self._cmd_pipe.send({
                 "type": "configure",
@@ -461,6 +464,9 @@ class SDRplayProxyDevice(Device):
             if not self._configured:
                 logger.error("start_stream called but device not configured")
                 raise RuntimeError("Device not configured")
+
+            if self._cmd_pipe is None or self._status_pipe is None or self._shm is None:
+                raise RuntimeError("Worker not initialized")
 
             # Send start command
             self._cmd_pipe.send({"type": "start"})
@@ -534,6 +540,9 @@ class SDRplayProxyDevice(Device):
             self._antenna = antenna
             self._stream_format = stream_format
 
+            if self._cmd_pipe is None or self._status_pipe is None:
+                raise RuntimeError("Worker not initialized")
+
             self._cmd_pipe.send({
                 "type": "configure",
                 "center_hz": center_hz,
@@ -601,8 +610,11 @@ class SDRplayProxyDevice(Device):
         if not self._started:
             return
 
+        if self._cmd_pipe is None or self._status_pipe is None:
+            raise RuntimeError("Worker not initialized")
+
         # Send configure command (worker handles running reconfiguration)
-        cmd = {"type": "configure"}
+        cmd: Dict[str, Any] = {"type": "configure"}
         if center_hz is not None:
             cmd["center_hz"] = center_hz
         if gain is not None:
@@ -634,7 +646,7 @@ class SDRplayProxyDevice(Device):
         try:
             logger.info("Closing device")
 
-            if self._started and self._cmd_pipe is not None:
+            if self._started and self._cmd_pipe is not None and self._status_pipe is not None:
                 try:
                     logger.debug("Sending stop command to worker")
                     self._cmd_pipe.send({"type": "stop"})

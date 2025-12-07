@@ -29,7 +29,7 @@ from multiprocessing import Process, Pipe
 from multiprocessing.connection import Connection
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -140,8 +140,8 @@ class WorkerConfig:
     antenna: Optional[str] = None
     dc_offset_auto: bool = True
     iq_balance_auto: bool = True
-    device_settings: Dict[str, Any] = None
-    element_gains: Dict[str, float] = None
+    device_settings: Optional[Dict[str, Any]] = None
+    element_gains: Optional[Dict[str, float]] = None
     stream_format: Optional[str] = None
 
 
@@ -263,8 +263,8 @@ class SDRplayWorker:
         self.cmd_pipe = cmd_pipe
         self.status_pipe = status_pipe
 
-        self.sdr = None
-        self.stream = None
+        self.sdr: Optional[Any] = None
+        self.stream: Optional[Any] = None
         self.shm: Optional[SharedMemory] = None
         self.running = False
         self.streaming = False
@@ -313,7 +313,7 @@ class SDRplayWorker:
                     self.status_pipe.send({"type": "stream_error", "message": str(e)})
                     self.streaming = False
 
-    def _handle_command(self, cmd: dict) -> None:
+    def _handle_command(self, cmd: Dict[str, Any]) -> None:
         """Process a command from the main process."""
         cmd_type = cmd.get("type", "")
 
@@ -335,17 +335,20 @@ class SDRplayWorker:
         try:
             import SoapySDR
 
-            logger.info(f"Opening device: {self.device_args}")
+            if logger:
+                logger.info(f"Opening device: {self.device_args}")
             _log_to_pipe(self.status_pipe, "info", f"Opening device: {self.device_args}")
 
-            self.sdr = SoapySDR.Device(self.device_args)
+            sdr = SoapySDR.Device(self.device_args)
+            self.sdr = sdr
 
             # Query device info
-            driver = str(self.sdr.getDriverKey())
-            hardware = str(self.sdr.getHardwareKey())
-            antennas = list(self.sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0))
+            driver = str(sdr.getDriverKey())
+            hardware = str(sdr.getHardwareKey())
+            antennas: List[str] = list(sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0))
 
-            logger.info(f"Device opened: driver={driver}, hardware={hardware}, antennas={antennas}")
+            if logger:
+                logger.info(f"Device opened: driver={driver}, hardware={hardware}, antennas={antennas}")
 
             self.status_pipe.send({
                 "type": "opened",
@@ -356,18 +359,21 @@ class SDRplayWorker:
 
         except Exception as e:
             error_msg = f"Failed to open device: {e}\n{traceback.format_exc()}"
-            logger.error(error_msg)
+            if logger:
+                logger.error(error_msg)
             _log_to_pipe(self.status_pipe, "error", f"Failed to open device: {e}")
             self.status_pipe.send({"type": "open_error", "message": str(e)})
             raise
 
-    def _configure(self, cmd: dict) -> None:
+    def _configure(self, cmd: Dict[str, Any]) -> None:
         """Configure the device."""
         if self.sdr is None:
-            logger.error("Configure called but device not open")
+            if logger:
+                logger.error("Configure called but device not open")
             self.status_pipe.send({"type": "error", "message": "Device not open"})
             return
 
+        sdr = self.sdr  # Local reference for type checker
         try:
             import SoapySDR
 
@@ -383,77 +389,93 @@ class SDRplayWorker:
             device_settings = cmd.get("device_settings", {})
             element_gains = cmd.get("element_gains", {})
 
-            logger.info(f"Configuring: center={center_hz/1e6:.3f}MHz, rate={sample_rate/1e6:.3f}MHz, antenna={antenna}")
-            logger.debug(f"Full config: gain={gain}, bandwidth={bandwidth}, ppm={ppm}")
-            logger.debug(f"Device settings: {device_settings}, element_gains: {element_gains}")
+            if logger:
+                logger.info(f"Configuring: center={center_hz/1e6:.3f}MHz, rate={sample_rate/1e6:.3f}MHz, antenna={antenna}")
+                logger.debug(f"Full config: gain={gain}, bandwidth={bandwidth}, ppm={ppm}")
+                logger.debug(f"Device settings: {device_settings}, element_gains: {element_gains}")
 
             # Apply configuration
-            logger.debug("Setting sample rate...")
-            self.sdr.setSampleRate(SoapySDR.SOAPY_SDR_RX, 0, float(sample_rate))
-            logger.debug("Setting frequency...")
-            self.sdr.setFrequency(SoapySDR.SOAPY_SDR_RX, 0, center_hz)
+            if logger:
+                logger.debug("Setting sample rate...")
+            sdr.setSampleRate(SoapySDR.SOAPY_SDR_RX, 0, float(sample_rate))
+            if logger:
+                logger.debug("Setting frequency...")
+            sdr.setFrequency(SoapySDR.SOAPY_SDR_RX, 0, center_hz)
 
             if device_settings:
                 for key, value in device_settings.items():
                     try:
-                        self.sdr.writeSetting(key, str(value))
-                        logger.debug(f"Applied setting {key}={value}")
+                        sdr.writeSetting(key, str(value))
+                        if logger:
+                            logger.debug(f"Applied setting {key}={value}")
                     except Exception as e:
-                        logger.warning(f"Setting {key}={value} failed: {e}")
+                        if logger:
+                            logger.warning(f"Setting {key}={value} failed: {e}")
 
             if element_gains:
                 for elem, g in element_gains.items():
                     try:
-                        self.sdr.setGain(SoapySDR.SOAPY_SDR_RX, 0, elem, g)
-                        logger.debug(f"Set gain {elem}={g}")
+                        sdr.setGain(SoapySDR.SOAPY_SDR_RX, 0, elem, g)
+                        if logger:
+                            logger.debug(f"Set gain {elem}={g}")
                     except Exception as e:
-                        logger.warning(f"Gain {elem}={g} failed: {e}")
+                        if logger:
+                            logger.warning(f"Gain {elem}={g} failed: {e}")
             elif gain is not None:
                 try:
-                    self.sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, False)
+                    sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, False)
                 except Exception:
                     pass
-                self.sdr.setGain(SoapySDR.SOAPY_SDR_RX, 0, gain)
-                logger.debug(f"Set overall gain={gain}")
+                sdr.setGain(SoapySDR.SOAPY_SDR_RX, 0, gain)
+                if logger:
+                    logger.debug(f"Set overall gain={gain}")
             else:
                 try:
-                    self.sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, True)
-                    logger.debug("Enabled AGC mode")
+                    sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, True)
+                    if logger:
+                        logger.debug("Enabled AGC mode")
                 except Exception:
                     pass
 
             if bandwidth is not None:
                 try:
-                    self.sdr.setBandwidth(SoapySDR.SOAPY_SDR_RX, 0, bandwidth)
-                    logger.debug(f"Set bandwidth={bandwidth}")
+                    sdr.setBandwidth(SoapySDR.SOAPY_SDR_RX, 0, bandwidth)
+                    if logger:
+                        logger.debug(f"Set bandwidth={bandwidth}")
                 except Exception as e:
-                    logger.warning(f"setBandwidth failed: {e}")
+                    if logger:
+                        logger.warning(f"setBandwidth failed: {e}")
 
             if ppm is not None:
                 try:
-                    self.sdr.setFrequencyCorrection(SoapySDR.SOAPY_SDR_RX, 0, ppm)
-                    logger.debug(f"Set PPM correction={ppm}")
+                    sdr.setFrequencyCorrection(SoapySDR.SOAPY_SDR_RX, 0, ppm)
+                    if logger:
+                        logger.debug(f"Set PPM correction={ppm}")
                 except Exception as e:
-                    logger.warning(f"setFrequencyCorrection failed: {e}")
+                    if logger:
+                        logger.warning(f"setFrequencyCorrection failed: {e}")
 
             try:
-                self.sdr.setDCOffsetMode(SoapySDR.SOAPY_SDR_RX, 0, dc_offset_auto)
+                sdr.setDCOffsetMode(SoapySDR.SOAPY_SDR_RX, 0, dc_offset_auto)
             except Exception:
                 pass
 
             try:
-                self.sdr.setIQBalanceMode(SoapySDR.SOAPY_SDR_RX, 0, iq_balance_auto)
+                sdr.setIQBalanceMode(SoapySDR.SOAPY_SDR_RX, 0, iq_balance_auto)
             except Exception:
                 pass
 
             if antenna is not None:
-                self.sdr.setAntenna(SoapySDR.SOAPY_SDR_RX, 0, antenna)
-                logger.debug(f"Set antenna={antenna}")
+                sdr.setAntenna(SoapySDR.SOAPY_SDR_RX, 0, antenna)
+                if logger:
+                    logger.debug(f"Set antenna={antenna}")
 
             self.sample_rate = sample_rate
             self.center_hz = center_hz
 
             # Update header with sample rate
+            if self.shm is None:
+                raise RuntimeError("Shared memory not initialized")
             _write_header(
                 self.shm,
                 write_idx=self.write_idx,
@@ -465,11 +487,13 @@ class SDRplayWorker:
             )
 
             self.status_pipe.send({"type": "configured"})
-            logger.info("Configuration complete")
+            if logger:
+                logger.info("Configuration complete")
 
         except Exception as e:
             error_msg = f"Configure failed: {e}\n{traceback.format_exc()}"
-            logger.error(error_msg)
+            if logger:
+                logger.error(error_msg)
             _log_to_pipe(self.status_pipe, "error", f"Configure failed: {e}")
             self.status_pipe.send({"type": "configure_error", "message": str(e)})
             raise
@@ -477,16 +501,19 @@ class SDRplayWorker:
     def _start_stream(self) -> None:
         """Start IQ streaming."""
         if self.sdr is None:
-            logger.error("Start stream called but device not open")
+            if logger:
+                logger.error("Start stream called but device not open")
             self.status_pipe.send({"type": "error", "message": "Device not open"})
             return
 
+        sdr = self.sdr  # Local reference for type checker
         if self.streaming:
-            logger.debug("Start stream called but already streaming - returning current state")
+            if logger:
+                logger.debug("Start stream called but already streaming - returning current state")
             # Still send success response since we're in the desired state
             try:
                 import SoapySDR
-                current_antenna = self.sdr.getAntenna(SoapySDR.SOAPY_SDR_RX, 0)
+                current_antenna = sdr.getAntenna(SoapySDR.SOAPY_SDR_RX, 0)
             except Exception:
                 current_antenna = None
             self.status_pipe.send({"type": "started", "antenna": current_antenna})
@@ -495,13 +522,15 @@ class SDRplayWorker:
         try:
             import SoapySDR
 
-            logger.info("Starting stream...")
+            if logger:
+                logger.info("Starting stream...")
             _log_to_pipe(self.status_pipe, "info", "Starting IQ stream")
 
             # Set default antenna if not set
-            antennas = self.sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0)
-            current_antenna = self.sdr.getAntenna(SoapySDR.SOAPY_SDR_RX, 0)
-            logger.info(f"Antenna: current={current_antenna}, available={antennas}")
+            antennas = sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0)
+            current_antenna = sdr.getAntenna(SoapySDR.SOAPY_SDR_RX, 0)
+            if logger:
+                logger.info(f"Antenna: current={current_antenna}, available={antennas}")
 
             # Setup stream with retry for transient SDRplay API errors
             # Error -5 (sdrplay_api_Fail) often occurs when:
@@ -512,24 +541,28 @@ class SDRplayWorker:
             retry_delay = 0.5  # seconds, doubles each retry
 
             for attempt in range(max_retries):
-                logger.debug("Calling setupStream...")
-                self.stream = self.sdr.setupStream(SoapySDR.SOAPY_SDR_RX, SoapySDR.SOAPY_SDR_CF32, [0])
-                logger.debug("Calling activateStream...")
-                result = self.sdr.activateStream(self.stream)
+                if logger:
+                    logger.debug("Calling setupStream...")
+                self.stream = sdr.setupStream(SoapySDR.SOAPY_SDR_RX, SoapySDR.SOAPY_SDR_CF32, [0])
+                if logger:
+                    logger.debug("Calling activateStream...")
+                result = sdr.activateStream(self.stream)
 
                 if result == 0:
                     # Success!
                     break
 
                 # activateStream failed - clean up and potentially retry
-                logger.warning(f"activateStream failed with code {result} (attempt {attempt + 1}/{max_retries})")
-                self.sdr.closeStream(self.stream)
+                if logger:
+                    logger.warning(f"activateStream failed with code {result} (attempt {attempt + 1}/{max_retries})")
+                sdr.closeStream(self.stream)
                 self.stream = None
 
                 # Error -5 is sdrplay_api_Fail - often transient, worth retrying
                 if result == -5 and attempt < max_retries - 1:
                     delay = retry_delay * (2 ** attempt)
-                    logger.info(f"Retrying in {delay:.1f}s...")
+                    if logger:
+                        logger.info(f"Retrying in {delay:.1f}s...")
                     _log_to_pipe(self.status_pipe, "warning", f"Stream activation failed, retrying in {delay:.1f}s")
                     time.sleep(delay)
                 else:
@@ -542,6 +575,8 @@ class SDRplayWorker:
             self.overflow_count = 0
 
             # Update header
+            if self.shm is None:
+                raise RuntimeError("Shared memory not initialized")
             _write_header(
                 self.shm,
                 write_idx=0,
@@ -553,57 +588,65 @@ class SDRplayWorker:
             )
 
             self.status_pipe.send({"type": "started", "antenna": current_antenna})
-            logger.info(f"Stream started successfully, rate={self.sample_rate}")
+            if logger:
+                logger.info(f"Stream started successfully, rate={self.sample_rate}")
             _log_to_pipe(self.status_pipe, "info", f"Stream started at {self.sample_rate/1e6:.1f} MHz")
 
         except Exception as e:
             error_msg = f"Start stream failed: {e}\n{traceback.format_exc()}"
-            logger.error(error_msg)
+            if logger:
+                logger.error(error_msg)
             _log_to_pipe(self.status_pipe, "error", f"Start stream failed: {e}")
             self.status_pipe.send({"type": "start_error", "message": str(e)})
             raise
 
     def _stop_stream(self) -> None:
         """Stop IQ streaming."""
-        if not self.streaming or self.stream is None:
+        if not self.streaming or self.stream is None or self.sdr is None:
             return
 
+        sdr = self.sdr  # Local reference for type checker
         try:
-            logger.info("Stopping stream...")
+            if logger:
+                logger.info("Stopping stream...")
             self.streaming = False
 
-            self.sdr.deactivateStream(self.stream)
-            self.sdr.closeStream(self.stream)
+            sdr.deactivateStream(self.stream)
+            sdr.closeStream(self.stream)
             self.stream = None
 
             # Update header
-            _write_header(
-                self.shm,
-                write_idx=self.write_idx,
-                sample_count=self.sample_count,
-                overflow_count=self.overflow_count,
-                sample_rate=self.sample_rate,
-                flags=0,
-                timestamp=time.time(),
-            )
+            if self.shm is not None:
+                _write_header(
+                    self.shm,
+                    write_idx=self.write_idx,
+                    sample_count=self.sample_count,
+                    overflow_count=self.overflow_count,
+                    sample_rate=self.sample_rate,
+                    flags=0,
+                    timestamp=time.time(),
+                )
 
             self.status_pipe.send({"type": "stopped"})
-            logger.info(f"Stream stopped, total samples: {self.sample_count}, overflows: {self.overflow_count}")
+            if logger:
+                logger.info(f"Stream stopped, total samples: {self.sample_count}, overflows: {self.overflow_count}")
 
         except Exception as e:
-            logger.error(f"Error stopping stream: {e}")
+            if logger:
+                logger.error(f"Error stopping stream: {e}")
             self.status_pipe.send({"type": "stop_error", "message": str(e)})
 
     def _stream_samples(self) -> None:
         """Read samples from device and write to shared memory."""
-        if self.stream is None:
+        if self.stream is None or self.sdr is None or self.shm is None:
             return
 
+        sdr = self.sdr  # Local reference for type checker
         # Read samples from device
         chunk_size = min(8192, BUFFER_SAMPLES // 4)  # Read in smaller chunks
         buff = np.empty(chunk_size, dtype=np.complex64)
 
-        sr = self.sdr.readStream(self.stream, [buff.view(np.float32)], chunk_size, flags=0)
+        sr = sdr.readStream(self.stream, [buff.view(np.float32)], chunk_size, flags=0)
 
         # Handle StreamResult
         if hasattr(sr, 'ret'):

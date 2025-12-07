@@ -78,7 +78,7 @@ class C4FMDemodulator:
             Array of dibits (0-3)
         """
         if iq.size == 0:
-            return np.array([], dtype=np.uint8)
+            return cast(np.ndarray, np.array([], dtype=np.uint8))
 
         # Frequency discriminator (same as FM demodulation)
         x: np.ndarray = iq.astype(np.complex64, copy=False)
@@ -113,7 +113,7 @@ class P25FrameSync:
     FRAME_SYNC_LDU2 = 0x5F5D5575  # LDU2 (voice frame 2)
     FRAME_SYNC_TSDU = 0x575D7FFF  # Trunking Signaling Data Unit
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.sync_patterns = {
             self.FRAME_SYNC_HDU: P25FrameType.HDU,
             self.FRAME_SYNC_TDU: P25FrameType.TDU,
@@ -221,7 +221,8 @@ class P25Decoder:
             frame = P25Frame(frame_type=P25FrameType.UNKNOWN, nac=0, duid=0)
 
         if frame:
-            frame.frame_type = frame_type
+            if frame_type is not None:
+                frame.frame_type = frame_type
             frames.append(frame)
 
             # Handle trunking logic
@@ -348,7 +349,7 @@ class P25Decoder:
 
     def _decode_tsbk_opcode(self, opcode: int, dibits: np.ndarray) -> Dict[str, Any]:
         """Decode TSBK opcode and extract trunking information"""
-        data = {}
+        data: Dict[str, Any] = {}
 
         # Common TSBK opcodes
         if opcode == 0x00:  # Group Voice Channel Grant
@@ -408,7 +409,7 @@ class P25Decoder:
 
         return bytes(imbe_data)
 
-    def _handle_tsbk(self, frame: P25Frame):
+    def _handle_tsbk(self, frame: P25Frame) -> None:
         """Handle trunking signaling (TSBK) messages"""
         if not frame.tsbk_data:
             return
