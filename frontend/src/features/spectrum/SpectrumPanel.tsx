@@ -76,13 +76,15 @@ export function SpectrumPanel({ capture, channels }: SpectrumPanelProps) {
     localStorage.setItem("waterfall-height", height.toString());
   }, []);
 
-  // Total height is spectrum + divider + waterfall
-  const totalHeight = spectrumHeight + 4 + waterfallHeight;
+  // Total height is spectrum + divider + waterfall + card chrome (headers, padding, borders)
+  // Each card has ~40px of chrome (header + padding + borders)
+  const cardChrome = 40;
+  const totalHeight = spectrumHeight + cardChrome + 4 + waterfallHeight + cardChrome;
 
   return (
     <Flex direction="column" gap={0} style={{ height: `${totalHeight}px` }}>
       {/* Spectrum Analyzer */}
-      <div style={{ height: `${spectrumHeight}px` }}>
+      <div style={{ overflow: "visible" }}>
         <SpectrumAnalyzer
           capture={capture}
           channels={channels}
