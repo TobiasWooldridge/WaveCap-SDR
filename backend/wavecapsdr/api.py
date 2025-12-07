@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect, Response
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -48,7 +48,7 @@ router = APIRouter()
 
 
 @router.get("/health")
-def health_check(request: Request):
+def health_check(request: Request) -> JSONResponse:
     """Comprehensive health check endpoint that tests all major API components."""
     state = getattr(request.app.state, "app_state", None)
     if state is None:
@@ -170,8 +170,8 @@ def health_check(request: Request):
     return JSONResponse(status_code=status_code, content=health_status)
 
 
-@router.get("/debug/perf")
-def get_performance_metrics(request: Request):
+@router.get("/debug/perf", response_model=None)
+def get_performance_metrics(request: Request) -> Union[JSONResponse, Dict[str, Any]]:
     """Get detailed performance metrics for all captures.
 
     Returns timing statistics (loop time, DSP time, FFT time) and queue depths
@@ -185,7 +185,7 @@ def get_performance_metrics(request: Request):
         )
 
     import time
-    result = {
+    result: Dict[str, Any] = {
         "timestamp": time.time(),
         "captures": {},
     }
@@ -224,13 +224,13 @@ def get_performance_metrics(request: Request):
 
 
 def get_state(request: Request) -> AppState:
-    state = getattr(request.app.state, "app_state", None)
+    state: Optional[AppState] = getattr(request.app.state, "app_state", None)
     if state is None:
         raise RuntimeError("AppState not initialized")
     return state
 
 
-def _to_rds_data_model(rds_data) -> Optional[RDSDataModel]:
+def _to_rds_data_model(rds_data: Any) -> Optional[RDSDataModel]:
     """Convert RDSData from backend to RDSDataModel for API response."""
     if rds_data is None:
         return None
@@ -247,7 +247,7 @@ def _to_rds_data_model(rds_data) -> Optional[RDSDataModel]:
     )
 
 
-def _to_capture_model(cap) -> CaptureModel:
+def _to_capture_model(cap: Any) -> CaptureModel:
     """Helper to convert a Capture to CaptureModel consistently."""
     from .error_tracker import get_error_tracker, ErrorStats
 
@@ -265,7 +265,7 @@ def _to_capture_model(cap) -> CaptureModel:
     return CaptureModel(
         id=cap.cfg.id,
         deviceId=cap.cfg.device_id,
-        state=cap.state,  # type: ignore[arg-type]
+        state=cap.state,
         centerHz=cap.cfg.center_hz,
         sampleRate=cap.cfg.sample_rate,
         gain=cap.cfg.gain,
@@ -289,7 +289,7 @@ def _to_capture_model(cap) -> CaptureModel:
     )
 
 
-def _to_channel_model(ch) -> ChannelModel:
+def _to_channel_model(ch: Any) -> ChannelModel:
     """Helper to convert a Channel to ChannelModel consistently."""
     from .error_tracker import get_error_tracker, ErrorStats
 
@@ -301,8 +301,8 @@ def _to_channel_model(ch) -> ChannelModel:
     return ChannelModel(
         id=ch.cfg.id,
         captureId=ch.cfg.capture_id,
-        mode=ch.cfg.mode,  # type: ignore[arg-type]
-        state=ch.state,  # type: ignore[arg-type]
+        mode=ch.cfg.mode,
+        state=ch.state,
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
         squelchDb=ch.cfg.squelch_db,
@@ -359,7 +359,7 @@ def auth_check(request: Request, state: AppState = Depends(get_state)) -> None:
 
 
 @router.get("/devices/{device_id}/name")
-def get_device_name(device_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)):
+def get_device_name(device_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)) -> Dict[str, Any]:
     """Get custom nickname for a device."""
     nickname = get_device_nickname(device_id)
     # Also get device info for shorthand fallback
@@ -378,7 +378,7 @@ def get_device_name(device_id: str, _: None = Depends(auth_check), state: AppSta
 
 
 @router.patch("/devices/{device_id}/name")
-def update_device_name(device_id: str, request: dict, _: None = Depends(auth_check), state: AppState = Depends(get_state)):
+def update_device_name(device_id: str, request: Dict[str, Any], _: None = Depends(auth_check), state: AppState = Depends(get_state)) -> Dict[str, Any]:
     """Set custom nickname for a device."""
     nickname = request.get("nickname", "")
 
@@ -441,8 +441,8 @@ def _get_stable_device_id(device_id: str) -> str:
 
 
 @router.get("/devices", response_model=List[DeviceModel], response_model_by_alias=False)
-def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)):
-    result = []
+def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> List[DeviceModel]:
+    result: List[DeviceModel] = []
     seen_ids = set()  # Full device IDs
     seen_stable_ids = set()  # Stable IDs for deduplication
 
@@ -504,17 +504,17 @@ def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_st
                 id=device_id,
                 driver=driver,
                 label=label,
-                freqMinHz=device_info.freq_min_hz if device_info else 0,
-                freqMaxHz=device_info.freq_max_hz if device_info else 6e9,
-                sampleRates=device_info.sample_rates if device_info else [],
-                gains=device_info.gains if device_info else [],
-                gainMin=device_info.gain_min if device_info else 0,
-                gainMax=device_info.gain_max if device_info else 50,
-                bandwidthMin=device_info.bandwidth_min if device_info else 0,
-                bandwidthMax=device_info.bandwidth_max if device_info else 10e6,
-                ppmMin=-100,
-                ppmMax=100,
-                antennas=device_info.antennas if device_info else [],
+                freq_min_hz=device_info.freq_min_hz if device_info else 0,
+                freq_max_hz=device_info.freq_max_hz if device_info else 6e9,
+                sample_rates=list(device_info.sample_rates) if device_info else [],
+                gains=list(device_info.gains) if device_info else [],
+                gain_min=device_info.gain_min if device_info else 0,
+                gain_max=device_info.gain_max if device_info else 50,
+                bandwidth_min=device_info.bandwidth_min if device_info else 0,
+                bandwidth_max=device_info.bandwidth_max if device_info else 10e6,
+                ppm_min=-100,
+                ppm_max=100,
+                antennas=list(device_info.antennas) if device_info else [],
                 nickname=nickname,
                 shorthand=shorthand,
             )
@@ -524,7 +524,7 @@ def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_st
 
 
 @router.get("/devices/sdrplay/health")
-def get_sdrplay_health():
+def get_sdrplay_health() -> Dict[str, Any]:
     """Get SDRplay service health status for monitoring.
 
     Returns metrics about SDRplay enumeration success/failure history,
@@ -554,7 +554,7 @@ def get_sdrplay_health():
 
 
 @router.post("/devices/sdrplay/restart-service")
-def restart_sdrplay_service(_: None = Depends(auth_check)):
+def restart_sdrplay_service(_: None = Depends(auth_check)) -> Dict[str, Any]:
     """Restart the SDRplay API service to recover from stuck states.
 
     Use this when SDRplay captures are stuck in 'starting' state or
@@ -592,7 +592,7 @@ def restart_sdrplay_service(_: None = Depends(auth_check)):
 
 
 @router.get("/devices/usb/hubs")
-def get_usb_hubs(_: None = Depends(auth_check)):
+def get_usb_hubs(_: None = Depends(auth_check)) -> Dict[str, Any]:
     """Get USB hub status for power management.
 
     Returns list of controllable USB hubs and their port status,
@@ -605,7 +605,7 @@ def get_usb_hubs(_: None = Depends(auth_check)):
 
 
 @router.post("/devices/usb/power-cycle/{capture_id}")
-def power_cycle_capture_device(capture_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)):
+def power_cycle_capture_device(capture_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)) -> Dict[str, Any]:
     """Power cycle the USB port for a capture's device.
 
     This performs a hardware reset by cycling the USB port power,
@@ -690,7 +690,7 @@ def list_recipes(
     device_id: Optional[str] = None,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> List[RecipeModel]:
     """Get all available capture creation recipes.
 
     If device_id is provided, recipe parameters are adjusted to fit the device's capabilities.
@@ -752,7 +752,7 @@ def list_recipes(
 def identify_frequency(
     frequency_hz: float,
     _: None = Depends(auth_check),
-):
+) -> Optional[Dict[str, Any]]:
     """Identify a frequency and return its auto-generated name."""
     namer = get_frequency_namer()
     freq_info = namer.identify_frequency(frequency_hz)
@@ -769,7 +769,7 @@ def identify_frequency(
 
 
 @router.get("/captures", response_model=List[CaptureModel])
-def list_captures(_: None = Depends(auth_check), state: AppState = Depends(get_state)):
+def list_captures(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> List[CaptureModel]:
     return [_to_capture_model(c) for c in state.captures.list_captures()]
 
 
@@ -778,7 +778,7 @@ def create_capture(
     req: CreateCaptureRequest,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-):
+) -> CaptureModel:
     # Validate sample rate against device capabilities before creating
     if req.deviceId:
         try:
@@ -1363,8 +1363,8 @@ def get_channel(
     return ChannelModel(
         id=ch.cfg.id,
         captureId=ch.cfg.capture_id,
-        mode=ch.cfg.mode,  # type: ignore[arg-type]
-        state=ch.state,  # type: ignore[arg-type]
+        mode=ch.cfg.mode,
+        state=ch.state,
         offsetHz=ch.cfg.offset_hz,
         audioRate=ch.cfg.audio_rate,
         squelchDb=ch.cfg.squelch_db,
@@ -2066,9 +2066,9 @@ async def stream_health(websocket: WebSocket):
     await websocket.accept()
 
     tracker = get_error_tracker()
-    queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=100)
 
-    def on_error(event):
+    def on_error(event: Any) -> None:
         try:
             queue.put_nowait({"type": "error", "event": event.to_dict()})
         except asyncio.QueueFull:
@@ -2126,9 +2126,9 @@ async def stream_state(websocket: WebSocket):
 
     app_state: AppState = getattr(websocket.app.state, "app_state")
     broadcaster = get_broadcaster()
-    queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=100)
 
-    def on_state_change(change):
+    def on_state_change(change: Any) -> None:
         try:
             queue.put_nowait(change.to_dict())
         except asyncio.QueueFull:
@@ -2476,7 +2476,7 @@ class FrontendErrorReport(BaseModel):
     url: Optional[str] = None
     userAgent: Optional[str] = None
     timestamp: Optional[float] = None
-    context: Optional[dict] = None  # Additional context (component name, props, etc.)
+    context: Optional[Dict[str, Any]] = None  # Additional context (component name, props, etc.)
 
 
 class FrontendLogEntry(BaseModel):
@@ -2484,7 +2484,7 @@ class FrontendLogEntry(BaseModel):
     timestamp: str
     level: str
     message: str
-    data: Optional[dict] = None
+    data: Optional[Dict[str, Any]] = None
     source: Optional[str] = None
     stack: Optional[str] = None
 
@@ -2495,7 +2495,7 @@ class FrontendLogBatch(BaseModel):
 
 
 # In-memory log buffer for recent frontend errors (for the production engineer agent)
-_frontend_error_log: list[dict] = []
+_frontend_error_log: List[Dict[str, Any]] = []
 _MAX_FRONTEND_ERRORS = 500
 
 # File path for persistent frontend logs (accessible to Claude for debugging)
@@ -2507,7 +2507,7 @@ def _ensure_log_dir():
     _FRONTEND_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
-def _write_to_log_file(entry: dict):
+def _write_to_log_file(entry: Dict[str, Any]) -> None:
     """Append a log entry to the frontend log file."""
     try:
         _ensure_log_dir()
@@ -2531,7 +2531,7 @@ def _rotate_log_file():
         logger.warning(f"Failed to rotate frontend log file: {e}")
 
 
-def _process_log_entry(entry: dict, request: Request) -> dict:
+def _process_log_entry(entry: Dict[str, Any], request: Request) -> Dict[str, Any]:
     """Process and store a single log entry."""
     import time
 
