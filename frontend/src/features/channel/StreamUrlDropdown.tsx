@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Copy, CheckCircle, ChevronDown } from "lucide-react";
+import { Copy, CheckCircle, ChevronUp } from "lucide-react";
 import Button from "../../components/primitives/Button.react";
 
 interface StreamUrlDropdownProps {
@@ -35,13 +35,13 @@ export function StreamUrlDropdown({ channelId, onCopyUrl }: StreamUrlDropdownPro
         className="w-100 d-flex justify-content-between align-items-center"
       >
         <span className="small">Copy Stream URL</span>
-        <ChevronDown size={12} />
+        <ChevronUp size={12} />
       </Button>
 
       {isOpen && (
         <div
           className="dropdown-menu show w-100"
-          style={{ position: "absolute", top: "100%", zIndex: 1000 }}
+          style={{ position: "absolute", bottom: "100%", zIndex: 1000 }}
         >
           {STREAM_FORMATS.map(({ format, ext, label }) => {
             const isCopied = copiedFormat === format;
