@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import type { Capture } from '../types';
 
 interface SpectrumData {
@@ -14,52 +14,103 @@ interface SpectrumDataHook {
   isIdle: boolean;
 }
 
-// Shared WebSocket connection manager
+// Shared WebSocket connection manager with built-in idle tracking
 class SpectrumWebSocketManager {
   private ws: WebSocket | null = null;
   private subscribers: Set<(data: SpectrumData) => void> = new Set();
   private connectionListeners: Set<(connected: boolean) => void> = new Set();
   private captureId: string | null = null;
   private captureState: string | null = null;
-  private isIdle: boolean = false;
   private reconnectTimeout: NodeJS.Timeout | null = null;
+  private disconnectTimeout: NodeJS.Timeout | null = null;
+
+  // Shared idle tracking
+  private isIdle: boolean = false;
+  private idleTimeout: NodeJS.Timeout | null = null;
+  private readonly IDLE_TIMEOUT = 60000; // 60 seconds
+  private activityBound = false;
+
+  private initActivityTracking() {
+    if (this.activityBound) return;
+    this.activityBound = true;
+
+    const resetIdleTimer = () => {
+      const wasIdle = this.isIdle;
+      this.isIdle = false;
+
+      if (this.idleTimeout) {
+        clearTimeout(this.idleTimeout);
+      }
+
+      this.idleTimeout = setTimeout(() => {
+        console.log('Spectrum data: UI idle, disconnecting');
+        this.isIdle = true;
+        // Disconnect if idle and no paused override
+        if (this.subscribers.size > 0) {
+          this.disconnect();
+          this.notifyConnectionChange(false);
+        }
+      }, this.IDLE_TIMEOUT);
+
+      // Reconnect if we were idle and now active
+      if (wasIdle && this.subscribers.size > 0 && this.captureState === 'running') {
+        console.log('Spectrum data: UI active, reconnecting');
+        this.connect();
+      }
+    };
+
+    const activityEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart'];
+    activityEvents.forEach((event) => {
+      window.addEventListener(event, resetIdleTimer, { passive: true });
+    });
+
+    resetIdleTimer();
+  }
 
   subscribe(
     captureId: string,
     captureState: string,
-    isIdle: boolean,
     isPaused: boolean,
     onData: (data: SpectrumData) => void,
     onConnectionChange: (connected: boolean) => void
   ) {
-    // Track active (non-paused) subscribers separately
+    // Initialize activity tracking on first subscription
+    this.initActivityTracking();
+
+    // Cancel any pending disconnect (handles React StrictMode remount)
+    if (this.disconnectTimeout) {
+      clearTimeout(this.disconnectTimeout);
+      this.disconnectTimeout = null;
+    }
+
+    // Track active (non-paused) subscribers
     if (!isPaused) {
       this.subscribers.add(onData);
     }
     this.connectionListeners.add(onConnectionChange);
 
-    // Check if we need to reconnect with different parameters
+    // Check if we need to reconnect with different capture
     const needsReconnect =
       this.captureId !== captureId ||
-      this.captureState !== captureState ||
-      this.isIdle !== isIdle;
+      this.captureState !== captureState;
 
     if (needsReconnect) {
       this.captureId = captureId;
       this.captureState = captureState;
-      this.isIdle = isIdle;
       this.connect();
-    } else if (this.ws && this.ws.readyState === WebSocket.OPEN && !isPaused) {
-      // Already connected, notify new subscriber
-      onConnectionChange(true);
+    } else if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) && !isPaused) {
+      // Already connected or connecting, notify new subscriber
+      if (this.ws.readyState === WebSocket.OPEN) {
+        onConnectionChange(true);
+      }
     } else if (isPaused) {
-      // Paused subscriber, disconnect if no active subscribers
+      // Paused subscriber, schedule disconnect if no active subscribers
       if (this.subscribers.size === 0) {
-        this.disconnect();
+        this.scheduleDisconnect();
       }
       onConnectionChange(false);
-    } else if (!isPaused && this.subscribers.size > 0 && (!this.ws || this.ws.readyState !== WebSocket.OPEN)) {
-      // We have active subscribers but no connection - reconnect
+    } else if (!isPaused && this.subscribers.size > 0 && !this.ws && !this.isIdle) {
+      // We have active subscribers but no WebSocket - connect (unless idle)
       this.connect();
     }
 
@@ -67,11 +118,28 @@ class SpectrumWebSocketManager {
       this.subscribers.delete(onData);
       this.connectionListeners.delete(onConnectionChange);
 
-      // If no more active subscribers, disconnect
+      // If no more active subscribers, schedule disconnect with delay
+      // (allows React StrictMode to remount without losing connection)
+      if (this.subscribers.size === 0) {
+        this.scheduleDisconnect();
+      }
+    };
+  }
+
+  private scheduleDisconnect() {
+    // Cancel any existing disconnect timeout
+    if (this.disconnectTimeout) {
+      clearTimeout(this.disconnectTimeout);
+    }
+
+    // Delay disconnect to handle React StrictMode double-invocation
+    this.disconnectTimeout = setTimeout(() => {
+      this.disconnectTimeout = null;
+      // Only disconnect if still no subscribers
       if (this.subscribers.size === 0) {
         this.disconnect();
       }
-    };
+    }, 100);
   }
 
   private connect() {
@@ -141,6 +209,11 @@ class SpectrumWebSocketManager {
       this.reconnectTimeout = null;
     }
 
+    if (this.disconnectTimeout) {
+      clearTimeout(this.disconnectTimeout);
+      this.disconnectTimeout = null;
+    }
+
     if (this.ws) {
       const ws = this.ws;
       ws.onopen = null;
@@ -161,6 +234,10 @@ class SpectrumWebSocketManager {
   private notifyConnectionChange(connected: boolean) {
     this.connectionListeners.forEach((callback) => callback(connected));
   }
+
+  getIsIdle(): boolean {
+    return this.isIdle;
+  }
 }
 
 // Singleton instance
@@ -169,43 +246,6 @@ const spectrumManager = new SpectrumWebSocketManager();
 export function useSpectrumData(capture: Capture, isPaused: boolean = false): SpectrumDataHook {
   const [spectrumData, setSpectrumData] = useState<SpectrumData | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [isIdle, setIsIdle] = useState(false);
-  const idleTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Track user activity to detect idle state
-  useEffect(() => {
-    const IDLE_TIMEOUT = 60000; // 60 seconds
-
-    const resetIdleTimer = () => {
-      setIsIdle(false);
-
-      if (idleTimerRef.current) {
-        clearTimeout(idleTimerRef.current);
-      }
-
-      idleTimerRef.current = setTimeout(() => {
-        console.log('Spectrum data: UI idle, pausing');
-        setIsIdle(true);
-      }, IDLE_TIMEOUT);
-    };
-
-    const activityEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart'];
-
-    activityEvents.forEach((event) => {
-      window.addEventListener(event, resetIdleTimer, { passive: true });
-    });
-
-    resetIdleTimer();
-
-    return () => {
-      activityEvents.forEach((event) => {
-        window.removeEventListener(event, resetIdleTimer);
-      });
-      if (idleTimerRef.current) {
-        clearTimeout(idleTimerRef.current);
-      }
-    };
-  }, []);
 
   // Subscribe to shared WebSocket
   useEffect(() => {
@@ -217,14 +257,13 @@ export function useSpectrumData(capture: Capture, isPaused: boolean = false): Sp
     const unsubscribe = spectrumManager.subscribe(
       capture.id,
       capture.state,
-      isIdle,
       isPaused,
       setSpectrumData,
       setIsConnected
     );
 
     return unsubscribe;
-  }, [capture.id, capture.state, isIdle, isPaused]);
+  }, [capture.id, capture.state, isPaused]);
 
-  return { spectrumData, isConnected, isIdle };
+  return { spectrumData, isConnected, isIdle: spectrumManager.getIsIdle() };
 }

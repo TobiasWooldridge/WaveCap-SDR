@@ -1682,6 +1682,7 @@ class Capture:
         q: asyncio.Queue[dict] = asyncio.Queue(maxsize=4)
         loop = asyncio.get_running_loop()
         self._fft_sinks.add((q, loop))
+        logger.info(f"FFT subscriber added for capture {self.cfg.id}, total subs: {len(self._fft_sinks)}")
         return q
 
     def unsubscribe_fft(self, q: asyncio.Queue[dict]) -> None:
@@ -2142,6 +2143,9 @@ class Capture:
             # Calculate FFT for spectrum display (only if there are active subscribers)
             fft_time_ms = 0.0
             if self._fft_sinks:
+                # Debug: log that we have FFT subscribers
+                if self._fft_counter % 100 == 0:
+                    logger.debug(f"FFT processing for {self.cfg.id}: {len(self._fft_sinks)} subscribers, counter={self._fft_counter}")
                 # Adaptive FFT throttling: Target 10 FPS to reduce CPU load
                 # Lower FPS is fine for spectrum display (human eye threshold ~24 FPS)
                 # With 3 radios: 10 FPS x 3 = 30 FFTs/sec instead of 45 FFTs/sec

@@ -31,3 +31,15 @@ export function formatSampleRate(hz: number): string {
   }
   return `${hz} Hz`;
 }
+
+/**
+ * Format bandwidth to human-readable string
+ */
+export function formatBandwidth(hz: number): string {
+  if (hz >= 1_000_000) {
+    return `${(hz / 1_000_000).toFixed(1)} MHz`;
+  } else if (hz >= 1_000) {
+    return `${(hz / 1_000).toFixed(0)} kHz`;
+  }
+  return `${hz} Hz`;
+}
