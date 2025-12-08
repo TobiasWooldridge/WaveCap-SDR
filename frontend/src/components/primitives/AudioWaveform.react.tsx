@@ -3,7 +3,6 @@ import { useRef, useEffect, useCallback } from "react";
 interface AudioWaveformProps {
   channelId: string;
   isPlaying: boolean;
-  width?: number;
   height?: number;
 }
 
@@ -14,15 +13,16 @@ interface AudioWaveformProps {
 export default function AudioWaveform({
   channelId,
   isPlaying,
-  width = 200,
   height = 40,
 }: AudioWaveformProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number | null>(null);
   const audioBufferRef = useRef<Float32Array>(new Float32Array(512));
   const writeIndexRef = useRef(0);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const shouldStreamRef = useRef(false);
+  const widthRef = useRef(200);
 
   // Draw the waveform
   const drawWaveform = useCallback(() => {
@@ -34,6 +34,7 @@ export default function AudioWaveform({
 
     const buffer = audioBufferRef.current;
     const dpr = window.devicePixelRatio || 1;
+    const width = widthRef.current;
 
     // Clear canvas
     ctx.fillStyle = "#1a1a2e";
@@ -88,7 +89,7 @@ export default function AudioWaveform({
     ctx.fillRect(canvas.width - 3 * dpr, canvas.height - levelHeight, 3 * dpr, levelHeight);
 
     animationRef.current = requestAnimationFrame(drawWaveform);
-  }, [width]);
+  }, []);
 
   // Start streaming audio data
   const startStreaming = useCallback(async () => {
@@ -198,32 +199,47 @@ export default function AudioWaveform({
     };
   }, [isPlaying, startStreaming, stopStreaming, drawWaveform]);
 
-  // Set up canvas with proper DPR
+  // Set up canvas with proper DPR and handle resize
   useEffect(() => {
+    const container = containerRef.current;
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!container || !canvas) return;
 
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = `${width}px`;
-    canvas.style.height = `${height}px`;
+    const updateSize = () => {
+      const width = container.offsetWidth;
+      widthRef.current = width;
 
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.scale(dpr, dpr);
-    }
-  }, [width, height]);
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.scale(dpr, dpr);
+      }
+    };
+
+    updateSize();
+
+    const resizeObserver = new ResizeObserver(updateSize);
+    resizeObserver.observe(container);
+
+    return () => resizeObserver.disconnect();
+  }, [height]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      style={{
-        width: `${width}px`,
-        height: `${height}px`,
-        borderRadius: "4px",
-        display: "block",
-      }}
-    />
+    <div ref={containerRef} style={{ width: "100%" }}>
+      <canvas
+        ref={canvasRef}
+        style={{
+          width: "100%",
+          height: `${height}px`,
+          borderRadius: "4px",
+          display: "block",
+        }}
+      />
+    </div>
   );
 }

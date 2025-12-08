@@ -208,7 +208,7 @@ export function ChannelCard({ channel, capture }: ChannelCardProps) {
           {/* Audio Waveform */}
           {isPlaying && (
             <div className="border rounded p-2 bg-dark">
-              <AudioWaveform channelId={channel.id} isPlaying={isPlaying} width={200} height={40} />
+              <AudioWaveform channelId={channel.id} isPlaying={isPlaying} height={40} />
             </div>
           )}
 
