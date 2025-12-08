@@ -11,6 +11,7 @@ from .devices.base import DeviceDriver
 from .devices.fake import FakeDriver
 from .devices.rtl import RtlDriver
 from .devices.composite import CompositeDriver
+from .trunking import TrunkingManager
 
 try:  # Optional import; only when using Soapy driver
     from .devices.soapy import SoapyDriver
@@ -26,6 +27,7 @@ class AppState:
     config: AppConfig
     driver: DeviceDriver
     captures: CaptureManager
+    trunking_manager: TrunkingManager
     config_path: Optional[str] = None
     # Map capture_id -> preset_name for persistence
     capture_presets: Dict[str, str] = field(default_factory=dict)
@@ -63,7 +65,16 @@ class AppState:
 
         captures = CaptureManager(cfg, driver)
 
+        # Initialize P25 trunking manager
+        trunking_manager = TrunkingManager()
+
         # Load device nicknames from config
         load_device_nicknames(cfg.device_names)
 
-        return cls(config=cfg, driver=driver, captures=captures, config_path=config_path)
+        return cls(
+            config=cfg,
+            driver=driver,
+            captures=captures,
+            trunking_manager=trunking_manager,
+            config_path=config_path,
+        )

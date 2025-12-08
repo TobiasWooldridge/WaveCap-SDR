@@ -15,6 +15,7 @@ from slowapi.errors import RateLimitExceeded
 
 from .config import AppConfig
 from .api import router as api_router
+from .trunking.api import router as trunking_router
 from .state import AppState
 from .device_namer import get_device_nickname, generate_capture_name
 
@@ -167,6 +168,10 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
 
         app_state: AppState = app.state.app_state
 
+        # Start P25 trunking manager (already created in AppState.from_config)
+        await app_state.trunking_manager.start()
+        logging.info("P25 TrunkingManager started")
+
         created_any = False
 
         # Create and start captures explicitly listed in config
@@ -299,6 +304,7 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
                 print(f"Warning: Failed to initialize default capture: {e}", flush=True)
 
     app.include_router(api_router, prefix="/api/v1")
+    app.include_router(trunking_router, prefix="/api/v1")
 
     # Serve static files
     static_dir = Path(__file__).parent / "static"
