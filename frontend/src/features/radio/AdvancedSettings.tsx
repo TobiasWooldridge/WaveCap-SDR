@@ -34,6 +34,19 @@ export function AdvancedSettingsContent({ capture, device: _device }: AdvancedSe
     { delay: 0 }
   );
 
+  // FFT/Spectrum settings (can be changed while running)
+  const [fftFps, setFftFps] = useDebouncedMutation(
+    capture.fftFps ?? 15,
+    (value) => updateCapture.mutate({ captureId: capture.id, request: { fftFps: value } }),
+    { delay: 300 }
+  );
+
+  const [fftSize, setFftSize] = useDebouncedMutation(
+    capture.fftSize ?? 2048,
+    (value) => updateCapture.mutate({ captureId: capture.id, request: { fftSize: value } }),
+    { delay: 0 }
+  );
+
   const [elementGains, setElementGains] = useDebouncedMutation(
     capture.elementGains ?? {},
     (value) => updateCapture.mutate({ captureId: capture.id, request: { elementGains: value } }),
@@ -98,6 +111,47 @@ export function AdvancedSettingsContent({ capture, device: _device }: AdvancedSe
           <option value="CS8">CS8 (Complex Int8)</option>
         </select>
         <small className="text-muted">Stream format affects bandwidth and precision</small>
+      </Flex>
+
+      {/* Spectrum Analyzer Settings */}
+      <Flex direction="column" gap={2}>
+        <label className="form-label mb-0 small fw-semibold">Spectrum Analyzer</label>
+
+        {/* FFT FPS Slider */}
+        <Flex direction="column" gap={1}>
+          <Flex justify="between" align="center">
+            <label className="form-label mb-0 small">Target FPS</label>
+            <span className="badge bg-secondary">{fftFps} FPS</span>
+          </Flex>
+          <input
+            type="range"
+            className="form-range"
+            min={5}
+            max={60}
+            step={5}
+            value={fftFps}
+            onChange={(e) => setFftFps(parseInt(e.target.value, 10))}
+          />
+          <small className="text-muted">
+            Higher FPS uses more CPU. Adaptive: doubles when viewing spectrum.
+          </small>
+        </Flex>
+
+        {/* FFT Size Dropdown */}
+        <Flex direction="column" gap={1}>
+          <label className="form-label mb-0 small">FFT Size (Resolution)</label>
+          <select
+            className="form-select form-select-sm"
+            value={fftSize}
+            onChange={(e) => setFftSize(parseInt(e.target.value, 10))}
+          >
+            <option value={512}>512 bins (fast, low resolution)</option>
+            <option value={1024}>1024 bins</option>
+            <option value={2048}>2048 bins (default)</option>
+            <option value={4096}>4096 bins (high resolution)</option>
+          </select>
+          <small className="text-muted">Larger FFT = better frequency resolution but more CPU</small>
+        </Flex>
       </Flex>
 
       {/* Element Gains */}

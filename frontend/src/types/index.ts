@@ -35,6 +35,9 @@ export interface Capture {
   errorMessage: string | null;
   name: string | null;  // User-provided name
   autoName: string | null;  // Auto-generated contextual name
+  // FFT/Spectrum settings
+  fftFps: number;  // Target FFT frames per second
+  fftSize: number;  // FFT bin count (512, 1024, 2048, 4096)
   // Error indicators
   iqOverflowCount: number;
   iqOverflowRate: number;  // Overflows per second
@@ -144,6 +147,9 @@ export interface UpdateCaptureRequest {
   dcOffsetAuto?: boolean;
   iqBalanceAuto?: boolean;
   name?: string | null;
+  // FFT/Spectrum settings
+  fftFps?: number;  // 1-60 FPS
+  fftSize?: number;  // 512, 1024, 2048, 4096
 }
 
 export interface CreateCaptureRequest {
@@ -160,6 +166,9 @@ export interface CreateCaptureRequest {
   dcOffsetAuto?: boolean;
   iqBalanceAuto?: boolean;
   createDefaultChannel?: boolean;
+  // FFT/Spectrum settings
+  fftFps?: number;  // 1-60 FPS
+  fftSize?: number;  // 512, 1024, 2048, 4096
 }
 
 export interface CreateChannelRequest {

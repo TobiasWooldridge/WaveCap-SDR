@@ -546,6 +546,15 @@ export default function SpectrumAnalyzer({
             >
               {badgeStatus.text}
             </span>
+            {spectrumData?.actualFps !== undefined && isConnected && !isIdle && (
+              <span
+                className="badge bg-info text-white"
+                style={{ fontSize: "8px", padding: "2px 6px" }}
+                title={`FFT: ${spectrumData.fftSize || 'N/A'} bins`}
+              >
+                {spectrumData.actualFps.toFixed(0)} FPS
+              </span>
+            )}
             {!isCollapsed && (
               <>
                 <div className="d-flex align-items-center gap-1" style={{ fontSize: "10px" }}>

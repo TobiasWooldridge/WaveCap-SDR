@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import type { Capture } from '../types';
 
-interface SpectrumData {
+export interface SpectrumData {
   power: number[];
   freqs: number[];
   centerHz: number;
   sampleRate: number;
+  fftSize?: number;  // FFT bin count
+  actualFps?: number;  // Measured frames per second
 }
 
 interface SpectrumDataHook {

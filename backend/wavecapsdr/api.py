@@ -280,6 +280,9 @@ def _to_capture_model(cap: Any) -> CaptureModel:
         errorMessage=cap.error_message,
         name=cap.cfg.name,
         autoName=cap.cfg.auto_name,
+        # FFT/Spectrum settings
+        fftFps=cap.cfg.fft_fps,
+        fftSize=cap.cfg.fft_size,
         # Error indicators
         iqOverflowCount=cap._iq_overflow_count,
         iqOverflowRate=overflow_stats.rate_per_second,
@@ -825,6 +828,12 @@ def create_capture(
     if req.name:
         cap.cfg.name = req.name
 
+    # Set FFT settings if provided
+    if req.fftFps is not None:
+        cap.cfg.fft_fps = req.fftFps
+    if req.fftSize is not None:
+        cap.cfg.fft_size = req.fftSize
+
     # Generate auto_name using device namer
     devices = state.captures.list_devices()
     device = next((d for d in devices if d["id"] == cap.cfg.device_id), None)
@@ -1165,6 +1174,12 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
     # Update user-provided name if given
     if req.name is not None:
         cap.cfg.name = req.name
+
+    # Update FFT settings if provided
+    if req.fftFps is not None:
+        cap.cfg.fft_fps = req.fftFps
+    if req.fftSize is not None:
+        cap.cfg.fft_size = req.fftSize
 
     # Use reconfigure method with timeout protection
     try:

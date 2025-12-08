@@ -47,6 +47,16 @@ class CreateCaptureRequest(BaseModel):
     iqBalanceAuto: bool = True
     createDefaultChannel: bool = True
     name: Optional[str] = Field(None, max_length=200)  # User-provided name (optional)
+    # FFT/Spectrum settings
+    fftFps: Optional[int] = Field(None, ge=1, le=60)  # 1-60 FPS
+    fftSize: Optional[int] = Field(None)  # 512, 1024, 2048, 4096
+
+    @field_validator('fftSize')
+    @classmethod
+    def validate_fft_size(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and v not in [512, 1024, 2048, 4096]:
+            raise ValueError('fftSize must be 512, 1024, 2048, or 4096')
+        return v
 
     @field_validator('name', 'antenna', 'deviceId', 'streamFormat')
     @classmethod
@@ -81,6 +91,16 @@ class UpdateCaptureRequest(BaseModel):
     dcOffsetAuto: Optional[bool] = None
     iqBalanceAuto: Optional[bool] = None
     name: Optional[str] = Field(None, max_length=200)  # User-provided name (optional)
+    # FFT/Spectrum settings
+    fftFps: Optional[int] = Field(None, ge=1, le=60)  # 1-60 FPS
+    fftSize: Optional[int] = Field(None)  # 512, 1024, 2048, 4096
+
+    @field_validator('fftSize')
+    @classmethod
+    def validate_fft_size(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and v not in [512, 1024, 2048, 4096]:
+            raise ValueError('fftSize must be 512, 1024, 2048, or 4096')
+        return v
 
     @field_validator('name', 'antenna', 'deviceId', 'streamFormat')
     @classmethod
@@ -112,6 +132,9 @@ class CaptureModel(BaseModel):
     errorMessage: Optional[str] = None
     name: Optional[str] = None  # User-provided name (optional)
     autoName: Optional[str] = None  # Auto-generated name (e.g., "FM 90.3 - RTL-SDR")
+    # FFT/Spectrum settings
+    fftFps: int = 15  # Target FFT frames per second
+    fftSize: int = 2048  # FFT bin count
     # Error indicators for UI
     iqOverflowCount: int = 0
     iqOverflowRate: float = 0.0  # Overflows per second

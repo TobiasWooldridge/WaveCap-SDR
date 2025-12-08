@@ -1296,6 +1296,9 @@ class CaptureConfig:
     stream_format: Optional[str] = None
     dc_offset_auto: bool = True
     iq_balance_auto: bool = True
+    # FFT/Spectrum settings
+    fft_fps: int = 15  # Target FFT frames per second (1-60)
+    fft_size: int = 2048  # FFT bin count (512, 1024, 2048, 4096)
 
 
 @dataclass
@@ -1340,6 +1343,8 @@ class Capture:
     _fft_freqs_list: Optional[List[float]] = None  # Cached Python list (avoids repeated .tolist())
     _fft_counter: int = 0  # Frame counter for adaptive FFT throttling
     _fft_window_cache: Dict[int, np.ndarray] = field(default_factory=dict)  # Cached FFT windows by size
+    _fft_last_time: float = 0.0  # Last FFT timestamp for FPS calculation
+    _fft_actual_fps: float = 0.0  # Actual measured FFT FPS
     # Main event loop for scheduling audio processing when no subscribers
     _main_loop: Optional[asyncio.AbstractEventLoop] = None
     # IQ overflow tracking for error indicator UI
@@ -2197,28 +2202,49 @@ class Capture:
                 # Debug: log that we have FFT subscribers
                 if self._fft_counter % 100 == 0:
                     logger.debug(f"FFT processing for {self.cfg.id}: {len(self._fft_sinks)} subscribers, counter={self._fft_counter}")
-                # Adaptive FFT throttling: Target 10 FPS to reduce CPU load
-                # Lower FPS is fine for spectrum display (human eye threshold ~24 FPS)
-                # With 3 radios: 10 FPS x 3 = 30 FFTs/sec instead of 45 FFTs/sec
-                TARGET_FFT_FPS = 10
-                CHUNK_SIZE = 8192
 
-                # Calculate current FFT rate: sample_rate / chunk_size
-                current_fft_rate = self.cfg.sample_rate / CHUNK_SIZE
+                # Adaptive FFT FPS based on subscriber count
+                # - No viewers: low FPS (5) to save CPU
+                # - 1 viewer: configured FPS (default 15)
+                # - 2+ viewers: boost FPS for better responsiveness (up to 30)
+                base_fps = self.cfg.fft_fps or 15
+                subscriber_count = len(self._fft_sinks)
+                if subscriber_count >= 2:
+                    target_fps = min(30, base_fps * 2)
+                elif subscriber_count == 1:
+                    target_fps = base_fps
+                else:
+                    target_fps = 5  # Minimal FPS when no active viewers
+
+                # Calculate FFT rate using ACTUAL chunk size (not hardcoded 8192)
+                # chunk = max(8192, sample_rate // 20) from line 2123
+                current_fft_rate = self.cfg.sample_rate / chunk
 
                 # Calculate skip interval to achieve target FPS
-                skip_interval = max(1, int(current_fft_rate / TARGET_FFT_FPS))
+                skip_interval = max(1, int(current_fft_rate / target_fps))
 
                 # Increment frame counter
                 self._fft_counter += 1
 
-                # Only calculate FFT every Nth frame to maintain ~30 FPS
+                # Only calculate FFT every Nth frame
                 if self._fft_counter % skip_interval == 0:
                     # No copy needed - synchronous read-only operation
                     fft_start = time_module.perf_counter()
-                    self._calculate_fft(samples, self.cfg.sample_rate)
+                    fft_size = self.cfg.fft_size or 2048
+                    self._calculate_fft(samples, self.cfg.sample_rate, fft_size)
                     fft_time_ms = (time_module.perf_counter() - fft_start) * 1000
                     self._record_perf_time(self._perf_fft_times, fft_time_ms)
+
+                    # Calculate actual FPS (exponential moving average)
+                    now = time_module.perf_counter()
+                    if self._fft_last_time > 0:
+                        delta = now - self._fft_last_time
+                        if delta > 0:
+                            instant_fps = 1.0 / delta
+                            # EMA with alpha=0.1 for smooth FPS display
+                            self._fft_actual_fps = 0.9 * self._fft_actual_fps + 0.1 * instant_fps
+                    self._fft_last_time = now
+
                     # Broadcast FFT to subscribers (use cached lists to avoid repeated .tolist())
                     if self._fft_power_list is not None and self._fft_freqs_list is not None:
                         payload_fft = {
@@ -2226,6 +2252,8 @@ class Capture:
                             "freqs": self._fft_freqs_list,
                             "centerHz": self.cfg.center_hz,
                             "sampleRate": self.cfg.sample_rate,
+                            "fftSize": fft_size,
+                            "actualFps": round(self._fft_actual_fps, 1),
                         }
                         for (fft_q, fft_loop) in list(self._fft_sinks):
                             # Use default args to capture loop variables (avoids closure issues)
