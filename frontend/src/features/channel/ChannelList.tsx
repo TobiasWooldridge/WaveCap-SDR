@@ -8,6 +8,7 @@ import { ChannelCard } from "./ChannelCard";
 import Button from "../../components/primitives/Button.react";
 import Flex from "../../components/primitives/Flex.react";
 import Slider from "../../components/primitives/Slider.react";
+import VolumeSlider from "../../components/primitives/VolumeSlider.react";
 import FrequencySelector from "../../components/primitives/FrequencySelector.react";
 import Spinner from "../../components/primitives/Spinner.react";
 import { SkeletonChannelCard } from "../../components/primitives/Skeleton.react";
@@ -71,16 +72,7 @@ export function ChannelList({ capture }: ChannelListProps) {
 
         {hasPlayingChannels && (
           <>
-            <div style={{ width: "100px" }}>
-              <Slider
-                label="Volume"
-                value={masterVolume}
-                min={0}
-                max={1}
-                step={0.01}
-                onChange={setMasterVolume}
-              />
-            </div>
+            <VolumeSlider value={masterVolume} onChange={setMasterVolume} width={80} />
             <Button size="sm" use="warning" onClick={stopAll}>
               <VolumeX size={14} className="me-1" />
               Stop All
