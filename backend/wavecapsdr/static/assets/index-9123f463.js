@@ -28615,6 +28615,280 @@ function useStateWebSocket() {
     isConnected: ((_a2 = wsRef.current) == null ? void 0 : _a2.readyState) === WebSocket.OPEN
   };
 }
+class AudioService {
+  constructor() {
+    __publicField(this, "context", null);
+    __publicField(this, "masterGain", null);
+    __publicField(this, "channels", /* @__PURE__ */ new Map());
+    __publicField(this, "listeners", /* @__PURE__ */ new Set());
+    __publicField(this, "_masterVolume", 0.7);
+    // Cached state for useSyncExternalStore - must return same reference if unchanged
+    __publicField(this, "_cachedState", {
+      playingChannels: /* @__PURE__ */ new Set(),
+      masterVolume: 0.7,
+      isContextReady: false
+    });
+    __publicField(this, "BUFFER_SIZE", 4096);
+    __publicField(this, "SAMPLE_RATE", 48e3);
+  }
+  /**
+   * Get the current state of the audio service.
+   * Returns cached state to prevent unnecessary re-renders with useSyncExternalStore.
+   */
+  getState() {
+    return this._cachedState;
+  }
+  /**
+   * Update the cached state. Only creates new object if state actually changed.
+   */
+  updateCachedState() {
+    const newPlayingChannels = new Set(this.channels.keys());
+    const newIsContextReady = this.context !== null && this.context.state === "running";
+    const playingChanged = newPlayingChannels.size !== this._cachedState.playingChannels.size || [...newPlayingChannels].some((id) => !this._cachedState.playingChannels.has(id));
+    if (playingChanged || this._masterVolume !== this._cachedState.masterVolume || newIsContextReady !== this._cachedState.isContextReady) {
+      this._cachedState = {
+        playingChannels: newPlayingChannels,
+        masterVolume: this._masterVolume,
+        isContextReady: newIsContextReady
+      };
+    }
+  }
+  /**
+   * Subscribe to state changes.
+   * Returns unsubscribe function.
+   */
+  subscribe(listener) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  notifyListeners() {
+    this.updateCachedState();
+    const state = this._cachedState;
+    this.listeners.forEach((listener) => listener(state));
+  }
+  /**
+   * Initialize AudioContext with Safari/iOS compatibility.
+   * Must be called from a user gesture (click, tap, etc).
+   */
+  async init() {
+    if (this.context) {
+      if (this.context.state === "suspended") {
+        await this.context.resume();
+        this.notifyListeners();
+      }
+      return this.context;
+    }
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    this.context = new AudioContextClass({ sampleRate: this.SAMPLE_RATE });
+    this.masterGain = this.context.createGain();
+    this.masterGain.gain.value = this._masterVolume;
+    this.masterGain.connect(this.context.destination);
+    if (this.context.state === "suspended") {
+      await this.context.resume();
+    }
+    this.notifyListeners();
+    return this.context;
+  }
+  /**
+   * Start playing audio for a channel.
+   * Opens a WebSocket connection and streams PCM audio.
+   */
+  async play(channelId) {
+    console.log("[AudioService] play() called for channel:", channelId);
+    if (this.channels.has(channelId)) {
+      console.log("[AudioService] Already playing:", channelId);
+      return;
+    }
+    try {
+      const audioContext = await this.init();
+      console.log("[AudioService] AudioContext state:", audioContext.state);
+      const channelGain = audioContext.createGain();
+      channelGain.gain.value = 1;
+      channelGain.connect(this.masterGain);
+      const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${wsProtocol}//${window.location.host}/api/v1/stream/channels/${channelId}?format=pcm16`;
+      console.log("[AudioService] Connecting to:", wsUrl);
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = "arraybuffer";
+      const stream = {
+        ws,
+        gainNode: channelGain,
+        shouldPlay: true,
+        nextStartTime: audioContext.currentTime,
+        pcmBuffer: []
+      };
+      this.channels.set(channelId, stream);
+      this.updateChannelGains();
+      this.notifyListeners();
+      ws.onopen = () => {
+        console.log("[AudioService] Connected:", channelId);
+      };
+      ws.onmessage = (event) => {
+        if (!stream.shouldPlay || !this.context)
+          return;
+        const data = event.data;
+        if (!(data instanceof ArrayBuffer))
+          return;
+        const dataView = new DataView(data);
+        const sampleCount = Math.floor(data.byteLength / 2);
+        for (let i = 0; i < sampleCount; i++) {
+          const sample = dataView.getInt16(i * 2, true) / 32768;
+          stream.pcmBuffer.push(sample);
+        }
+        while (stream.pcmBuffer.length >= this.BUFFER_SIZE && stream.shouldPlay) {
+          const chunk = stream.pcmBuffer.splice(0, this.BUFFER_SIZE);
+          const audioBuffer = this.context.createBuffer(1, chunk.length, this.SAMPLE_RATE);
+          const channelData = audioBuffer.getChannelData(0);
+          for (let i = 0; i < chunk.length; i++) {
+            channelData[i] = chunk[i];
+          }
+          const source = this.context.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(stream.gainNode);
+          const startTime = Math.max(stream.nextStartTime, this.context.currentTime);
+          source.start(startTime);
+          stream.nextStartTime = startTime + audioBuffer.duration;
+        }
+      };
+      ws.onerror = (error) => {
+        console.error("[AudioService] WebSocket error:", channelId, error);
+        this.stopChannel(channelId);
+      };
+      ws.onclose = (event) => {
+        console.log("[AudioService] WebSocket closed:", channelId, event.code);
+        if (stream.shouldPlay) {
+          this.stopChannel(channelId);
+        }
+      };
+    } catch (error) {
+      console.error("[AudioService] Error starting playback:", channelId, error);
+      throw error;
+    }
+  }
+  /**
+   * Stop playing audio for a specific channel.
+   */
+  stop(channelId) {
+    this.stopChannel(channelId);
+    this.notifyListeners();
+  }
+  stopChannel(channelId) {
+    const stream = this.channels.get(channelId);
+    if (stream) {
+      stream.shouldPlay = false;
+      stream.ws.close();
+      stream.gainNode.disconnect();
+      this.channels.delete(channelId);
+      this.updateChannelGains();
+      this.notifyListeners();
+    }
+  }
+  /**
+   * Stop all channels.
+   */
+  stopAll() {
+    const channelIds = Array.from(this.channels.keys());
+    channelIds.forEach((id) => this.stopChannel(id));
+    this.notifyListeners();
+  }
+  /**
+   * Check if a channel is currently playing.
+   */
+  isPlaying(channelId) {
+    return this.channels.has(channelId);
+  }
+  /**
+   * Set master volume (0.0 - 1.0).
+   */
+  setMasterVolume(volume) {
+    this._masterVolume = Math.max(0, Math.min(1, volume));
+    if (this.masterGain) {
+      this.masterGain.gain.value = this._masterVolume;
+    }
+    this.notifyListeners();
+  }
+  /**
+   * Get current master volume.
+   */
+  getMasterVolume() {
+    return this._masterVolume;
+  }
+  /**
+   * Update individual channel gains for proper mixing.
+   * Uses 1/sqrt(n) normalization to prevent clipping when mixing multiple channels.
+   */
+  updateChannelGains() {
+    const numChannels = this.channels.size;
+    if (numChannels === 0)
+      return;
+    const mixGain = 1 / Math.sqrt(numChannels);
+    this.channels.forEach((stream) => {
+      stream.gainNode.gain.value = mixGain;
+    });
+  }
+  /**
+   * Clean up resources.
+   */
+  destroy() {
+    this.stopAll();
+    if (this.context) {
+      this.context.close();
+      this.context = null;
+      this.masterGain = null;
+    }
+    this.listeners.clear();
+  }
+}
+const audioService = new AudioService();
+function useAudio() {
+  const state = reactExports.useSyncExternalStore(
+    (callback) => audioService.subscribe(callback),
+    () => audioService.getState(),
+    () => audioService.getState()
+  );
+  const play = reactExports.useCallback(async (channelId) => {
+    await audioService.play(channelId);
+  }, []);
+  const stop = reactExports.useCallback((channelId) => {
+    audioService.stop(channelId);
+  }, []);
+  const stopAll = reactExports.useCallback(() => {
+    audioService.stopAll();
+  }, []);
+  const setMasterVolume = reactExports.useCallback((volume) => {
+    audioService.setMasterVolume(volume);
+  }, []);
+  const isPlaying = reactExports.useCallback((channelId) => {
+    return state.playingChannels.has(channelId);
+  }, [state.playingChannels]);
+  return {
+    playingChannels: state.playingChannels,
+    masterVolume: state.masterVolume,
+    isContextReady: state.isContextReady,
+    play,
+    stop,
+    stopAll,
+    setMasterVolume,
+    isPlaying
+  };
+}
+function useChannelAudio(channelId) {
+  const { playingChannels, play, stop } = useAudio();
+  const isPlaying = playingChannels.has(channelId);
+  const toggle = reactExports.useCallback(async () => {
+    if (isPlaying) {
+      stop(channelId);
+    } else {
+      await play(channelId);
+    }
+  }, [channelId, isPlaying, play, stop]);
+  return {
+    isPlaying,
+    play: () => play(channelId),
+    stop: () => stop(channelId),
+    toggle
+  };
+}
 function getDeviceDisplayName(device) {
   if (device.nickname) {
     return device.nickname;
@@ -31811,280 +32085,6 @@ function RadioPanel({ capture, device }) {
       )
     ] })
   ] });
-}
-class AudioService {
-  constructor() {
-    __publicField(this, "context", null);
-    __publicField(this, "masterGain", null);
-    __publicField(this, "channels", /* @__PURE__ */ new Map());
-    __publicField(this, "listeners", /* @__PURE__ */ new Set());
-    __publicField(this, "_masterVolume", 0.7);
-    // Cached state for useSyncExternalStore - must return same reference if unchanged
-    __publicField(this, "_cachedState", {
-      playingChannels: /* @__PURE__ */ new Set(),
-      masterVolume: 0.7,
-      isContextReady: false
-    });
-    __publicField(this, "BUFFER_SIZE", 4096);
-    __publicField(this, "SAMPLE_RATE", 48e3);
-  }
-  /**
-   * Get the current state of the audio service.
-   * Returns cached state to prevent unnecessary re-renders with useSyncExternalStore.
-   */
-  getState() {
-    return this._cachedState;
-  }
-  /**
-   * Update the cached state. Only creates new object if state actually changed.
-   */
-  updateCachedState() {
-    const newPlayingChannels = new Set(this.channels.keys());
-    const newIsContextReady = this.context !== null && this.context.state === "running";
-    const playingChanged = newPlayingChannels.size !== this._cachedState.playingChannels.size || [...newPlayingChannels].some((id) => !this._cachedState.playingChannels.has(id));
-    if (playingChanged || this._masterVolume !== this._cachedState.masterVolume || newIsContextReady !== this._cachedState.isContextReady) {
-      this._cachedState = {
-        playingChannels: newPlayingChannels,
-        masterVolume: this._masterVolume,
-        isContextReady: newIsContextReady
-      };
-    }
-  }
-  /**
-   * Subscribe to state changes.
-   * Returns unsubscribe function.
-   */
-  subscribe(listener) {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-  notifyListeners() {
-    this.updateCachedState();
-    const state = this._cachedState;
-    this.listeners.forEach((listener) => listener(state));
-  }
-  /**
-   * Initialize AudioContext with Safari/iOS compatibility.
-   * Must be called from a user gesture (click, tap, etc).
-   */
-  async init() {
-    if (this.context) {
-      if (this.context.state === "suspended") {
-        await this.context.resume();
-        this.notifyListeners();
-      }
-      return this.context;
-    }
-    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-    this.context = new AudioContextClass({ sampleRate: this.SAMPLE_RATE });
-    this.masterGain = this.context.createGain();
-    this.masterGain.gain.value = this._masterVolume;
-    this.masterGain.connect(this.context.destination);
-    if (this.context.state === "suspended") {
-      await this.context.resume();
-    }
-    this.notifyListeners();
-    return this.context;
-  }
-  /**
-   * Start playing audio for a channel.
-   * Opens a WebSocket connection and streams PCM audio.
-   */
-  async play(channelId) {
-    console.log("[AudioService] play() called for channel:", channelId);
-    if (this.channels.has(channelId)) {
-      console.log("[AudioService] Already playing:", channelId);
-      return;
-    }
-    try {
-      const audioContext = await this.init();
-      console.log("[AudioService] AudioContext state:", audioContext.state);
-      const channelGain = audioContext.createGain();
-      channelGain.gain.value = 1;
-      channelGain.connect(this.masterGain);
-      const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${wsProtocol}//${window.location.host}/api/v1/stream/channels/${channelId}?format=pcm16`;
-      console.log("[AudioService] Connecting to:", wsUrl);
-      const ws = new WebSocket(wsUrl);
-      ws.binaryType = "arraybuffer";
-      const stream = {
-        ws,
-        gainNode: channelGain,
-        shouldPlay: true,
-        nextStartTime: audioContext.currentTime,
-        pcmBuffer: []
-      };
-      this.channels.set(channelId, stream);
-      this.updateChannelGains();
-      this.notifyListeners();
-      ws.onopen = () => {
-        console.log("[AudioService] Connected:", channelId);
-      };
-      ws.onmessage = (event) => {
-        if (!stream.shouldPlay || !this.context)
-          return;
-        const data = event.data;
-        if (!(data instanceof ArrayBuffer))
-          return;
-        const dataView = new DataView(data);
-        const sampleCount = Math.floor(data.byteLength / 2);
-        for (let i = 0; i < sampleCount; i++) {
-          const sample = dataView.getInt16(i * 2, true) / 32768;
-          stream.pcmBuffer.push(sample);
-        }
-        while (stream.pcmBuffer.length >= this.BUFFER_SIZE && stream.shouldPlay) {
-          const chunk = stream.pcmBuffer.splice(0, this.BUFFER_SIZE);
-          const audioBuffer = this.context.createBuffer(1, chunk.length, this.SAMPLE_RATE);
-          const channelData = audioBuffer.getChannelData(0);
-          for (let i = 0; i < chunk.length; i++) {
-            channelData[i] = chunk[i];
-          }
-          const source = this.context.createBufferSource();
-          source.buffer = audioBuffer;
-          source.connect(stream.gainNode);
-          const startTime = Math.max(stream.nextStartTime, this.context.currentTime);
-          source.start(startTime);
-          stream.nextStartTime = startTime + audioBuffer.duration;
-        }
-      };
-      ws.onerror = (error) => {
-        console.error("[AudioService] WebSocket error:", channelId, error);
-        this.stopChannel(channelId);
-      };
-      ws.onclose = (event) => {
-        console.log("[AudioService] WebSocket closed:", channelId, event.code);
-        if (stream.shouldPlay) {
-          this.stopChannel(channelId);
-        }
-      };
-    } catch (error) {
-      console.error("[AudioService] Error starting playback:", channelId, error);
-      throw error;
-    }
-  }
-  /**
-   * Stop playing audio for a specific channel.
-   */
-  stop(channelId) {
-    this.stopChannel(channelId);
-    this.notifyListeners();
-  }
-  stopChannel(channelId) {
-    const stream = this.channels.get(channelId);
-    if (stream) {
-      stream.shouldPlay = false;
-      stream.ws.close();
-      stream.gainNode.disconnect();
-      this.channels.delete(channelId);
-      this.updateChannelGains();
-      this.notifyListeners();
-    }
-  }
-  /**
-   * Stop all channels.
-   */
-  stopAll() {
-    const channelIds = Array.from(this.channels.keys());
-    channelIds.forEach((id) => this.stopChannel(id));
-    this.notifyListeners();
-  }
-  /**
-   * Check if a channel is currently playing.
-   */
-  isPlaying(channelId) {
-    return this.channels.has(channelId);
-  }
-  /**
-   * Set master volume (0.0 - 1.0).
-   */
-  setMasterVolume(volume) {
-    this._masterVolume = Math.max(0, Math.min(1, volume));
-    if (this.masterGain) {
-      this.masterGain.gain.value = this._masterVolume;
-    }
-    this.notifyListeners();
-  }
-  /**
-   * Get current master volume.
-   */
-  getMasterVolume() {
-    return this._masterVolume;
-  }
-  /**
-   * Update individual channel gains for proper mixing.
-   * Uses 1/sqrt(n) normalization to prevent clipping when mixing multiple channels.
-   */
-  updateChannelGains() {
-    const numChannels = this.channels.size;
-    if (numChannels === 0)
-      return;
-    const mixGain = 1 / Math.sqrt(numChannels);
-    this.channels.forEach((stream) => {
-      stream.gainNode.gain.value = mixGain;
-    });
-  }
-  /**
-   * Clean up resources.
-   */
-  destroy() {
-    this.stopAll();
-    if (this.context) {
-      this.context.close();
-      this.context = null;
-      this.masterGain = null;
-    }
-    this.listeners.clear();
-  }
-}
-const audioService = new AudioService();
-function useAudio() {
-  const state = reactExports.useSyncExternalStore(
-    (callback) => audioService.subscribe(callback),
-    () => audioService.getState(),
-    () => audioService.getState()
-  );
-  const play = reactExports.useCallback(async (channelId) => {
-    await audioService.play(channelId);
-  }, []);
-  const stop = reactExports.useCallback((channelId) => {
-    audioService.stop(channelId);
-  }, []);
-  const stopAll = reactExports.useCallback(() => {
-    audioService.stopAll();
-  }, []);
-  const setMasterVolume = reactExports.useCallback((volume) => {
-    audioService.setMasterVolume(volume);
-  }, []);
-  const isPlaying = reactExports.useCallback((channelId) => {
-    return state.playingChannels.has(channelId);
-  }, [state.playingChannels]);
-  return {
-    playingChannels: state.playingChannels,
-    masterVolume: state.masterVolume,
-    isContextReady: state.isContextReady,
-    play,
-    stop,
-    stopAll,
-    setMasterVolume,
-    isPlaying
-  };
-}
-function useChannelAudio(channelId) {
-  const { playingChannels, play, stop } = useAudio();
-  const isPlaying = playingChannels.has(channelId);
-  const toggle = reactExports.useCallback(async () => {
-    if (isPlaying) {
-      stop(channelId);
-    } else {
-      await play(channelId);
-    }
-  }, [channelId, isPlaying, play, stop]);
-  return {
-    isPlaying,
-    play: () => play(channelId),
-    stop: () => stop(channelId),
-    toggle
-  };
 }
 async function copyToClipboard(text) {
   var _a2;
@@ -35315,13 +35315,20 @@ function AppContent() {
     selectedCaptureId,
     selectedCapture,
     selectedDevice,
-    selectCapture,
+    selectCapture: baseSelectCapture,
     captures,
     devices,
     isLoading
   } = useSelectedCapture();
   const { data: channels } = useChannels(selectedCaptureId ?? "");
   const deleteCapture2 = useDeleteCapture();
+  const { stopAll } = useAudio();
+  const selectCapture = reactExports.useCallback((captureId) => {
+    if (captureId !== selectedCaptureId) {
+      stopAll();
+    }
+    baseSelectCapture(captureId);
+  }, [baseSelectCapture, selectedCaptureId, stopAll]);
   const [showWizard, setShowWizard] = reactExports.useState(false);
   const [showDeviceSettings, setShowDeviceSettings] = reactExports.useState(false);
   const handleDeleteCapture = (captureId) => {
@@ -35377,4 +35384,4 @@ logger.init();
 client.createRoot(document.getElementById("root")).render(
   /* @__PURE__ */ jsxRuntimeExports.jsx(React.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(App, {}) })
 );
-//# sourceMappingURL=index-b02526b2.js.map
+//# sourceMappingURL=index-9123f463.js.map

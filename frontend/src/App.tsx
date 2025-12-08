@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Wand2 } from "lucide-react";
 import { ToastProvider } from "./hooks/useToast";
@@ -7,6 +7,7 @@ import { useSelectedCapture } from "./hooks/useSelectedCapture";
 import { useChannels } from "./hooks/useChannels";
 import { useDeleteCapture } from "./hooks/useCaptures";
 import { useStateWebSocket } from "./hooks/useStateWebSocket";
+import { useAudio } from "./hooks/useAudio";
 import { RadioTabBar, RadioPanel } from "./features/radio";
 import { ChannelList } from "./features/channel";
 import { SpectrumPanel } from "./features/spectrum";
@@ -33,7 +34,7 @@ function AppContent() {
     selectedCaptureId,
     selectedCapture,
     selectedDevice,
-    selectCapture,
+    selectCapture: baseSelectCapture,
     captures,
     devices,
     isLoading,
@@ -41,6 +42,15 @@ function AppContent() {
 
   const { data: channels } = useChannels(selectedCaptureId ?? "");
   const deleteCapture = useDeleteCapture();
+  const { stopAll } = useAudio();
+
+  // Stop all audio when changing tabs/radios
+  const selectCapture = useCallback((captureId: string) => {
+    if (captureId !== selectedCaptureId) {
+      stopAll();
+    }
+    baseSelectCapture(captureId);
+  }, [baseSelectCapture, selectedCaptureId, stopAll]);
 
   const [showWizard, setShowWizard] = useState(false);
   const [showDeviceSettings, setShowDeviceSettings] = useState(false);
