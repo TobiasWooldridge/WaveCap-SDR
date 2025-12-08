@@ -1,3 +1,4 @@
+import { memo, useMemo } from "react";
 import Flex from "./Flex.react";
 
 export interface SMeterProps {
@@ -67,16 +68,64 @@ function getSMeterColor(sValue: number, overS9Db: number): string {
   }
 }
 
-export default function SMeter({
+// Pre-generate static tick marks (never changes)
+const TICK_MARKS = Array.from({ length: 9 }, (_, i) => {
+  const s = i + 1;
+  const tickPosition = ((s - 1) / 8) * 100;
+  return (
+    <div
+      key={s}
+      style={{
+        position: "absolute",
+        left: `${tickPosition}%`,
+        top: 0,
+        bottom: 0,
+        width: "1px",
+        backgroundColor: s % 2 === 1 ? "#adb5bd" : "#dee2e6",
+        opacity: 0.6,
+      }}
+    />
+  );
+});
+
+// Pre-generate S-unit labels (never changes)
+const S_UNIT_LABELS = [1, 3, 5, 7, 9].map((s) => (
+  <span
+    key={s}
+    style={{
+      fontSize: "8px",
+      color: "#adb5bd",
+      fontWeight: 600,
+      textShadow: "0 1px 2px rgba(0,0,0,0.8)",
+    }}
+  >
+    {s}
+  </span>
+));
+
+function SMeterComponent({
   rssiDbFs,
   frequencyHz: _frequencyHz,
   width = 200,
   height = 24,
   showPeakHold: _showPeakHold = true,
 }: SMeterProps) {
+  // Memoize size-dependent styles
+  const containerStyle = useMemo(() => ({ width: `${width}px` }), [width]);
+  const meterStyle = useMemo(() => ({
+    position: "relative" as const,
+    flex: 1,
+    height: `${height}px`,
+    backgroundColor: "#212529",
+    borderRadius: "4px",
+    overflow: "hidden",
+    border: "2px solid #495057",
+    boxShadow: "inset 0 2px 4px rgba(0,0,0,0.3)",
+  }), [height]);
+
   if (rssiDbFs == null) {
     return (
-      <Flex direction="row" gap={2} align="center" style={{ width: `${width}px` }}>
+      <Flex direction="row" gap={2} align="center" style={containerStyle}>
         <div
           style={{
             flex: 1,
@@ -124,42 +173,11 @@ export default function SMeter({
     percentage = 100 + Math.min(overS9Db / 60 * 50, 50);
   }
 
-  // Generate S-unit tick marks
-  const tickMarks = [];
-  for (let s = 1; s <= 9; s++) {
-    const tickPosition = ((s - 1) / 8) * 100;
-    tickMarks.push(
-      <div
-        key={s}
-        style={{
-          position: "absolute",
-          left: `${tickPosition}%`,
-          top: 0,
-          bottom: 0,
-          width: "1px",
-          backgroundColor: s % 2 === 1 ? "#adb5bd" : "#dee2e6",
-          opacity: 0.6,
-        }}
-      />
-    );
-  }
-
   return (
-    <Flex direction="row" gap={2} align="center" style={{ width: `${width}px` }}>
-      <div
-        style={{
-          position: "relative",
-          flex: 1,
-          height: `${height}px`,
-          backgroundColor: "#212529",
-          borderRadius: "4px",
-          overflow: "hidden",
-          border: "2px solid #495057",
-          boxShadow: "inset 0 2px 4px rgba(0,0,0,0.3)",
-        }}
-      >
-        {/* Tick marks */}
-        {tickMarks}
+    <Flex direction="row" gap={2} align="center" style={containerStyle}>
+      <div style={meterStyle}>
+        {/* Tick marks (pre-generated) */}
+        {TICK_MARKS}
 
         {/* Background gradient zones */}
         <div
@@ -193,7 +211,7 @@ export default function SMeter({
           }}
         />
 
-        {/* S-unit labels */}
+        {/* S-unit labels (pre-generated) */}
         <div
           style={{
             position: "absolute",
@@ -206,19 +224,7 @@ export default function SMeter({
             pointerEvents: "none",
           }}
         >
-          {[1, 3, 5, 7, 9].map((s) => (
-            <span
-              key={s}
-              style={{
-                fontSize: "8px",
-                color: "#adb5bd",
-                fontWeight: 600,
-                textShadow: "0 1px 2px rgba(0,0,0,0.8)",
-              }}
-            >
-              {s}
-            </span>
-          ))}
+          {S_UNIT_LABELS}
         </div>
 
         {/* Signal fill bar */}
@@ -270,3 +276,7 @@ export default function SMeter({
     </Flex>
   );
 }
+
+// Memoize to prevent re-renders when parent updates but props haven't changed
+const SMeter = memo(SMeterComponent);
+export default SMeter;

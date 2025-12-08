@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, memo } from "react";
 import { Volume2, VolumeX, Trash2, Settings, ChevronUp, Edit2 } from "lucide-react";
 import type { Capture, Channel } from "../../types";
 import { useUpdateChannel, useDeleteChannel } from "../../hooks/useChannels";
@@ -20,7 +20,7 @@ interface ChannelCardProps {
   capture: Capture;
 }
 
-export function ChannelCard({ channel, capture }: ChannelCardProps) {
+export const ChannelCard = memo(function ChannelCard({ channel, capture }: ChannelCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState("");
@@ -223,7 +223,24 @@ export function ChannelCard({ channel, capture }: ChannelCardProps) {
       </div>
     </div>
   );
-}
+}, (prevProps, nextProps) => {
+  // Custom comparison - only re-render if these key properties change
+  const prevCh = prevProps.channel;
+  const nextCh = nextProps.channel;
+  return (
+    prevCh.id === nextCh.id &&
+    prevCh.name === nextCh.name &&
+    prevCh.autoName === nextCh.autoName &&
+    prevCh.mode === nextCh.mode &&
+    prevCh.offsetHz === nextCh.offsetHz &&
+    prevCh.rssiDb === nextCh.rssiDb &&
+    prevCh.snrDb === nextCh.snrDb &&
+    prevCh.rdsData === nextCh.rdsData &&
+    prevProps.capture.id === nextProps.capture.id &&
+    prevProps.capture.centerHz === nextProps.capture.centerHz &&
+    prevProps.capture.sampleRate === nextProps.capture.sampleRate
+  );
+});
 
 function formatChannelId(id: string): string {
   const match = id.match(/^ch(\d+)$/);

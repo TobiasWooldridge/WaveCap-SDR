@@ -88,6 +88,13 @@ export default function WaterfallDisplay({
   const renderRequestRef = useRef<number | null>(null);
   const needsRenderRef = useRef(false);
 
+  // Track global min/max incrementally for performance
+  const globalMinMaxRef = useRef<{ min: number; max: number; needsRecalc: boolean }>({
+    min: Infinity,
+    max: -Infinity,
+    needsRecalc: false,
+  });
+
   // Update canvas width when container resizes
   useEffect(() => {
     const updateWidth = () => {
@@ -106,6 +113,7 @@ export default function WaterfallDisplay({
   useEffect(() => {
     historyRef.current = [];
     setSpectrumInfo(null);
+    globalMinMaxRef.current = { min: Infinity, max: -Infinity, needsRecalc: false };
     needsRenderRef.current = true;
   }, [capture.id]);
 
@@ -115,25 +123,41 @@ export default function WaterfallDisplay({
       if (capture.state !== "running") {
         historyRef.current = []; // Clear history when stopped
         setSpectrumInfo(null);
+        globalMinMaxRef.current = { min: Infinity, max: -Infinity, needsRecalc: false };
         needsRenderRef.current = true;
       }
       return;
     }
 
-    // Add new FFT line to history (circular buffer)
-    historyRef.current.push(spectrumData.power);
-    if (historyRef.current.length > maxHistoryLines) {
-      historyRef.current.shift(); // Remove oldest line
+    // Calculate min/max for new line
+    const power = spectrumData.power;
+    let lineMin = power[0];
+    let lineMax = power[0];
+    for (let i = 1; i < power.length; i++) {
+      if (power[i] < lineMin) lineMin = power[i];
+      if (power[i] > lineMax) lineMax = power[i];
     }
 
+    // Add new FFT line to history (circular buffer)
+    historyRef.current.push(power);
+    const removedLine = historyRef.current.length > maxHistoryLines;
+    if (removedLine) {
+      historyRef.current.shift(); // Remove oldest line
+      // Mark for recalc if we're removing lines (min/max might have changed)
+      globalMinMaxRef.current.needsRecalc = true;
+    }
+
+    // Update global min/max incrementally
+    const gm = globalMinMaxRef.current;
+    if (lineMin < gm.min) gm.min = lineMin;
+    if (lineMax > gm.max) gm.max = lineMax;
+
     // Update spectrum info for frequency labels
-    const minPower = Math.min(...spectrumData.power);
-    const maxPower = Math.max(...spectrumData.power);
     setSpectrumInfo({
       centerHz: spectrumData.centerHz,
       freqs: spectrumData.freqs,
-      minPower,
-      maxPower,
+      minPower: lineMin,
+      maxPower: lineMax,
     });
 
     needsRenderRef.current = true;
@@ -206,16 +230,26 @@ export default function WaterfallDisplay({
         return;
       }
 
-      // Find global min/max for color scaling across all history
-      let globalMin = Infinity;
-      let globalMax = -Infinity;
-      history.forEach((powerArray) => {
-        const min = Math.min(...powerArray);
-        const max = Math.max(...powerArray);
-        if (min < globalMin) globalMin = min;
-        if (max > globalMax) globalMax = max;
-      });
+      // Use tracked global min/max (only recalculate when buffer wraps and values may have changed)
+      const gm = globalMinMaxRef.current;
+      if (gm.needsRecalc) {
+        // Recalculate min/max when old lines were removed
+        let newMin = Infinity;
+        let newMax = -Infinity;
+        for (let i = 0; i < history.length; i++) {
+          const powerArray = history[i];
+          for (let j = 0; j < powerArray.length; j++) {
+            if (powerArray[j] < newMin) newMin = powerArray[j];
+            if (powerArray[j] > newMax) newMax = powerArray[j];
+          }
+        }
+        gm.min = newMin;
+        gm.max = newMax;
+        gm.needsRecalc = false;
+      }
 
+      const globalMin = gm.min;
+      const globalMax = gm.max;
       const powerRange = globalMax - globalMin || 1;
 
       // Create image data for efficient pixel manipulation

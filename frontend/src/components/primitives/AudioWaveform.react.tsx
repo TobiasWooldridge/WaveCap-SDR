@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect, useCallback, memo } from "react";
 
 interface AudioWaveformProps {
   channelId: string;
@@ -9,8 +9,9 @@ interface AudioWaveformProps {
 /**
  * Real-time audio waveform visualizer for a channel.
  * Streams PCM audio and displays the waveform.
+ * Optimized to only redraw when new data arrives.
  */
-export default function AudioWaveform({
+function AudioWaveformComponent({
   channelId,
   isPlaying,
   height = 40,
@@ -23,14 +24,29 @@ export default function AudioWaveform({
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const shouldStreamRef = useRef(false);
   const widthRef = useRef(200);
+  const needsRedrawRef = useRef(false);
+  const rmsRef = useRef(0);
 
-  // Draw the waveform
+  // Draw the waveform (only if new data arrived)
   const drawWaveform = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) {
+      animationRef.current = requestAnimationFrame(drawWaveform);
+      return;
+    }
+
+    // Skip redraw if no new data
+    if (!needsRedrawRef.current) {
+      animationRef.current = requestAnimationFrame(drawWaveform);
+      return;
+    }
+    needsRedrawRef.current = false;
 
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) {
+      animationRef.current = requestAnimationFrame(drawWaveform);
+      return;
+    }
 
     const buffer = audioBufferRef.current;
     const dpr = window.devicePixelRatio || 1;
@@ -80,8 +96,8 @@ export default function AudioWaveform({
 
     ctx.stroke();
 
-    // Draw level indicator bars on sides
-    const rms = Math.sqrt(buffer.reduce((sum, s) => sum + s * s, 0) / buffer.length);
+    // Draw level indicator bars on sides (use pre-computed RMS)
+    const rms = rmsRef.current;
     const levelHeight = Math.min(rms * 5, 1) * canvas.height;
 
     ctx.fillStyle = rms > 0.3 ? "#ff4444" : rms > 0.1 ? "#ffaa00" : "#00ff88";
@@ -125,15 +141,21 @@ export default function AudioWaveform({
             const { done, value } = await reader.read();
             if (done) break;
 
-            // Convert 16-bit PCM to float samples
+            // Convert 16-bit PCM to float samples and compute RMS
             const dataView = new DataView(value.buffer, value.byteOffset, value.byteLength);
             const sampleCount = Math.floor(value.length / 2);
+            let sumSquares = 0;
 
             for (let i = 0; i < sampleCount; i++) {
               const sample = dataView.getInt16(i * 2, true) / 32768.0;
               audioBufferRef.current[writeIndexRef.current] = sample;
               writeIndexRef.current = (writeIndexRef.current + 1) % audioBufferRef.current.length;
+              sumSquares += sample * sample;
             }
+
+            // Update RMS and signal redraw needed
+            rmsRef.current = Math.sqrt(sumSquares / sampleCount);
+            needsRedrawRef.current = true;
           } catch (e) {
             if (shouldStreamRef.current && readerRef.current === reader) {
               console.error("Stream read error:", e);
@@ -243,3 +265,7 @@ export default function AudioWaveform({
     </div>
   );
 }
+
+// Memoize to prevent re-renders when parent updates
+const AudioWaveform = memo(AudioWaveformComponent);
+export default AudioWaveform;
