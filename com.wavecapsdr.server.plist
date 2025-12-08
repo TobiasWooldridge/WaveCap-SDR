@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.wavecapsdr.server</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/caffeinate</string>
+        <string>-s</string>
+        <string>/Users/thw/Projects/WaveCap-SDR/start-app.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/thw/Projects/WaveCap-SDR</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>HOST</key>
+        <string>0.0.0.0</string>
+        <key>PORT</key>
+        <string>8087</string>
+    </dict>
+
+    <!-- Start at boot -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart on crash -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Throttle restarts (wait 10 seconds between crashes) -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Logging -->
+    <key>StandardOutPath</key>
+    <string>/Users/thw/Projects/WaveCap-SDR/logs/wavecapsdr-stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/thw/Projects/WaveCap-SDR/logs/wavecapsdr-stderr.log</string>
+</dict>
+</plist>

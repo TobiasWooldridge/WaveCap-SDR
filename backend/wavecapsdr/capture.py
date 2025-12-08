@@ -32,6 +32,7 @@ from .dsp.pocsag import POCSAGDecoder, POCSAGMessage
 from .encoders import create_encoder, AudioEncoder
 from .decoders.p25 import P25Decoder
 from .decoders.dmr import DMRDecoder
+from .decoders.imbe import IMBEDecoder, check_imbe_available
 
 
 F = TypeVar('F', bound=Callable[..., Any])
@@ -363,6 +364,8 @@ class Channel:
     # Digital voice decoders (lazily initialized)
     _p25_decoder: Optional[P25Decoder] = None
     _dmr_decoder: Optional[DMRDecoder] = None
+    # IMBE voice codec decoder for P25 (lazily initialized)
+    _imbe_decoder: Optional[IMBEDecoder] = None
     # RDS decoder for WBFM (lazily initialized)
     _rds_decoder: Optional[RDSDecoder] = None
     rds_data: Optional[RDSData] = None  # Current RDS data (exposed via API)
@@ -384,6 +387,9 @@ class Channel:
 
     def stop(self) -> None:
         self.state = "stopped"
+        # Clean up IMBE decoder if running
+        if self._imbe_decoder is not None:
+            asyncio.create_task(self._imbe_decoder.stop())
 
     def get_pocsag_messages(self, limit: int = 50, since_timestamp: Optional[float] = None) -> List[Dict[str, Any]]:
         """Get recent POCSAG messages.
@@ -882,12 +888,26 @@ class Channel:
 
         elif self.cfg.mode == "p25":
             # P25 digital voice decoding with trunking support
-            # Initialize decoder if needed
+            # Initialize P25 decoder for TSBK (control channel) parsing
             if self._p25_decoder is None:
                 self._p25_decoder = P25Decoder(sample_rate)
                 self._p25_decoder.on_voice_frame = lambda voice_data: self._handle_p25_voice(voice_data)
                 self._p25_decoder.on_grant = lambda tgid, freq: self._handle_trunking_grant(tgid, freq)
                 logger.info(f"Channel {self.cfg.id}: P25 decoder initialized")
+
+            # Initialize IMBE decoder for voice audio (if available)
+            # Use a class-level flag to avoid repeated availability checks/warnings
+            if not hasattr(self, '_imbe_checked'):
+                self._imbe_checked = True
+                if IMBEDecoder.is_available():
+                    self._imbe_decoder = IMBEDecoder(output_rate=self.cfg.audio_rate, input_rate=sample_rate)
+                    asyncio.create_task(self._imbe_decoder.start())
+                    logger.info(f"Channel {self.cfg.id}: IMBE decoder initialized (DSD-FME)")
+                else:
+                    logger.warning(
+                        f"Channel {self.cfg.id}: IMBE decoder not available - "
+                        "P25 voice will not be decoded. Install DSD-FME for voice support."
+                    )
 
             # Frequency shift to channel offset
             base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
@@ -900,7 +920,7 @@ class Channel:
             else:
                 self.signal_power_db = None
 
-            # Decode P25 frames
+            # Decode P25 frames for trunking/TSBK
             try:
                 frames = self._p25_decoder.process_iq(base)
 
@@ -910,12 +930,28 @@ class Channel:
                         logger.debug(f"Channel {self.cfg.id}: P25 frame type={frame.frame_type.value} TGID={frame.tgid}")
                     elif frame.tsbk_data:
                         logger.debug(f"Channel {self.cfg.id}: P25 TSBK: {frame.tsbk_data}")
-
-                # Note: Voice audio will be handled by the on_voice_frame callback
-                # For now, we don't have IMBE decoder, so voice remains silent
-                # Future: Add IMBE/codec2 decoder to convert voice_data to PCM
             except Exception as e:
                 logger.error(f"Channel {self.cfg.id}: P25 decoding error: {e}")
+
+            # Pass discriminator audio to IMBE decoder for voice decoding
+            if self._imbe_decoder is not None and base.size > 0:
+                try:
+                    # Compute FM discriminator output (instantaneous frequency)
+                    # This is the same computation used in C4FM demodulation
+                    iq_c64: np.ndarray = base.astype(np.complex64, copy=False)
+                    prod = iq_c64[1:] * np.conj(iq_c64[:-1])
+                    discriminator = np.angle(prod) * sample_rate / (2 * np.pi)
+
+                    # Queue discriminator audio for IMBE decoding
+                    await self._imbe_decoder.decode(discriminator)
+
+                    # Get decoded audio if available
+                    decoded_audio = await self._imbe_decoder.get_audio()
+                    if decoded_audio is not None and decoded_audio.size > 0:
+                        self._update_audio_metrics(decoded_audio)
+                        await self._broadcast(decoded_audio)
+                except Exception as e:
+                    logger.error(f"Channel {self.cfg.id}: IMBE decoding error: {e}")
 
         elif self.cfg.mode == "dmr":
             # DMR digital voice decoding with trunking support
@@ -1468,6 +1504,9 @@ class Capture:
                                 "The SDRplay service may be stuck. "
                                 "Try: POST /api/v1/devices/sdrplay/restart-service"
                             )
+                            # Invalidate caches so stale devices aren't shown
+                            from .devices.soapy import invalidate_sdrplay_caches
+                            invalidate_sdrplay_caches()
                         else:
                             self.error_message = (
                                 f"Startup timeout: device initialization hung for {elapsed:.0f}s. "
@@ -2030,13 +2069,15 @@ class Capture:
             self._iq_overflow_batch = 0
         except Exception as e:
             # Import SDRplay-specific exceptions for special handling
-            from .devices.soapy import SDRplayServiceError, TimeoutError as SoapyTimeoutError
+            from .devices.soapy import SDRplayServiceError, TimeoutError as SoapyTimeoutError, invalidate_sdrplay_caches
 
             # Handle SDRplay service errors specially - don't auto-retry, need manual intervention
             if isinstance(e, SDRplayServiceError):
                 self.error_message = str(e)
                 self.state = "failed"
                 print(f"[ERROR] Capture {self.cfg.id} SDRplay service error: {e}", flush=True)
+                # Invalidate caches so stale devices aren't shown
+                invalidate_sdrplay_caches()
                 self.release_device()
                 # Don't schedule restart - service needs manual intervention
                 return
@@ -2046,6 +2087,9 @@ class Capture:
                 self.error_message = str(e)
                 self.state = "failed"
                 print(f"[ERROR] Capture {self.cfg.id} device timeout: {e}", flush=True)
+                # Invalidate caches to trigger fresh enumeration
+                if "sdrplay" in str(self.cfg.device_id or "").lower():
+                    invalidate_sdrplay_caches()
                 self.release_device()
                 # Schedule restart - recovery may have fixed the issue
                 self._schedule_restart()

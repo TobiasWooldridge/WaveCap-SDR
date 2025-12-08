@@ -563,7 +563,7 @@ def restart_sdrplay_service(_: None = Depends(auth_check)) -> Dict[str, Any]:
 
     Rate limited: max 5 restarts per hour with 60-second cooldown between attempts.
     """
-    from .devices.soapy import reset_sdrplay_health_counters
+    from .devices.soapy import reset_sdrplay_health_counters, invalidate_sdrplay_caches
 
     recovery = get_recovery()
     allowed, reason = recovery.can_restart()
@@ -574,15 +574,17 @@ def restart_sdrplay_service(_: None = Depends(auth_check)) -> Dict[str, Any]:
     success = recovery.restart_service(reason="User requested via API")
 
     if success:
-        # Reset health tracking counters after successful restart
+        # Reset health tracking counters and invalidate all caches
         reset_sdrplay_health_counters()
+        invalidate_sdrplay_caches()
         return {
             "status": "ok",
-            "message": "SDRplay service restarted successfully",
+            "message": "SDRplay service restarted and caches cleared",
             "stats": {
                 "recovery_count": recovery.stats.recovery_count,
                 "last_recovery_success": recovery.stats.last_recovery_success,
-            }
+            },
+            "caches_cleared": True,
         }
     else:
         raise HTTPException(

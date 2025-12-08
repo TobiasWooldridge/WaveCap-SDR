@@ -38,6 +38,20 @@ presets:
     bandwidth: 1800000.0
     ppm: 0.0
     antenna: Antenna A
+  sa_grn:
+    # SA Government Radio Network P25 Phase 1 (400-422 MHz UHF)
+    # System ID: 0x3DC, WACN: 0xBEE00
+    # Adelaide Metro control channels: 413.2625, 414.7625, 417.7625 MHz
+    center_hz: 415000000
+    sample_rate: 6000000
+    offsets:
+    - -1737500  # 413.2625 MHz - Control
+    - -237500   # 414.7625 MHz - Control
+    - 2762500   # 417.7625 MHz - Control
+    gain: 40.0
+    bandwidth: 5000000.0
+    ppm: 0.0
+    antenna: Antenna A
 recipes:
   fm_radio_station:
     name: FM Radio Station
@@ -312,22 +326,38 @@ recipes:
     gain: 40
     bandwidth: 800000
   sa_grn_p25:
-    name: SA GRN P25 Trunking
-    description: South Australia Government Radio Network P25 Phase 1 trunking (400
-      MHz band). Monitors control channel for voice grants and decodes TSBK messages.
-      P25 uses C4FM modulation with 12.5 kHz channel spacing.
+    name: SA GRN P25 Emergency Scanner
+    description: South Australia Government Radio Network P25 Phase 1 trunking (400-422
+      MHz UHF). System ID 0x3DC, WACN 0xBEE00. Monitors Adelaide Metro control channels.
+      IMPORTANT - Police/Ambulance dispatch are encrypted. CFS/SES/Utilities may have
+      unencrypted channels. Requires DSD-FME for voice decoding.
     category: Public Safety
-    center_hz: 406000000
-    sample_rate: 500000
+    center_hz: 415500000
+    sample_rate: 6000000
     channels:
-    - offset_hz: 0
-      name: Control Channel
+    - offset_hz: -2237500
+      name: CC1 - 413.2625
       mode: p25
       squelch_db: -65
-    allow_frequency_input: true
+    - offset_hz: -737500
+      name: CC2 - 414.7625
+      mode: p25
+      squelch_db: -65
+    - offset_hz: 2262500
+      name: CC3 - 417.7625
+      mode: p25
+      squelch_db: -65
+    - offset_hz: -2187500
+      name: CC4 - 413.3125
+      mode: p25
+      squelch_db: -65
+    - offset_hz: -812500
+      name: CC5 - 414.6875
+      mode: p25
+      squelch_db: -65
+    allow_frequency_input: false
     gain: 40
-    bandwidth: 400000
-    frequency_label: Control Channel Frequency (MHz)
+    bandwidth: 5500000
   wa_state_patrol_p25:
     name: WA State Patrol P25
     description: Washington State Patrol P25 trunked system on 700 MHz band. Monitors
@@ -557,14 +587,10 @@ recipes:
     gain: 40
     bandwidth: 25000
     frequency_label: Pager Frequency (MHz)
-captures:
-- preset: kexp
-  device_id: 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
-    V4,serial=00000001,tuner=Rafael Micro R828D'
-- preset: kexp
-  device_id: driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070
-- preset: kexp
-  device_id: driver=sdrplay,label=SDRplay Dev1 RSPdx-R2 240305E670,serial=240305E670
+# Auto-start captures disabled - create manually via UI
+# captures:
+# - preset: kexp
+#   device_id: 'driver=rtlsdr,...'
 device_names:
   ? 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
     V4,serial=00000001,tuner=Rafael Micro R828D'

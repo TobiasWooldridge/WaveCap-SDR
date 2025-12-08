@@ -40,6 +40,9 @@ _sdrplay_health_status: bool = False  # True = healthy, False = unknown/unhealth
 _sdrplay_active_captures: int = 0
 _sdrplay_active_captures_lock = threading.Lock()
 
+# Track expected device count for stability monitoring
+_sdrplay_expected_device_count: Optional[int] = None
+
 
 def increment_sdrplay_active_captures() -> None:
     """Increment active SDRplay capture count (called when capture starts)."""
@@ -97,6 +100,28 @@ def reset_sdrplay_health_counters() -> None:
     global _sdrplay_consecutive_timeouts, _sdrplay_last_enumeration_success
     _sdrplay_consecutive_timeouts = 0
     _sdrplay_last_enumeration_success = time.time()
+
+
+# Global reference to driver instance for cache invalidation from other modules
+_soapy_driver_instance: Optional["SoapyDriver"] = None
+
+
+def invalidate_sdrplay_caches() -> None:
+    """Clear all SDRplay enumeration caches after failure or recovery.
+
+    Call this from other modules (e.g., capture.py) when SDRplay device
+    operations fail to ensure stale data isn't served.
+    """
+    global _sdrplay_health_status, _sdrplay_last_health_check, _sdrplay_expected_device_count
+
+    print("[SOAPY] Invalidating SDRplay caches", flush=True)
+    _sdrplay_health_status = False
+    _sdrplay_last_health_check = 0.0
+    _sdrplay_expected_device_count = None
+
+    # Also invalidate driver instance cache if available
+    if _soapy_driver_instance is not None:
+        _soapy_driver_instance.invalidate_cache()
 
 
 F = TypeVar('F', bound=Callable[..., Any])
@@ -801,12 +826,21 @@ class SoapyDriver(DeviceDriver):
     name = "soapy"
 
     def __init__(self, cfg: DeviceConfig):
+        global _soapy_driver_instance
         self._cfg = cfg
         self._SoapySDR = _import_soapy()
         self._enumerate_cache: Optional[tuple[float, list[DeviceInfo]]] = None
         self._enumerate_cache_ttl = 30.0  # seconds
         # Cache of SDRplay devices for use when devices are busy
         self._sdrplay_device_cache: list[DeviceInfo] = []
+        # Register this instance for global cache invalidation
+        _soapy_driver_instance = self
+
+    def invalidate_cache(self) -> None:
+        """Invalidate enumeration cache, forcing re-enumeration on next call."""
+        print("[SOAPY] Driver cache invalidated", flush=True)
+        self._enumerate_cache = None
+        self._sdrplay_device_cache.clear()
 
     def _enumerate_driver(self, driver_name: str, timeout: float = 5.0) -> list[DeviceInfo]:
         """Enumerate devices for a specific driver with timeout protection."""
@@ -881,9 +915,13 @@ class SoapyDriver(DeviceDriver):
                 else:
                     # Empty result could indicate stuck service
                     _sdrplay_consecutive_timeouts += 1
+                    # Invalidate cache on empty result - don't serve stale data
+                    self._enumerate_cache = None
                     print(f"[SOAPY] SDRplay enumeration returned no devices (timeout count: {_sdrplay_consecutive_timeouts})", flush=True)
             except Exception as e:
                 _sdrplay_consecutive_timeouts += 1
+                # Invalidate cache on failure - don't serve stale data
+                self._enumerate_cache = None
                 print(f"Warning: Failed to enumerate driver 'sdrplay': {e} (timeout count: {_sdrplay_consecutive_timeouts})", flush=True)
 
         # Proactive recovery: If SDRplay has timed out multiple times, attempt service restart
@@ -904,7 +942,10 @@ class SoapyDriver(DeviceDriver):
                 )
                 success = attempt_recovery(reason="Enumeration timeout - proactive recovery")
                 if success:
-                    print("[SOAPY] Recovery successful, retrying enumeration...", flush=True)
+                    print("[SOAPY] Recovery successful, clearing caches and retrying enumeration...", flush=True)
+                    # Clear all caches before retry
+                    self._enumerate_cache = None
+                    self._sdrplay_device_cache.clear()
                     # Retry enumeration after recovery
                     try:
                         sdrplay_results = self._enumerate_driver("sdrplay", timeout=5.0)
@@ -921,6 +962,20 @@ class SoapyDriver(DeviceDriver):
                 print(f"[SOAPY] Cannot attempt recovery: {reason}", flush=True)
         elif not sdrplay_found and active_captures == 0:
             print(f"[SOAPY] No SDRplay devices found (timeout count: {_sdrplay_consecutive_timeouts})", flush=True)
+
+        # Device count stability tracking
+        global _sdrplay_expected_device_count
+        sdrplay_count = len([d for d in results if d.driver == "sdrplay"])
+        if _sdrplay_expected_device_count is not None:
+            if sdrplay_count < _sdrplay_expected_device_count:
+                print(
+                    f"[SOAPY] WARNING: SDRplay device count dropped from {_sdrplay_expected_device_count} to {sdrplay_count}",
+                    flush=True
+                )
+                # Clear device cache to avoid serving stale device list
+                self._sdrplay_device_cache.clear()
+        if sdrplay_count > 0:
+            _sdrplay_expected_device_count = sdrplay_count
 
         # Cache the results
         self._enumerate_cache = (now, results)
