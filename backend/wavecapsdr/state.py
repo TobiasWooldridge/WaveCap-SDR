@@ -65,8 +65,9 @@ class AppState:
 
         captures = CaptureManager(cfg, driver)
 
-        # Initialize P25 trunking manager
+        # Initialize P25 trunking manager with CaptureManager reference
         trunking_manager = TrunkingManager()
+        trunking_manager.set_capture_manager(captures)
 
         # Load device nicknames from config
         load_device_nicknames(cfg.device_names)

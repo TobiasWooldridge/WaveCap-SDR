@@ -161,6 +161,71 @@ def freq_shift(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray
     return result
 
 
+# P25 processing constants
+P25_TARGET_SAMPLE_RATE = 48000  # P25 decoder expects 48 kHz
+P25_CHANNEL_BANDWIDTH = 12500  # P25 uses 12.5 kHz channel bandwidth
+
+
+def decimate_iq_for_p25(iq: np.ndarray, sample_rate: int) -> Tuple[np.ndarray, int]:
+    """Decimate complex IQ samples for P25 processing.
+
+    P25 uses 12.5 kHz channel bandwidth with 4800 baud C4FM.
+    Target sample rate is 48 kHz (10 samples per symbol).
+
+    Args:
+        iq: Complex IQ samples (already frequency-shifted to channel)
+        sample_rate: Input sample rate in Hz
+
+    Returns:
+        Tuple of (decimated IQ, effective sample rate)
+    """
+    if sample_rate <= P25_TARGET_SAMPLE_RATE:
+        # Already at or below target rate, no decimation needed
+        return iq, sample_rate
+
+    if iq.size == 0:
+        return iq, sample_rate
+
+    try:
+        from scipy import signal
+
+        # Calculate decimation factor
+        # We want to get close to 48 kHz but must be an integer factor
+        decim_factor = sample_rate // P25_TARGET_SAMPLE_RATE
+
+        if decim_factor <= 1:
+            return iq, sample_rate
+
+        # Design lowpass filter for P25 bandwidth (12.5 kHz)
+        # Cutoff at 6.25 kHz (half the channel bandwidth) with some margin
+        nyquist = sample_rate / 2.0
+        cutoff = min(P25_CHANNEL_BANDWIDTH / 2.0, nyquist * 0.9)  # 6.25 kHz
+        normalized_cutoff = cutoff / nyquist
+
+        # Use a relatively short FIR filter for efficiency
+        numtaps = min(65, sample_rate // 2000 + 1)
+        if numtaps % 2 == 0:
+            numtaps += 1  # Ensure odd number of taps
+
+        # Design lowpass filter
+        b = signal.firwin(numtaps, normalized_cutoff, window='hamming')
+
+        # Apply filter and decimate
+        # Filter I and Q components separately
+        iq_filtered = signal.lfilter(b, 1.0, iq)
+
+        # Decimate
+        iq_decimated = iq_filtered[::decim_factor]
+
+        effective_rate = sample_rate // decim_factor
+        return iq_decimated.astype(np.complex64), effective_rate
+
+    except ImportError:
+        # Fallback: simple decimation without filtering (not ideal but works)
+        decim_factor = max(1, sample_rate // P25_TARGET_SAMPLE_RATE)
+        return iq[::decim_factor].astype(np.complex64), sample_rate // decim_factor
+
+
 def _process_channel_dsp_stateless(
     samples: np.ndarray,
     sample_rate: int,
@@ -1536,11 +1601,16 @@ class Capture:
                         f"no samples for {now - self._last_iq_time:.1f}s (driver: {driver})",
                         flush=True
                     )
+                    logger.warning(
+                        f"Capture {self.cfg.id} IQ watchdog: setting state to failed. "
+                        f"No samples for {now - self._last_iq_time:.1f}s"
+                    )
 
                     # Don't attempt automatic recovery - it tends to make things worse.
                     # Just log the warning and set state to failed so user can see the issue.
                     # Manual restart of the service/WaveCap is more reliable.
                     self.state = "failed"
+                    self.error_message = f"No IQ samples received for {now - self._last_iq_time:.0f}s"
                     self._last_iq_time = now  # Reset to avoid log spam
                     # Don't auto-restart - let it stay in error state
 
@@ -1961,7 +2031,7 @@ class Capture:
     ) -> Optional[np.ndarray]:
         """Apply stateful processing that must run in capture thread.
 
-        Handles: RDS, POCSAG, squelch. These require state that cannot be
+        Handles: RDS, POCSAG, P25, DMR, squelch. These require state that cannot be
         shared across threads safely.
 
         Args:
@@ -1972,6 +2042,52 @@ class Capture:
         Returns:
             Processed audio (may be zeroed if squelched)
         """
+        # P25 decoding (requires stateful decoder, processes IQ not audio)
+        if ch.cfg.mode == "p25":
+            # Get frequency-shifted IQ for P25 decoding
+            base = freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate) if ch.cfg.offset_hz != 0.0 else iq
+
+            if base.size > 0:
+                # Decimate to P25 processing rate (~48 kHz) if needed
+                # This is critical for wideband captures (e.g., 8 MHz trunking)
+                p25_iq, p25_rate = decimate_iq_for_p25(base, self.cfg.sample_rate)
+
+                # Initialize decoder with the decimated sample rate
+                if ch._p25_decoder is None:
+                    ch._p25_decoder = P25Decoder(p25_rate)
+                    ch._p25_decoder.on_voice_frame = lambda voice_data: ch._handle_p25_voice(voice_data)
+                    ch._p25_decoder.on_grant = lambda tgid, freq: ch._handle_trunking_grant(tgid, freq)
+                    logger.info(f"Channel {ch.cfg.id}: P25 decoder initialized (sample_rate={p25_rate}, decimation={self.cfg.sample_rate // p25_rate}x)")
+
+                try:
+                    frames = ch._p25_decoder.process_iq(p25_iq)
+                    for frame in frames:
+                        if frame.tgid is not None:
+                            logger.debug(f"Channel {ch.cfg.id}: P25 frame type={frame.frame_type.value} TGID={frame.tgid}")
+                        elif frame.tsbk_data:
+                            logger.debug(f"Channel {ch.cfg.id}: P25 TSBK: {frame.tsbk_data}")
+                except Exception as e:
+                    logger.error(f"Channel {ch.cfg.id}: P25 decoding error: {e}")
+            return None  # P25 doesn't output audio yet
+
+        # DMR decoding (requires stateful decoder, processes IQ not audio)
+        if ch.cfg.mode == "dmr":
+            if ch._dmr_decoder is None:
+                ch._dmr_decoder = DMRDecoder(self.cfg.sample_rate)
+                ch._dmr_decoder.on_voice_frame = lambda slot, tgid, voice_data: ch._handle_dmr_voice(slot, tgid, voice_data)
+                ch._dmr_decoder.on_csbk_message = lambda msg: ch._handle_dmr_csbk(msg)
+                logger.info(f"Channel {ch.cfg.id}: DMR decoder initialized")
+
+            base = freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate) if ch.cfg.offset_hz != 0.0 else iq
+            if base.size > 0:
+                try:
+                    dmr_frames = ch._dmr_decoder.process_iq(base)
+                    for dmr_frame in dmr_frames:
+                        logger.debug(f"Channel {ch.cfg.id}: DMR frame type={dmr_frame.frame_type.value} slot={dmr_frame.slot.value} dst={dmr_frame.dst_id}")
+                except Exception as e:
+                    logger.error(f"Channel {ch.cfg.id}: DMR decoding error: {e}")
+            return None  # DMR doesn't output audio yet
+
         if audio is None:
             return None
 
@@ -2129,7 +2245,11 @@ class Capture:
         # Initialize IQ watchdog timestamp
         self._last_iq_time = time.time()
         import time as time_module  # Explicit import for perf_counter
+        _capture_loop_counter = 0
         while not self._stop_event.is_set():
+            _capture_loop_counter += 1
+            if _capture_loop_counter <= 30 or _capture_loop_counter % 1000 == 0:
+                logger.debug(f"Capture {self.cfg.id}: loop iteration {_capture_loop_counter}, calling read()")
             loop_start = time_module.perf_counter()
             try:
                 samples, overflow = self._stream.read(chunk)
@@ -2137,7 +2257,8 @@ class Capture:
                     self._iq_overflow_count += 1
                     self._iq_overflow_batch += 1
                     self._report_iq_overflow()
-            except Exception:
+            except Exception as e:
+                logger.error(f"Capture {self.cfg.id}: stream.read() exception: {e}")
                 break
             if samples.size == 0:
                 # Light backoff to avoid busy-spin
@@ -2148,6 +2269,15 @@ class Capture:
                 continue
             # Update IQ watchdog - we received samples
             self._last_iq_time = time.time()
+
+            # Debug logging every 100 reads with data
+            if not hasattr(self, '_iq_debug_counter'):
+                self._iq_debug_counter = 0
+            self._iq_debug_counter += 1
+            # Verbose debug for first 30 iterations to trace where loop stops
+            _verbose_debug = _capture_loop_counter <= 30 or self._iq_debug_counter % 100 == 1
+            if _verbose_debug:
+                logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} received {samples.size} IQ samples, chunk={chunk}")
             # Broadcast IQ to subscribers (schedule on their loops)
             # Use asyncio.run() is not allowed here; rely on _broadcast_iq scheduling
             try:
@@ -2183,6 +2313,9 @@ class Capture:
                         self._iq_sinks.discard((q, loop))
                     except Exception:
                         pass
+            # Checkpoint A: After IQ broadcast
+            if _verbose_debug:
+                logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint A - after IQ broadcast")
             # Calculate server-side metrics for all running channels (no async needed)
             # OPTIMIZATION: Only compute metrics if channel has subscribers OR every 10th chunk
             # This reduces CPU load by ~90% when channels are idle (no audio listeners)
@@ -2196,6 +2329,9 @@ class Capture:
                         # No copy needed - synchronous read-only operation
                         ch.update_signal_metrics(samples, self.cfg.sample_rate)
 
+            # Checkpoint B: After channel metrics
+            if _verbose_debug:
+                logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint B - after channel metrics ({len(chans)} channels)")
             # Calculate FFT for spectrum display (only if there are active subscribers)
             fft_time_ms = 0.0
             if self._fft_sinks:
@@ -2277,6 +2413,9 @@ class Capture:
                                 except Exception:
                                     pass
 
+            # Checkpoint C: After FFT processing
+            if _verbose_debug:
+                logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint C - after FFT ({len(self._fft_sinks)} sinks)")
             # Dispatch to channels for audio processing
             # PARALLEL DSP: Use ThreadPoolExecutor for ~2.7x speedup with multiple channels
             # NumPy/SciPy release the GIL during heavy computation, enabling true parallelism
@@ -2326,6 +2465,9 @@ class Capture:
                             import sys
                             print(f"Error scheduling broadcast: {e}", file=sys.stderr, flush=True)
 
+            # Checkpoint D: After DSP/channel processing
+            if _verbose_debug:
+                logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint D - after DSP, dsp_time={dsp_time_ms:.1f}ms")
             # Record loop time and periodic logging
             loop_time_ms = (time_module.perf_counter() - loop_start) * 1000
             self._record_perf_time(self._perf_loop_times, loop_time_ms)
@@ -2339,6 +2481,9 @@ class Capture:
                     f"dsp={stats['dsp']['mean_ms']:.1f}ms, fft={stats['fft']['mean_ms']:.1f}ms, "
                     f"channels={stats['channel_count']}, overflows={stats['iq_overflow_count']}"
                 )
+            # Checkpoint E: End of loop iteration
+            if _verbose_debug:
+                logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint E - loop iteration complete, loop_time={loop_time_ms:.1f}ms")
 
 
 class CaptureManager:

@@ -118,6 +118,8 @@ class SDRplayProxyStream(StreamHandle):
     _last_read_idx: int = 0
     _closed: bool = False
 
+    _debug_counter: int = 0
+
     def read(self, num_samples: int) -> Tuple[np.ndarray, bool]:
         """Read IQ samples from shared memory ring buffer.
 
@@ -127,16 +129,38 @@ class SDRplayProxyStream(StreamHandle):
         Returns:
             Tuple of (samples array, overflow flag)
         """
+        self._debug_counter += 1
+
         if self._closed:
+            if self._debug_counter <= 10 or self._debug_counter % 1000 == 0:
+                logger.warning(f"SDRplayProxyStream.read()[{self._debug_counter}]: stream is closed")
             return np.empty(0, dtype=np.complex64), False
 
         # Read header to get current write position
-        write_idx, _, sample_count, overflow_count, sample_rate, flags, timestamp = _read_header(self.shm)
+        try:
+            write_idx, _, sample_count, overflow_count, sample_rate, flags, timestamp = _read_header(self.shm)
+        except Exception as e:
+            logger.error(f"SDRplayProxyStream.read()[{self._debug_counter}]: header read error: {e}")
+            return np.empty(0, dtype=np.complex64), False
+
+        # Debug logging for first 100 reads and then every 1000
+        if self._debug_counter <= 100 or self._debug_counter % 1000 == 0:
+            logger.info(
+                f"SDRplayProxyStream.read()[{self._debug_counter}]: "
+                f"write_idx={write_idx}, _last_read_idx={self._last_read_idx}, "
+                f"requested={num_samples}, sample_count={sample_count}, flags={flags}"
+            )
 
         # Calculate available samples
         available = write_idx - self._last_read_idx
         if available <= 0:
             # No new samples yet - return empty
+            # Log if this keeps happening (every 10000 reads)
+            if self._debug_counter % 10000 == 0:
+                logger.warning(
+                    f"SDRplayProxyStream.read(): no available samples, "
+                    f"write_idx={write_idx}, _last_read_idx={self._last_read_idx}"
+                )
             return np.empty(0, dtype=np.complex64), False
 
         # Detect ring buffer overrun: if available > BUFFER_SAMPLES, the writer
@@ -181,6 +205,13 @@ class SDRplayProxyStream(StreamHandle):
 
         # Update read position
         self._last_read_idx += to_read
+
+        # Log successful reads for debugging
+        if self._debug_counter <= 100 or self._debug_counter % 1000 == 0:
+            logger.info(
+                f"SDRplayProxyStream.read()[{self._debug_counter}]: "
+                f"returning {len(samples)} samples, new _last_read_idx={self._last_read_idx}"
+            )
 
         # Check for status messages (non-blocking) - may set overflow flag
         while self.status_pipe.poll(timeout=0):

@@ -8,6 +8,7 @@ Tests the trunking controller infrastructure:
 """
 
 import asyncio
+from unittest.mock import MagicMock, AsyncMock, patch
 import pytest
 import numpy as np
 
@@ -27,6 +28,69 @@ from wavecapsdr.trunking import (
     create_control_monitor,
 )
 from wavecapsdr.trunking.config import load_talkgroups_csv
+
+
+class MockCapture:
+    """Mock Capture for testing."""
+
+    def __init__(self, capture_id: str):
+        self.cfg = MagicMock()
+        self.cfg.id = capture_id
+
+    def start(self) -> None:
+        """Sync start like the real Capture."""
+        pass
+
+    def stop(self) -> None:
+        """Sync stop like the real Capture."""
+        pass
+
+
+class MockChannel:
+    """Mock Channel for testing."""
+
+    def __init__(self, channel_id: str):
+        self.cfg = MagicMock()
+        self.cfg.id = channel_id
+        self.cfg.offset_hz = 0.0
+        self._p25_decoder = None
+        self.state = "created"
+
+    def start(self) -> None:
+        """Start the channel (sets state to running)."""
+        self.state = "running"
+
+    async def process_iq_chunk(self, iq: np.ndarray, sample_rate: int) -> None:
+        pass
+
+    def process_iq_chunk_sync(self, iq: np.ndarray, sample_rate: int) -> None:
+        """Sync IQ processing (for testing)."""
+        pass
+
+
+class MockCaptureManager:
+    """Mock CaptureManager for testing."""
+
+    def __init__(self):
+        self._capture_counter = 0
+        self._channel_counter = 0
+
+    def create_capture(self, **kwargs) -> MockCapture:
+        self._capture_counter += 1
+        return MockCapture(f"c{self._capture_counter}")
+
+    def create_channel(self, cid: str, mode: str, offset_hz: float = 0.0) -> MockChannel:
+        self._channel_counter += 1
+        return MockChannel(f"ch{self._channel_counter}")
+
+    async def delete_capture(self, cid: str) -> None:
+        pass
+
+
+@pytest.fixture
+def mock_capture_manager():
+    """Fixture for mock CaptureManager."""
+    return MockCaptureManager()
 
 
 class TestTalkgroupConfig:
@@ -197,17 +261,18 @@ class TestTrunkingSystem:
         assert len(system._voice_recorders) == 4
 
     @pytest.mark.anyio
-    async def test_start_stop(self):
+    async def test_start_stop(self, mock_capture_manager):
         """Test system start and stop."""
         cfg = TrunkingSystemConfig(
             id="test",
             name="Test System",
             control_channels=[851.0e6],
+            center_hz=851.0e6,
         )
         system = TrunkingSystem(cfg=cfg)
 
         # Start
-        await system.start()
+        await system.start(mock_capture_manager)
         assert system.state == TrunkingSystemState.SEARCHING
         assert system.control_channel_state == ControlChannelState.SEARCHING
         assert system.control_channel_freq_hz == 851.0e6
@@ -217,7 +282,7 @@ class TestTrunkingSystem:
         assert system.state == TrunkingSystemState.STOPPED
 
     @pytest.mark.anyio
-    async def test_no_control_channels_fails(self):
+    async def test_no_control_channels_fails(self, mock_capture_manager):
         """Test that missing control channels causes failure."""
         cfg = TrunkingSystemConfig(
             id="test",
@@ -226,7 +291,7 @@ class TestTrunkingSystem:
         )
         system = TrunkingSystem(cfg=cfg)
 
-        await system.start()
+        await system.start(mock_capture_manager)
         assert system.state == TrunkingSystemState.FAILED
 
     def test_to_dict(self):
@@ -292,14 +357,16 @@ class TestTrunkingManager:
             await manager.add_system(cfg)
 
     @pytest.mark.anyio
-    async def test_start_stop(self):
+    async def test_start_stop(self, mock_capture_manager):
         """Test manager start and stop."""
         manager = TrunkingManager()
+        manager.set_capture_manager(mock_capture_manager)
 
         cfg = TrunkingSystemConfig(
             id="test",
             name="Test System",
             control_channels=[851.0e6],
+            center_hz=851.0e6,
         )
         await manager.add_system(cfg)
 
@@ -355,18 +422,19 @@ class TestControlChannelMonitor:
         )
         assert monitor.protocol == TrunkingProtocol.P25_PHASE1
         assert monitor.sync_state == SyncState.SEARCHING
+        # Control channels always use C4FM, even for Phase I
         assert monitor._c4fm_demod is not None
-        assert monitor._cqpsk_demod is None
 
     def test_initialization_phase2(self):
-        """Test Phase II monitor initialization."""
+        """Test Phase II monitor initialization - still uses C4FM for control channel."""
         monitor = create_control_monitor(
             protocol=TrunkingProtocol.P25_PHASE2,
             sample_rate=48000,
         )
         assert monitor.protocol == TrunkingProtocol.P25_PHASE2
-        assert monitor._cqpsk_demod is not None
-        assert monitor._c4fm_demod is None
+        # Control channels ALWAYS use C4FM even for Phase II systems
+        # Only voice channels use CQPSK in Phase II
+        assert monitor._c4fm_demod is not None
 
     def test_reset(self):
         """Test monitor reset."""

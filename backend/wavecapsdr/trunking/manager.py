@@ -9,6 +9,7 @@ systems. It handles:
 
 Usage:
     manager = TrunkingManager()
+    manager.set_capture_manager(capture_manager)  # Required for SDR access
     await manager.add_system(config)
     await manager.start_system("psern")
 """
@@ -18,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
 from wavecapsdr.trunking.config import TrunkingSystemConfig, load_talkgroups_csv
 from wavecapsdr.trunking.system import (
@@ -26,6 +27,9 @@ from wavecapsdr.trunking.system import (
     TrunkingSystemState,
     ActiveCall,
 )
+
+if TYPE_CHECKING:
+    from wavecapsdr.capture import CaptureManager
 
 logger = logging.getLogger(__name__)
 
@@ -48,9 +52,23 @@ class TrunkingManager:
     _maintenance_task: Optional[asyncio.Task[None]] = None
     _running: bool = False
 
+    # Reference to CaptureManager for SDR access
+    _capture_manager: Optional["CaptureManager"] = None
+
     def __post_init__(self) -> None:
         """Initialize the manager."""
         logger.info("TrunkingManager initialized")
+
+    def set_capture_manager(self, capture_manager: "CaptureManager") -> None:
+        """Set the CaptureManager reference for SDR access.
+
+        Must be called before starting any trunking systems.
+
+        Args:
+            capture_manager: CaptureManager instance
+        """
+        self._capture_manager = capture_manager
+        logger.info("TrunkingManager: CaptureManager reference set")
 
     async def start(self) -> None:
         """Start the trunking manager.
@@ -167,12 +185,21 @@ class TrunkingManager:
 
         Args:
             system_id: System ID to start
+
+        Raises:
+            ValueError: If system not found
+            RuntimeError: If CaptureManager not set
         """
         if system_id not in self._systems:
             raise ValueError(f"System '{system_id}' not found")
 
+        if self._capture_manager is None:
+            raise RuntimeError(
+                "CaptureManager not set. Call set_capture_manager() before starting systems."
+            )
+
         system = self._systems[system_id]
-        await system.start()
+        await system.start(self._capture_manager)
 
     async def stop_system(self, system_id: str) -> None:
         """Stop a trunking system.

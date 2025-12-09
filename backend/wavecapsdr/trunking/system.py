@@ -22,12 +22,21 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
+from scipy import signal as scipy_signal
+
 from wavecapsdr.trunking.config import TrunkingSystemConfig, TrunkingProtocol
+from wavecapsdr.trunking.control_channel import ControlChannelMonitor, create_control_monitor
 from wavecapsdr.decoders.p25_tsbk import TSBKParser, VoiceGrant, ChannelIdentifier
+
+if TYPE_CHECKING:
+    from wavecapsdr.capture import Capture, Channel, CaptureManager
+
+# Import freq_shift from capture module
+from wavecapsdr.capture import freq_shift
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +203,14 @@ class TrunkingSystem:
     # Channel identifiers from IDEN_UP messages
     _channel_identifiers: Dict[int, ChannelIdentifier] = field(default_factory=dict)
 
+    # SDR capture and channel references (created on start)
+    _capture_manager: Optional["CaptureManager"] = None
+    _capture: Optional["Capture"] = None
+    _control_channel: Optional["Channel"] = None
+
+    # Control channel monitor (uses correct Phase I/II demodulator)
+    _control_monitor: Optional[ControlChannelMonitor] = None
+
     # Voice recorders
     _voice_recorders: List[VoiceRecorder] = field(default_factory=list)
 
@@ -238,11 +255,14 @@ class TrunkingSystem:
             f"voice_recorders={len(self._voice_recorders)}"
         )
 
-    async def start(self) -> None:
+    async def start(self, capture_manager: "CaptureManager") -> None:
         """Start the trunking system.
 
-        This initializes the control channel monitor and begins
-        searching for a valid control channel.
+        This creates an SDR capture, sets up the control channel decoder,
+        and begins searching for a valid control channel.
+
+        Args:
+            capture_manager: CaptureManager for creating SDR captures
         """
         if self.state not in (TrunkingSystemState.STOPPED, TrunkingSystemState.FAILED):
             logger.warning(f"TrunkingSystem {self.cfg.id}: Cannot start from state {self.state}")
@@ -250,6 +270,7 @@ class TrunkingSystem:
 
         logger.info(f"TrunkingSystem {self.cfg.id}: Starting...")
         self._set_state(TrunkingSystemState.STARTING)
+        self._capture_manager = capture_manager
 
         # Validate config
         if not self.cfg.control_channels:
@@ -261,6 +282,53 @@ class TrunkingSystem:
         self.control_channel_index = 0
         self.control_channel_freq_hz = self.cfg.control_channels[0]
 
+        try:
+            # Create wideband capture for this trunking system
+            self._capture = capture_manager.create_capture(
+                device_id=self.cfg.device_id,
+                center_hz=self.cfg.center_hz,
+                sample_rate=self.cfg.sample_rate,
+                gain=self.cfg.gain,
+            )
+
+            logger.info(
+                f"TrunkingSystem {self.cfg.id}: Created capture {self._capture.cfg.id} "
+                f"at {self.cfg.center_hz/1e6:.4f} MHz, {self.cfg.sample_rate/1e6:.1f} Msps"
+            )
+
+            # Calculate control channel offset from capture center
+            cc_offset_hz = self.control_channel_freq_hz - self.cfg.center_hz
+
+            # Create P25 control channel
+            self._control_channel = capture_manager.create_channel(
+                cid=self._capture.cfg.id,
+                mode="p25",
+                offset_hz=cc_offset_hz,
+            )
+
+            # Start the control channel (sets state to "running" so it processes IQ)
+            self._control_channel.start()
+
+            # Wire up TSBK callback from P25 decoder
+            # The P25Decoder has on_tsbk_message callback we can use
+            self._setup_tsbk_callback()
+
+            logger.info(
+                f"TrunkingSystem {self.cfg.id}: Created P25 control channel {self._control_channel.cfg.id} "
+                f"at offset {cc_offset_hz/1e3:.1f} kHz"
+            )
+
+            # Start the capture (sync method, runs in background thread)
+            self._capture.start()
+
+            logger.info(f"TrunkingSystem {self.cfg.id}: Capture started, searching for control channel")
+
+        except Exception as e:
+            logger.error(f"TrunkingSystem {self.cfg.id}: Failed to start: {e}")
+            self._set_state(TrunkingSystemState.FAILED)
+            await self._cleanup_capture()
+            return
+
         self._set_state(TrunkingSystemState.SEARCHING)
         self.control_channel_state = ControlChannelState.SEARCHING
 
@@ -268,6 +336,164 @@ class TrunkingSystem:
             f"TrunkingSystem {self.cfg.id}: Searching for control channel "
             f"at {self.control_channel_freq_hz/1e6:.4f} MHz"
         )
+
+    def _setup_tsbk_callback(self) -> None:
+        """Set up control channel decoding using ControlChannelMonitor.
+
+        We use ControlChannelMonitor instead of Channel's P25 decoder because:
+        - ControlChannelMonitor supports both Phase I (C4FM) and Phase II (CQPSK)
+        - The Channel's P25 decoder only supports C4FM (Phase I)
+
+        We intercept IQ samples going to the control channel, do frequency shift,
+        and feed them to our ControlChannelMonitor with the correct protocol.
+        """
+        if self._control_channel is None or self._capture is None:
+            return
+
+        # Create ControlChannelMonitor with correct protocol
+        # Sample rate 48000 is standard for P25 decoding
+        self._control_monitor = create_control_monitor(
+            protocol=self.cfg.protocol,
+            sample_rate=48000,
+        )
+
+        logger.info(
+            f"TrunkingSystem {self.cfg.id}: Created ControlChannelMonitor "
+            f"for {self.cfg.protocol.value}"
+        )
+
+        # Store original process_iq_chunk_sync method
+        original_process_sync = self._control_channel.process_iq_chunk_sync
+
+        # Get control channel offset for freq shift
+        cc_offset_hz = self._control_channel.cfg.offset_hz
+
+        # Design anti-aliasing filter for decimation
+        # Target output rate is 48kHz, P25 signal bandwidth is ~12.5kHz
+        # Use a lowpass FIR filter with cutoff at 20kHz to preserve P25 signal
+        target_rate = 48000
+        decim_factor = max(1, self.cfg.sample_rate // target_rate)
+        if decim_factor > 1:
+            # Design lowpass filter: cutoff at 0.8 * (target_rate/2) / (sample_rate/2)
+            # = 0.8 * target_rate / sample_rate
+            normalized_cutoff = 0.8 * target_rate / self.cfg.sample_rate
+            num_taps = 65  # Good tradeoff between quality and performance
+            anti_alias_taps = scipy_signal.firwin(num_taps, normalized_cutoff)
+            anti_alias_zi = scipy_signal.lfilter_zi(anti_alias_taps, 1.0)
+
+            logger.info(
+                f"TrunkingSystem {self.cfg.id}: Decimation filter: "
+                f"{self.cfg.sample_rate} -> {self.cfg.sample_rate // decim_factor} Hz "
+                f"(factor {decim_factor})"
+            )
+        else:
+            anti_alias_taps = None
+            anti_alias_zi = None
+
+        # Store filter state for streaming
+        filter_state = [anti_alias_zi.astype(np.complex128) if anti_alias_zi is not None else None]
+
+        def wrapped_process_sync(iq: np.ndarray, sample_rate: int) -> Optional[np.ndarray]:
+            """Wrapped IQ processor that uses ControlChannelMonitor.
+
+            This intercepts IQ samples, does frequency shift to center on control channel,
+            decimates to 48kHz with proper anti-aliasing, and feeds to our ControlChannelMonitor.
+            """
+            # Shift frequency to center on control channel
+            centered_iq = freq_shift(iq, cc_offset_hz, sample_rate)
+
+            # Apply anti-aliasing filter and decimate
+            if decim_factor > 1 and anti_alias_taps is not None:
+                # Apply lowpass anti-aliasing filter
+                if filter_state[0] is not None:
+                    filtered_iq, filter_state[0] = scipy_signal.lfilter(
+                        anti_alias_taps, 1.0, centered_iq,
+                        zi=filter_state[0] * centered_iq[0]
+                    )
+                else:
+                    filtered_iq = scipy_signal.lfilter(anti_alias_taps, 1.0, centered_iq)
+                # Decimate
+                decimated_iq = filtered_iq[::decim_factor]
+            else:
+                decimated_iq = centered_iq
+
+            # Feed to ControlChannelMonitor
+            if self._control_monitor is not None:
+                try:
+                    tsbk_results = self._control_monitor.process_iq(decimated_iq)
+
+                    # Handle each TSBK result
+                    for tsbk_data in tsbk_results:
+                        if tsbk_data:
+                            self._handle_parsed_tsbk(tsbk_data)
+
+                except Exception as e:
+                    logger.error(f"TrunkingSystem {self.cfg.id}: Control monitor error: {e}")
+
+            # Call original processing for signal metrics
+            return original_process_sync(iq, sample_rate)
+
+        # Replace the sync processing method
+        self._control_channel.process_iq_chunk_sync = wrapped_process_sync  # type: ignore[method-assign]
+
+    def _handle_tsbk_callback(self, tsbk_data: Dict[str, Any]) -> None:
+        """Handle TSBK message from P25 decoder.
+
+        This is called by the P25 decoder when a TSBK is decoded.
+        We convert the dict to bytes and pass to process_tsbk().
+        """
+        # The P25 decoder gives us parsed TSBK data as a dict
+        # We need to convert back or handle directly
+        # For now, let's handle the parsed data directly
+        self._handle_parsed_tsbk(tsbk_data)
+
+    def _handle_parsed_tsbk(self, tsbk_data: Dict[str, Any]) -> None:
+        """Handle parsed TSBK data from P25 decoder."""
+        # Update stats
+        self._tsbk_count += 1
+        now = time.time()
+        if self._last_tsbk_time > 0:
+            elapsed = now - self._last_tsbk_time
+            if elapsed > 0:
+                instant_rate = 1.0 / elapsed
+                self.decode_rate = 0.9 * self.decode_rate + 0.1 * instant_rate
+        self._last_tsbk_time = now
+
+        # If we were searching, we're now synced
+        if self.control_channel_state == ControlChannelState.SEARCHING:
+            self.control_channel_state = ControlChannelState.LOCKED
+            self._set_state(TrunkingSystemState.SYNCED)
+            logger.info(
+                f"TrunkingSystem {self.cfg.id}: Locked to control channel "
+                f"at {self.control_channel_freq_hz/1e6:.4f} MHz"
+            )
+
+        # Handle the TSBK based on opcode
+        opcode = tsbk_data.get("opcode")
+
+        # Voice grants
+        if opcode in ("GRP_V_CH_GRANT", "GRP_V_CH_GRANT_UPDT", "UU_V_CH_GRANT"):
+            self._handle_voice_grant(tsbk_data)
+
+        # Channel identifiers
+        elif opcode in ("IDEN_UP", "IDEN_UP_VU"):
+            self._handle_channel_identifier(tsbk_data)
+
+        # System status
+        elif opcode == "RFSS_STS_BCAST":
+            self._handle_rfss_status(tsbk_data)
+        elif opcode == "NET_STS_BCAST":
+            self._handle_net_status(tsbk_data)
+
+    async def _cleanup_capture(self) -> None:
+        """Clean up capture and channel resources."""
+        if self._capture_manager and self._capture:
+            try:
+                await self._capture_manager.delete_capture(self._capture.cfg.id)
+            except Exception as e:
+                logger.error(f"TrunkingSystem {self.cfg.id}: Error cleaning up capture: {e}")
+        self._capture = None
+        self._control_channel = None
 
     async def stop(self) -> None:
         """Stop the trunking system."""
@@ -284,6 +510,9 @@ class TrunkingSystem:
         # Release all recorders
         for recorder in self._voice_recorders:
             recorder.release()
+
+        # Clean up SDR capture and channel
+        await self._cleanup_capture()
 
         self.control_channel_state = ControlChannelState.UNLOCKED
         self._set_state(TrunkingSystemState.STOPPED)

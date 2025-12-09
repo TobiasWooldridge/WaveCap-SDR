@@ -72,6 +72,7 @@ class TrunkingSystemConfig:
     center_hz: float = 851_000_000
     sample_rate: int = 8_000_000
     device_id: str = ""
+    gain: Optional[float] = None  # RF gain (None = auto)
     max_voice_recorders: int = 4
     talkgroups: Dict[int, TalkgroupConfig] = field(default_factory=dict)
     recording_path: str = "./recordings"
@@ -139,6 +140,10 @@ class TrunkingSystemConfig:
         except ValueError:
             protocol = TrunkingProtocol.P25_PHASE1
 
+        gain = data.get("gain")
+        if gain is not None:
+            gain = float(gain)
+
         return cls(
             id=data.get("id", "system"),
             name=data.get("name", "P25 System"),
@@ -147,6 +152,7 @@ class TrunkingSystemConfig:
             center_hz=float(data.get("center_hz", 851_000_000)),
             sample_rate=int(data.get("sample_rate", 8_000_000)),
             device_id=data.get("device_id", ""),
+            gain=gain,
             max_voice_recorders=int(data.get("max_voice_recorders", 4)),
             talkgroups=talkgroups,
             recording_path=data.get("recording_path", "./recordings"),
@@ -165,6 +171,7 @@ class TrunkingSystemConfig:
             "center_hz": self.center_hz,
             "sample_rate": self.sample_rate,
             "device_id": self.device_id,
+            "gain": self.gain,
             "max_voice_recorders": self.max_voice_recorders,
             "talkgroups": {
                 tgid: {

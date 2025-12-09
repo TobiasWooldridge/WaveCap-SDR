@@ -25,7 +25,6 @@ import numpy as np
 
 from wavecapsdr.trunking.config import TrunkingProtocol
 from wavecapsdr.dsp.p25.c4fm import C4FMDemodulator
-from wavecapsdr.dsp.p25.cqpsk import CQPSKDemodulator
 from wavecapsdr.decoders.p25_frames import (
     DUID,
     NID,
@@ -56,9 +55,8 @@ class ControlChannelMonitor:
     protocol: TrunkingProtocol
     sample_rate: int = 48000  # Input IQ sample rate
 
-    # Demodulators
+    # Demodulator (always C4FM for control channels)
     _c4fm_demod: Optional[C4FMDemodulator] = None
-    _cqpsk_demod: Optional[CQPSKDemodulator] = None
 
     # TSBK parser
     _tsbk_parser: Optional[TSBKParser] = None
@@ -86,19 +84,17 @@ class ControlChannelMonitor:
 
     def __post_init__(self) -> None:
         """Initialize demodulators and parser."""
-        # Create appropriate demodulator
-        if self.protocol == TrunkingProtocol.P25_PHASE1:
-            self._c4fm_demod = C4FMDemodulator(
-                sample_rate=self.sample_rate,
-                symbol_rate=4800,  # P25 Phase I: 4800 baud
-            )
-            logger.info(f"ControlChannelMonitor: Using C4FM demodulator @ {self.sample_rate} Hz")
-        else:
-            self._cqpsk_demod = CQPSKDemodulator(
-                sample_rate=self.sample_rate,
-                symbol_rate=6000,  # P25 Phase II: 6000 symbols/sec (12000 baud TDMA)
-            )
-            logger.info(f"ControlChannelMonitor: Using CQPSK demodulator @ {self.sample_rate} Hz")
+        # P25 control channels ALWAYS use C4FM (Phase I signaling) at 4800 baud,
+        # even for Phase II systems. Only voice channels use CQPSK/TDMA in Phase II.
+        # This is a fundamental P25 design choice - control channel is backwards compatible.
+        self._c4fm_demod = C4FMDemodulator(
+            sample_rate=self.sample_rate,
+            symbol_rate=4800,  # P25 control channel: always 4800 baud C4FM
+        )
+        logger.info(
+            f"ControlChannelMonitor: Using C4FM demodulator @ {self.sample_rate} Hz "
+            f"(control channels always use C4FM, even for Phase II systems)"
+        )
 
         # Create TSBK parser
         self._tsbk_parser = TSBKParser()
@@ -114,8 +110,6 @@ class ControlChannelMonitor:
 
         if self._c4fm_demod:
             self._c4fm_demod.reset()
-        if self._cqpsk_demod:
-            self._cqpsk_demod.reset()
 
     def process_iq(self, iq: np.ndarray) -> List[Dict[str, Any]]:
         """Process IQ samples and extract TSBK messages.
@@ -129,16 +123,26 @@ class ControlChannelMonitor:
         if iq.size == 0:
             return []
 
-        # Demodulate to dibits
+        # Demodulate to dibits using C4FM (control channels always use C4FM)
         if self._c4fm_demod:
             dibits, soft = self._c4fm_demod.demodulate(iq.astype(np.complex64))
-        elif self._cqpsk_demod:
-            dibits = self._cqpsk_demod.demodulate(iq.astype(np.complex64))
         else:
             return []
 
         if len(dibits) == 0:
             return []
+
+        # Debug: log dibit count periodically
+        if hasattr(self, '_dibit_debug_count'):
+            self._dibit_debug_count += len(dibits)
+            if self._dibit_debug_count >= 10000:
+                logger.info(
+                    f"ControlChannelMonitor: Processed {self._dibit_debug_count} dibits, "
+                    f"buffer={len(self._dibit_buffer)}, sync_state={self.sync_state.value}"
+                )
+                self._dibit_debug_count = 0
+        else:
+            self._dibit_debug_count = len(dibits)
 
         # Process dibits
         return self._process_dibits(dibits)
