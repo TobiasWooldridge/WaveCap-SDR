@@ -20,6 +20,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$SCRIPT_DIR/backend"
 VENV_DIR="$BACKEND_DIR/.venv"
 
+# Add ~/.local/bin to PATH for DSD-FME and other locally installed tools
+export PATH="$HOME/.local/bin:$PATH"
+
 # Color output
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
