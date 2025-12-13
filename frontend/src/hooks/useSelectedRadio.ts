@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCaptures } from "./useCaptures";
 import { useDevices } from "./useDevices";
 import { useTrunkingSystems } from "./useTrunking";
-import { findDeviceForCapture } from "../utils/deviceId";
+import { findDeviceForCapture, getStableDeviceId } from "../utils/deviceId";
 import { getDeviceDisplayName } from "../utils/device";
 import type { Capture, Device, RadioTab, RadioTabType } from "../types";
 import type { TrunkingSystem } from "../types/trunking";
@@ -60,11 +60,23 @@ export function useSelectedRadio() {
     // Add trunking system tabs
     if (trunkingSystems) {
       for (const system of trunkingSystems) {
+        // Look up device name from deviceId
+        let deviceName = "Trunking";
+        if (system.deviceId && devices) {
+          const stableId = getStableDeviceId(system.deviceId);
+          const device = devices.find(
+            (d) => getStableDeviceId(d.id) === stableId
+          );
+          if (device) {
+            deviceName = getDeviceDisplayName(device);
+          }
+        }
+
         result.push({
           type: "trunking",
           id: system.id,
           name: system.name,
-          deviceName: "Trunking",
+          deviceName,
           state: system.state,
           frequencyHz: system.controlChannelFreqHz ?? 0,
         });

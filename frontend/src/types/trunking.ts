@@ -18,6 +18,7 @@ export interface TrunkingSystem {
   id: string;
   name: string;
   protocol: TrunkingProtocol;
+  deviceId: string | null;
   state: TrunkingSystemState;
   controlChannelState: ControlChannelState;
   controlChannelFreqHz: number | null;

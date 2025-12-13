@@ -80,6 +80,7 @@ class SystemResponse(BaseModel):
     id: str
     name: str
     protocol: str
+    deviceId: Optional[str]
     state: str
     controlChannelState: str
     controlChannelFreqHz: Optional[float]
@@ -150,6 +151,7 @@ def system_to_response(system: TrunkingSystem) -> SystemResponse:
         id=d["id"],
         name=d["name"],
         protocol=d["protocol"],
+        deviceId=d.get("deviceId"),
         state=d["state"],
         controlChannelState=d["controlChannelState"],
         controlChannelFreqHz=d["controlChannelFreqHz"],

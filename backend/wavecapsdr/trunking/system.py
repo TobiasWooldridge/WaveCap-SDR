@@ -882,6 +882,7 @@ class TrunkingSystem:
             "id": self.cfg.id,
             "name": self.cfg.name,
             "protocol": self.cfg.protocol.value,
+            "deviceId": self.cfg.device_id or None,
             "state": self.state.value,
             "controlChannelState": self.control_channel_state.value,
             "controlChannelFreqHz": self.control_channel_freq_hz,
