@@ -1,11 +1,12 @@
 import { useState, useCallback } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Wand2, Radio, Antenna } from "lucide-react";
+import { Wand2 } from "lucide-react";
 import { ToastProvider } from "./hooks/useToast";
 import { ErrorProvider } from "./context/ErrorContext";
-import { useSelectedCapture } from "./hooks/useSelectedCapture";
+import { useSelectedRadio } from "./hooks/useSelectedRadio";
 import { useChannels } from "./hooks/useChannels";
 import { useDeleteCapture } from "./hooks/useCaptures";
+import { useDeleteTrunkingSystem } from "./hooks/useTrunking";
 import { useStateWebSocket } from "./hooks/useStateWebSocket";
 import { useAudio } from "./hooks/useAudio";
 import { RadioTabBar, RadioPanel } from "./features/radio";
@@ -16,8 +17,7 @@ import { CreateCaptureWizard } from "./components/CreateCaptureWizard.react";
 import { DeviceSettingsModal } from "./components/DeviceSettingsModal.react";
 import ErrorBoundary from "./components/ErrorBoundary.react";
 import Spinner from "./components/primitives/Spinner.react";
-
-type AppMode = "radio" | "trunking";
+import type { RadioTabType } from "./types";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,36 +33,28 @@ function AppContent() {
   // This updates React Query cache when captures/channels change
   useStateWebSocket();
 
-  const [appMode, setAppMode] = useState<AppMode>("radio");
-
   const {
-    selectedCaptureId,
+    selectedType,
+    selectedId,
     selectedCapture,
     selectedDevice,
-    selectCapture: baseSelectCapture,
-    captures,
-    devices,
+    selectTab,
+    tabs,
     isLoading,
-  } = useSelectedCapture();
+  } = useSelectedRadio();
 
-  const { data: channels } = useChannels(selectedCaptureId ?? "");
+  const { data: channels } = useChannels(selectedCapture?.id ?? "");
   const deleteCapture = useDeleteCapture();
+  const deleteTrunkingSystem = useDeleteTrunkingSystem();
   const { stopAll } = useAudio();
 
-  // Stop all audio when changing tabs/radios or modes
-  const selectCapture = useCallback((captureId: string) => {
-    if (captureId !== selectedCaptureId) {
+  // Stop all audio when changing tabs
+  const handleSelectTab = useCallback((type: RadioTabType, id: string) => {
+    if (type !== selectedType || id !== selectedId) {
       stopAll();
     }
-    baseSelectCapture(captureId);
-  }, [baseSelectCapture, selectedCaptureId, stopAll]);
-
-  const handleModeChange = useCallback((mode: AppMode) => {
-    if (mode !== appMode) {
-      stopAll();
-    }
-    setAppMode(mode);
-  }, [appMode, stopAll]);
+    selectTab(type, id);
+  }, [selectTab, selectedType, selectedId, stopAll]);
 
   const [showWizard, setShowWizard] = useState(false);
   const [showDeviceSettings, setShowDeviceSettings] = useState(false);
@@ -73,8 +65,14 @@ function AppContent() {
     }
   };
 
+  const handleDeleteTrunkingSystem = (systemId: string) => {
+    if (confirm("Delete this trunking system?")) {
+      deleteTrunkingSystem.mutate(systemId);
+    }
+  };
+
   const handleCreateSuccess = (captureId: string) => {
-    selectCapture(captureId);
+    selectTab("capture", captureId);
     setShowWizard(false);
   };
 
@@ -90,52 +88,31 @@ function AppContent() {
     <div className="d-flex flex-column" style={{ minHeight: "100vh" }}>
       {/* Top Navigation - sticky at top */}
       <div className="sticky-top bg-body border-bottom" style={{ zIndex: 1020 }}>
-        {/* Mode selector */}
-        <div className="d-flex align-items-center bg-dark border-bottom border-secondary">
-          <div className="d-flex">
-            <button
-              className={`btn btn-sm rounded-0 border-0 px-3 py-2 d-flex align-items-center gap-1 ${
-                appMode === "radio" ? "bg-body text-body" : "bg-dark text-light"
-              }`}
-              onClick={() => handleModeChange("radio")}
-            >
-              <Radio size={14} />
-              Radio
-            </button>
-            <button
-              className={`btn btn-sm rounded-0 border-0 px-3 py-2 d-flex align-items-center gap-1 ${
-                appMode === "trunking" ? "bg-body text-body" : "bg-dark text-light"
-              }`}
-              onClick={() => handleModeChange("trunking")}
-            >
-              <Antenna size={14} />
-              Trunking
-            </button>
-          </div>
-        </div>
-
-        {/* Radio Tab Bar - only show in radio mode */}
-        {appMode === "radio" && (
-          <RadioTabBar
-            captures={captures}
-            devices={devices}
-            selectedCaptureId={selectedCaptureId}
-            onSelectCapture={selectCapture}
-            onCreateCapture={() => setShowWizard(true)}
-            onDeleteCapture={handleDeleteCapture}
-            onOpenSettings={() => setShowDeviceSettings(true)}
-          />
-        )}
+        {/* Unified Tab Bar - shows both captures and trunking systems */}
+        <RadioTabBar
+          tabs={tabs}
+          selectedType={selectedType}
+          selectedId={selectedId}
+          onSelectTab={handleSelectTab}
+          onCreateCapture={() => setShowWizard(true)}
+          onCreateTrunkingSystem={() => {
+            // TODO: Create trunking system wizard
+            console.log("Create trunking system");
+          }}
+          onDeleteCapture={handleDeleteCapture}
+          onDeleteTrunkingSystem={handleDeleteTrunkingSystem}
+          onOpenSettings={() => setShowDeviceSettings(true)}
+        />
       </div>
 
-      {/* Main Content */}
-      {appMode === "trunking" ? (
-        /* Trunking Mode */
+      {/* Main Content - depends on selection type */}
+      {selectedType === "trunking" && selectedId ? (
+        /* Trunking System Selected */
         <div className="flex-grow-1">
-          <TrunkingPanel />
+          <TrunkingPanel systemId={selectedId} />
         </div>
-      ) : selectedCapture ? (
-        /* Radio Mode with capture selected */
+      ) : selectedType === "capture" && selectedCapture ? (
+        /* Capture Selected */
         <div className="d-flex flex-column flex-lg-row">
           {/* Spectrum Panel - self-sizing based on internal state */}
           <div className="d-flex flex-column border-end" style={{ flex: "1 1 33%", minWidth: 0 }}>
@@ -155,12 +132,12 @@ function AppContent() {
           </div>
         </div>
       ) : (
-        /* Radio Mode with no capture selected */
+        /* Nothing Selected */
         <div className="flex-grow-1 d-flex justify-content-center align-items-center">
           <div className="text-center text-muted">
             <Wand2 size={48} className="mb-3 opacity-50" />
             <h5>No Radio Selected</h5>
-            <p className="small">Click "Add Radio" to create a new capture</p>
+            <p className="small">Click the + button to add a radio or trunking system</p>
             <button className="btn btn-primary" onClick={() => setShowWizard(true)}>
               Add Radio
             </button>

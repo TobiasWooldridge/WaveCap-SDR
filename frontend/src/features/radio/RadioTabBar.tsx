@@ -1,37 +1,32 @@
-import { useMemo } from "react";
-import { Radio, Plus, X, Settings } from "lucide-react";
-import type { Capture, Device } from "../../types";
-import { groupCapturesByDevice, findDeviceForCapture } from "../../utils/deviceId";
-import { getDeviceDisplayName } from "../../utils/device";
+import { Radio, Antenna, Plus, X, Settings } from "lucide-react";
+import type { RadioTab, RadioTabType } from "../../types";
 import { formatFrequencyMHz } from "../../utils/frequency";
 import Button from "../../components/primitives/Button.react";
 
 interface RadioTabBarProps {
-  captures: Capture[];
-  devices: Device[];
-  selectedCaptureId: string | null;
-  onSelectCapture: (id: string) => void;
+  tabs: RadioTab[];
+  selectedType: RadioTabType | null;
+  selectedId: string | null;
+  onSelectTab: (type: RadioTabType, id: string) => void;
   onCreateCapture: () => void;
+  onCreateTrunkingSystem?: () => void;
   onDeleteCapture: (id: string) => void;
+  onDeleteTrunkingSystem?: (id: string) => void;
   onOpenSettings: () => void;
 }
 
 export function RadioTabBar({
-  captures,
-  devices,
-  selectedCaptureId,
-  onSelectCapture,
+  tabs,
+  selectedType,
+  selectedId,
+  onSelectTab,
   onCreateCapture,
+  onCreateTrunkingSystem,
   onDeleteCapture,
+  onDeleteTrunkingSystem,
   onOpenSettings,
 }: RadioTabBarProps) {
-  // Group captures by device for organized display
-  const captureGroups = useMemo(
-    () => groupCapturesByDevice(captures, devices),
-    [captures, devices]
-  );
-
-  if (captures.length === 0) {
+  if (tabs.length === 0) {
     return (
       <div className="d-flex align-items-center gap-2 p-2 bg-dark">
         <Radio size={18} className="text-light" />
@@ -50,33 +45,56 @@ export function RadioTabBar({
   return (
     <div className="d-flex align-items-center bg-dark overflow-auto">
       <div className="d-flex flex-nowrap">
-        {captureGroups.map((group) =>
-          group.captures.map((capture) => {
-            const device = findDeviceForCapture(devices, capture);
-            const isSelected = capture.id === selectedCaptureId;
-            const isRunning = capture.state === "running";
-            const isFailed = capture.state === "failed" || capture.state === "error";
+        {tabs.map((tab) => {
+          const isSelected = tab.type === selectedType && tab.id === selectedId;
 
-            return (
-              <RadioTab
-                key={capture.id}
-                capture={capture}
-                device={device ?? null}
-                isSelected={isSelected}
-                isRunning={isRunning}
-                isFailed={isFailed}
-                onSelect={() => onSelectCapture(capture.id)}
-                onDelete={() => onDeleteCapture(capture.id)}
-              />
-            );
-          })
-        )}
+          return (
+            <TabItem
+              key={`${tab.type}:${tab.id}`}
+              tab={tab}
+              isSelected={isSelected}
+              onSelect={() => onSelectTab(tab.type, tab.id)}
+              onDelete={() => {
+                if (tab.type === "capture") {
+                  onDeleteCapture(tab.id);
+                } else if (onDeleteTrunkingSystem) {
+                  onDeleteTrunkingSystem(tab.id);
+                }
+              }}
+            />
+          );
+        })}
       </div>
 
       <div className="d-flex align-items-center gap-1 ms-auto px-2">
-        <Button size="sm" use="light" appearance="outline" onClick={onCreateCapture}>
-          <Plus size={14} />
-        </Button>
+        {/* Add dropdown or multiple buttons */}
+        <div className="dropdown">
+          <Button
+            size="sm"
+            use="light"
+            appearance="outline"
+            data-bs-toggle="dropdown"
+            aria-expanded="false"
+          >
+            <Plus size={14} />
+          </Button>
+          <ul className="dropdown-menu dropdown-menu-end">
+            <li>
+              <button className="dropdown-item d-flex align-items-center gap-2" onClick={onCreateCapture}>
+                <Radio size={14} />
+                Add Radio
+              </button>
+            </li>
+            {onCreateTrunkingSystem && (
+              <li>
+                <button className="dropdown-item d-flex align-items-center gap-2" onClick={onCreateTrunkingSystem}>
+                  <Antenna size={14} />
+                  Add Trunking System
+                </button>
+              </li>
+            )}
+          </ul>
+        </div>
         <Button size="sm" use="secondary" appearance="outline" onClick={onOpenSettings}>
           <Settings size={14} />
         </Button>
@@ -85,27 +103,24 @@ export function RadioTabBar({
   );
 }
 
-interface RadioTabProps {
-  capture: Capture;
-  device: Device | null;
+interface TabItemProps {
+  tab: RadioTab;
   isSelected: boolean;
-  isRunning: boolean;
-  isFailed: boolean;
   onSelect: () => void;
   onDelete: () => void;
 }
 
-function RadioTab({
-  capture,
-  device,
-  isSelected,
-  isRunning,
-  isFailed,
-  onSelect,
-  onDelete,
-}: RadioTabProps) {
-  const displayName = capture.name || capture.autoName || formatCaptureId(capture.id);
-  const deviceName = device ? getDeviceDisplayName(device) : "Unknown Device";
+function TabItem({ tab, isSelected, onSelect, onDelete }: TabItemProps) {
+  const isRunning = tab.state === "running";
+  const isFailed = tab.state === "failed" || tab.state === "error";
+  const isTrunking = tab.type === "trunking";
+
+  // Trunking states have different semantics
+  const trunkingStateLabel = getTrunkingStateLabel(tab.state);
+  const stateLabel = isTrunking ? trunkingStateLabel : getCaptureStateLabel(tab.state);
+  const stateBadgeClass = getStateBadgeClass(tab.state, isTrunking);
+
+  const Icon = isTrunking ? Antenna : Radio;
 
   return (
     <div
@@ -117,7 +132,7 @@ function RadioTab({
       style={{ cursor: "pointer", minWidth: "140px", minHeight: "52px" }}
       onClick={onSelect}
     >
-      <Radio
+      <Icon
         size={14}
         className={
           isFailed ? "text-danger" : isRunning ? "text-success" : "text-secondary"
@@ -129,30 +144,23 @@ function RadioTab({
           className={`small fw-semibold text-truncate ${isSelected ? "" : "text-light"}`}
           style={{ maxWidth: "150px" }}
         >
-          {displayName}
+          {tab.name}
         </span>
         <span
           className="text-truncate"
           style={{ fontSize: "0.7rem", maxWidth: "150px", color: isSelected ? "#6c757d" : "#adb5bd" }}
         >
-          {deviceName} - {formatFrequencyMHz(capture.centerHz)} MHz
+          {tab.deviceName}
+          {tab.frequencyHz > 0 && ` - ${formatFrequencyMHz(tab.frequencyHz)} MHz`}
         </span>
       </div>
 
       <div className="ms-auto d-flex align-items-center gap-1">
         <span
-          className={`badge ${
-            isFailed
-              ? "bg-danger"
-              : isRunning
-              ? "bg-success"
-              : capture.state === "starting"
-              ? "bg-warning text-dark"
-              : "bg-secondary"
-          }`}
+          className={`badge ${stateBadgeClass}`}
           style={{ fontSize: "0.6rem" }}
         >
-          {capture.state === "running" ? "ON" : capture.state === "stopped" ? "OFF" : capture.state.toUpperCase()}
+          {stateLabel}
         </span>
 
         {isSelected && (
@@ -162,7 +170,7 @@ function RadioTab({
               e.stopPropagation();
               onDelete();
             }}
-            title="Delete capture"
+            title={isTrunking ? "Delete trunking system" : "Delete capture"}
           >
             <X size={14} className="text-muted" />
           </button>
@@ -172,7 +180,74 @@ function RadioTab({
   );
 }
 
-function formatCaptureId(id: string): string {
-  const match = id.match(/^c(\d+)$/);
-  return match ? `Radio ${match[1]}` : id;
+function getCaptureStateLabel(state: string): string {
+  switch (state) {
+    case "running":
+      return "ON";
+    case "stopped":
+      return "OFF";
+    case "starting":
+      return "STARTING";
+    case "stopping":
+      return "STOPPING";
+    case "failed":
+    case "error":
+      return "FAILED";
+    default:
+      return state.toUpperCase();
+  }
+}
+
+function getTrunkingStateLabel(state: string): string {
+  switch (state) {
+    case "running":
+      return "SYNCED";
+    case "stopped":
+      return "OFF";
+    case "starting":
+      return "STARTING";
+    case "searching":
+      return "SEARCH";
+    case "syncing":
+      return "SYNCING";
+    case "failed":
+      return "FAILED";
+    default:
+      return state.toUpperCase();
+  }
+}
+
+function getStateBadgeClass(state: string, isTrunking: boolean): string {
+  if (isTrunking) {
+    switch (state) {
+      case "running":
+        return "bg-success";
+      case "stopped":
+        return "bg-secondary";
+      case "searching":
+      case "syncing":
+      case "starting":
+        return "bg-warning text-dark";
+      case "failed":
+        return "bg-danger";
+      default:
+        return "bg-secondary";
+    }
+  } else {
+    // Capture states
+    switch (state) {
+      case "running":
+        return "bg-success";
+      case "stopped":
+        return "bg-secondary";
+      case "starting":
+      case "stopping":
+        return "bg-warning text-dark";
+      case "failed":
+      case "error":
+        return "bg-danger";
+      default:
+        return "bg-secondary";
+    }
+  }
 }

@@ -357,3 +357,18 @@ export interface StatePingMessage {
 }
 
 export type StateMessage = StateChangeMessage | StateSnapshotMessage | StatePingMessage;
+
+// ==============================================================================
+// Unified Radio Tab types (captures + trunking systems)
+// ==============================================================================
+
+export type RadioTabType = "capture" | "trunking";
+
+export interface RadioTab {
+  type: RadioTabType;
+  id: string;
+  name: string;
+  deviceName: string;
+  state: string;
+  frequencyHz: number;
+}
