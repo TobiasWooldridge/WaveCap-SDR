@@ -273,8 +273,9 @@ export function TuningAccordions({ capture, device }: TuningControlsProps) {
 
   return (
     <Flex direction="column" gap={1}>
-      {/* Frequency */}
+      {/* Frequency - expanded by default */}
       <SimpleAccordion
+        defaultOpen
         header={
           <span className="small">
             <span className="fw-semibold">Frequency:</span>{" "}

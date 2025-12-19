@@ -247,6 +247,43 @@ def power_cycle_device(device_id: str, delay: float = 2.0) -> tuple[bool, str]:
         return False, "Failed to power cycle USB port"
 
 
+def power_cycle_all_ports(delay: float = 2.0) -> tuple[bool, str, int]:
+    """Power cycle all ports on all controllable USB hubs.
+
+    Args:
+        delay: Delay in seconds between off and on
+
+    Returns:
+        Tuple of (success, message, ports_cycled)
+    """
+    if not is_uhubctl_available():
+        return False, "uhubctl not installed. Install with: brew install uhubctl", 0
+
+    hubs = get_hub_status()
+    if not hubs:
+        return False, "No controllable USB hubs found", 0
+
+    ports_cycled = 0
+    errors = []
+
+    for hub in hubs:
+        for port in hub.ports:
+            if port.connected:  # Only cycle ports with connected devices
+                success = power_cycle_port(hub.location, port.port_number, delay)
+                if success:
+                    ports_cycled += 1
+                else:
+                    errors.append(f"Port {port.port_number} on hub {hub.location}")
+
+    if errors:
+        return False, f"Failed to cycle some ports: {', '.join(errors)}", ports_cycled
+
+    if ports_cycled == 0:
+        return True, "No devices connected to controllable USB ports", 0
+
+    return True, f"Power cycled {ports_cycled} USB port(s)", ports_cycled
+
+
 def get_hub_status_dict() -> Dict[str, Any]:
     """Get hub status as a dictionary for API response."""
     hubs = get_hub_status()

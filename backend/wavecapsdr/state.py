@@ -12,6 +12,7 @@ from .devices.fake import FakeDriver
 from .devices.rtl import RtlDriver
 from .devices.composite import CompositeDriver
 from .trunking import TrunkingManager
+from .trunking.config import TrunkingSystemConfig
 
 try:  # Optional import; only when using Soapy driver
     from .devices.soapy import SoapyDriver
@@ -68,6 +69,18 @@ class AppState:
         # Initialize P25 trunking manager with CaptureManager reference
         trunking_manager = TrunkingManager()
         trunking_manager.set_capture_manager(captures)
+
+        # Register trunking systems from config (loaded during manager.start())
+        for sys_id, sys_data in cfg.trunking_systems.items():
+            try:
+                # Ensure the id is set in the data
+                sys_data_with_id = dict(sys_data)
+                if "id" not in sys_data_with_id:
+                    sys_data_with_id["id"] = sys_id
+                trunking_config = TrunkingSystemConfig.from_dict(sys_data_with_id)
+                trunking_manager.register_config(trunking_config)
+            except Exception as e:
+                print(f"Warning: Failed to parse trunking system '{sys_id}': {e}", flush=True)
 
         # Load device nicknames from config
         load_device_nicknames(cfg.device_names)

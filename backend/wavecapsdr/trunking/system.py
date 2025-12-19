@@ -30,7 +30,10 @@ from scipy import signal as scipy_signal
 
 from wavecapsdr.trunking.config import TrunkingSystemConfig, TrunkingProtocol
 from wavecapsdr.trunking.control_channel import ControlChannelMonitor, create_control_monitor
+from wavecapsdr.trunking.voice_channel import VoiceChannel, VoiceChannelConfig, RadioLocation
 from wavecapsdr.decoders.p25_tsbk import TSBKParser, VoiceGrant, ChannelIdentifier
+from wavecapsdr.decoders.voice import VocoderType
+from wavecapsdr.decoders.lrrp import LocationCache
 
 if TYPE_CHECKING:
     from wavecapsdr.capture import Capture, Channel, CaptureManager
@@ -112,7 +115,7 @@ class VoiceRecorder:
 
     Each recorder can handle one active call at a time. When a voice
     grant is received, an available recorder tunes to the voice frequency
-    and records/streams the audio.
+    and records/streams the audio via VoiceChannel.
     """
     id: str
     system_id: str
@@ -122,6 +125,9 @@ class VoiceRecorder:
     call_id: Optional[str] = None
     frequency_hz: float = 0.0
     talkgroup_id: int = 0
+    talkgroup_name: str = ""
+    source_id: Optional[int] = None
+    encrypted: bool = False
 
     # Frequency shift from capture center
     offset_hz: float = 0.0
@@ -130,41 +136,169 @@ class VoiceRecorder:
     last_activity: float = 0.0
     hold_timeout: float = 2.0  # Seconds to hold after voice ends
 
-    # Audio buffer for this recorder
-    audio_buffer: List[np.ndarray] = field(default_factory=list)
+    # Voice channel for audio streaming
+    _voice_channel: Optional[VoiceChannel] = field(default=None, repr=False)
+
+    # Protocol for vocoder selection
+    _protocol: TrunkingProtocol = TrunkingProtocol.P25_PHASE1
+
+    # Decimation filter state for IQ processing
+    _decim_filter_taps: Optional[np.ndarray] = field(default=None, repr=False)
+    _decim_filter_zi: Optional[np.ndarray] = field(default=None, repr=False)
+    _decim_factor: int = 1
+
+    # FM demodulator state
+    _last_phase: float = 0.0
 
     def assign(
         self,
         call_id: str,
         frequency_hz: float,
         talkgroup_id: int,
+        talkgroup_name: str,
         center_hz: float,
+        protocol: TrunkingProtocol = TrunkingProtocol.P25_PHASE1,
+        source_id: Optional[int] = None,
+        encrypted: bool = False,
     ) -> None:
-        """Assign recorder to a call."""
+        """Assign recorder to a call (sync part - sets up state)."""
         self.state = "tuning"
         self.call_id = call_id
         self.frequency_hz = frequency_hz
         self.talkgroup_id = talkgroup_id
+        self.talkgroup_name = talkgroup_name
+        self.source_id = source_id
+        self.encrypted = encrypted
         self.offset_hz = frequency_hz - center_hz
         self.last_activity = time.time()
-        self.audio_buffer.clear()
+        self._protocol = protocol
+        self._last_phase = 0.0
+
         logger.info(
-            f"VoiceRecorder {self.id}: Assigned to TG {talkgroup_id} "
+            f"VoiceRecorder {self.id}: Assigned to TG {talkgroup_id} ({talkgroup_name}) "
             f"at {frequency_hz/1e6:.4f} MHz (offset {self.offset_hz/1e3:.1f} kHz)"
         )
 
-    def release(self) -> None:
+    async def start_voice_channel(self) -> None:
+        """Start the voice channel for audio streaming (async part)."""
+        if self._voice_channel is not None:
+            await self._voice_channel.stop()
+
+        # Create voice channel config
+        cfg = VoiceChannelConfig(
+            id=f"{self.id}_{self.call_id}",
+            system_id=self.system_id,
+            call_id=self.call_id or "",
+            recorder_id=self.id,
+            output_rate=8000,  # P25 voice is 8kHz
+        )
+
+        # Create and configure voice channel
+        self._voice_channel = VoiceChannel(
+            cfg=cfg,
+            talkgroup_id=self.talkgroup_id,
+            talkgroup_name=self.talkgroup_name,
+            source_id=self.source_id,
+            encrypted=self.encrypted,
+        )
+
+        # Select vocoder based on protocol
+        vocoder_type = VocoderType.IMBE
+        if self._protocol == TrunkingProtocol.P25_PHASE2:
+            vocoder_type = VocoderType.AMBE2
+
+        # Start the voice channel
+        await self._voice_channel.start(vocoder_type=vocoder_type)
+        self.state = "recording"
+
+        logger.info(f"VoiceRecorder {self.id}: Voice channel started")
+
+    def setup_decimation_filter(self, sample_rate: int, target_rate: int = 48000) -> None:
+        """Set up decimation filter for IQ processing."""
+        self._decim_factor = max(1, sample_rate // target_rate)
+
+        if self._decim_factor > 1:
+            # Design lowpass filter: cutoff at 0.8 * (target_rate/2) / (sample_rate/2)
+            normalized_cutoff = 0.8 * target_rate / sample_rate
+            num_taps = 65
+            self._decim_filter_taps = scipy_signal.firwin(num_taps, normalized_cutoff)
+            zi = scipy_signal.lfilter_zi(self._decim_filter_taps, 1.0)
+            self._decim_filter_zi = zi.astype(np.complex128)
+        else:
+            self._decim_filter_taps = None
+            self._decim_filter_zi = None
+
+    def process_iq(self, iq: np.ndarray, sample_rate: int) -> None:
+        """Process IQ samples for this voice channel.
+
+        Performs frequency shift, decimation, FM demodulation,
+        and feeds discriminator audio to vocoder.
+        """
+        if self.state != "recording" or self._voice_channel is None:
+            return
+
+        # Frequency shift to center on voice channel
+        centered_iq = freq_shift(iq, self.offset_hz, sample_rate)
+
+        # Apply anti-aliasing filter and decimate
+        if self._decim_factor > 1 and self._decim_filter_taps is not None:
+            if self._decim_filter_zi is not None:
+                filtered_iq, self._decim_filter_zi = scipy_signal.lfilter(
+                    self._decim_filter_taps, 1.0, centered_iq,
+                    zi=self._decim_filter_zi * centered_iq[0]
+                )
+            else:
+                filtered_iq = scipy_signal.lfilter(self._decim_filter_taps, 1.0, centered_iq)
+            decimated_iq = filtered_iq[::self._decim_factor]
+        else:
+            decimated_iq = centered_iq
+
+        # FM discriminator - extract instantaneous frequency
+        # Phase = angle(iq), frequency = d(phase)/dt
+        phase = np.angle(decimated_iq)
+        # Unwrap phase to avoid discontinuities
+        phase_unwrapped = np.unwrap(phase)
+        # Prepend last phase for continuity
+        phase_with_last = np.concatenate([[self._last_phase], phase_unwrapped])
+        self._last_phase = phase_unwrapped[-1] if len(phase_unwrapped) > 0 else self._last_phase
+        # Differentiate to get frequency
+        disc_audio = np.diff(phase_with_last)
+
+        # Update activity time
+        self.last_activity = time.time()
+
+        # Feed to voice channel (async, schedule on event loop)
+        try:
+            loop = asyncio.get_running_loop()
+            loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(
+                    self._voice_channel.process_discriminator_audio(disc_audio.astype(np.float32))
+                )
+            )
+        except RuntimeError:
+            # No running loop, try to get default loop
+            pass
+
+    async def release(self) -> None:
         """Release recorder from current call."""
+        if self._voice_channel is not None:
+            await self._voice_channel.stop()
+            self._voice_channel = None
+
         if self.call_id:
             logger.info(
                 f"VoiceRecorder {self.id}: Released from TG {self.talkgroup_id}"
             )
+
         self.state = "idle"
         self.call_id = None
         self.frequency_hz = 0.0
         self.talkgroup_id = 0
+        self.talkgroup_name = ""
+        self.source_id = None
+        self.encrypted = False
         self.offset_hz = 0.0
-        self.audio_buffer.clear()
+        self._last_phase = 0.0
 
     def is_available(self) -> bool:
         """Check if recorder is available for new assignment."""
@@ -174,6 +308,10 @@ class VoiceRecorder:
             # Can preempt if hold timeout expired
             return time.time() - self.last_activity > self.hold_timeout
         return False
+
+    def get_voice_channel(self) -> Optional[VoiceChannel]:
+        """Get the voice channel if active."""
+        return self._voice_channel
 
 
 @dataclass
@@ -224,6 +362,10 @@ class TrunkingSystem:
     _last_tsbk_time: float = 0.0
     decode_rate: float = 0.0  # TSBK per second
 
+    # Radio location cache (LRRP GPS data)
+    _location_cache: Optional[LocationCache] = None
+    _location_max_age: float = 300.0  # 5 minutes
+
     # Event callbacks
     on_call_start: Optional[Callable[[ActiveCall], None]] = None
     on_call_update: Optional[Callable[[ActiveCall], None]] = None
@@ -238,6 +380,9 @@ class TrunkingSystem:
         """Initialize after dataclass creation."""
         # Create TSBK parser
         self._tsbk_parser = TSBKParser()
+
+        # Create location cache for radio GPS data
+        self._location_cache = LocationCache(max_age_seconds=self._location_max_age)
 
         # Create voice recorder pool
         for i in range(self.cfg.max_voice_recorders):
@@ -430,6 +575,16 @@ class TrunkingSystem:
                 except Exception as e:
                     logger.error(f"TrunkingSystem {self.cfg.id}: Control monitor error: {e}")
 
+            # Route IQ to active voice recorders
+            for recorder in self._voice_recorders:
+                if recorder.state == "recording":
+                    try:
+                        recorder.process_iq(iq, sample_rate)
+                    except Exception as e:
+                        logger.error(
+                            f"TrunkingSystem {self.cfg.id}: Voice recorder {recorder.id} error: {e}"
+                        )
+
             # Call original processing for signal metrics
             return original_process_sync(iq, sample_rate)
 
@@ -618,31 +773,69 @@ class TrunkingSystem:
         # Check if we already have a call for this talkgroup
         existing_call_id = self._calls_by_talkgroup.get(tgid)
         if existing_call_id and existing_call_id in self._active_calls:
-            # Update existing call
             call = self._active_calls[existing_call_id]
-            call.last_activity_time = time.time()
-            call.source_id = grant.source_id
+            now = time.time()
+            time_since_activity = now - call.last_activity_time
 
-            # Check if frequency changed (call continuing on different channel)
-            if abs(call.frequency_hz - freq_hz) > 1000:
+            # SDRTrunk-style call identity: TALKGROUP + SOURCE_RADIO
+            # A different source_id means a different talker, which should be a new call
+            # UNLESS the source_id is 0 (some systems don't send source on every grant)
+            source_changed = (
+                grant.source_id != 0 and
+                call.source_id != 0 and
+                grant.source_id != call.source_id
+            )
+
+            # Hard 2-second staleness threshold (per SDRTrunk)
+            # If activity is stale, treat as new call even with same source
+            STALENESS_THRESHOLD_S = 2.0
+            is_stale = time_since_activity > STALENESS_THRESHOLD_S
+
+            if source_changed:
+                # Different talker - end old call and start new one
                 logger.info(
-                    f"TrunkingSystem {self.cfg.id}: TG {tgid} moving from "
-                    f"{call.frequency_hz/1e6:.4f} to {freq_hz/1e6:.4f} MHz"
+                    f"TrunkingSystem {self.cfg.id}: Talker change on TG {tgid}: "
+                    f"source {call.source_id} -> {grant.source_id}"
                 )
-                call.frequency_hz = freq_hz
-                call.channel_id = grant.channel_id
+                self._end_call(existing_call_id, "talker_change")
+                # Fall through to create new call below
 
-                # Retune recorder if assigned
-                if call.recorder_id:
-                    self._retune_recorder(call.recorder_id, freq_hz)
+            elif is_stale:
+                # Same talker but activity is stale - could be new call
+                logger.debug(
+                    f"TrunkingSystem {self.cfg.id}: Stale activity on TG {tgid} "
+                    f"({time_since_activity:.1f}s), treating as new call"
+                )
+                self._end_call(existing_call_id, "stale")
+                # Fall through to create new call below
 
-            if call.state == CallState.HOLD:
-                call.state = CallState.RECORDING
-                logger.debug(f"TrunkingSystem {self.cfg.id}: Call {call.id} resumed")
+            else:
+                # Same talker, not stale - update existing call
+                call.last_activity_time = now
+                # Update source_id if we got a non-zero value
+                if grant.source_id != 0:
+                    call.source_id = grant.source_id
 
-            if self.on_call_update:
-                self.on_call_update(call)
-            return
+                # Check if frequency changed (call continuing on different channel)
+                if abs(call.frequency_hz - freq_hz) > 1000:
+                    logger.info(
+                        f"TrunkingSystem {self.cfg.id}: TG {tgid} moving from "
+                        f"{call.frequency_hz/1e6:.4f} to {freq_hz/1e6:.4f} MHz"
+                    )
+                    call.frequency_hz = freq_hz
+                    call.channel_id = grant.channel_id
+
+                    # Retune recorder if assigned
+                    if call.recorder_id:
+                        self._retune_recorder(call.recorder_id, freq_hz)
+
+                if call.state == CallState.HOLD:
+                    call.state = CallState.RECORDING
+                    logger.debug(f"TrunkingSystem {self.cfg.id}: Call {call.id} resumed")
+
+                if self.on_call_update:
+                    self.on_call_update(call)
+                return
 
         # Start new call
         tg_name = tg_config.name if tg_config else f"TG {tgid}"
@@ -666,8 +859,28 @@ class TrunkingSystem:
                 call_id=call.id,
                 frequency_hz=freq_hz,
                 talkgroup_id=tgid,
+                talkgroup_name=tg_name,
                 center_hz=self.cfg.center_hz,
+                protocol=self.cfg.protocol,
+                source_id=grant.source_id,
+                encrypted=grant.encrypted,
             )
+            # Set up decimation filter for IQ processing
+            recorder.setup_decimation_filter(self.cfg.sample_rate)
+
+            # Start voice channel (async, schedule on event loop)
+            try:
+                loop = asyncio.get_running_loop()
+                asyncio.run_coroutine_threadsafe(
+                    recorder.start_voice_channel(),
+                    loop,
+                )
+            except RuntimeError:
+                # No running loop, log warning
+                logger.warning(
+                    f"TrunkingSystem {self.cfg.id}: No event loop to start voice channel"
+                )
+
             call.recorder_id = recorder.id
             call.state = CallState.RECORDING
 
@@ -787,7 +1000,12 @@ class TrunkingSystem:
                     if recorder.call_id:
                         self._end_call(recorder.call_id, "preempted")
 
-                    recorder.release()
+                    # Release is async, schedule it
+                    try:
+                        loop = asyncio.get_running_loop()
+                        asyncio.run_coroutine_threadsafe(recorder.release(), loop)
+                    except RuntimeError:
+                        pass
                     return recorder
 
         return None
@@ -820,11 +1038,15 @@ class TrunkingSystem:
             f"duration={call.duration_seconds:.1f}s, reason={reason}"
         )
 
-        # Release recorder
+        # Release recorder (async, schedule on event loop)
         if call.recorder_id:
             for recorder in self._voice_recorders:
                 if recorder.id == call.recorder_id:
-                    recorder.release()
+                    try:
+                        loop = asyncio.get_running_loop()
+                        asyncio.run_coroutine_threadsafe(recorder.release(), loop)
+                    except RuntimeError:
+                        pass
                     break
 
         # Notify callback
@@ -893,4 +1115,85 @@ class TrunkingSystem:
             "decodeRate": round(self.decode_rate, 2),
             "activeCalls": len(self._active_calls),
             "stats": self.get_stats(),
+        }
+
+    def get_voice_channels(self) -> List[VoiceChannel]:
+        """Get all active voice channels."""
+        channels = []
+        for recorder in self._voice_recorders:
+            if recorder.state == "recording" and recorder._voice_channel is not None:
+                channels.append(recorder._voice_channel)
+        return channels
+
+    def get_voice_channel(self, channel_id: str) -> Optional[VoiceChannel]:
+        """Get a specific voice channel by ID."""
+        for recorder in self._voice_recorders:
+            if recorder._voice_channel and recorder._voice_channel.id == channel_id:
+                return recorder._voice_channel
+        return None
+
+    def get_voice_recorder(self, recorder_id: str) -> Optional[VoiceRecorder]:
+        """Get a voice recorder by ID."""
+        for recorder in self._voice_recorders:
+            if recorder.id == recorder_id:
+                return recorder
+        return None
+
+    # =========================================================================
+    # Location Cache (LRRP GPS data)
+    # =========================================================================
+
+    def update_radio_location(self, location: RadioLocation) -> None:
+        """Update the location cache with a new GPS report.
+
+        Called when GPS data is extracted from:
+        - Extended Link Control in voice LDU frames
+        - LRRP packets in PDU frames
+
+        Args:
+            location: RadioLocation object with GPS coordinates
+        """
+        if self._location_cache is None:
+            return
+
+        self._location_cache.update(location)
+
+        # If this radio is currently in a call, attach location to the voice channel
+        for recorder in self._voice_recorders:
+            if recorder.state == "recording" and recorder.source_id == location.unit_id:
+                if recorder._voice_channel:
+                    recorder._voice_channel.source_location = location
+                    logger.debug(
+                        f"Attached location to voice channel: "
+                        f"unit={location.unit_id} recorder={recorder.id}"
+                    )
+
+    def get_radio_location(self, unit_id: int) -> Optional[RadioLocation]:
+        """Get cached location for a radio unit.
+
+        Returns None if no location is cached or location is stale.
+
+        Args:
+            unit_id: Radio unit identifier
+
+        Returns:
+            RadioLocation if fresh location exists, None otherwise
+        """
+        if self._location_cache is None:
+            return None
+        return self._location_cache.get(unit_id)
+
+    def get_all_locations(self) -> List[RadioLocation]:
+        """Get all fresh cached locations."""
+        if self._location_cache is None:
+            return []
+        return self._location_cache.get_fresh()
+
+    def get_location_cache_stats(self) -> Dict[str, Any]:
+        """Get location cache statistics."""
+        if self._location_cache is None:
+            return {"enabled": False}
+        return {
+            "enabled": True,
+            **self._location_cache.to_dict()
         }

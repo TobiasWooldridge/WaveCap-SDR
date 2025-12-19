@@ -180,3 +180,41 @@ This verifies:
 - Captures running (not stuck in "starting")
 - Channels receiving audio (RSSI and audio levels)
 - Spectrum data flowing
+
+## References
+
+- **SDRTrunk** (https://github.com/DSheirer/sdrtrunk) - Java P25 trunking reference
+  - Event tracking and channel pool management patterns
+  - P25TrafficChannelManager architecture
+  - LRRP/GPS location coordinate encoding
+
+## SDRTrunk-Inspired Patterns
+
+Located in `backend/wavecapsdr/trunking/`:
+
+### IdentifierCollection (`identifiers.py`)
+Flexible metadata management with immutable/mutable variants:
+- `Identifier` - Immutable identifier with value, role, and form
+- `IdentifierCollection` - Immutable collection with type-safe queries
+- `MutableIdentifierCollection` - Builder pattern for constructing collections
+- `TalkerAliasManager` - Cache and enrich identifiers with aliases
+
+### P25EventTracker (`event_tracker.py`)
+Call state machine with staleness detection:
+- `P25CallEvent` - Complete call metadata with lifecycle tracking
+- `P25EventTracker` - Manages single call state with dual-source timing
+- `P25EventTrackerManager` - Manages all trackers for a trunking system
+- 2-second staleness threshold, duplicate grant detection, talker change detection
+
+### NetworkConfigurationMonitor (`network_config.py`)
+System configuration tracking from control channel:
+- `FrequencyBand` - Frequency band definitions (IDEN_UP)
+- `SiteStatus` - Current site info (RFSS_STS_BCAST)
+- `AdjacentSite` - Neighbor site tracking
+- `P25NetworkConfigurationMonitor` - Comprehensive system configuration
+
+### DuplicateCallDetector (`duplicate_detector.py`)
+Duplicate event suppression:
+- `DuplicateCallDetector` - Time-based duplicate detection
+- `FrequencyBasedDuplicateDetector` - Frequency allocation tracking
+- Prevents rapid-fire duplicate grants from flooding the system

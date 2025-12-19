@@ -106,14 +106,11 @@ export function RadioPanel({ capture, device }: RadioPanelProps) {
         {statusBadge}
       </div>
 
-      {/* Individual tuning accordions - each setting has its own */}
-      <TuningAccordions capture={capture} device={device} />
-
-      {/* Other accordions */}
+      {/* Device - at top, expanded by default */}
       <AccordionGroup allowMultiple>
-        {/* Device & Control */}
         <AccordionItem
           id="device"
+          defaultOpen
           header={
             <Flex align="center" gap={1}>
               <Cpu size={14} />
@@ -124,7 +121,13 @@ export function RadioPanel({ capture, device }: RadioPanelProps) {
         >
           <DeviceControlsContent capture={capture} device={device} />
         </AccordionItem>
+      </AccordionGroup>
 
+      {/* Individual tuning accordions - each setting has its own */}
+      <TuningAccordions capture={capture} device={device} />
+
+      {/* Other accordions */}
+      <AccordionGroup allowMultiple>
         {/* Recipes */}
         <AccordionItem
           id="recipes"

@@ -368,6 +368,7 @@ export interface RadioTab {
   type: RadioTabType;
   id: string;
   name: string;
+  deviceId: string;  // Stable device ID for grouping
   deviceName: string;
   state: string;
   frequencyHz: number;

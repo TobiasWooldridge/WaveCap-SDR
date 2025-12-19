@@ -27,6 +27,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Request
+from starlette.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from wavecapsdr.trunking import (
@@ -125,6 +126,54 @@ class VocoderStatusResponse(BaseModel):
     imbe: Dict[str, Any]
     ambe2: Dict[str, Any]
     anyAvailable: bool
+
+
+class LocationResponse(BaseModel):
+    """Response containing GPS location."""
+    unitId: int
+    latitude: float
+    longitude: float
+    altitude: Optional[float] = None
+    speed: Optional[float] = None
+    heading: Optional[float] = None
+    accuracy: Optional[float] = None
+    timestamp: float
+    ageSeconds: float
+    source: str = "unknown"
+
+
+class VoiceStreamResponse(BaseModel):
+    """Response containing voice stream details."""
+    id: str
+    systemId: str
+    callId: str
+    recorderId: str
+    state: str
+    talkgroupId: int
+    talkgroupName: str
+    sourceId: Optional[int] = None
+    encrypted: bool = False
+    startTime: float
+    durationSeconds: float
+    silenceSeconds: float
+    audioFrameCount: int
+    audioBytesSent: int
+    subscriberCount: int
+    sourceLocation: Optional[LocationResponse] = None
+
+
+class TrunkingRecipeResponse(BaseModel):
+    """Response containing a trunking system recipe/template."""
+    id: str
+    name: str
+    description: Optional[str] = None
+    category: str = "P25 Trunking"
+    protocol: str
+    controlChannels: List[float]
+    centerHz: float
+    sampleRate: int
+    gain: Optional[float] = None
+    talkgroupCount: int = 0
 
 
 # ============================================================================
@@ -406,6 +455,85 @@ async def get_vocoder_status() -> VocoderStatusResponse:
     )
 
 
+@router.get("/systems/{system_id}/locations", response_model=List[LocationResponse])
+async def get_radio_locations(system_id: str, request: Request) -> List[LocationResponse]:
+    """Get cached GPS locations for radio units in a trunking system.
+
+    Returns all fresh (non-stale) radio locations from the LRRP cache.
+    Locations are gathered from:
+    - Extended Link Control in voice frames (LCF 0x09, 0x0A, 0x0B)
+    - LRRP packets in PDU frames
+    """
+    manager = get_trunking_manager(request)
+    system = manager.get_system(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail=f"System {system_id} not found")
+
+    locations = system.get_all_locations()
+    return [
+        LocationResponse(
+            unitId=loc.unit_id,
+            latitude=loc.latitude,
+            longitude=loc.longitude,
+            altitude=loc.altitude_m,
+            speed=loc.speed_kmh,
+            heading=loc.heading_deg,
+            accuracy=loc.accuracy_m,
+            timestamp=loc.timestamp,
+            ageSeconds=loc.age_seconds(),
+            source=loc.source,
+        )
+        for loc in locations
+    ]
+
+
+@router.get("/recipes", response_model=List[TrunkingRecipeResponse])
+async def list_trunking_recipes(request: Request) -> List[TrunkingRecipeResponse]:
+    """List available trunking system recipes/templates from config.
+
+    Returns pre-defined trunking system configurations that can be used
+    as templates when creating new trunking systems via the UI.
+    """
+    state = getattr(request.app.state, "app_state", None)
+    if state is None:
+        return []
+
+    config = getattr(state, "config", None)
+    if config is None:
+        return []
+
+    recipes = []
+    for sys_id, sys_data in config.trunking_systems.items():
+        if not isinstance(sys_data, dict):
+            continue
+
+        # Parse protocol for category
+        protocol = sys_data.get("protocol", "p25_phase1")
+        if protocol == "p25_phase2":
+            category = "P25 Phase II"
+        else:
+            category = "P25 Phase I"
+
+        # Count talkgroups
+        talkgroups = sys_data.get("talkgroups", {})
+        tg_count = len(talkgroups) if isinstance(talkgroups, dict) else 0
+
+        recipes.append(TrunkingRecipeResponse(
+            id=sys_id,
+            name=sys_data.get("name", f"System {sys_id}"),
+            description=f"{category} trunking system with {tg_count} talkgroups configured",
+            category=category,
+            protocol=protocol,
+            controlChannels=[float(f) for f in sys_data.get("control_channels", [])],
+            centerHz=float(sys_data.get("center_hz", 851_000_000)),
+            sampleRate=int(sys_data.get("sample_rate", 8_000_000)),
+            gain=sys_data.get("gain"),
+            talkgroupCount=tg_count,
+        ))
+
+    return recipes
+
+
 # ============================================================================
 # WebSocket Endpoints
 # ============================================================================
@@ -494,3 +622,271 @@ async def trunking_stream_all(websocket: WebSocket) -> None:
         logger.error(f"Trunking WebSocket error: {e}")
     finally:
         await manager.unsubscribe_events(queue)
+
+
+# ============================================================================
+# Voice Stream Endpoints
+# ============================================================================
+
+@router.get("/systems/{system_id}/voice-streams", response_model=List[VoiceStreamResponse])
+async def list_voice_streams(system_id: str, request: Request) -> List[VoiceStreamResponse]:
+    """List active voice streams for a trunking system."""
+    manager = get_trunking_manager(request)
+    system = manager.get_system(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail=f"System {system_id} not found")
+
+    voice_channels = system.get_voice_channels()
+    return [
+        VoiceStreamResponse(
+            id=vc.id,
+            systemId=vc.cfg.system_id,
+            callId=vc.cfg.call_id,
+            recorderId=vc.cfg.recorder_id,
+            state=vc.state,
+            talkgroupId=vc.talkgroup_id,
+            talkgroupName=vc.talkgroup_name,
+            sourceId=vc.source_id,
+            encrypted=vc.encrypted,
+            startTime=vc.start_time,
+            durationSeconds=vc.duration_seconds,
+            silenceSeconds=vc.silence_seconds,
+            audioFrameCount=vc.audio_frame_count,
+            audioBytesSent=vc.audio_bytes_sent,
+            subscriberCount=len(vc._audio_sinks),
+            sourceLocation=LocationResponse(
+                unitId=vc.source_location.unit_id,
+                latitude=vc.source_location.latitude,
+                longitude=vc.source_location.longitude,
+                altitude=vc.source_location.altitude_m,
+                speed=vc.source_location.speed_kmh,
+                heading=vc.source_location.heading_deg,
+                accuracy=vc.source_location.accuracy_m,
+                timestamp=vc.source_location.timestamp,
+                ageSeconds=vc.source_location.age_seconds(),
+                source=vc.source_location.source,
+            ) if vc.source_location else None,
+        )
+        for vc in voice_channels
+    ]
+
+
+@router.websocket("/stream/{system_id}/voice")
+async def voice_stream_all(websocket: WebSocket, system_id: str) -> None:
+    """WebSocket stream for all voice audio from a trunking system.
+
+    Delivers multiplexed audio from all active voice channels with metadata.
+    Each message is JSON with base64-encoded PCM16 audio.
+    """
+    await websocket.accept()
+
+    state = getattr(websocket.app.state, "app_state", None)
+    if state is None:
+        await websocket.close(code=1011, reason="AppState not initialized")
+        return
+
+    manager = getattr(state, "trunking_manager", None)
+    if manager is None:
+        await websocket.close(code=1011, reason="TrunkingManager not initialized")
+        return
+
+    system = manager.get_system(system_id)
+    if system is None:
+        await websocket.close(code=1008, reason=f"System {system_id} not found")
+        return
+
+    # Subscribe to all voice channels
+    subscribed_queues: List[asyncio.Queue[bytes]] = []
+    subscribed_channels: List[str] = []
+
+    async def subscribe_to_channel(voice_channel) -> None:
+        """Subscribe to a voice channel's audio stream."""
+        queue = await voice_channel.subscribe_audio("json")
+        subscribed_queues.append(queue)
+        subscribed_channels.append(voice_channel.id)
+        logger.info(f"Voice stream {system_id}: Subscribed to {voice_channel.id}")
+
+    async def unsubscribe_all() -> None:
+        """Unsubscribe from all voice channels."""
+        for vc in system.get_voice_channels():
+            for q in subscribed_queues:
+                vc.unsubscribe(q)
+        subscribed_queues.clear()
+        subscribed_channels.clear()
+
+    async def poll_for_new_channels() -> None:
+        """Periodically check for new voice channels."""
+        while True:
+            await asyncio.sleep(0.5)
+            for vc in system.get_voice_channels():
+                if vc.id not in subscribed_channels and vc.state == "active":
+                    await subscribe_to_channel(vc)
+
+    async def send_audio_from_queues() -> None:
+        """Read from all subscribed queues and send to WebSocket."""
+        while True:
+            if not subscribed_queues:
+                await asyncio.sleep(0.1)
+                continue
+
+            # Wait on all queues with timeout
+            for queue in list(subscribed_queues):
+                try:
+                    # Non-blocking check
+                    try:
+                        data = queue.get_nowait()
+                        await websocket.send_bytes(data)
+                    except asyncio.QueueEmpty:
+                        pass
+                except Exception as e:
+                    logger.error(f"Voice stream error: {e}")
+
+            await asyncio.sleep(0.01)  # Prevent busy loop
+
+    try:
+        # Initial subscription to existing channels
+        for vc in system.get_voice_channels():
+            if vc.state == "active":
+                await subscribe_to_channel(vc)
+
+        # Run both tasks concurrently
+        poll_task = asyncio.create_task(poll_for_new_channels())
+        send_task = asyncio.create_task(send_audio_from_queues())
+
+        # Wait for WebSocket disconnect
+        try:
+            while True:
+                # Keep connection alive, handle client messages
+                message = await websocket.receive()
+                if message["type"] == "websocket.disconnect":
+                    break
+        except WebSocketDisconnect:
+            pass
+
+        poll_task.cancel()
+        send_task.cancel()
+        try:
+            await poll_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await send_task
+        except asyncio.CancelledError:
+            pass
+
+    except WebSocketDisconnect:
+        logger.info(f"Voice stream WebSocket disconnected for {system_id}")
+    except Exception as e:
+        logger.error(f"Voice stream WebSocket error: {e}")
+    finally:
+        await unsubscribe_all()
+
+
+@router.websocket("/stream/{system_id}/voice/{stream_id}")
+async def voice_stream_single(websocket: WebSocket, system_id: str, stream_id: str) -> None:
+    """WebSocket stream for a single voice channel's audio.
+
+    Delivers audio from one voice channel with metadata.
+    Each message is JSON with base64-encoded PCM16 audio.
+    """
+    await websocket.accept()
+
+    state = getattr(websocket.app.state, "app_state", None)
+    if state is None:
+        await websocket.close(code=1011, reason="AppState not initialized")
+        return
+
+    manager = getattr(state, "trunking_manager", None)
+    if manager is None:
+        await websocket.close(code=1011, reason="TrunkingManager not initialized")
+        return
+
+    system = manager.get_system(system_id)
+    if system is None:
+        await websocket.close(code=1008, reason=f"System {system_id} not found")
+        return
+
+    voice_channel = system.get_voice_channel(stream_id)
+    if voice_channel is None:
+        await websocket.close(code=1008, reason=f"Voice stream {stream_id} not found")
+        return
+
+    # Subscribe to audio
+    queue = await voice_channel.subscribe_audio("json")
+
+    try:
+        while True:
+            try:
+                data = await asyncio.wait_for(queue.get(), timeout=1.0)
+                await websocket.send_bytes(data)
+            except asyncio.TimeoutError:
+                # Check if channel still exists
+                if voice_channel.state == "ended":
+                    await websocket.send_json({"type": "ended", "streamId": stream_id})
+                    break
+
+    except WebSocketDisconnect:
+        logger.info(f"Voice stream WebSocket disconnected for {stream_id}")
+    except Exception as e:
+        logger.error(f"Voice stream WebSocket error: {e}")
+    finally:
+        voice_channel.unsubscribe(queue)
+
+
+@router.get("/stream/{system_id}/voice/{stream_id}.pcm")
+async def voice_stream_pcm(request: Request, system_id: str, stream_id: str) -> StreamingResponse:
+    """HTTP streaming endpoint for raw PCM audio.
+
+    Returns continuous PCM16 audio at 48kHz mono.
+    Designed for piping to Whisper or other audio processing tools.
+
+    Example:
+        curl -s "http://localhost:8087/api/v1/trunking/stream/psern/voice/vr0.pcm" | \\
+            whisper --model medium --language en -
+    """
+    state = getattr(request.app.state, "app_state", None)
+    if state is None:
+        raise HTTPException(status_code=500, detail="AppState not initialized")
+
+    manager = getattr(state, "trunking_manager", None)
+    if manager is None:
+        raise HTTPException(status_code=500, detail="TrunkingManager not initialized")
+
+    system = manager.get_system(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail=f"System {system_id} not found")
+
+    voice_channel = system.get_voice_channel(stream_id)
+    if voice_channel is None:
+        raise HTTPException(status_code=404, detail=f"Voice stream {stream_id} not found")
+
+    # Subscribe to raw PCM audio
+    queue = await voice_channel.subscribe_audio("pcm16")
+
+    async def generate_pcm():
+        """Generator that yields raw PCM bytes."""
+        try:
+            while True:
+                try:
+                    data = await asyncio.wait_for(queue.get(), timeout=5.0)
+                    yield data
+                except asyncio.TimeoutError:
+                    if voice_channel.state == "ended":
+                        break
+                    # Send silence to keep stream alive
+                    yield b"\x00" * 960  # 10ms of silence at 48kHz mono PCM16
+        finally:
+            voice_channel.unsubscribe(queue)
+
+    return StreamingResponse(
+        generate_pcm(),
+        media_type="audio/x-pcm",
+        headers={
+            "X-Audio-Sample-Rate": str(voice_channel.cfg.output_rate),
+            "X-Audio-Channels": "1",
+            "X-Audio-Format": "pcm16",
+            "X-Stream-Id": stream_id,
+            "X-Talkgroup-Id": str(voice_channel.talkgroup_id),
+            "X-Talkgroup-Name": voice_channel.talkgroup_name,
+        },
+    )

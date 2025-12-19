@@ -102,3 +102,88 @@ def backend_root() -> Path:
 def config_dir(backend_root: Path) -> Path:
     """Get the config directory."""
     return backend_root / "config"
+
+
+# ============================================================================
+# Voice/Trunking Fixtures
+# ============================================================================
+
+@pytest.fixture
+def voice_channel_config():
+    """Sample voice channel configuration."""
+    from wavecapsdr.trunking.voice_channel import VoiceChannelConfig
+
+    return VoiceChannelConfig(
+        id="test_vc0",
+        system_id="test_system",
+        call_id="call_001",
+        recorder_id="vr0",
+        audio_rate=8000,
+        output_rate=48000,
+    )
+
+
+@pytest.fixture
+def sample_radio_location():
+    """Sample GPS location for testing."""
+    from wavecapsdr.trunking.voice_channel import RadioLocation
+
+    return RadioLocation(
+        unit_id=12345678,
+        latitude=47.6062,
+        longitude=-122.3321,
+        altitude_m=100.0,
+        speed_kmh=45.0,
+        heading_deg=270.0,
+        source="elc",
+    )
+
+
+@pytest.fixture
+def sample_audio_f32():
+    """Sample audio data as float32 array (100ms at 48kHz)."""
+    t = np.linspace(0, 0.1, 4800, dtype=np.float32)
+    return np.sin(2 * np.pi * 1000 * t).astype(np.float32)
+
+
+@pytest.fixture
+def sample_lrrp_location_packet():
+    """Sample LRRP immediate location response packet.
+
+    Contains:
+    - Opcode 0x02 (IMMEDIATE_LOC_RESPONSE)
+    - Unit ID = 1
+    - LOC_2D element with lat=45.0, lon=90.0
+    """
+    return bytes([
+        0x02,  # Version 0, opcode 0x02
+        0x00, 0x00, 0x01,  # Unit ID = 1
+        0x22, 0x06,  # LOC_2D, length 6
+        0x40, 0x00, 0x00,  # lat = 45.0
+        0x40, 0x00, 0x00,  # lon = 90.0
+    ])
+
+
+@pytest.fixture
+def sample_elc_gps_data():
+    """Sample Extended Link Control GPS bytes (LCF 0x09).
+
+    6 bytes encoding lat=45.0, lon=90.0
+    """
+    return bytes([0x40, 0x00, 0x00, 0x40, 0x00, 0x00])
+
+
+@pytest.fixture
+def trunking_system_config():
+    """Sample trunking system configuration."""
+    from wavecapsdr.trunking.config import TrunkingSystemConfig, TrunkingProtocol
+
+    return TrunkingSystemConfig(
+        id="test-system",
+        name="Test System",
+        protocol=TrunkingProtocol.P25_PHASE1,
+        control_channels=[851_000_000, 851_100_000],
+        center_hz=855_000_000,
+        sample_rate=4_000_000,
+        max_voice_recorders=4,
+    )

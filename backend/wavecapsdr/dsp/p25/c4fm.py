@@ -100,6 +100,17 @@ class C4FMDemodulator:
     SYMBOL_LEVELS = np.array([3.0, 1.0, -1.0, -3.0], dtype=np.float32)
     DIBIT_MAP = np.array([1, 0, 2, 3], dtype=np.uint8)  # Symbol index to dibit
 
+    # Expected RMS of symbol levels: sqrt((9 + 1 + 1 + 9) / 4) ≈ 2.236
+    EXPECTED_SYMBOL_RMS = np.sqrt(5.0)
+
+    # Constellation gain bounds (per SDRTrunk: 1.0 to 1.25)
+    GAIN_MIN = 1.0
+    GAIN_MAX = 1.25
+    GAIN_INITIAL = 1.0  # Start at unity (SDRTrunk uses 1.219 for DQPSK phase)
+
+    # Gain adaptation rate (15% per update, per SDRTrunk EQUALIZER_LOOP_GAIN)
+    GAIN_LOOP_ALPHA = 0.15
+
     def __init__(
         self,
         sample_rate: int = 48000,
@@ -151,6 +162,16 @@ class C4FMDemodulator:
         # P25 C4FM uses +/- 1800 Hz deviation for +/- 3 symbols
         self._deviation_scale = symbol_rate / (1800 * 2)
 
+        # Constellation gain correction (adapted from SDRTrunk)
+        # Compensates for pulse shaping induced amplitude compression
+        self._constellation_gain = self.GAIN_INITIAL
+        self._dc_offset = 0.0  # DC balance correction
+
+        # Symbol buffer for gain calibration at sync patterns
+        self._symbol_buffer: list = []
+        self._dibit_count = 0
+        self._symbols_since_sync = 0
+
         logger.debug(
             f"C4FM demod initialized: {sample_rate} Hz, {symbol_rate} baud, "
             f"{self.samples_per_symbol:.2f} sps, loop_bw={loop_bw}"
@@ -163,6 +184,11 @@ class C4FMDemodulator:
         self._prev_samples = np.zeros(4, dtype=np.float32)
         self._prev_symbol = 0.0
         self._prev_iq = complex(1, 0)
+        # Reset constellation correction but keep gain (it adapts slowly)
+        self._dc_offset = 0.0
+        self._symbol_buffer = []
+        self._dibit_count = 0
+        self._symbols_since_sync = 0
 
     def _fm_discriminator(self, iq: np.ndarray) -> np.ndarray:
         """Quadrature FM discriminator.
@@ -264,7 +290,11 @@ class C4FMDemodulator:
                 samples = filtered[idx : idx + 4]
 
                 # Interpolate current symbol
-                current = self._interpolate(samples, mu)
+                raw_symbol = self._interpolate(samples, mu)
+
+                # Apply constellation gain and DC offset correction
+                # This compensates for pulse shaping induced amplitude compression
+                current = (raw_symbol + self._dc_offset) * self._constellation_gain
 
                 # Gardner TED (uses mid-point between symbols)
                 # Error = mid * (prev - current)
@@ -272,7 +302,7 @@ class C4FMDemodulator:
                 if mid_idx >= 0 and mid_idx + 3 < len(filtered):
                     mid_samples = filtered[mid_idx : mid_idx + 4]
                     mid = self._interpolate(mid_samples, mu)
-                    error = mid * (self._prev_symbol - current)
+                    error = mid * (self._prev_symbol - raw_symbol)
 
                     # Loop filter
                     self._loop_integrator += self._ki * error
@@ -280,7 +310,7 @@ class C4FMDemodulator:
                         self._loop_integrator, -self.samples_per_symbol / 4, self.samples_per_symbol / 4
                     )
 
-                # Symbol decision
+                # Symbol decision (using corrected value)
                 distances = np.abs(self.SYMBOL_LEVELS - current)
                 symbol_idx = int(np.argmin(distances))
                 dibit = self.DIBIT_MAP[symbol_idx]
@@ -288,7 +318,17 @@ class C4FMDemodulator:
                 dibits.append(dibit)
                 soft_symbols.append(current)
 
-                self._prev_symbol = current
+                # Track symbols for gain calibration
+                self._symbol_buffer.append(raw_symbol)
+                self._symbols_since_sync += 1
+
+                # Update gain at sync intervals (every 24 symbols)
+                # This aligns with P25 sync pattern spacing
+                if self._symbols_since_sync >= 24:
+                    self._update_constellation_gain()
+                    self._symbols_since_sync = 0
+
+                self._prev_symbol = raw_symbol
 
             # Update phase
             self._ted_phase = mu
@@ -299,6 +339,49 @@ class C4FMDemodulator:
             np.array(soft_symbols, dtype=np.float32),
         )
 
+    def _update_constellation_gain(self) -> None:
+        """Update constellation gain correction based on recent symbols.
+
+        Compares measured symbol RMS to expected RMS and adjusts gain
+        to normalize the constellation. Uses a slow adaptation loop
+        (per SDRTrunk EQUALIZER_LOOP_GAIN = 0.15) to avoid oscillation.
+
+        Also calculates DC offset correction for balance.
+        """
+        if len(self._symbol_buffer) < 8:
+            self._symbol_buffer.clear()
+            return
+
+        symbols = np.array(self._symbol_buffer, dtype=np.float32)
+
+        # Calculate DC offset (mean should be ~0 for balanced signal)
+        dc_offset_measured = np.mean(symbols)
+
+        # Calculate RMS of symbols (should be ~2.236 for ±3, ±1 levels)
+        rms_measured = np.sqrt(np.mean(symbols**2))
+
+        if rms_measured > 0.1:  # Avoid division by very small values
+            # Calculate ideal gain to achieve expected RMS
+            ideal_gain = self.EXPECTED_SYMBOL_RMS / rms_measured
+
+            # Apply slow adaptation (15% toward new value)
+            gain_delta = (ideal_gain - self._constellation_gain) * self.GAIN_LOOP_ALPHA
+            self._constellation_gain += gain_delta
+
+            # Constrain gain to valid range (1.0 to 1.25)
+            self._constellation_gain = np.clip(
+                self._constellation_gain, self.GAIN_MIN, self.GAIN_MAX
+            )
+
+        # Update DC offset with slow adaptation
+        dc_delta = -dc_offset_measured * self.GAIN_LOOP_ALPHA
+        self._dc_offset += dc_delta
+        # Constrain DC offset to reasonable range (±0.5 symbol levels)
+        self._dc_offset = np.clip(self._dc_offset, -0.5, 0.5)
+
+        # Clear buffer for next interval
+        self._symbol_buffer.clear()
+
     def get_timing_offset(self) -> float:
         """Get current timing offset estimate.
 
@@ -306,6 +389,22 @@ class C4FMDemodulator:
             Timing offset in samples (for debugging/visualization)
         """
         return self._loop_integrator
+
+    def get_constellation_gain(self) -> float:
+        """Get current constellation gain correction.
+
+        Returns:
+            Current gain value (typically 1.0 to 1.25)
+        """
+        return self._constellation_gain
+
+    def get_dc_offset(self) -> float:
+        """Get current DC offset correction.
+
+        Returns:
+            Current DC offset value
+        """
+        return self._dc_offset
 
 
 def c4fm_demod_simple(

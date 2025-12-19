@@ -14,6 +14,7 @@ import { ChannelList } from "./features/channel";
 import { SpectrumPanel } from "./features/spectrum";
 import { TrunkingPanel } from "./features/trunking";
 import { CreateCaptureWizard } from "./components/CreateCaptureWizard.react";
+import { CreateTrunkingWizard } from "./components/CreateTrunkingWizard.react";
 import { DeviceSettingsModal } from "./components/DeviceSettingsModal.react";
 import ErrorBoundary from "./components/ErrorBoundary.react";
 import Spinner from "./components/primitives/Spinner.react";
@@ -57,6 +58,7 @@ function AppContent() {
   }, [selectTab, selectedType, selectedId, stopAll]);
 
   const [showWizard, setShowWizard] = useState(false);
+  const [showTrunkingWizard, setShowTrunkingWizard] = useState(false);
   const [showDeviceSettings, setShowDeviceSettings] = useState(false);
 
   const handleDeleteCapture = (captureId: string) => {
@@ -74,6 +76,11 @@ function AppContent() {
   const handleCreateSuccess = (captureId: string) => {
     selectTab("capture", captureId);
     setShowWizard(false);
+  };
+
+  const handleTrunkingCreateSuccess = (systemId: string) => {
+    selectTab("trunking", systemId);
+    setShowTrunkingWizard(false);
   };
 
   if (isLoading) {
@@ -95,10 +102,7 @@ function AppContent() {
           selectedId={selectedId}
           onSelectTab={handleSelectTab}
           onCreateCapture={() => setShowWizard(true)}
-          onCreateTrunkingSystem={() => {
-            // TODO: Create trunking system wizard
-            console.log("Create trunking system");
-          }}
+          onCreateTrunkingSystem={() => setShowTrunkingWizard(true)}
           onDeleteCapture={handleDeleteCapture}
           onDeleteTrunkingSystem={handleDeleteTrunkingSystem}
           onOpenSettings={() => setShowDeviceSettings(true)}
@@ -150,6 +154,13 @@ function AppContent() {
         <CreateCaptureWizard
           onClose={() => setShowWizard(false)}
           onSuccess={handleCreateSuccess}
+        />
+      )}
+
+      {showTrunkingWizard && (
+        <CreateTrunkingWizard
+          onClose={() => setShowTrunkingWizard(false)}
+          onSuccess={handleTrunkingCreateSuccess}
         />
       )}
 

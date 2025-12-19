@@ -46,10 +46,12 @@ export function useSelectedRadio() {
     if (captures) {
       for (const capture of captures) {
         const device = findDeviceForCapture(devices, capture);
+        const stableDeviceId = getStableDeviceId(capture.deviceId);
         result.push({
           type: "capture",
           id: capture.id,
           name: capture.name || capture.autoName || formatCaptureId(capture.id),
+          deviceId: stableDeviceId,
           deviceName: device ? getDeviceDisplayName(device) : "Unknown Device",
           state: capture.state,
           frequencyHz: capture.centerHz,
@@ -61,11 +63,11 @@ export function useSelectedRadio() {
     if (trunkingSystems) {
       for (const system of trunkingSystems) {
         // Look up device name from deviceId
+        const stableDeviceId = system.deviceId ? getStableDeviceId(system.deviceId) : "";
         let deviceName = "Trunking";
         if (system.deviceId && devices) {
-          const stableId = getStableDeviceId(system.deviceId);
           const device = devices.find(
-            (d) => getStableDeviceId(d.id) === stableId
+            (d) => getStableDeviceId(d.id) === stableDeviceId
           );
           if (device) {
             deviceName = getDeviceDisplayName(device);
@@ -76,6 +78,7 @@ export function useSelectedRadio() {
           type: "trunking",
           id: system.id,
           name: system.name,
+          deviceId: stableDeviceId,
           deviceName,
           state: system.state,
           frequencyHz: system.controlChannelFreqHz ?? 0,
@@ -86,15 +89,22 @@ export function useSelectedRadio() {
     return result;
   }, [captures, devices, trunkingSystems]);
 
+  const isLoading = capturesLoading || devicesLoading || trunkingLoading;
+
   // Determine selected tab
   const selectedTab = useMemo(() => {
-    // If URL has a valid selection, use it
+    // If URL has a valid selection, use it (even if tab not found yet - might still be loading)
     if (urlSelection) {
       const tab = tabs.find(
         (t) => t.type === urlSelection.type && t.id === urlSelection.id
       );
       if (tab) return { type: urlSelection.type, id: urlSelection.id };
+      // If still loading, trust the URL selection - don't fall through to auto-select
+      if (isLoading) return { type: urlSelection.type, id: urlSelection.id };
     }
+
+    // Don't auto-select while still loading - wait for data
+    if (isLoading) return null;
 
     // Auto-select first running capture
     const runningCapture = tabs.find(
@@ -115,10 +125,23 @@ export function useSelectedRadio() {
     // Or just the first tab
     const first = tabs[0];
     return first ? { type: first.type, id: first.id } : null;
-  }, [tabs, urlSelection]);
+  }, [tabs, urlSelection, isLoading]);
 
-  // Auto-update URL when selection changes
+  // Track if user has explicitly selected (vs auto-selection)
+  const [userHasSelected, setUserHasSelected] = useState(() => {
+    // If URL has a selection on mount, user has "selected"
+    const params = new URLSearchParams(window.location.search);
+    return params.has("radio") || params.has("capture");
+  });
+
+  // Auto-update URL when selection changes, but only after initial load
+  // and only when user hasn't explicitly selected something
   useEffect(() => {
+    // Don't update URL while loading
+    if (isLoading) return;
+    // Don't update URL if user has an explicit selection from URL
+    if (userHasSelected && urlSelection) return;
+
     if (selectedTab) {
       const urlKey = `${selectedTab.type}:${selectedTab.id}`;
       const currentParam = urlSelection
@@ -129,9 +152,10 @@ export function useSelectedRadio() {
         url.searchParams.delete("capture"); // Remove legacy param
         url.searchParams.set("radio", urlKey);
         window.history.replaceState({}, "", url.toString());
+        setUrlSelection(selectedTab);
       }
     }
-  }, [selectedTab, urlSelection]);
+  }, [selectedTab, urlSelection, isLoading, userHasSelected]);
 
   // Get the selected capture (if type is capture)
   const selectedCapture: Capture | null = useMemo(() => {
@@ -160,6 +184,7 @@ export function useSelectedRadio() {
     url.searchParams.set("radio", urlKey);
     window.history.replaceState({}, "", url.toString());
     setUrlSelection({ type, id });
+    setUserHasSelected(true);
   }, []);
 
   // Listen for browser back/forward navigation

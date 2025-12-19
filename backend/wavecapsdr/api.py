@@ -609,6 +609,51 @@ def get_usb_hubs(_: None = Depends(auth_check)) -> Dict[str, Any]:
     return get_hub_status_dict()
 
 
+@router.post("/devices/usb/power-cycle-all")
+async def power_cycle_all_usb(
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+) -> Dict[str, Any]:
+    """Power cycle all USB ports with connected devices.
+
+    This performs a hardware reset of all devices on controllable USB hubs.
+    All running captures will be stopped first, then all ports are cycled.
+
+    Requires uhubctl to be installed.
+    """
+    from .uhubctl import power_cycle_all_ports, is_uhubctl_available
+
+    if not is_uhubctl_available():
+        raise HTTPException(
+            status_code=503,
+            detail="uhubctl not installed. Install with: brew install uhubctl"
+        )
+
+    # Stop all running captures first
+    stopped_captures = []
+    for capture in state.captures.list_captures():
+        if capture.state == "running":
+            try:
+                await capture.stop()
+                stopped_captures.append(capture.id)
+                logger.info(f"Stopped capture {capture.id} before USB power cycle")
+            except Exception as e:
+                logger.warning(f"Failed to stop capture {capture.id}: {e}")
+
+    # Power cycle all ports
+    success, message, ports_cycled = power_cycle_all_ports(delay=2.0)
+
+    if not success and ports_cycled == 0:
+        raise HTTPException(status_code=503, detail=message)
+
+    return {
+        "status": "ok" if success else "partial",
+        "message": message,
+        "portsCycled": ports_cycled,
+        "stoppedCaptures": stopped_captures,
+    }
+
+
 @router.post("/devices/usb/power-cycle/{capture_id}")
 async def power_cycle_capture_device(capture_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)) -> Dict[str, Any]:
     """Power cycle the USB port for a capture's device.

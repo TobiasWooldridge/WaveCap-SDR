@@ -312,5 +312,126 @@ class TestSymbolTiming:
         assert ted._integrator == 0.0
 
 
+class TestLinkControlGPS:
+    """Test GPS extraction from P25 Link Control.
+
+    Reference: SDRTrunk (https://github.com/DSheirer/sdrtrunk)
+    """
+
+    def test_extract_link_control_voice_user(self):
+        """Test standard voice user LC (LCF 0x00)."""
+        from wavecapsdr.decoders.p25_frames import extract_link_control, dibits_to_bits
+
+        # Create dibit array with LC data
+        # We need enough dibits for the LC extraction to work
+        # LC is 72 bits at offset 64 = 72 + 64 = 136 bits = 68 dibits minimum
+        dibits = np.zeros(200, dtype=np.uint8)
+
+        # Set up LC fields at the expected offset
+        # LCF = 0x00 (Group Voice Channel User)
+        # After status symbol removal and bit conversion
+
+        lc = extract_link_control(dibits)
+
+        # With all zeros, should get default values
+        assert lc.lcf == 0
+        assert lc.mfid == 0
+        assert lc.has_gps is False
+
+    def test_link_control_gps_fields(self):
+        """Test that LinkControl has GPS fields."""
+        from wavecapsdr.decoders.p25_frames import LinkControl
+
+        lc = LinkControl(
+            lcf=0x09,
+            mfid=0,
+            tgid=0,
+            source_id=12345,
+            has_gps=True,
+            gps_latitude=47.6,
+            gps_longitude=-122.3,
+            gps_altitude_m=100.0,
+            gps_speed_kmh=60.0,
+            gps_heading_deg=180.0,
+        )
+
+        assert lc.has_gps is True
+        assert lc.gps_latitude == 47.6
+        assert lc.gps_longitude == -122.3
+        assert lc.gps_altitude_m == 100.0
+        assert lc.gps_speed_kmh == 60.0
+        assert lc.gps_heading_deg == 180.0
+
+    def test_link_control_default_no_gps(self):
+        """Test default LinkControl has no GPS."""
+        from wavecapsdr.decoders.p25_frames import LinkControl
+
+        lc = LinkControl()
+
+        assert lc.has_gps is False
+        assert lc.gps_latitude == 0.0
+        assert lc.gps_longitude == 0.0
+        assert lc.gps_altitude_m is None
+
+    def test_decode_lc_gps_coords_helper(self):
+        """Test the _decode_lc_gps_coords helper function."""
+        from wavecapsdr.decoders.p25_frames import _decode_lc_gps_coords
+
+        # Create a bit array with known GPS values
+        # lat = 45.0 = 0x400000, lon = 90.0 = 0x400000
+        bits = np.zeros(100, dtype=np.uint8)
+
+        # Set lat = 0x400000 at offset 0
+        # 0x40 = 0100 0000
+        bits[0:8] = [0, 1, 0, 0, 0, 0, 0, 0]
+        # 0x00 = 0000 0000
+        bits[8:16] = [0, 0, 0, 0, 0, 0, 0, 0]
+        bits[16:24] = [0, 0, 0, 0, 0, 0, 0, 0]
+
+        # Set lon = 0x400000 at offset 24
+        bits[24:32] = [0, 1, 0, 0, 0, 0, 0, 0]
+        bits[32:40] = [0, 0, 0, 0, 0, 0, 0, 0]
+        bits[40:48] = [0, 0, 0, 0, 0, 0, 0, 0]
+
+        lat, lon = _decode_lc_gps_coords(bits, offset=0)
+
+        assert abs(lat - 45.0) < 0.001
+        assert abs(lon - 90.0) < 0.001
+
+    def test_decode_lc_gps_coords_negative(self):
+        """Test GPS coordinate decoding with negative values."""
+        from wavecapsdr.decoders.p25_frames import _decode_lc_gps_coords
+
+        # lat = -45.0 = 0xC00000, lon = -90.0 = 0xC00000
+        bits = np.zeros(100, dtype=np.uint8)
+
+        # Set lat = 0xC00000 (negative)
+        # 0xC0 = 1100 0000
+        bits[0:8] = [1, 1, 0, 0, 0, 0, 0, 0]
+        bits[8:16] = [0, 0, 0, 0, 0, 0, 0, 0]
+        bits[16:24] = [0, 0, 0, 0, 0, 0, 0, 0]
+
+        # Set lon = 0xC00000 (negative)
+        bits[24:32] = [1, 1, 0, 0, 0, 0, 0, 0]
+        bits[32:40] = [0, 0, 0, 0, 0, 0, 0, 0]
+        bits[40:48] = [0, 0, 0, 0, 0, 0, 0, 0]
+
+        lat, lon = _decode_lc_gps_coords(bits, offset=0)
+
+        assert abs(lat - (-45.0)) < 0.001
+        assert abs(lon - (-90.0)) < 0.001
+
+    def test_decode_lc_gps_coords_short_data(self):
+        """Test GPS decoding handles short data."""
+        from wavecapsdr.decoders.p25_frames import _decode_lc_gps_coords
+
+        bits = np.zeros(10, dtype=np.uint8)  # Too short
+
+        lat, lon = _decode_lc_gps_coords(bits, offset=0)
+
+        assert lat == 0.0
+        assert lon == 0.0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

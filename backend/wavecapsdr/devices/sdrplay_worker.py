@@ -125,6 +125,7 @@ SHM_SIZE = HEADER_SIZE + BUFFER_SIZE
 FLAG_OVERFLOW = 1 << 0
 FLAG_ERROR = 1 << 1
 FLAG_RUNNING = 1 << 2
+FLAG_DATA_READY = 1 << 3  # Set after first successful sample write
 
 
 @dataclass
@@ -295,11 +296,19 @@ class SDRplayWorker:
         self.status_pipe.send({"type": "ready"})
         self.running = True
 
+        loop_count = 0
         while self.running:
+            loop_count += 1
+            if loop_count <= 5 or loop_count % 10000 == 0:
+                if logger:
+                    logger.debug(f"Main loop[{loop_count}]: running={self.running}, streaming={self.streaming}, stream={self.stream is not None}")
+
             # Check for commands (non-blocking)
             while self.cmd_pipe.poll(timeout=0.001):
                 try:
                     cmd = self.cmd_pipe.recv()
+                    if logger:
+                        logger.debug(f"Received command: {cmd.get('type', 'unknown')}")
                     self._handle_command(cmd)
                 except EOFError:
                     self.running = False
@@ -310,6 +319,8 @@ class SDRplayWorker:
                 try:
                     self._stream_samples()
                 except Exception as e:
+                    if logger:
+                        logger.error(f"_stream_samples exception: {e}")
                     self.status_pipe.send({"type": "stream_error", "message": str(e)})
                     self.streaming = False
 
@@ -659,6 +670,12 @@ class SDRplayWorker:
             ret = sr
             flags = 0
 
+        # Log sample reads periodically (every 1000 calls or on error)
+        self._stream_call_count = getattr(self, '_stream_call_count', 0) + 1
+        if ret <= 0 or self._stream_call_count <= 5 or self._stream_call_count % 1000 == 0:
+            if logger:
+                logger.debug(f"_stream_samples[{self._stream_call_count}]: ret={ret}, flags={flags}")
+
         if ret <= 0:
             return
 
@@ -697,15 +714,27 @@ class SDRplayWorker:
         self.sample_count += num_samples
 
         # Update header
+        header_flags = FLAG_RUNNING | (FLAG_OVERFLOW if self.overflow_count > 0 else 0) | (FLAG_DATA_READY if self.sample_count > 0 else 0)
         _write_header(
             self.shm,
             write_idx=self.write_idx,
             sample_count=self.sample_count,
             overflow_count=self.overflow_count,
             sample_rate=self.sample_rate,
-            flags=FLAG_RUNNING | (FLAG_OVERFLOW if self.overflow_count > 0 else 0),
+            flags=header_flags,
             timestamp=time.time(),
         )
+
+        # Force memory synchronization - Python's mmap on macOS may need this
+        try:
+            self.shm.buf.flush() if hasattr(self.shm.buf, 'flush') else None
+        except Exception:
+            pass
+
+        # Log first few header writes for debugging
+        if self._stream_call_count <= 5:
+            if logger:
+                logger.debug(f"Header write: shm={self.shm_name}, write_idx={self.write_idx}, flags={header_flags}")
 
     def cleanup(self) -> None:
         """Clean up resources."""

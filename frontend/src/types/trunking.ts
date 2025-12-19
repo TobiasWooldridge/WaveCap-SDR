@@ -113,6 +113,20 @@ export interface AddTalkgroupRequest {
   monitor?: boolean;
 }
 
+// Recipe/template for pre-configured trunking systems
+export interface TrunkingRecipe {
+  id: string;
+  name: string;
+  description?: string;
+  category: string;
+  protocol: TrunkingProtocol;
+  controlChannels: number[];  // Frequencies in Hz
+  centerHz: number;
+  sampleRate: number;
+  gain?: number;
+  talkgroupCount: number;
+}
+
 // WebSocket event types
 
 export type TrunkingEventType =
@@ -160,3 +174,66 @@ export type TrunkingEvent =
   | TrunkingCallStartEvent
   | TrunkingCallUpdateEvent
   | TrunkingCallEndEvent;
+
+// Voice stream types
+
+export type VoiceStreamState = "created" | "starting" | "active" | "silent" | "ended";
+
+export interface RadioLocation {
+  unitId: number;
+  latitude: number;
+  longitude: number;
+  altitude: number | null;
+  speed: number | null;
+  heading: number | null;
+  accuracy: number | null;
+  timestamp: number;
+  ageSeconds: number;
+  source: "lrrp" | "elc" | "gps_tsbk" | "unknown";
+}
+
+export interface VoiceStream {
+  id: string;
+  systemId: string;
+  callId: string;
+  recorderId: string;
+  state: VoiceStreamState;
+  talkgroupId: number;
+  talkgroupName: string;
+  sourceId: number | null;
+  sourceLocation: RadioLocation | null;
+  encrypted: boolean;
+  startTime: number;
+  durationSeconds: number;
+  silenceSeconds: number;
+  audioFrameCount: number;
+  audioBytesSent: number;
+  subscriberCount: number;
+}
+
+// Voice stream WebSocket message types
+
+export interface VoiceAudioMessage {
+  type: "audio";
+  streamId: string;
+  systemId: string;
+  callId: string;
+  recorderId: string;
+  talkgroupId: number;
+  talkgroupName: string;
+  sourceId: number | null;
+  sourceLocation: RadioLocation | null;
+  timestamp: number;
+  encrypted: boolean;
+  sampleRate: number;
+  frameNumber: number;
+  format: "pcm16" | "f32";
+  audio: string;  // Base64 encoded audio
+}
+
+export interface VoiceStreamEndedMessage {
+  type: "ended";
+  streamId: string;
+}
+
+export type VoiceStreamMessage = VoiceAudioMessage | VoiceStreamEndedMessage;

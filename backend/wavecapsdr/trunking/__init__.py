@@ -37,6 +37,34 @@ from wavecapsdr.trunking.control_channel import (
     SyncState,
     create_control_monitor,
 )
+from wavecapsdr.trunking.identifiers import (
+    Identifier,
+    IdentifierCollection,
+    MutableIdentifierCollection,
+    IdentifierRole,
+    IdentifierForm,
+    TalkerAliasManager,
+)
+from wavecapsdr.trunking.event_tracker import (
+    P25CallEvent,
+    P25EventTracker,
+    P25EventTrackerManager,
+    CallEventType,
+    CallEventState,
+)
+from wavecapsdr.trunking.network_config import (
+    P25NetworkConfigurationMonitor,
+    FrequencyBand,
+    SiteStatus,
+    NetworkStatus,
+    AdjacentSite,
+    SystemServices,
+)
+from wavecapsdr.trunking.duplicate_detector import (
+    DuplicateCallDetector,
+    FrequencyBasedDuplicateDetector,
+    CallEventSignature,
+)
 
 __all__ = [
     # Manager
@@ -56,4 +84,28 @@ __all__ = [
     "TrunkingSystemConfig",
     "TalkgroupConfig",
     "TrunkingProtocol",
+    # Identifiers (SDRTrunk pattern)
+    "Identifier",
+    "IdentifierCollection",
+    "MutableIdentifierCollection",
+    "IdentifierRole",
+    "IdentifierForm",
+    "TalkerAliasManager",
+    # Event Tracker (SDRTrunk pattern)
+    "P25CallEvent",
+    "P25EventTracker",
+    "P25EventTrackerManager",
+    "CallEventType",
+    "CallEventState",
+    # Network Config (SDRTrunk pattern)
+    "P25NetworkConfigurationMonitor",
+    "FrequencyBand",
+    "SiteStatus",
+    "NetworkStatus",
+    "AdjacentSite",
+    "SystemServices",
+    # Duplicate Detection (SDRTrunk pattern)
+    "DuplicateCallDetector",
+    "FrequencyBasedDuplicateDetector",
+    "CallEventSignature",
 ]

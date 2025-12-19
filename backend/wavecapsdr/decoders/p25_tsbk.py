@@ -167,7 +167,7 @@ class TSBKParser:
         Args:
             opcode: 6-bit opcode
             mfid: Manufacturer ID (0 = standard)
-            data: 7-byte data payload
+            data: 8-byte data payload (64 bits per TIA-102.AABB-A)
 
         Returns:
             Dict with parsed message fields
@@ -229,18 +229,19 @@ class TSBKParser:
     def _parse_grp_v_ch_grant(self, data: bytes, result: Dict[str, Any]) -> None:
         """Parse Group Voice Channel Grant.
 
-        Data format (56 bits):
+        Data format (64 bits per TIA-102.AABB-A):
         - Service Options (8 bits)
-        - Channel (16 bits)
+        - Channel (16 bits: 4-bit IDEN + 12-bit channel number)
         - Group Address (16 bits)
-        - Source Address (24 bits, but only 16 bits in some variants)
+        - Source Address (24 bits)
         """
         result['type'] = 'GROUP_VOICE_GRANT'
 
         svc_opts = data[0]
         channel = (data[1] << 8) | data[2]
         tgid = (data[3] << 8) | data[4]
-        source = (data[5] << 8) | data[6]
+        # Source is 24 bits (3 bytes) per P25 spec
+        source = (data[5] << 16) | (data[6] << 8) | data[7]
 
         result['emergency'] = bool(svc_opts & 0x80)
         result['encrypted'] = bool(svc_opts & 0x40)
@@ -302,20 +303,30 @@ class TSBKParser:
                 }
 
     def _parse_uu_v_ch_grant(self, data: bytes, result: Dict[str, Any]) -> None:
-        """Parse Unit to Unit Voice Channel Grant."""
+        """Parse Unit to Unit Voice Channel Grant.
+
+        Data format (64 bits per TIA-102.AABB-A):
+        - Channel (16 bits: 4-bit IDEN + 12-bit channel number)
+        - Target Address (24 bits)
+        - Source Address (24 bits)
+
+        Note: This opcode has NO service options field - channel starts at bit 0.
+        """
         result['type'] = 'UNIT_TO_UNIT_GRANT'
 
-        svc_opts = data[0]
-        channel = (data[1] << 8) | data[2]
-        target = (data[3] << 8) | data[4]
-        source = (data[5] << 8) | data[6]
+        # Channel is first (no service options in this opcode)
+        channel = (data[0] << 8) | data[1]
+        # Target is 24 bits (bytes 2-4)
+        target = (data[2] << 16) | (data[3] << 8) | data[4]
+        # Source is 24 bits (bytes 5-7)
+        source = (data[5] << 16) | (data[6] << 8) | data[7]
 
         result['channel'] = channel
         result['target_id'] = target
         result['source_id'] = source
         result['frequency_hz'] = self.get_frequency(channel)
-        result['emergency'] = bool(svc_opts & 0x80)
-        result['encrypted'] = bool(svc_opts & 0x40)
+        result['emergency'] = False  # No service options in this opcode
+        result['encrypted'] = False
 
     def _parse_rfss_sts_bcast(self, data: bytes, result: Dict[str, Any]) -> None:
         """Parse RFSS Status Broadcast.
@@ -390,18 +401,34 @@ class TSBKParser:
         """Parse Identifier Update for VHF/UHF.
 
         Defines channel numbering for a frequency band.
+
+        Data format (64 bits per TIA-102.AABB-A):
+        - Identifier (4 bits)
+        - Bandwidth (9 bits)
+        - TX Offset Sign (1 bit) - 1=positive, 0=negative
+        - TX Offset (8 bits)
+        - Channel Spacing (10 bits)
+        - Base Frequency (32 bits)
         """
         result['type'] = 'IDENTIFIER_UPDATE_VU'
 
         ident = (data[0] >> 4) & 0x0F
         bw = ((data[0] & 0x0F) << 5) | (data[1] >> 3)
-        tx_offset = ((data[1] & 0x07) << 6) | (data[2] >> 2)
+        # TX offset sign is bit 2 of data[1] (1=positive, 0=negative per SDRTrunk)
+        tx_offset_sign = bool((data[1] >> 2) & 1)
+        # TX offset is 8 bits (2 bits from data[1] + 6 bits from data[2])
+        tx_offset = ((data[1] & 0x03) << 6) | (data[2] >> 2)
         spacing = ((data[2] & 0x03) << 8) | data[3]
-        base_freq = ((data[4] << 16) | (data[5] << 8) | data[6]) * 0.000005
+        # Base frequency is 32 bits (was incorrectly 24 bits before)
+        base_freq = ((data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7]) * 0.000005
+
+        # Apply sign to TX offset
+        tx_offset_val = tx_offset if tx_offset_sign else -tx_offset
 
         result['identifier'] = ident
         result['bandwidth_khz'] = bw * 0.125
-        result['tx_offset_mhz'] = tx_offset * 0.25
+        result['tx_offset_sign'] = tx_offset_sign
+        result['tx_offset_mhz'] = tx_offset_val * 0.25
         result['channel_spacing_khz'] = spacing * 0.125
         result['base_freq_mhz'] = base_freq
 
@@ -409,33 +436,51 @@ class TSBKParser:
         chan_id = ChannelIdentifier(
             identifier=ident,
             bw=int(bw * 0.125),
-            tx_offset=int(tx_offset * 0.25),
+            tx_offset=int(tx_offset_val * 0.25),
             channel_spacing=int(spacing * 0.125),
             base_freq=base_freq
         )
         self.add_channel_id(chan_id)
 
         logger.info(f"Channel ID {ident}: base={base_freq:.4f} MHz, "
-                   f"spacing={spacing * 0.125} kHz")
+                   f"spacing={spacing * 0.125} kHz, tx_offset={tx_offset_val * 0.25} MHz")
 
     def _parse_iden_up_tdma(self, data: bytes, result: Dict[str, Any]) -> None:
-        """Parse Identifier Update for TDMA (Phase II)."""
+        """Parse Identifier Update for TDMA (Phase II).
+
+        Data format (64 bits per TIA-102.AABB-A):
+        - Identifier (4 bits)
+        - Channel Type (4 bits): access type + slot count
+        - TX Offset Sign (1 bit) - 1=positive, 0=negative
+        - TX Offset (13 bits)
+        - Channel Spacing (10 bits)
+        - Base Frequency (32 bits)
+        """
         result['type'] = 'IDENTIFIER_UPDATE_TDMA'
 
         ident = (data[0] >> 4) & 0x0F
-        # TDMA-specific fields
+        # TDMA-specific fields: Channel Type (4 bits)
         access_type = (data[0] >> 2) & 0x03  # 0=FDMA, 1=TDMA, etc.
         slot_count = (data[0] & 0x03) + 1
 
-        tx_offset = ((data[1] & 0x3F) << 3) | (data[2] >> 5)
-        spacing = ((data[2] & 0x1F) << 5) | (data[3] >> 3)
-        base_freq = (((data[3] & 0x07) << 21) | (data[4] << 13) |
-                    (data[5] << 5) | (data[6] >> 3)) * 0.000005
+        # TX offset sign is bit 0 of data[1] (bit 8 of data field)
+        # Per SDRTrunk FrequencyBandUpdateTDMA: TRANSMIT_OFFSET_SIGN = 24 (bit 8 of data)
+        tx_offset_sign = bool((data[1] >> 7) & 1)
+        # TX offset is 13 bits (bits 25-37)
+        tx_offset = ((data[1] & 0x7F) << 6) | (data[2] >> 2)
+        # Channel spacing is 10 bits
+        spacing = ((data[2] & 0x03) << 8) | data[3]
+        # Base frequency is 32 bits
+        base_freq = ((data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7]) * 0.000005
+
+        # Apply sign to TX offset
+        tx_offset_val = tx_offset if tx_offset_sign else -tx_offset
 
         result['identifier'] = ident
         result['access_type'] = 'TDMA' if access_type == 1 else 'FDMA'
         result['slot_count'] = slot_count
-        result['tx_offset_mhz'] = tx_offset * 0.25
+        result['tx_offset_sign'] = tx_offset_sign
+        result['tx_offset_mhz'] = tx_offset_val * 0.25
         result['channel_spacing_khz'] = spacing * 0.125
         result['base_freq_mhz'] = base_freq
 
@@ -443,11 +488,14 @@ class TSBKParser:
         chan_id = ChannelIdentifier(
             identifier=ident,
             bw=0,  # Not specified in TDMA IDEN
-            tx_offset=int(tx_offset * 0.25),
+            tx_offset=int(tx_offset_val * 0.25),
             channel_spacing=int(spacing * 0.125),
             base_freq=base_freq
         )
         self.add_channel_id(chan_id)
+
+        logger.info(f"Channel ID {ident} (TDMA): base={base_freq:.4f} MHz, "
+                   f"spacing={spacing * 0.125} kHz, tx_offset={tx_offset_val * 0.25} MHz")
 
     def _parse_sys_srv_bcast(self, data: bytes, result: Dict[str, Any]) -> None:
         """Parse System Service Broadcast.

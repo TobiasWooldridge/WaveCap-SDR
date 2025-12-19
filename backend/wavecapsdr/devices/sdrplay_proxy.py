@@ -43,6 +43,7 @@ from .sdrplay_worker import (
     FLAG_OVERFLOW,
     FLAG_ERROR,
     FLAG_RUNNING,
+    FLAG_DATA_READY,
     _read_header,
 )
 
@@ -117,8 +118,27 @@ class SDRplayProxyStream(StreamHandle):
     sample_rate: int = 2_000_000
     _last_read_idx: int = 0
     _closed: bool = False
+    _data_ready: bool = False
 
     _debug_counter: int = 0
+
+    def is_ready(self) -> bool:
+        """Check if worker has written first samples (non-blocking).
+
+        Returns:
+            True if data is ready, False if still waiting for first samples.
+        """
+        if self._data_ready:
+            return True
+        try:
+            write_idx, _, sample_count, _, _, flags, _ = _read_header(self.shm)
+            logger.info(f"is_ready() check: write_idx={write_idx}, sample_count={sample_count}, flags={flags}, shm={self.shm.name}, stream_id={id(self)}")
+            if flags & FLAG_DATA_READY:
+                self._data_ready = True
+                return True
+        except Exception as e:
+            logger.error(f"is_ready() exception: {e}")
+        return False
 
     def read(self, num_samples: int) -> Tuple[np.ndarray, bool]:
         """Read IQ samples from shared memory ring buffer.
@@ -148,20 +168,58 @@ class SDRplayProxyStream(StreamHandle):
             logger.info(
                 f"SDRplayProxyStream.read()[{self._debug_counter}]: "
                 f"write_idx={write_idx}, _last_read_idx={self._last_read_idx}, "
-                f"requested={num_samples}, sample_count={sample_count}, flags={flags}"
+                f"requested={num_samples}, sample_count={sample_count}, flags={flags}, stream_id={id(self)}, shm={self.shm.name}"
             )
 
         # Calculate available samples
         available = write_idx - self._last_read_idx
         if available <= 0:
-            # No new samples yet - return empty
-            # Log if this keeps happening (every 10000 reads)
-            if self._debug_counter % 10000 == 0:
-                logger.warning(
-                    f"SDRplayProxyStream.read(): no available samples, "
-                    f"write_idx={write_idx}, _last_read_idx={self._last_read_idx}"
-                )
-            return np.empty(0, dtype=np.complex64), False
+            # No new samples yet - track consecutive empty reads
+            self._empty_reads = getattr(self, '_empty_reads', 0) + 1
+
+            # Workaround for macOS SharedMemory coherency issue:
+            # If we've had many empty reads but the stream shows ready (FLAG_DATA_READY set),
+            # re-attach to the shared memory to force a fresh view.
+            if self._empty_reads >= 100 and (flags & FLAG_DATA_READY):
+                if not getattr(self, '_reattach_attempted', False):
+                    self._reattach_attempted = True
+                    try:
+                        shm_name = self.shm.name
+                        logger.warning(
+                            f"SDRplayProxyStream: {self._empty_reads} empty reads but FLAG_DATA_READY set. "
+                            f"Re-attaching to shared memory {shm_name}..."
+                        )
+                        # Close current reference (don't unlink!)
+                        old_shm = self.shm
+                        # Re-attach to same shared memory
+                        self.shm = SharedMemory(name=shm_name)
+                        old_shm.close()
+                        logger.info(f"SDRplayProxyStream: Re-attached to {shm_name}")
+                        self._empty_reads = 0
+                        # Try reading again with fresh attachment
+                        write_idx, _, sample_count, overflow_count, sample_rate, flags, timestamp = _read_header(self.shm)
+                        available = write_idx - self._last_read_idx
+                        if available > 0:
+                            logger.info(f"SDRplayProxyStream: Re-attach successful! Now have {available} samples available")
+                            # Continue to process samples below
+                        else:
+                            return np.empty(0, dtype=np.complex64), False
+                    except Exception as e:
+                        logger.error(f"SDRplayProxyStream: Re-attach failed: {e}")
+                        return np.empty(0, dtype=np.complex64), False
+                else:
+                    return np.empty(0, dtype=np.complex64), False
+            else:
+                # Log if this keeps happening (every 10000 reads)
+                if self._debug_counter % 10000 == 0:
+                    logger.warning(
+                        f"SDRplayProxyStream.read(): no available samples, "
+                        f"write_idx={write_idx}, _last_read_idx={self._last_read_idx}"
+                    )
+                return np.empty(0, dtype=np.complex64), False
+        else:
+            # Reset empty read counter when we get samples
+            self._empty_reads = 0
 
         # Detect ring buffer overrun: if available > BUFFER_SAMPLES, the writer
         # has wrapped around and overwritten data before we could read it.
@@ -518,6 +576,7 @@ class SDRplayProxyDevice(Device):
                         increment_sdrplay_active_captures()
 
                         # Return proxy stream
+                        logger.info(f"Creating SDRplayProxyStream with shm.name={self._shm.name}")
                         return SDRplayProxyStream(
                             shm=self._shm,
                             status_pipe=self._status_pipe,

@@ -1592,6 +1592,33 @@ class Capture:
                     and self._last_iq_time > 0
                     and (now - self._last_iq_time) > self._iq_watchdog_timeout
                 ):
+                    # Check if stream is ready yet (SDRplay proxy streams need startup time)
+                    stream = self._stream
+                    is_ready = False
+                    if stream is not None and hasattr(stream, 'is_ready'):
+                        is_ready = stream.is_ready()
+                        logger.info(f"Capture {self.cfg.id}: IQ watchdog check - is_ready={is_ready}")
+
+                    # If stream is ready but IQ thread hasn't received samples, there may be
+                    # a shared memory synchronization issue. Give more time and don't fail yet.
+                    if is_ready and not getattr(self, '_watchdog_ready_seen', False):
+                        # First time seeing ready - give extra time
+                        self._watchdog_ready_seen = True
+                        logger.warning(
+                            f"Capture {self.cfg.id}: IQ watchdog deferred - stream ready but IQ thread not receiving. "
+                            f"Extending timeout for shared memory sync."
+                        )
+                        self._last_iq_time = now
+                        continue
+
+                    if stream is not None and hasattr(stream, 'is_ready') and not is_ready:
+                        # Stream not ready yet - defer watchdog, reset timer
+                        logger.debug(
+                            f"Capture {self.cfg.id}: IQ watchdog deferred - stream not ready yet"
+                        )
+                        self._last_iq_time = now
+                        continue
+
                     driver = "unknown"
                     if self.device and hasattr(self.device, "info"):
                         driver = getattr(self.device.info, "driver", "unknown")

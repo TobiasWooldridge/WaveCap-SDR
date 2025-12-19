@@ -141,3 +141,42 @@ export function usePowerCycleDevice() {
     },
   });
 }
+
+interface PowerCycleAllResponse {
+  status: string;
+  message: string;
+  portsCycled: number;
+  stoppedCaptures: string[];
+}
+
+async function powerCycleAllUSB(): Promise<PowerCycleAllResponse> {
+  const response = await fetch("/api/v1/devices/usb/power-cycle-all", {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || "Failed to power cycle USB ports");
+  }
+
+  return response.json();
+}
+
+/**
+ * Hook to power cycle all USB ports with connected devices.
+ * Stops all running captures first, then cycles all ports.
+ * Requires uhubctl and devices on controllable hubs.
+ */
+export function usePowerCycleAllUSB() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: powerCycleAllUSB,
+    onSuccess: () => {
+      // Invalidate queries to refresh state after power cycle
+      queryClient.invalidateQueries({ queryKey: ["devices"] });
+      queryClient.invalidateQueries({ queryKey: ["captures"] });
+      queryClient.invalidateQueries({ queryKey: ["usb-hubs"] });
+    },
+  });
+}

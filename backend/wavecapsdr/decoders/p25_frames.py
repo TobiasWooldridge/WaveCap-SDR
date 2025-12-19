@@ -76,6 +76,7 @@ class LinkControl:
     - MFID: Manufacturer ID (8 bits)
     - Talkgroup or Unit ID
     - Source ID
+    - GPS data (for LCF 0x09, 0x0A, 0x0B)
     """
     lcf: int = 0  # Link Control Format
     mfid: int = 0  # Manufacturer ID (0 = standard)
@@ -83,6 +84,13 @@ class LinkControl:
     source_id: int = 0  # Source radio ID
     emergency: bool = False
     encrypted: bool = False
+    # GPS data (from Extended Link Control)
+    has_gps: bool = False
+    gps_latitude: float = 0.0
+    gps_longitude: float = 0.0
+    gps_altitude_m: Optional[float] = None
+    gps_speed_kmh: Optional[float] = None
+    gps_heading_deg: Optional[float] = None
 
 
 @dataclass
@@ -153,18 +161,18 @@ class TSDUFrame:
 class TSBKBlock:
     """Single TSBK message block.
 
-    Structure (96 bits):
+    Structure (96 bits per TIA-102.AABB-A):
     - LB: Last Block flag (1 bit)
     - Protect: Protection flag (1 bit)
     - Opcode (6 bits)
     - MFID: Manufacturer ID (8 bits)
-    - Data (56 bits)
+    - Data (64 bits)
     - CRC (16 bits)
     """
     last_block: bool
     opcode: int
     mfid: int
-    data: bytes  # 7 bytes of data
+    data: bytes  # 8 bytes of data
     crc_valid: bool = True
 
 
@@ -181,7 +189,7 @@ def bits_to_int(bits: np.ndarray, start: int, length: int) -> int:
     """Extract integer from bit array."""
     value = 0
     for i in range(length):
-        value = (value << 1) | bits[start + i]
+        value = (value << 1) | int(bits[start + i])
     return value
 
 
@@ -437,6 +445,7 @@ def extract_link_control(dibits: np.ndarray) -> LinkControl:
     """Extract Link Control from LDU1/TDULC.
 
     LC is 72 bits (36 dibits) protected by Reed-Solomon.
+    Handles standard LC and Extended LC (GPS data).
     """
     # Simplified extraction - real decoder needs RS correction
     clean_dibits = remove_status_symbols(dibits)
@@ -452,20 +461,92 @@ def extract_link_control(dibits: np.ndarray) -> LinkControl:
     lcf = bits_to_int(bits, lc_offset, 8)
     mfid = bits_to_int(bits, lc_offset + 8, 8)
 
+    # Default values
+    tgid = 0
+    source_id = 0
+    has_gps = False
+    gps_lat = 0.0
+    gps_lon = 0.0
+    gps_alt: Optional[float] = None
+    gps_speed: Optional[float] = None
+    gps_heading: Optional[float] = None
+
     # Field interpretation depends on LCF
     if lcf == 0x00:  # Group Voice Channel User
         tgid = bits_to_int(bits, lc_offset + 24, 16)
         source_id = bits_to_int(bits, lc_offset + 40, 24)
-    else:
-        tgid = 0
-        source_id = 0
+
+    elif lcf == 0x09:  # GPS Position (Extended Link Control)
+        # Standard GPS: 6 bytes (48 bits) of lat/lon
+        source_id = bits_to_int(bits, lc_offset + 16, 24)
+        gps_lat, gps_lon = _decode_lc_gps_coords(bits, lc_offset + 40)
+        has_gps = True
+        logger.debug(f"ELC GPS: unit={source_id} lat={gps_lat:.6f} lon={gps_lon:.6f}")
+
+    elif lcf == 0x0A:  # GPS Position Extended (with altitude)
+        source_id = bits_to_int(bits, lc_offset + 16, 24)
+        gps_lat, gps_lon = _decode_lc_gps_coords(bits, lc_offset + 40)
+        # Altitude in remaining bits (if present)
+        if len(bits) >= lc_offset + 88:
+            alt_raw = bits_to_int(bits, lc_offset + 88, 16)
+            gps_alt = float(alt_raw) - 500.0  # 500m offset
+        has_gps = True
+
+    elif lcf == 0x0B:  # GPS Position with Velocity
+        source_id = bits_to_int(bits, lc_offset + 16, 24)
+        gps_lat, gps_lon = _decode_lc_gps_coords(bits, lc_offset + 40)
+        # Velocity in remaining bits
+        if len(bits) >= lc_offset + 96:
+            speed_raw = bits_to_int(bits, lc_offset + 88, 8)
+            heading_raw = bits_to_int(bits, lc_offset + 96, 9)
+            gps_speed = speed_raw * 2.0  # km/h
+            gps_heading = heading_raw * 360.0 / 512.0  # degrees
+        has_gps = True
 
     return LinkControl(
         lcf=lcf,
         mfid=mfid,
         tgid=tgid,
-        source_id=source_id
+        source_id=source_id,
+        has_gps=has_gps,
+        gps_latitude=gps_lat,
+        gps_longitude=gps_lon,
+        gps_altitude_m=gps_alt,
+        gps_speed_kmh=gps_speed,
+        gps_heading_deg=gps_heading,
     )
+
+
+def _decode_lc_gps_coords(bits: np.ndarray, offset: int) -> Tuple[float, float]:
+    """Decode GPS coordinates from Link Control bits.
+
+    GPS in Extended LC uses 24-bit signed values:
+    - Latitude: -90 to +90 degrees
+    - Longitude: -180 to +180 degrees
+
+    Args:
+        bits: Bit array
+        offset: Starting bit position
+
+    Returns:
+        Tuple of (latitude, longitude)
+    """
+    if len(bits) < offset + 48:
+        return (0.0, 0.0)
+
+    # Latitude: 24-bit signed
+    lat_raw = bits_to_int(bits, offset, 24)
+    if lat_raw & 0x800000:  # Sign extend
+        lat_raw -= 0x1000000
+    latitude = lat_raw * 90.0 / (1 << 23)
+
+    # Longitude: 24-bit signed
+    lon_raw = bits_to_int(bits, offset + 24, 24)
+    if lon_raw & 0x800000:  # Sign extend
+        lon_raw -= 0x1000000
+    longitude = lon_raw * 180.0 / (1 << 23)
+
+    return (latitude, longitude)
 
 
 def extract_encryption_sync(dibits: np.ndarray) -> EncryptionSync:
@@ -525,13 +606,15 @@ def extract_tsbk_blocks(dibits: np.ndarray) -> List[TSBKBlock]:
         opcode = bits_to_int(bits, 2, 6)
         mfid = bits_to_int(bits, 8, 8)
 
-        # Data (56 bits = 7 bytes)
-        data = bytearray(7)
-        for i in range(7):
+        # Data (64 bits = 8 bytes)
+        # Note: The TSBK data field is 64 bits per TIA-102.AABB-A, not 56 bits.
+        # Structure: bits 16-79 contain the message-specific data.
+        data = bytearray(8)
+        for i in range(8):
             data[i] = bits_to_int(bits, 16 + i * 8, 8)
 
-        # CRC (16 bits) - verify
-        crc_received = bits_to_int(bits, 72, 16)
+        # CRC (16 bits) - verify (at bit 80, after 64 bits of data)
+        crc_received = bits_to_int(bits, 80, 16)
         # CRC calculation would go here
         crc_valid = True  # Simplified
 

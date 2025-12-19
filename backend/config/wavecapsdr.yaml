@@ -587,6 +587,44 @@ recipes:
     gain: 40
     bandwidth: 25000
     frequency_label: Pager Frequency (MHz)
+
+# P25 Trunking Systems
+trunking:
+  systems:
+    psern:
+      id: psern
+      name: PSERN (Puget Sound Emergency Radio Network)
+      protocol: p25_phase2
+      # King County simulcast control channels (770-776 MHz range)
+      control_channels:
+        - 774031250   # 774.03125 MHz - Primary CC
+        - 774281250   # 774.28125 MHz - Alternate CC
+        - 773781250   # 773.78125 MHz - Alternate CC
+      center_hz: 774000000
+      sample_rate: 2000000
+      device_id: "driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070"
+      gain: 40
+      max_voice_recorders: 4
+      recording_path: ./recordings/psern
+      record_unknown: true
+      min_call_duration: 1.0
+      squelch_db: -55
+      talkgroups:
+        # Seattle Police
+        1616: {name: "Seattle PD Dispatch", category: "Police", priority: 1}
+        1617: {name: "Seattle PD North", category: "Police", priority: 2}
+        1618: {name: "Seattle PD South", category: "Police", priority: 2}
+        1619: {name: "Seattle PD West", category: "Police", priority: 2}
+        # Seattle Fire
+        1808: {name: "Seattle Fire Dispatch", category: "Fire", priority: 1}
+        1809: {name: "Seattle Fire TAC 1", category: "Fire", priority: 2}
+        # King County Sheriff
+        2416: {name: "King Co Sheriff Dispatch", category: "Police", priority: 1}
+        # Bellevue
+        2816: {name: "Bellevue PD Dispatch", category: "Police", priority: 2}
+        # Medic One
+        3008: {name: "King Co Medic One", category: "EMS", priority: 1}
+
 # Auto-start captures disabled - create manually via UI
 # captures:
 # - preset: kexp

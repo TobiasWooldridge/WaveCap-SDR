@@ -3,9 +3,12 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, TYPE_CHECKING
 
 import yaml
+
+if TYPE_CHECKING:
+    from .trunking.config import TrunkingSystemConfig
 
 DriverName = Literal["soapy", "fake", "rtl"]
 
@@ -131,6 +134,8 @@ class AppConfig:
     recipes: Dict[str, RecipeConfig] = field(default_factory=dict)
     captures: List[CaptureStartConfig] = field(default_factory=list)
     device_names: Dict[str, str] = field(default_factory=dict)  # device_id -> custom name
+    # Raw trunking system configs (parsed into TrunkingSystemConfig objects in state.py)
+    trunking_systems: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
 def _read_yaml(path: Path) -> Dict[str, Any]:
@@ -220,6 +225,16 @@ def load_config(path_str: str) -> AppConfig:
     if isinstance(device_names_raw, dict):
         device_names = {k: str(v) for k, v in device_names_raw.items()}
 
+    # Parse trunking systems (raw dicts, converted to TrunkingSystemConfig in state.py)
+    trunking_systems: Dict[str, Dict[str, Any]] = {}
+    trunking_raw = raw.get("trunking", {})
+    if isinstance(trunking_raw, dict):
+        systems_raw = trunking_raw.get("systems", {})
+        if isinstance(systems_raw, dict):
+            for sys_id, sys_data in systems_raw.items():
+                if isinstance(sys_data, dict):
+                    trunking_systems[sys_id] = sys_data
+
     return AppConfig(
         server=server,
         stream=stream,
@@ -230,6 +245,7 @@ def load_config(path_str: str) -> AppConfig:
         recipes=recipes,
         captures=captures,
         device_names=device_names,
+        trunking_systems=trunking_systems,
     )
 
 

@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { Save } from "lucide-react";
-import { useDevices } from "../hooks/useDevices";
+import { Save, Zap } from "lucide-react";
+import { useDevices, usePowerCycleAllUSB } from "../hooks/useDevices";
 import { useUpdateDeviceNickname } from "../hooks/useDeviceNicknames";
+import { useToast } from "../hooks/useToast";
 import Button from "./primitives/Button.react";
 import Flex from "./primitives/Flex.react";
 import Spinner from "./primitives/Spinner.react";
@@ -13,8 +14,11 @@ interface DeviceSettingsModalProps {
 export const DeviceSettingsModal = ({ onClose }: DeviceSettingsModalProps) => {
   const { data: devices, isLoading } = useDevices();
   const updateNickname = useUpdateDeviceNickname();
+  const powerCycleAll = usePowerCycleAllUSB();
+  const toast = useToast();
   const [nicknames, setNicknames] = useState<Record<string, string>>({});
   const [hasChanges, setHasChanges] = useState(false);
+  const [confirmPowerCycle, setConfirmPowerCycle] = useState(false);
 
   // Initialize nicknames from devices
   useEffect(() => {
@@ -69,6 +73,22 @@ export const DeviceSettingsModal = ({ onClose }: DeviceSettingsModalProps) => {
     // Fallback to first 40 chars of label
     const shortLabel = label.length > 40 ? label.substring(0, 40) + "..." : label;
     return `${driver} - ${shortLabel}`;
+  };
+
+  const handlePowerCycleAll = () => {
+    if (!confirmPowerCycle) {
+      setConfirmPowerCycle(true);
+      return;
+    }
+    setConfirmPowerCycle(false);
+    powerCycleAll.mutate(undefined, {
+      onSuccess: (data) => {
+        toast.success(data.message);
+      },
+      onError: (error) => {
+        toast.error(`Power cycle failed: ${error.message}`);
+      },
+    });
   };
 
   return (
@@ -147,24 +167,41 @@ export const DeviceSettingsModal = ({ onClose }: DeviceSettingsModalProps) => {
             )}
           </div>
 
-          <div className="modal-footer">
-            <Button use="secondary" onClick={onClose}>
-              Cancel
-            </Button>
+          <div className="modal-footer justify-content-between">
             <Button
-              use="primary"
-              onClick={handleSave}
-              disabled={!hasChanges || updateNickname.isPending}
+              use={confirmPowerCycle ? "danger" : "warning"}
+              onClick={handlePowerCycleAll}
+              disabled={powerCycleAll.isPending}
+              onBlur={() => setConfirmPowerCycle(false)}
             >
               <Flex align="center" gap={1}>
-                {updateNickname.isPending ? (
+                {powerCycleAll.isPending ? (
                   <Spinner size="sm" />
                 ) : (
-                  <Save size={16} />
+                  <Zap size={16} />
                 )}
-                <span>Save Changes</span>
+                <span>{confirmPowerCycle ? "Click to Confirm" : "Power Cycle All USB"}</span>
               </Flex>
             </Button>
+            <Flex gap={2}>
+              <Button use="secondary" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button
+                use="primary"
+                onClick={handleSave}
+                disabled={!hasChanges || updateNickname.isPending}
+              >
+                <Flex align="center" gap={1}>
+                  {updateNickname.isPending ? (
+                    <Spinner size="sm" />
+                  ) : (
+                    <Save size={16} />
+                  )}
+                  <span>Save Changes</span>
+                </Flex>
+              </Button>
+            </Flex>
           </div>
         </div>
       </div>

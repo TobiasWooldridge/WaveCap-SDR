@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type {
   TrunkingSystem,
+  TrunkingRecipe,
   Talkgroup,
   ActiveCall,
   VocoderStatus,
@@ -13,6 +14,7 @@ const API_BASE = "/api/v1/trunking";
 // Query keys
 export const trunkingKeys = {
   all: ["trunking"] as const,
+  recipes: () => [...trunkingKeys.all, "recipes"] as const,
   systems: () => [...trunkingKeys.all, "systems"] as const,
   system: (id: string) => [...trunkingKeys.systems(), id] as const,
   talkgroups: (systemId: string) =>
@@ -22,6 +24,24 @@ export const trunkingKeys = {
   allCalls: () => [...trunkingKeys.all, "calls"] as const,
   vocoders: () => [...trunkingKeys.all, "vocoders"] as const,
 };
+
+// ============================================================================
+// Recipes (presets/templates)
+// ============================================================================
+
+export function useTrunkingRecipes() {
+  return useQuery<TrunkingRecipe[]>({
+    queryKey: trunkingKeys.recipes(),
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE}/recipes`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch trunking recipes: ${response.status}`);
+      }
+      return response.json();
+    },
+    staleTime: 60000, // Consider fresh for 1 minute (rarely changes)
+  });
+}
 
 // ============================================================================
 // Systems

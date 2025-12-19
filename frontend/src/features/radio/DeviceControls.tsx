@@ -81,12 +81,15 @@ export function DeviceControlsContent({ capture, device: _device }: DeviceContro
     <Flex direction="column" gap={2}>
       {/* Device Selector */}
       <div>
-        <label className="form-label mb-1 small fw-semibold">Radio Device</label>
+        <Flex align="center" gap={2} className="mb-1">
+          <label className="form-label mb-0 small fw-semibold">Radio Device</label>
+          {updateCapture.isPending && <Spinner size="sm" />}
+        </Flex>
         <select
           className="form-select form-select-sm"
           value={capture.deviceId}
           onChange={(e) => handleDeviceChange(e.target.value)}
-          disabled={isRunning}
+          disabled={isRunning || updateCapture.isPending}
         >
           {(devices || []).map((dev) => (
             <option key={dev.id} value={dev.id}>

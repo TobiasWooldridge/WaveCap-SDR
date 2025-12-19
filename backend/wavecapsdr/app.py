@@ -289,9 +289,9 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
                         )
                         default_channels += 1
 
-                if preset_name:
+                if default_preset_name:
                     # Track preset for potential persistence of later changes
-                    app_state.capture_presets[cap.cfg.id] = preset_name
+                    app_state.capture_presets[cap.cfg.id] = default_preset_name
 
                 print(
                     f"Initialized default capture '{cap.cfg.id}'"

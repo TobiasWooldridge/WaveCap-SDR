@@ -55,8 +55,12 @@ class TrunkingManager:
     # Reference to CaptureManager for SDR access
     _capture_manager: Optional["CaptureManager"] = None
 
+    # Pending configs to load on start()
+    _pending_configs: List[TrunkingSystemConfig] = field(default_factory=list)
+
     def __post_init__(self) -> None:
         """Initialize the manager."""
+        self._pending_configs = []
         logger.info("TrunkingManager initialized")
 
     def set_capture_manager(self, capture_manager: "CaptureManager") -> None:
@@ -70,16 +74,36 @@ class TrunkingManager:
         self._capture_manager = capture_manager
         logger.info("TrunkingManager: CaptureManager reference set")
 
+    def register_config(self, config: TrunkingSystemConfig) -> None:
+        """Register a system config to be loaded during start().
+
+        This is a synchronous method for use during app initialization.
+        Systems are not actually created until start() is called.
+
+        Args:
+            config: System configuration to register
+        """
+        self._pending_configs.append(config)
+        logger.info(f"Registered trunking system config: {config.id} ({config.name})")
+
     async def start(self) -> None:
         """Start the trunking manager.
 
-        Starts background maintenance tasks. Individual systems must be
-        started separately with start_system().
+        Starts background maintenance tasks and loads any registered configs.
+        Individual systems must be started separately with start_system().
         """
         if self._running:
             return
 
         self._running = True
+
+        # Load pending system configs
+        for config in self._pending_configs:
+            try:
+                await self.add_system(config)
+            except Exception as e:
+                logger.error(f"Failed to load trunking system '{config.id}': {e}")
+        self._pending_configs.clear()
 
         # Start maintenance task
         self._maintenance_task = asyncio.create_task(self._maintenance_loop())
