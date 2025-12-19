@@ -37,17 +37,17 @@ export function DeviceControlsContent({ capture, device: _device }: DeviceContro
     if (updateCapture.isError) {
       toast.error(`Update failed: ${updateCapture.error?.message}`);
     }
-  }, [updateCapture.isError, updateCapture.error]);
+  }, [updateCapture.isError, updateCapture.error, toast]);
 
   useEffect(() => {
     if (powerCycle.isSuccess) toast.success("USB power cycle complete");
     if (powerCycle.isError) toast.error(`Power cycle failed: ${powerCycle.error?.message}`);
-  }, [powerCycle.isSuccess, powerCycle.isError, powerCycle.error]);
+  }, [powerCycle.isSuccess, powerCycle.isError, powerCycle.error, toast]);
 
   useEffect(() => {
     if (restartService.isSuccess) toast.success("SDRplay service restarted");
     if (restartService.isError) toast.error(`Service restart failed: ${restartService.error?.message}`);
-  }, [restartService.isSuccess, restartService.isError, restartService.error]);
+  }, [restartService.isSuccess, restartService.isError, restartService.error, toast]);
 
   const isSDRplay = capture.deviceId?.toLowerCase().includes("sdrplay");
   const isRunning = capture.state === "running";

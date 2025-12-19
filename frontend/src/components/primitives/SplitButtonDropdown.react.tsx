@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import clsx from "clsx";
 import { ChevronDown, AlertTriangle } from "lucide-react";
 import type { ButtonUse, ButtonSize } from "./Button.react";
@@ -63,34 +63,18 @@ export default function SplitButtonDropdown({
   isPending = false,
   pendingContent,
 }: SplitButtonDropdownProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [showMenuModal, setShowMenuModal] = useState(false);
   const [confirmingItem, setConfirmingItem] = useState<DropdownMenuItem | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [isOpen]);
 
   const handleMenuItemClick = (item: DropdownMenuItem) => {
     if (item.disabled) return;
 
     if (item.requireConfirm) {
-      // Show confirmation modal
       setConfirmingItem(item);
-      setIsOpen(false);
+      setShowMenuModal(false);
     } else {
       item.onClick();
-      setIsOpen(false);
+      setShowMenuModal(false);
     }
   };
 
@@ -112,7 +96,7 @@ export default function SplitButtonDropdown({
 
   return (
     <>
-      <div ref={containerRef} className={clsx("btn-group", className)}>
+      <div className={clsx("btn-group", className)}>
         {/* Main button */}
         <button
           type="button"
@@ -123,53 +107,73 @@ export default function SplitButtonDropdown({
           {isPending && pendingContent ? pendingContent : mainLabel}
         </button>
 
-        {/* Dropdown toggle */}
-        <button
-          type="button"
-          className={clsx("btn dropdown-toggle dropdown-toggle-split", btnClass, sizeClass)}
-          onClick={() => setIsOpen(!isOpen)}
-          disabled={isPending}
-          aria-expanded={isOpen}
-        >
-          <ChevronDown size={12} />
-          <span className="visually-hidden">Toggle Dropdown</span>
-        </button>
-
-        {/* Dropdown menu */}
-        {isOpen && visibleItems.length > 0 && (
-          <ul
-            className="dropdown-menu show"
-            style={{ position: "absolute", left: 0, top: "100%", zIndex: 1050, minWidth: "max-content" }}
+        {/* Menu toggle button */}
+        {visibleItems.length > 0 && (
+          <button
+            type="button"
+            className={clsx("btn", btnClass, sizeClass)}
+            onClick={() => setShowMenuModal(true)}
+            disabled={isPending}
+            aria-label="More options"
           >
-            {visibleItems.map((item, index) => {
-              if (item.divider) {
-                return <li key={`divider-${index}`}><hr className="dropdown-divider" /></li>;
-              }
-
-              const itemClass = item.use === "danger" ? "text-danger" :
-                              item.use === "warning" ? "text-warning" : "";
-
-              return (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    className={clsx(
-                      "dropdown-item d-flex align-items-center gap-2",
-                      itemClass,
-                      item.disabled && "disabled"
-                    )}
-                    onClick={() => handleMenuItemClick(item)}
-                    disabled={item.disabled}
-                  >
-                    {item.icon}
-                    <span>{item.label}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+            <ChevronDown size={12} />
+          </button>
         )}
       </div>
+
+      {/* Menu Modal */}
+      {showMenuModal && visibleItems.length > 0 && (
+        <div
+          className="modal d-block"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={() => setShowMenuModal(false)}
+        >
+          <div
+            className="modal-dialog modal-dialog-centered modal-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-content">
+              <div className="modal-header py-2">
+                <h6 className="modal-title">More Actions</h6>
+                <button
+                  type="button"
+                  className="btn-close btn-close-sm"
+                  onClick={() => setShowMenuModal(false)}
+                  aria-label="Close"
+                />
+              </div>
+              <div className="modal-body d-flex flex-column gap-2 p-3">
+                {visibleItems.map((item, index) => {
+                  if (item.divider) {
+                    return <hr key={`divider-${index}`} className="my-1" />;
+                  }
+
+                  const itemVariant = item.use === "danger" ? "btn-outline-danger" :
+                                      item.use === "warning" ? "btn-outline-warning" :
+                                      "btn-outline-secondary";
+
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={clsx(
+                        "btn d-flex align-items-center gap-2",
+                        itemVariant,
+                        item.disabled && "disabled"
+                      )}
+                      onClick={() => handleMenuItemClick(item)}
+                      disabled={item.disabled}
+                    >
+                      {item.icon}
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confirmation Modal */}
       {confirmingItem && (

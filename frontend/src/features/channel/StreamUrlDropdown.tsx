@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Copy, CheckCircle, ChevronDown } from "lucide-react";
+import { Copy, CheckCircle, Link } from "lucide-react";
 import Button from "../../components/primitives/Button.react";
 
 interface StreamUrlDropdownProps {
@@ -15,7 +15,7 @@ const STREAM_FORMATS = [
 ];
 
 export function StreamUrlDropdown({ channelId, onCopyUrl }: StreamUrlDropdownProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   const [copiedFormat, setCopiedFormat] = useState<string | null>(null);
 
   const handleCopy = (format: string, ext: string) => {
@@ -23,45 +23,63 @@ export function StreamUrlDropdown({ channelId, onCopyUrl }: StreamUrlDropdownPro
     onCopyUrl(url);
     setCopiedFormat(format);
     setTimeout(() => setCopiedFormat(null), 2000);
-    setIsOpen(false);
   };
 
   return (
-    <div className="dropdown" style={{ position: "relative" }}>
+    <>
       <Button
         use="secondary"
         size="sm"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => setShowModal(true)}
         className="w-100 d-flex justify-content-between align-items-center"
       >
         <span className="small">Copy Stream URL</span>
-        <ChevronDown size={12} />
+        <Link size={12} />
       </Button>
 
-      {isOpen && (
+      {showModal && (
         <div
-          className="dropdown-menu show w-100"
-          style={{ position: "absolute", top: "100%", zIndex: 1000 }}
+          className="modal d-block"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={() => setShowModal(false)}
         >
-          {STREAM_FORMATS.map(({ format, ext, label }) => {
-            const isCopied = copiedFormat === format;
-            return (
-              <button
-                key={format}
-                className="dropdown-item d-flex justify-content-between align-items-center"
-                onClick={() => handleCopy(format, ext)}
-              >
-                <span className="small">{label}</span>
-                {isCopied ? (
-                  <CheckCircle size={12} className="text-success" />
-                ) : (
-                  <Copy size={12} />
-                )}
-              </button>
-            );
-          })}
+          <div
+            className="modal-dialog modal-dialog-centered modal-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-content">
+              <div className="modal-header py-2">
+                <h6 className="modal-title">Copy Stream URL</h6>
+                <button
+                  type="button"
+                  className="btn-close btn-close-sm"
+                  onClick={() => setShowModal(false)}
+                  aria-label="Close"
+                />
+              </div>
+              <div className="modal-body d-flex flex-column gap-2 p-3">
+                {STREAM_FORMATS.map(({ format, ext, label }) => {
+                  const isCopied = copiedFormat === format;
+                  return (
+                    <button
+                      key={format}
+                      className="btn btn-outline-secondary d-flex justify-content-between align-items-center"
+                      onClick={() => handleCopy(format, ext)}
+                    >
+                      <span>{label}</span>
+                      {isCopied ? (
+                        <CheckCircle size={14} className="text-success" />
+                      ) : (
+                        <Copy size={14} />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

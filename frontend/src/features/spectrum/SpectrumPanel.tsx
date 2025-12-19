@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { Capture, Channel } from "../../types";
 // useUpdateCapture may be used in the future for tuning via spectrum click
 import { useCreateChannel, useStartChannel } from "../../hooks/useChannels";
@@ -76,6 +76,51 @@ export function SpectrumPanel({ capture, channels }: SpectrumPanelProps) {
     localStorage.setItem("waterfall-height", height.toString());
   }, []);
 
+  // Ref to store cleanup function for drag handlers
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+
+  // Clean up drag event listeners on unmount
+  useEffect(() => {
+    return () => {
+      if (dragCleanupRef.current) {
+        dragCleanupRef.current();
+      }
+    };
+  }, []);
+
+  // Handle resize drag
+  const handleResizeMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startSpectrumHeight = spectrumHeight;
+      const startWaterfallHeight = waterfallHeight;
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        const deltaY = moveEvent.clientY - startY;
+        const newSpectrumHeight = Math.max(80, Math.min(500, startSpectrumHeight + deltaY));
+        const newWaterfallHeight = Math.max(80, Math.min(500, startWaterfallHeight - deltaY));
+        handleHeightChange(newSpectrumHeight);
+        handleWaterfallHeightChange(newWaterfallHeight);
+      };
+
+      const cleanup = () => {
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+        dragCleanupRef.current = null;
+      };
+
+      const handleMouseUp = () => {
+        cleanup();
+      };
+
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+      dragCleanupRef.current = cleanup;
+    },
+    [spectrumHeight, waterfallHeight, handleHeightChange, handleWaterfallHeightChange]
+  );
+
   return (
     <Flex direction="column" gap={0}>
       {/* Spectrum Analyzer */}
@@ -96,29 +141,7 @@ export function SpectrumPanel({ capture, channels }: SpectrumPanelProps) {
           cursor: "ns-resize",
           flexShrink: 0,
         }}
-        onMouseDown={(e) => {
-          e.preventDefault();
-          const startY = e.clientY;
-          const startSpectrumHeight = spectrumHeight;
-          const startWaterfallHeight = waterfallHeight;
-
-          const handleMouseMove = (moveEvent: MouseEvent) => {
-            const deltaY = moveEvent.clientY - startY;
-            // Increase spectrum, decrease waterfall (or vice versa)
-            const newSpectrumHeight = Math.max(80, Math.min(500, startSpectrumHeight + deltaY));
-            const newWaterfallHeight = Math.max(80, Math.min(500, startWaterfallHeight - deltaY));
-            handleHeightChange(newSpectrumHeight);
-            handleWaterfallHeightChange(newWaterfallHeight);
-          };
-
-          const handleMouseUp = () => {
-            document.removeEventListener("mousemove", handleMouseMove);
-            document.removeEventListener("mouseup", handleMouseUp);
-          };
-
-          document.addEventListener("mousemove", handleMouseMove);
-          document.addEventListener("mouseup", handleMouseUp);
-        }}
+        onMouseDown={handleResizeMouseDown}
       />
 
       {/* Waterfall Display */}

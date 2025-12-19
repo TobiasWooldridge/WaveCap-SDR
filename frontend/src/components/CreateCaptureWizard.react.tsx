@@ -4,6 +4,7 @@ import { useRecipes } from "../hooks/useRecipes";
 import { useDevices } from "../hooks/useDevices";
 import { useCreateCapture, useCaptures } from "../hooks/useCaptures";
 import { useCreateChannel } from "../hooks/useChannels";
+import { useToast } from "../hooks/useToast";
 import type { Recipe } from "../types";
 import { getDeviceDisplayName } from "../utils/device";
 import Flex from "./primitives/Flex.react";
@@ -20,6 +21,7 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
   const { data: captures } = useCaptures();
   const createCapture = useCreateCapture();
   const createChannel = useCreateChannel();
+  const toast = useToast();
 
   const [step, setStep] = useState<"select-device" | "select-recipe" | "configure">("select-device");
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
@@ -105,14 +107,15 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
       onClose();
     } catch (error) {
       console.error("Failed to create capture from recipe:", error);
+      toast.error(`Failed to create capture: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   };
 
   const isLoading = recipesLoading || devicesLoading;
 
   return (
-    <div className="modal show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)" }}>
-      <div className="modal-dialog modal-lg modal-dialog-centered">
+    <div className="modal show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={onClose}>
+      <div className="modal-dialog modal-lg modal-dialog-centered" onClick={(e) => e.stopPropagation()}>
         <div className="modal-content">
           {/* Header */}
           <div className="modal-header">

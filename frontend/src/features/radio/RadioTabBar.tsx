@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Radio, Antenna, Plus, X, Settings } from "lucide-react";
 import type { RadioTab, RadioTabType } from "../../types";
 import { formatFrequencyMHz } from "../../utils/frequency";
@@ -33,6 +33,8 @@ export function RadioTabBar({
   onDeleteTrunkingSystem,
   onOpenSettings,
 }: RadioTabBarProps) {
+  const [showAddModal, setShowAddModal] = useState(false);
+
   // Group tabs by deviceId for visual coupling
   const deviceGroups = useMemo(() => {
     const groups: DeviceGroup[] = [];
@@ -77,8 +79,9 @@ export function RadioTabBar({
   }
 
   return (
-    <div className="d-flex align-items-center bg-dark overflow-auto">
-      <div className="d-flex flex-nowrap">
+    <div className="d-flex align-items-center bg-dark">
+      {/* Scrollable tabs area */}
+      <div className="d-flex flex-nowrap overflow-auto flex-grow-1">
         {deviceGroups.map((group, groupIndex) => (
           <DeviceGroupTabs
             key={group.deviceId}
@@ -93,39 +96,70 @@ export function RadioTabBar({
         ))}
       </div>
 
-      <div className="d-flex align-items-center gap-1 ms-auto px-2">
-        {/* Add dropdown or multiple buttons */}
-        <div className="dropdown">
-          <Button
-            size="sm"
-            use="light"
-            appearance="outline"
-            data-bs-toggle="dropdown"
-            aria-expanded="false"
-          >
-            <Plus size={14} />
-          </Button>
-          <ul className="dropdown-menu dropdown-menu-end">
-            <li>
-              <button className="dropdown-item d-flex align-items-center gap-2" onClick={onCreateCapture}>
-                <Radio size={14} />
-                Add Radio
-              </button>
-            </li>
-            {onCreateTrunkingSystem && (
-              <li>
-                <button className="dropdown-item d-flex align-items-center gap-2" onClick={onCreateTrunkingSystem}>
-                  <Antenna size={14} />
-                  Add Trunking System
-                </button>
-              </li>
-            )}
-          </ul>
-        </div>
+      {/* Fixed buttons area */}
+      <div className="d-flex align-items-center gap-1 px-2 flex-shrink-0">
+        <Button
+          size="sm"
+          use="light"
+          appearance="outline"
+          onClick={() => setShowAddModal(true)}
+        >
+          <Plus size={14} />
+        </Button>
         <Button size="sm" use="secondary" appearance="outline" onClick={onOpenSettings}>
           <Settings size={14} />
         </Button>
       </div>
+
+      {/* Add Radio/Trunking Modal */}
+      {showAddModal && (
+        <div
+          className="modal d-block"
+          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
+          onClick={() => setShowAddModal(false)}
+        >
+          <div
+            className="modal-dialog modal-dialog-centered modal-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-content">
+              <div className="modal-header py-2">
+                <h6 className="modal-title">Add New</h6>
+                <button
+                  type="button"
+                  className="btn-close btn-close-sm"
+                  onClick={() => setShowAddModal(false)}
+                  aria-label="Close"
+                />
+              </div>
+              <div className="modal-body d-flex flex-column gap-2">
+                <button
+                  className="btn btn-outline-primary d-flex align-items-center gap-2"
+                  onClick={() => {
+                    setShowAddModal(false);
+                    onCreateCapture();
+                  }}
+                >
+                  <Radio size={16} />
+                  Add Radio
+                </button>
+                {onCreateTrunkingSystem && (
+                  <button
+                    className="btn btn-outline-secondary d-flex align-items-center gap-2"
+                    onClick={() => {
+                      setShowAddModal(false);
+                      onCreateTrunkingSystem();
+                    }}
+                  >
+                    <Antenna size={16} />
+                    Add Trunking System
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
