@@ -27503,6 +27503,16 @@ const Info = createLucideIcon("Info", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const Link = createLucideIcon("Link", [
+  ["path", { d: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71", key: "1cjeqo" }],
+  ["path", { d: "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71", key: "19qd67" }]
+]);
+/**
+ * @license lucide-react v0.294.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const Loader2 = createLucideIcon("Loader2", [
   ["path", { d: "M21 12a9 9 0 1 1-6.219-8.56", key: "13zald" }]
 ]);
@@ -28318,8 +28328,28 @@ function useDevices() {
     queryFn: fetchDevices,
     staleTime: 3e4,
     // Cache for 30 seconds
-    refetchInterval: 6e4
-    // Refetch every minute
+    refetchInterval: 3e4
+    // Re-enumerate devices every 30 seconds
+  });
+}
+async function refreshDevices() {
+  const response = await fetch("/api/v1/devices/refresh", {
+    method: "POST"
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || "Failed to refresh devices");
+  }
+  return response.json();
+}
+function useRefreshDevices() {
+  const queryClient2 = useQueryClient();
+  return useMutation({
+    mutationFn: refreshDevices,
+    onSuccess: (devices) => {
+      queryClient2.setQueryData(["devices"], devices);
+      queryClient2.invalidateQueries({ queryKey: ["captures"] });
+    }
   });
 }
 function useRestartSDRplayService() {
@@ -28779,6 +28809,22 @@ function formatCaptureId(id) {
   const match = id.match(/^c(\d+)$/);
   return match ? `Radio ${match[1]}` : id;
 }
+async function parseErrorMessage$1(response, fallback) {
+  try {
+    const error = await response.json();
+    if (typeof (error == null ? void 0 : error.detail) === "string") {
+      return error.detail;
+    }
+  } catch {
+  }
+  try {
+    const text = await response.text();
+    if (text)
+      return text;
+  } catch {
+  }
+  return fallback;
+}
 async function fetchChannels(captureId) {
   const response = await fetch(`/api/v1/captures/${captureId}/channels`);
   if (!response.ok) {
@@ -28793,8 +28839,8 @@ async function createChannel(captureId, request) {
     body: JSON.stringify(request)
   });
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to create channel");
+    const message = await parseErrorMessage$1(response, "Failed to create channel");
+    throw new Error(message);
   }
   return response.json();
 }
@@ -28813,8 +28859,8 @@ async function updateChannel(channelId, request) {
     body: JSON.stringify(request)
   });
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to update channel");
+    const message = await parseErrorMessage$1(response, "Failed to update channel");
+    throw new Error(message);
   }
   return response.json();
 }
@@ -28823,8 +28869,8 @@ async function startChannel(channelId) {
     method: "POST"
   });
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to start channel");
+    const message = await parseErrorMessage$1(response, "Failed to start channel");
+    throw new Error(message);
   }
   return response.json();
 }
@@ -28881,82 +28927,8 @@ function useStateWebSocket() {
   const reconnectTimeoutRef = reactExports.useRef(null);
   const reconnectAttempts = reactExports.useRef(0);
   const maxReconnectAttempts = 10;
-  const connect = reactExports.useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/api/v1/stream/state`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-    ws.onopen = () => {
-      console.log("[StateWS] Connected");
-      reconnectAttempts.current = 0;
-    };
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        handleMessage(message);
-      } catch (e) {
-        console.error("[StateWS] Failed to parse message:", e);
-      }
-    };
-    ws.onerror = (error) => {
-      console.error("[StateWS] Error:", error);
-    };
-    ws.onclose = (event) => {
-      console.log("[StateWS] Disconnected", event.code, event.reason);
-      wsRef.current = null;
-      if (reconnectAttempts.current < maxReconnectAttempts) {
-        const delay = Math.min(1e3 * Math.pow(2, reconnectAttempts.current), 3e4);
-        reconnectAttempts.current++;
-        console.log(`[StateWS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current})`);
-        reconnectTimeoutRef.current = window.setTimeout(connect, delay);
-      } else {
-        console.error("[StateWS] Max reconnection attempts reached");
-      }
-    };
-  }, []);
-  const handleMessage = reactExports.useCallback((message) => {
-    if (message.type === "ping") {
-      return;
-    }
-    if (message.type === "snapshot") {
-      handleSnapshot(message);
-      return;
-    }
-    handleStateChange(message);
-  }, []);
-  const handleSnapshot = reactExports.useCallback((message) => {
-    console.log("[StateWS] Received snapshot:", {
-      captures: message.captures.length,
-      channels: message.channels.length,
-      scanners: message.scanners.length
-    });
-    queryClient2.setQueryData(["captures"], message.captures);
-    const channelsByCapture = /* @__PURE__ */ new Map();
-    for (const channel of message.channels) {
-      const existing = channelsByCapture.get(channel.captureId) || [];
-      existing.push(channel);
-      channelsByCapture.set(channel.captureId, existing);
-    }
-    for (const [captureId, channels] of channelsByCapture) {
-      queryClient2.setQueryData(["channels", captureId], channels);
-    }
-    queryClient2.setQueryData(["scanners"], message.scanners);
-  }, [queryClient2]);
-  const handleStateChange = reactExports.useCallback((message) => {
-    const { type, action, id, data } = message;
-    console.log(`[StateWS] ${type}.${action}:`, id);
-    if (type === "capture") {
-      updateCaptureCache(action, id, data);
-    } else if (type === "channel") {
-      updateChannelCache(action, id, data);
-    } else if (type === "scanner") {
-      updateScannerCache(action, id, data);
-    }
-  }, []);
+  const mountedRef = reactExports.useRef(true);
+  const shouldReconnectRef = reactExports.useRef(true);
   const updateCaptureCache = reactExports.useCallback(
     (action, id, data) => {
       queryClient2.setQueryData(["captures"], (old) => {
@@ -29052,13 +29024,114 @@ function useStateWebSocket() {
     },
     [queryClient2]
   );
+  const handleStateChange = reactExports.useCallback((message) => {
+    const { type, action, id, data } = message;
+    console.log(`[StateWS] ${type}.${action}:`, id);
+    if (type === "capture") {
+      updateCaptureCache(action, id, data);
+    } else if (type === "channel") {
+      updateChannelCache(action, id, data);
+    } else if (type === "scanner") {
+      updateScannerCache(action, id, data);
+    }
+  }, [updateCaptureCache, updateChannelCache, updateScannerCache]);
+  const handleSnapshot = reactExports.useCallback((message) => {
+    console.log("[StateWS] Received snapshot:", {
+      captures: message.captures.length,
+      channels: message.channels.length,
+      scanners: message.scanners.length
+    });
+    queryClient2.setQueryData(["captures"], message.captures);
+    const channelsByCapture = /* @__PURE__ */ new Map();
+    for (const channel of message.channels) {
+      const existing = channelsByCapture.get(channel.captureId) || [];
+      existing.push(channel);
+      channelsByCapture.set(channel.captureId, existing);
+    }
+    for (const [captureId, channels] of channelsByCapture) {
+      queryClient2.setQueryData(["channels", captureId], channels);
+    }
+    queryClient2.setQueryData(["scanners"], message.scanners);
+  }, [queryClient2]);
+  const handleMessage = reactExports.useCallback((message) => {
+    if (message.type === "ping") {
+      return;
+    }
+    if (message.type === "snapshot") {
+      handleSnapshot(message);
+      return;
+    }
+    handleStateChange(message);
+  }, [handleSnapshot, handleStateChange]);
+  const connect = reactExports.useCallback(() => {
+    if (!mountedRef.current || !shouldReconnectRef.current)
+      return;
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    if (wsRef.current) {
+      wsRef.current.onopen = null;
+      wsRef.current.onmessage = null;
+      wsRef.current.onerror = null;
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/api/v1/stream/state`;
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+    ws.onopen = () => {
+      console.log("[StateWS] Connected");
+      reconnectAttempts.current = 0;
+    };
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        handleMessage(message);
+      } catch (e) {
+        console.error("[StateWS] Failed to parse message:", e);
+      }
+    };
+    ws.onerror = (error) => {
+      console.error("[StateWS] Error:", error);
+    };
+    ws.onclose = (event) => {
+      if (!mountedRef.current || !shouldReconnectRef.current) {
+        wsRef.current = null;
+        return;
+      }
+      console.log("[StateWS] Disconnected", event.code, event.reason);
+      wsRef.current = null;
+      if (reconnectAttempts.current < maxReconnectAttempts) {
+        const delay = Math.min(1e3 * Math.pow(2, reconnectAttempts.current), 3e4);
+        reconnectAttempts.current++;
+        console.log(`[StateWS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current})`);
+        reconnectTimeoutRef.current = window.setTimeout(connect, delay);
+      } else {
+        console.error("[StateWS] Max reconnection attempts reached");
+      }
+    };
+  }, [handleMessage]);
   reactExports.useEffect(() => {
+    mountedRef.current = true;
+    shouldReconnectRef.current = true;
     connect();
     return () => {
+      mountedRef.current = false;
+      shouldReconnectRef.current = false;
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
       if (wsRef.current) {
+        wsRef.current.onopen = null;
+        wsRef.current.onmessage = null;
+        wsRef.current.onerror = null;
+        wsRef.current.onclose = null;
         wsRef.current.close();
         wsRef.current = null;
       }
@@ -29438,19 +29511,7 @@ function RadioTabBar({
   onDeleteTrunkingSystem,
   onOpenSettings
 }) {
-  const [addDropdownOpen, setAddDropdownOpen] = reactExports.useState(false);
-  const dropdownRef = reactExports.useRef(null);
-  reactExports.useEffect(() => {
-    function handleClickOutside(event) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setAddDropdownOpen(false);
-      }
-    }
-    if (addDropdownOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [addDropdownOpen]);
+  const [showAddModal, setShowAddModal] = reactExports.useState(false);
   const deviceGroups = reactExports.useMemo(() => {
     const groups = [];
     const deviceMap = /* @__PURE__ */ new Map();
@@ -29499,51 +29560,77 @@ function RadioTabBar({
       group.deviceId
     )) }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center gap-1 px-2 flex-shrink-0", children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "dropdown", ref: dropdownRef, children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          Button,
-          {
-            size: "sm",
-            use: "light",
-            appearance: "outline",
-            onClick: () => setAddDropdownOpen(!addDropdownOpen),
-            "aria-expanded": addDropdownOpen,
-            children: /* @__PURE__ */ jsxRuntimeExports.jsx(Plus, { size: 14 })
-          }
-        ),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("ul", { className: `dropdown-menu dropdown-menu-end${addDropdownOpen ? " show" : ""}`, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
-            "button",
-            {
-              className: "dropdown-item d-flex align-items-center gap-2",
-              onClick: () => {
-                setAddDropdownOpen(false);
-                onCreateCapture();
-              },
-              children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx(Radio, { size: 14 }),
-                "Add Radio"
-              ]
-            }
-          ) }),
-          onCreateTrunkingSystem && /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
-            "button",
-            {
-              className: "dropdown-item d-flex align-items-center gap-2",
-              onClick: () => {
-                setAddDropdownOpen(false);
-                onCreateTrunkingSystem();
-              },
-              children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx(Antenna, { size: 14 }),
-                "Add Trunking System"
-              ]
-            }
-          ) })
-        ] })
-      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        Button,
+        {
+          size: "sm",
+          use: "light",
+          appearance: "outline",
+          onClick: () => setShowAddModal(true),
+          children: /* @__PURE__ */ jsxRuntimeExports.jsx(Plus, { size: 14 })
+        }
+      ),
       /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { size: "sm", use: "secondary", appearance: "outline", onClick: onOpenSettings, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Settings, { size: 14 }) })
-    ] })
+    ] }),
+    showAddModal && /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "div",
+      {
+        className: "modal d-block",
+        style: { backgroundColor: "rgba(0,0,0,0.5)" },
+        onClick: () => setShowAddModal(false),
+        children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "div",
+          {
+            className: "modal-dialog modal-dialog-centered modal-sm",
+            onClick: (e) => e.stopPropagation(),
+            children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-content", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-header py-2", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("h6", { className: "modal-title", children: "Add New" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "button",
+                  {
+                    type: "button",
+                    className: "btn-close btn-close-sm",
+                    onClick: () => setShowAddModal(false),
+                    "aria-label": "Close"
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-body d-flex flex-column gap-2", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                  "button",
+                  {
+                    className: "btn btn-outline-primary d-flex align-items-center gap-2",
+                    onClick: () => {
+                      setShowAddModal(false);
+                      onCreateCapture();
+                    },
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(Radio, { size: 16 }),
+                      "Add Radio"
+                    ]
+                  }
+                ),
+                onCreateTrunkingSystem && /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                  "button",
+                  {
+                    className: "btn btn-outline-secondary d-flex align-items-center gap-2",
+                    onClick: () => {
+                      setShowAddModal(false);
+                      onCreateTrunkingSystem();
+                    },
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx(Antenna, { size: 16 }),
+                      "Add Trunking System"
+                    ]
+                  }
+                )
+              ] })
+            ] })
+          }
+        )
+      }
+    )
   ] });
 }
 function DeviceGroupTabs({
@@ -30588,29 +30675,17 @@ function SplitButtonDropdown({
   pendingContent
 }) {
   var _a2;
-  const [isOpen, setIsOpen] = reactExports.useState(false);
+  const [showMenuModal, setShowMenuModal] = reactExports.useState(false);
   const [confirmingItem, setConfirmingItem] = reactExports.useState(null);
-  const containerRef = reactExports.useRef(null);
-  reactExports.useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (containerRef.current && !containerRef.current.contains(event.target)) {
-        setIsOpen(false);
-      }
-    };
-    if (isOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [isOpen]);
   const handleMenuItemClick = (item) => {
     if (item.disabled)
       return;
     if (item.requireConfirm) {
       setConfirmingItem(item);
-      setIsOpen(false);
+      setShowMenuModal(false);
     } else {
       item.onClick();
-      setIsOpen(false);
+      setShowMenuModal(false);
     }
   };
   const handleConfirm = () => {
@@ -30626,7 +30701,7 @@ function SplitButtonDropdown({
   const sizeClass = size !== "md" ? `btn-${size}` : "";
   const visibleItems = menuItems.filter((item) => !item.hidden);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { ref: containerRef, className: clsx("btn-group", className), children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: clsx("btn-group", className), children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(
         "button",
         {
@@ -30637,51 +30712,71 @@ function SplitButtonDropdown({
           children: isPending && pendingContent ? pendingContent : mainLabel
         }
       ),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      visibleItems.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
         "button",
         {
           type: "button",
-          className: clsx("btn dropdown-toggle dropdown-toggle-split", btnClass, sizeClass),
-          onClick: () => setIsOpen(!isOpen),
+          className: clsx("btn", btnClass, sizeClass),
+          onClick: () => setShowMenuModal(true),
           disabled: isPending,
-          "aria-expanded": isOpen,
-          children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { size: 12 }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "visually-hidden", children: "Toggle Dropdown" })
-          ]
-        }
-      ),
-      isOpen && visibleItems.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "ul",
-        {
-          className: "dropdown-menu show",
-          style: { position: "absolute", left: 0, top: "100%", zIndex: 1050, minWidth: "max-content" },
-          children: visibleItems.map((item, index2) => {
-            if (item.divider) {
-              return /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: /* @__PURE__ */ jsxRuntimeExports.jsx("hr", { className: "dropdown-divider" }) }, `divider-${index2}`);
-            }
-            const itemClass = item.use === "danger" ? "text-danger" : item.use === "warning" ? "text-warning" : "";
-            return /* @__PURE__ */ jsxRuntimeExports.jsx("li", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              "button",
-              {
-                type: "button",
-                className: clsx(
-                  "dropdown-item d-flex align-items-center gap-2",
-                  itemClass,
-                  item.disabled && "disabled"
-                ),
-                onClick: () => handleMenuItemClick(item),
-                disabled: item.disabled,
-                children: [
-                  item.icon,
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: item.label })
-                ]
-              }
-            ) }, item.id);
-          })
+          "aria-label": "More options",
+          children: /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { size: 12 })
         }
       )
     ] }),
+    showMenuModal && visibleItems.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "div",
+      {
+        className: "modal d-block",
+        style: { backgroundColor: "rgba(0,0,0,0.5)" },
+        onClick: () => setShowMenuModal(false),
+        children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "div",
+          {
+            className: "modal-dialog modal-dialog-centered modal-sm",
+            onClick: (e) => e.stopPropagation(),
+            children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-content", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-header py-2", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("h6", { className: "modal-title", children: "More Actions" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "button",
+                  {
+                    type: "button",
+                    className: "btn-close btn-close-sm",
+                    onClick: () => setShowMenuModal(false),
+                    "aria-label": "Close"
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "modal-body d-flex flex-column gap-2 p-3", children: visibleItems.map((item, index2) => {
+                if (item.divider) {
+                  return /* @__PURE__ */ jsxRuntimeExports.jsx("hr", { className: "my-1" }, `divider-${index2}`);
+                }
+                const itemVariant = item.use === "danger" ? "btn-outline-danger" : item.use === "warning" ? "btn-outline-warning" : "btn-outline-secondary";
+                return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                  "button",
+                  {
+                    type: "button",
+                    className: clsx(
+                      "btn d-flex align-items-center gap-2",
+                      itemVariant,
+                      item.disabled && "disabled"
+                    ),
+                    onClick: () => handleMenuItemClick(item),
+                    disabled: item.disabled,
+                    children: [
+                      item.icon,
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: item.label })
+                    ]
+                  },
+                  item.id
+                );
+              }) })
+            ] })
+          }
+        )
+      }
+    ),
     confirmingItem && /* @__PURE__ */ jsxRuntimeExports.jsx(
       "div",
       {
@@ -30848,27 +30943,35 @@ function DeviceControlsContent({ capture, device: _device }) {
   const restartCapture2 = useRestartCapture();
   const restartService = useRestartSDRplayService();
   const powerCycle = usePowerCycleDevice();
+  const refreshDevices2 = useRefreshDevices();
   const toast = useToast();
   reactExports.useEffect(() => {
     var _a3;
     if (updateCapture2.isError) {
       toast.error(`Update failed: ${(_a3 = updateCapture2.error) == null ? void 0 : _a3.message}`);
     }
-  }, [updateCapture2.isError, updateCapture2.error]);
+  }, [updateCapture2.isError, updateCapture2.error, toast]);
   reactExports.useEffect(() => {
     var _a3;
     if (powerCycle.isSuccess)
       toast.success("USB power cycle complete");
     if (powerCycle.isError)
       toast.error(`Power cycle failed: ${(_a3 = powerCycle.error) == null ? void 0 : _a3.message}`);
-  }, [powerCycle.isSuccess, powerCycle.isError, powerCycle.error]);
+  }, [powerCycle.isSuccess, powerCycle.isError, powerCycle.error, toast]);
   reactExports.useEffect(() => {
     var _a3;
     if (restartService.isSuccess)
       toast.success("SDRplay service restarted");
     if (restartService.isError)
       toast.error(`Service restart failed: ${(_a3 = restartService.error) == null ? void 0 : _a3.message}`);
-  }, [restartService.isSuccess, restartService.isError, restartService.error]);
+  }, [restartService.isSuccess, restartService.isError, restartService.error, toast]);
+  reactExports.useEffect(() => {
+    var _a3;
+    if (refreshDevices2.isSuccess)
+      toast.success("Devices refreshed");
+    if (refreshDevices2.isError)
+      toast.error(`Refresh failed: ${(_a3 = refreshDevices2.error) == null ? void 0 : _a3.message}`);
+  }, [refreshDevices2.isSuccess, refreshDevices2.isError, refreshDevices2.error, toast]);
   const isSDRplay = (_a2 = capture.deviceId) == null ? void 0 : _a2.toLowerCase().includes("sdrplay");
   const isRunning = capture.state === "running";
   const isStarting = capture.state === "starting";
@@ -30877,7 +30980,7 @@ function DeviceControlsContent({ capture, device: _device }) {
   const isError = capture.state === "error";
   const hasError = isFailed || isError;
   const isTransitioning = isStarting || isStopping;
-  const anyPending = startCapture2.isPending || stopCapture2.isPending || restartCapture2.isPending || restartService.isPending || powerCycle.isPending;
+  const anyPending = startCapture2.isPending || stopCapture2.isPending || restartCapture2.isPending || restartService.isPending || powerCycle.isPending || refreshDevices2.isPending;
   const handleDeviceChange = (deviceId) => {
     const newDevice = devices == null ? void 0 : devices.find((d) => d.id === deviceId);
     if (!newDevice)
@@ -30960,6 +31063,13 @@ function DeviceControlsContent({ capture, device: _device }) {
             use: "danger",
             requireConfirm: true,
             confirmLabel: "Power Cycle"
+          },
+          {
+            id: "refresh",
+            label: "Refresh Devices",
+            icon: /* @__PURE__ */ jsxRuntimeExports.jsx(Radio, { size: 14 }),
+            onClick: () => refreshDevices2.mutate(),
+            disabled: refreshDevices2.isPending
           }
         ]
       }
@@ -31323,6 +31433,22 @@ function RecipeItem({ recipe, isApplying, customFrequency, onCustomFrequencyChan
   ] }) });
 }
 const API_BASE$1 = "/api/v1";
+async function parseErrorMessage(response, fallback) {
+  try {
+    const error = await response.json();
+    if (typeof (error == null ? void 0 : error.detail) === "string") {
+      return error.detail;
+    }
+  } catch {
+  }
+  try {
+    const text = await response.text();
+    if (text)
+      return text;
+  } catch {
+  }
+  return fallback;
+}
 async function fetchScanners() {
   const response = await fetch(`${API_BASE$1}/scanners`);
   if (!response.ok) {
@@ -31337,8 +31463,11 @@ async function createScanner(request) {
     body: JSON.stringify(request)
   });
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || `Failed to create scanner: ${response.statusText}`);
+    const message = await parseErrorMessage(
+      response,
+      `Failed to create scanner: ${response.statusText}`
+    );
+    throw new Error(message);
   }
   return response.json();
 }
@@ -33058,7 +33187,8 @@ function AudioWaveformComponent({
     if (readerRef.current) {
       try {
         await readerRef.current.cancel();
-      } catch {
+      } catch (error) {
+        console.warn("Failed to cancel audio stream reader", error);
       }
       readerRef.current = null;
     }
@@ -33577,49 +33707,70 @@ const STREAM_FORMATS = [
   { format: "AAC", ext: ".aac", label: "AAC" }
 ];
 function StreamUrlDropdown({ channelId, onCopyUrl }) {
-  const [isOpen, setIsOpen] = reactExports.useState(false);
+  const [showModal, setShowModal] = reactExports.useState(false);
   const [copiedFormat, setCopiedFormat] = reactExports.useState(null);
   const handleCopy = (format, ext) => {
     const url = `${window.location.origin}/api/v1/stream/channels/${channelId}${ext}`;
     onCopyUrl(url);
     setCopiedFormat(format);
     setTimeout(() => setCopiedFormat(null), 2e3);
-    setIsOpen(false);
   };
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "dropdown", style: { position: "relative" }, children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs(
       Button,
       {
         use: "secondary",
         size: "sm",
-        onClick: () => setIsOpen(!isOpen),
+        onClick: () => setShowModal(true),
         className: "w-100 d-flex justify-content-between align-items-center",
         children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "small", children: "Copy Stream URL" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { size: 12 })
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Link, { size: 12 })
         ]
       }
     ),
-    isOpen && /* @__PURE__ */ jsxRuntimeExports.jsx(
+    showModal && /* @__PURE__ */ jsxRuntimeExports.jsx(
       "div",
       {
-        className: "dropdown-menu show w-100",
-        style: { position: "absolute", top: "100%", zIndex: 1e3 },
-        children: STREAM_FORMATS.map(({ format, ext, label }) => {
-          const isCopied = copiedFormat === format;
-          return /* @__PURE__ */ jsxRuntimeExports.jsxs(
-            "button",
-            {
-              className: "dropdown-item d-flex justify-content-between align-items-center",
-              onClick: () => handleCopy(format, ext),
-              children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "small", children: label }),
-                isCopied ? /* @__PURE__ */ jsxRuntimeExports.jsx(CheckCircle, { size: 12, className: "text-success" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Copy, { size: 12 })
-              ]
-            },
-            format
-          );
-        })
+        className: "modal d-block",
+        style: { backgroundColor: "rgba(0,0,0,0.5)" },
+        onClick: () => setShowModal(false),
+        children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "div",
+          {
+            className: "modal-dialog modal-dialog-centered modal-sm",
+            onClick: (e) => e.stopPropagation(),
+            children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-content", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-header py-2", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("h6", { className: "modal-title", children: "Copy Stream URL" }),
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "button",
+                  {
+                    type: "button",
+                    className: "btn-close btn-close-sm",
+                    onClick: () => setShowModal(false),
+                    "aria-label": "Close"
+                  }
+                )
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "modal-body d-flex flex-column gap-2 p-3", children: STREAM_FORMATS.map(({ format, ext, label }) => {
+                const isCopied = copiedFormat === format;
+                return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                  "button",
+                  {
+                    className: "btn btn-outline-secondary d-flex justify-content-between align-items-center",
+                    onClick: () => handleCopy(format, ext),
+                    children: [
+                      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: label }),
+                      isCopied ? /* @__PURE__ */ jsxRuntimeExports.jsx(CheckCircle, { size: 14, className: "text-success" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Copy, { size: 14 })
+                    ]
+                  },
+                  format
+                );
+              }) })
+            ] })
+          }
+        )
       }
     )
   ] });
@@ -34653,7 +34804,21 @@ function SpectrumAnalyzer({
         }
       });
     }
-  }, [spectrumData, width, height, channels, capture.bandwidth, capture.sampleRate, peakHoldEnabled, averagingEnabled, bandPlanEnabled]);
+  }, [
+    spectrumData,
+    width,
+    height,
+    channels,
+    capture.bandwidth,
+    capture.sampleRate,
+    capture,
+    capture.state,
+    capture.errorMessage,
+    peakHoldEnabled,
+    averagingEnabled,
+    bandPlanEnabled,
+    isConnected
+  ]);
   const getBadgeStatus = () => {
     if (isIdle && capture.state === "running") {
       return { text: "PAUSED (IDLE)", className: "bg-warning" };
@@ -35206,7 +35371,21 @@ function WaterfallDisplay({
         cancelAnimationFrame(renderRequestRef.current);
       }
     };
-  }, [width, height, channels, spectrumInfo, colorScheme, intensity, capture.state, capture.bandwidth, getColor]);
+  }, [
+    width,
+    height,
+    channels,
+    spectrumInfo,
+    spectrumData,
+    colorScheme,
+    intensity,
+    capture,
+    capture.state,
+    capture.bandwidth,
+    capture.errorMessage,
+    isConnected,
+    getColor
+  ]);
   const getBadgeStatus = () => {
     if (isIdle && capture.state === "running") {
       return { text: "PAUSED (IDLE)", className: "bg-warning" };
@@ -35365,6 +35544,41 @@ function SpectrumPanel({ capture, channels }) {
     setWaterfallHeight(height);
     localStorage.setItem("waterfall-height", height.toString());
   }, []);
+  const dragCleanupRef = reactExports.useRef(null);
+  reactExports.useEffect(() => {
+    return () => {
+      if (dragCleanupRef.current) {
+        dragCleanupRef.current();
+      }
+    };
+  }, []);
+  const handleResizeMouseDown = reactExports.useCallback(
+    (e) => {
+      e.preventDefault();
+      const startY = e.clientY;
+      const startSpectrumHeight = spectrumHeight;
+      const startWaterfallHeight = waterfallHeight;
+      const handleMouseMove = (moveEvent) => {
+        const deltaY = moveEvent.clientY - startY;
+        const newSpectrumHeight = Math.max(80, Math.min(500, startSpectrumHeight + deltaY));
+        const newWaterfallHeight = Math.max(80, Math.min(500, startWaterfallHeight - deltaY));
+        handleHeightChange(newSpectrumHeight);
+        handleWaterfallHeightChange(newWaterfallHeight);
+      };
+      const cleanup = () => {
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+        dragCleanupRef.current = null;
+      };
+      const handleMouseUp = () => {
+        cleanup();
+      };
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+      dragCleanupRef.current = cleanup;
+    },
+    [spectrumHeight, waterfallHeight, handleHeightChange, handleWaterfallHeightChange]
+  );
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 0, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: /* @__PURE__ */ jsxRuntimeExports.jsx(
       SpectrumAnalyzer,
@@ -35384,25 +35598,7 @@ function SpectrumPanel({ capture, channels }) {
           cursor: "ns-resize",
           flexShrink: 0
         },
-        onMouseDown: (e) => {
-          e.preventDefault();
-          const startY = e.clientY;
-          const startSpectrumHeight = spectrumHeight;
-          const startWaterfallHeight = waterfallHeight;
-          const handleMouseMove = (moveEvent) => {
-            const deltaY = moveEvent.clientY - startY;
-            const newSpectrumHeight = Math.max(80, Math.min(500, startSpectrumHeight + deltaY));
-            const newWaterfallHeight = Math.max(80, Math.min(500, startWaterfallHeight - deltaY));
-            handleHeightChange(newSpectrumHeight);
-            handleWaterfallHeightChange(newWaterfallHeight);
-          };
-          const handleMouseUp = () => {
-            document.removeEventListener("mousemove", handleMouseMove);
-            document.removeEventListener("mouseup", handleMouseUp);
-          };
-          document.addEventListener("mousemove", handleMouseMove);
-          document.addEventListener("mouseup", handleMouseUp);
-        }
+        onMouseDown: handleResizeMouseDown
       }
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { height: `${waterfallHeight}px` }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(WaterfallDisplay, { capture, channels }) })
@@ -35413,46 +35609,12 @@ function useTrunkingWebSocket(options = {}) {
   const queryClient2 = useQueryClient();
   const wsRef = reactExports.useRef(null);
   const reconnectTimeoutRef = reactExports.useRef(null);
+  const mountedRef = reactExports.useRef(true);
+  const shouldReconnectRef = reactExports.useRef(true);
   const [isConnected, setIsConnected] = reactExports.useState(false);
   const [systems, setSystems] = reactExports.useState([]);
   const [activeCalls, setActiveCalls] = reactExports.useState([]);
   const [error, setError] = reactExports.useState(null);
-  const connect = reactExports.useCallback(() => {
-    var _a2;
-    if (((_a2 = wsRef.current) == null ? void 0 : _a2.readyState) === WebSocket.OPEN) {
-      return;
-    }
-    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsHost = window.location.host;
-    const wsPath = systemId ? `/api/v1/trunking/stream/${systemId}` : "/api/v1/trunking/stream";
-    const wsUrl = `${wsProtocol}//${wsHost}${wsPath}`;
-    const ws = new WebSocket(wsUrl);
-    ws.onopen = () => {
-      setIsConnected(true);
-      setError(null);
-    };
-    ws.onclose = () => {
-      setIsConnected(false);
-      wsRef.current = null;
-      if (enabled) {
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connect();
-        }, 3e3);
-      }
-    };
-    ws.onerror = () => {
-      setError("WebSocket connection failed");
-    };
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        handleEvent(message);
-      } catch (e) {
-        console.error("Failed to parse trunking event:", e);
-      }
-    };
-    wsRef.current = ws;
-  }, [systemId, enabled]);
   const handleEvent = reactExports.useCallback(
     (event) => {
       switch (event.type) {
@@ -35496,15 +35658,84 @@ function useTrunkingWebSocket(options = {}) {
     },
     [queryClient2, onCallStart, onCallEnd]
   );
+  const connect = reactExports.useCallback(() => {
+    var _a2, _b2;
+    if (!mountedRef.current || !shouldReconnectRef.current)
+      return;
+    if (((_a2 = wsRef.current) == null ? void 0 : _a2.readyState) === WebSocket.OPEN) {
+      return;
+    }
+    if (((_b2 = wsRef.current) == null ? void 0 : _b2.readyState) === WebSocket.CONNECTING) {
+      return;
+    }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    if (wsRef.current) {
+      wsRef.current.onopen = null;
+      wsRef.current.onmessage = null;
+      wsRef.current.onerror = null;
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsHost = window.location.host;
+    const wsPath = systemId ? `/api/v1/trunking/stream/${systemId}` : "/api/v1/trunking/stream";
+    const wsUrl = `${wsProtocol}//${wsHost}${wsPath}`;
+    const ws = new WebSocket(wsUrl);
+    ws.onopen = () => {
+      if (!mountedRef.current)
+        return;
+      setIsConnected(true);
+      setError(null);
+    };
+    ws.onclose = () => {
+      if (!mountedRef.current || !shouldReconnectRef.current) {
+        wsRef.current = null;
+        return;
+      }
+      setIsConnected(false);
+      wsRef.current = null;
+      if (enabled) {
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connect();
+        }, 3e3);
+      }
+    };
+    ws.onerror = () => {
+      if (!mountedRef.current)
+        return;
+      setError("WebSocket connection failed");
+    };
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        handleEvent(message);
+      } catch (e) {
+        console.error("Failed to parse trunking event:", e);
+      }
+    };
+    wsRef.current = ws;
+  }, [enabled, handleEvent, systemId]);
   reactExports.useEffect(() => {
     if (enabled) {
+      mountedRef.current = true;
+      shouldReconnectRef.current = true;
       connect();
     }
     return () => {
+      mountedRef.current = false;
+      shouldReconnectRef.current = false;
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
       if (wsRef.current) {
+        wsRef.current.onopen = null;
+        wsRef.current.onmessage = null;
+        wsRef.current.onerror = null;
+        wsRef.current.onclose = null;
         wsRef.current.close();
         wsRef.current = null;
       }
@@ -35957,7 +36188,10 @@ function TrunkingPanel({ systemId, onCreateSystem }) {
     systemId,
     enabled: !!systemId
   });
-  const displayCalls = wsConnected && wsActiveCalls.length > 0 ? wsActiveCalls : activeCalls ?? [];
+  const displayCalls = reactExports.useMemo(
+    () => wsConnected && wsActiveCalls.length > 0 ? wsActiveCalls : activeCalls ?? [],
+    [activeCalls, wsActiveCalls, wsConnected]
+  );
   const startSystem = useStartTrunkingSystem();
   const stopSystem = useStopTrunkingSystem();
   const activeTalkgroupIds = reactExports.useMemo(
@@ -36063,6 +36297,7 @@ function CreateCaptureWizard({ onClose, onSuccess }) {
   const { data: captures } = useCaptures();
   const createCapture2 = useCreateCapture();
   const createChannel2 = useCreateChannel();
+  const toast = useToast();
   const [step, setStep] = reactExports.useState("select-device");
   const [selectedRecipe, setSelectedRecipe] = reactExports.useState(null);
   const [customFrequency, setCustomFrequency] = reactExports.useState(100);
@@ -36127,10 +36362,11 @@ function CreateCaptureWizard({ onClose, onSuccess }) {
       onClose();
     } catch (error) {
       console.error("Failed to create capture from recipe:", error);
+      toast.error(`Failed to create capture: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
   };
   const isLoading = recipesLoading || devicesLoading;
-  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "modal show d-block", style: { backgroundColor: "rgba(0,0,0,0.5)" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "modal-dialog modal-lg modal-dialog-centered", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-content", children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "modal show d-block", style: { backgroundColor: "rgba(0,0,0,0.5)" }, onClick: onClose, children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "modal-dialog modal-lg modal-dialog-centered", onClick: (e) => e.stopPropagation(), children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-content", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "modal-header", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 2, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(Wand2, { size: 24 }),
@@ -37134,4 +37370,4 @@ logger.init();
 client.createRoot(document.getElementById("root")).render(
   /* @__PURE__ */ jsxRuntimeExports.jsx(React.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(App, {}) })
 );
-//# sourceMappingURL=index-49202d57.js.map
+//# sourceMappingURL=index-0614250b.js.map

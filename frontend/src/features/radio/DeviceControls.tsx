@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { RotateCcw, RefreshCw, Zap } from "lucide-react";
+import { RotateCcw, RefreshCw, Zap, Radio } from "lucide-react";
 import type { Capture, Device } from "../../types";
 import {
   useUpdateCapture,
@@ -7,7 +7,7 @@ import {
   useStopCapture,
   useRestartCapture,
 } from "../../hooks/useCaptures";
-import { useDevices, useRestartSDRplayService, usePowerCycleDevice } from "../../hooks/useDevices";
+import { useDevices, useRestartSDRplayService, usePowerCycleDevice, useRefreshDevices } from "../../hooks/useDevices";
 import { useToast } from "../../hooks/useToast";
 import { getDeviceDisplayName } from "../../utils/device";
 import Button from "../../components/primitives/Button.react";
@@ -30,6 +30,7 @@ export function DeviceControlsContent({ capture, device: _device }: DeviceContro
   const restartCapture = useRestartCapture();
   const restartService = useRestartSDRplayService();
   const powerCycle = usePowerCycleDevice();
+  const refreshDevices = useRefreshDevices();
   const toast = useToast();
 
   // Toast feedback for mutations
@@ -49,6 +50,11 @@ export function DeviceControlsContent({ capture, device: _device }: DeviceContro
     if (restartService.isError) toast.error(`Service restart failed: ${restartService.error?.message}`);
   }, [restartService.isSuccess, restartService.isError, restartService.error, toast]);
 
+  useEffect(() => {
+    if (refreshDevices.isSuccess) toast.success("Devices refreshed");
+    if (refreshDevices.isError) toast.error(`Refresh failed: ${refreshDevices.error?.message}`);
+  }, [refreshDevices.isSuccess, refreshDevices.isError, refreshDevices.error, toast]);
+
   const isSDRplay = capture.deviceId?.toLowerCase().includes("sdrplay");
   const isRunning = capture.state === "running";
   const isStarting = capture.state === "starting";
@@ -62,7 +68,8 @@ export function DeviceControlsContent({ capture, device: _device }: DeviceContro
     stopCapture.isPending ||
     restartCapture.isPending ||
     restartService.isPending ||
-    powerCycle.isPending;
+    powerCycle.isPending ||
+    refreshDevices.isPending;
 
   const handleDeviceChange = (deviceId: string) => {
     const newDevice = devices?.find((d) => d.id === deviceId);
@@ -163,6 +170,13 @@ export function DeviceControlsContent({ capture, device: _device }: DeviceContro
               use: "danger",
               requireConfirm: true,
               confirmLabel: "Power Cycle",
+            },
+            {
+              id: "refresh",
+              label: "Refresh Devices",
+              icon: <Radio size={14} />,
+              onClick: () => refreshDevices.mutate(),
+              disabled: refreshDevices.isPending,
             },
           ]}
         />

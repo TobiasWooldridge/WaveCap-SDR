@@ -526,6 +526,22 @@ def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_st
     return result
 
 
+@router.post("/devices/refresh", response_model=List[DeviceModel], response_model_by_alias=False)
+def refresh_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> List[DeviceModel]:
+    """Force re-enumeration of all SDR devices.
+
+    Invalidates the device cache and performs a fresh enumeration.
+    Use after USB power cycling or when devices aren't appearing.
+    """
+    from .devices.soapy import invalidate_sdrplay_caches
+
+    # Invalidate all caches to force fresh enumeration
+    invalidate_sdrplay_caches()
+
+    # Return fresh device list
+    return list_devices(_, state)
+
+
 @router.get("/devices/sdrplay/health")
 def get_sdrplay_health() -> Dict[str, Any]:
     """Get SDRplay service health status for monitoring.

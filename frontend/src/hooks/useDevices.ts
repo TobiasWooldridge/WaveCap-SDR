@@ -36,7 +36,39 @@ export function useDevices() {
     queryKey: ["devices"],
     queryFn: fetchDevices,
     staleTime: 30_000, // Cache for 30 seconds
-    refetchInterval: 60_000, // Refetch every minute
+    refetchInterval: 30_000, // Re-enumerate devices every 30 seconds
+  });
+}
+
+async function refreshDevices(): Promise<Device[]> {
+  const response = await fetch("/api/v1/devices/refresh", {
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || "Failed to refresh devices");
+  }
+
+  return response.json();
+}
+
+/**
+ * Hook to force re-enumeration of all SDR devices.
+ * Invalidates device cache and performs fresh enumeration.
+ * Use after USB power cycling or when devices aren't appearing.
+ */
+export function useRefreshDevices() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: refreshDevices,
+    onSuccess: (devices) => {
+      // Update the devices cache with fresh data
+      queryClient.setQueryData(["devices"], devices);
+      // Also invalidate captures in case device state changed
+      queryClient.invalidateQueries({ queryKey: ["captures"] });
+    },
   });
 }
 
