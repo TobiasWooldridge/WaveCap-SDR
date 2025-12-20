@@ -25,19 +25,20 @@ Scope: applies to the entire repo.
 - Follow repository‑specific instructions in nested `AGENTS.md` files if present; their scope applies to their directory and descendants.
 - Run required checks before publishing a change:
   - Backend: from `backend/`, run the test suite and ensure it passes.
-  - This repo is server‑focused; no frontend is expected here. If one is later added, ensure `npm ci && npm run build` passes from `frontend/`.
+  - Frontend (when touched): from `frontend/`, run `npm ci && npm run build` and ensure it passes.
 - Keep the working tree clean with meaningful commits.
-- Before finalizing suggested changes, `git pull` to sync with remote.
+- Before publishing or opening a PR, sync with remote if you have access.
 - Always validate that the code compiles/builds before completion.
 - Include at least one screenshot in every pull request description.
   - When the change affects UI or a demo surface, include a browser capture of the scenario being exercised.
   - For backend‑only changes, include a relevant capture (e.g., metrics dashboard, CLI run, or API trace) that demonstrates the behavior.
-  - When available in this repo, prefer `./start-screenshot.sh` to prepare captures.
+  - If `./start-screenshot.sh` exists in the repo, prefer it to prepare captures; otherwise capture manually.
 - Push back on requests that bloat complexity or drift from purpose.
 
 ## Project Conventions
 - Directory layout (initial expectation):
   - `backend/` — server code, typed, with tests under `backend/tests/`.
+  - `frontend/` — web UI sources (built output copied to `backend/wavecapsdr/static/`).
   - `docs/` — user/admin docs; include `configuration.md`.
   - `scripts/` — helper scripts for development and CI.
   - Note: WaveCap app lives alongside at `~/speaker/WaveCap`. Keep integration flows documented there; reference this repo’s SPEC for SDR API.

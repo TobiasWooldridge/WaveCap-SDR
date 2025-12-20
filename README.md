@@ -1,32 +1,31 @@
 # WaveCap‑SDR
 
-A standalone server that encapsulates SDR device control, capture, and demodulation for the WaveCap ecosystem. It exposes a simple network API so other services can list devices, start/stop tuned captures, create multiple demod channels from a single device stream, stream IQ or audio, and record to disk.
+A standalone SDR server for the WaveCap ecosystem. It exposes a network API and bundled web UI so other services (and humans) can list devices, start/stop tuned captures, create multiple demod channels from a single device stream, stream IQ or audio, and record to disk.
 
 - Spec: see `SPEC.md` (authoritative) for scope, APIs, and milestones.
 - Contribution & workflow: see `AGENTS.md` for coding principles, testing expectations, and repo conventions.
 
 ## Status
-**Alpha** — Core functionality implemented. Device enumeration, IQ streaming, FM/AM/SSB demodulation, spectrum analyzer, and web UI are working. Tested with RTL-SDR Blog V4 and SDRplay RSPdx-R2 via SoapySDR.
+Active development. Core functionality is implemented and tested with RTL-SDR Blog V4 and SDRplay RSPdx-R2 via SoapySDR.
 
-### Recent Updates (2025-11-21)
-- **Scanner mode**: Sequential, priority, and activity-based frequency scanning with lockout management
-- **S-Meter display**: Real-time RSSI/SNR measurement with S1-S9+60dB scale
-- **Click-to-tune**: Interactive spectrum analyzer with frequency tooltip
-- **Notch filters**: Multi-frequency interference rejection (up to 10 notches per channel)
-- **DSP enhancements**: Configurable highpass/lowpass filters, noise blanker, AGC tuning
-- **Multi-format streaming**: PCM16, F32, MP3, Opus, AAC audio formats
-- **HTTP streaming**: VLC and browser-compatible audio endpoints
-- **Multi-device support**: Simultaneous RTL-SDR and SDRplay operation
+## Capabilities
+- Device enumeration and capture lifecycle (multi-device)
+- Multi-channel demodulation (FM/AM/SSB) with AGC, filters, and squelch
+- Spectrum/FFT display and scanner modes (sequential, priority, activity)
+- Streaming: IQ (int16/f32), PCM audio, MP3/Opus/AAC via ffmpeg, WebSocket and HTTP
+- RDS decoding and POCSAG decoding (when enabled)
+- Web UI for monitoring, tuning, and channel management
 
 ## Getting Started
 
 ### Prerequisites
-- Python 3.9+ (tested with 3.13, 3.14)
+- Python 3.9+ (project supports <3.15)
 - SoapySDR with device modules installed (system-level)
   - For RTL-SDR: `SoapyRTLSDR` module
   - For SDRplay: `SoapySDRPlay3` module and SDRplay API
 - System packages: `python3-soapysdr` or equivalent
-- Node.js 20+ (optional, for rebuilding the frontend)
+- Node.js 20+ (required by `./start-app.sh`, which builds the frontend)
+- ffmpeg (required for MP3/Opus/AAC audio streaming)
 
 ### Quick Start
 
@@ -53,13 +52,9 @@ A standalone server that encapsulates SDR device control, capture, and demodulat
    > **Note:** Homebrew's SoapySDR includes Python bindings for its bundled Python version.
    > The startup script will use Homebrew's Python automatically if available.
 
-2. **Set up Python environment**:
+2. **Run the server (recommended)**:
 ```bash
-cd backend
-python3 -m venv --system-site-packages .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install fastapi uvicorn httpx websockets pyyaml numpy scipy slowapi
+./start-app.sh
 ```
 
 3. **Verify device detection**:
@@ -123,7 +118,10 @@ If you prefer to run the server manually:
 
 ```bash
 cd backend
+python3 -m venv --system-site-packages .venv
 source .venv/bin/activate
+pip install --upgrade pip
+pip install fastapi uvicorn httpx websockets pyyaml numpy scipy slowapi
 PYTHONPATH=. python -m wavecapsdr --bind 0.0.0.0 --port 8087
 ```
 
@@ -131,7 +129,7 @@ Then visit `http://localhost:8087/` for the web UI catalog page, or use the API 
 
 ### Building the Frontend (Development)
 
-The frontend is pre-built in `backend/wavecapsdr/static/`. To rebuild after making changes:
+`./start-app.sh` builds the frontend automatically. To rebuild after making changes:
 
 ```bash
 cd frontend
@@ -142,16 +140,18 @@ cp -r dist/* ../backend/wavecapsdr/static/
 ```
 
 ## Relation to WaveCap
-- WaveCap (control/UI) lives in `~/speaker/WaveCap` (also symlinked as `~/speaker/smart-speaker`). WaveCap‑SDR provides the radio server component. Together they form one product; this repo intentionally contains no frontend.
+- WaveCap (control/UI) lives in `~/speaker/WaveCap` (also symlinked as `~/speaker/smart-speaker`). WaveCap‑SDR provides the radio server component and a lightweight web UI for local monitoring/tuning. Together they form one product.
 
 ## Repository Layout
 - `backend/` — Python server implementation
   - `wavecapsdr/` — main package
     - `devices/` — SDR driver abstractions (soapy, rtl, fake)
+    - `decoders/` — digital decoders (e.g., POCSAG)
     - `dsp/` — signal processing (FM demodulation)
+    - `trunking/` — trunking system configuration
     - `static/` — web UI files (built from frontend/)
-    - `api.py` — FastAPI REST/WebSocket endpoints
-    - `app.py` — FastAPI application and static file serving
+    - `api.py` — REST/WebSocket endpoints
+    - `app.py` — application setup and static file serving
     - `capture.py` — capture and channel management
     - `harness.py` — test harness
   - `tests/` — pytest test suite
@@ -160,7 +160,7 @@ cp -r dist/* ../backend/wavecapsdr/static/
   - `src/` — source code (components, hooks, types)
   - `dist/` — build output (copied to backend/wavecapsdr/static/)
 - `docs/` — documentation
-  - `configuration.md` — runtime options (planned)
+  - `configuration.md` — runtime options
   - `troubleshooting.md` — common issues and solutions
 - `scripts/` — helper scripts
   - `soapy-*.sh` — SoapySDR utilities with timeout wrappers
@@ -171,6 +171,7 @@ cp -r dist/* ../backend/wavecapsdr/static/
 
 - **API Reference**: See `SPEC.md`
 - **Development Guidelines**: See `AGENTS.md`
+- **Configuration**: See `docs/configuration.md`
 - **Troubleshooting**: See `docs/troubleshooting.md`
 
 ## License
