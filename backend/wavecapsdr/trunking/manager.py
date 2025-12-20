@@ -51,6 +51,7 @@ class TrunkingManager:
     # Background tasks
     _maintenance_task: Optional[asyncio.Task[None]] = None
     _running: bool = False
+    _event_loop: Optional[asyncio.AbstractEventLoop] = None
 
     # Reference to CaptureManager for SDR access
     _capture_manager: Optional["CaptureManager"] = None
@@ -96,6 +97,11 @@ class TrunkingManager:
             return
 
         self._running = True
+        try:
+            self._event_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._event_loop = None
+            logger.warning("TrunkingManager: No running event loop; events may be dropped")
 
         # Load pending system configs
         for config in self._pending_configs:
@@ -328,37 +334,53 @@ class TrunkingManager:
         for queue in dead_queues:
             self._event_queues.discard(queue)
 
+    def _schedule_broadcast(self, event: Dict[str, Any]) -> None:
+        """Schedule an event broadcast on the manager event loop."""
+        loop = self._event_loop
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(lambda: loop.create_task(self._broadcast_event(event)))
+            return
+
+        try:
+            running_loop = asyncio.get_running_loop()
+            running_loop.create_task(self._broadcast_event(event))
+        except RuntimeError:
+            logger.warning(
+                "TrunkingManager: Dropping event %s (no event loop)",
+                event.get("type"),
+            )
+
     def _on_call_start(self, system_id: str, call: ActiveCall) -> None:
         """Handle call start event."""
-        asyncio.create_task(self._broadcast_event({
+        self._schedule_broadcast({
             "type": "call_start",
             "systemId": system_id,
             "call": call.to_dict(),
-        }))
+        })
 
     def _on_call_update(self, system_id: str, call: ActiveCall) -> None:
         """Handle call update event."""
-        asyncio.create_task(self._broadcast_event({
+        self._schedule_broadcast({
             "type": "call_update",
             "systemId": system_id,
             "call": call.to_dict(),
-        }))
+        })
 
     def _on_call_end(self, system_id: str, call: ActiveCall) -> None:
         """Handle call end event."""
-        asyncio.create_task(self._broadcast_event({
+        self._schedule_broadcast({
             "type": "call_end",
             "systemId": system_id,
             "call": call.to_dict(),
-        }))
+        })
 
     def _on_system_update(self, system: TrunkingSystem) -> None:
         """Handle system state update event."""
-        asyncio.create_task(self._broadcast_event({
+        self._schedule_broadcast({
             "type": "system_update",
             "systemId": system.cfg.id,
             "system": system.to_dict(),
-        }))
+        })
 
     async def _maintenance_loop(self) -> None:
         """Background maintenance loop.
