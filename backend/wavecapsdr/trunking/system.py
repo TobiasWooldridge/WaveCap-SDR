@@ -700,7 +700,7 @@ class TrunkingSystem:
 
         # Release all recorders
         for recorder in self._voice_recorders:
-            recorder.release()
+            await recorder.release()
 
         # Clean up SDR capture and channel
         await self._cleanup_capture()
