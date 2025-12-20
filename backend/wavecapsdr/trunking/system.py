@@ -150,6 +150,13 @@ class VoiceRecorder:
     # FM demodulator state
     _last_phase: float = 0.0
 
+    # Event loop for thread-safe audio scheduling
+    _event_loop: Optional[asyncio.AbstractEventLoop] = field(default=None, repr=False)
+
+    def set_event_loop(self, loop: Optional[asyncio.AbstractEventLoop]) -> None:
+        """Set the event loop used for scheduling audio decoding."""
+        self._event_loop = loop
+
     def assign(
         self,
         call_id: str,
@@ -268,16 +275,15 @@ class VoiceRecorder:
         self.last_activity = time.time()
 
         # Feed to voice channel (async, schedule on event loop)
-        try:
-            loop = asyncio.get_running_loop()
-            loop.call_soon_threadsafe(
-                lambda: asyncio.create_task(
-                    self._voice_channel.process_discriminator_audio(disc_audio.astype(np.float32))
-                )
+        loop = self._event_loop
+        if loop is None or not loop.is_running():
+            return
+
+        loop.call_soon_threadsafe(
+            lambda: loop.create_task(
+                self._voice_channel.process_discriminator_audio(disc_audio.astype(np.float32))
             )
-        except RuntimeError:
-            # No running loop, try to get default loop
-            pass
+        )
 
     async def release(self) -> None:
         """Release recorder from current call."""
@@ -427,6 +433,8 @@ class TrunkingSystem:
                 "TrunkingSystem %s: No running event loop; async operations may be skipped",
                 self.cfg.id,
             )
+        for recorder in self._voice_recorders:
+            recorder.set_event_loop(self._event_loop)
 
         # Validate config
         if not self.cfg.control_channels:
