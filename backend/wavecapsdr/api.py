@@ -170,6 +170,64 @@ def health_check(request: Request) -> JSONResponse:
     return JSONResponse(status_code=status_code, content=health_status)
 
 
+# Frontend log storage
+_frontend_logs: List[Dict[str, Any]] = []
+_FRONTEND_LOG_MAX = 500  # Keep last 500 log entries
+
+
+@router.post("/frontend-logs")
+async def receive_frontend_logs(request: Request) -> Dict[str, str]:
+    """Receive console logs from the frontend for debugging."""
+    global _frontend_logs
+    try:
+        body = await request.json()
+        logs = body.get("logs", [])
+        for log in logs:
+            log["received_at"] = time.time()
+            _frontend_logs.append(log)
+        # Trim to max size
+        if len(_frontend_logs) > _FRONTEND_LOG_MAX:
+            _frontend_logs = _frontend_logs[-_FRONTEND_LOG_MAX:]
+        return {"status": "ok", "received": len(logs)}
+    except Exception as e:
+        logger.error(f"Error receiving frontend logs: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@router.get("/frontend-logs")
+def get_frontend_logs(
+    level: Optional[str] = None,
+    prefix: Optional[str] = None,
+    limit: int = 100,
+) -> Dict[str, Any]:
+    """Get recent frontend logs for debugging.
+
+    Args:
+        level: Filter by log level (log, warn, error, debug)
+        prefix: Filter by message prefix (e.g., "[Spectrum]")
+        limit: Max number of logs to return (default 100)
+    """
+    logs = _frontend_logs[-limit:]
+    if level:
+        logs = [l for l in logs if l.get("level") == level]
+    if prefix:
+        logs = [l for l in logs if any(str(arg).startswith(prefix) for arg in l.get("args", []))]
+    return {
+        "count": len(logs),
+        "total_stored": len(_frontend_logs),
+        "logs": logs,
+    }
+
+
+@router.delete("/frontend-logs")
+def clear_frontend_logs() -> Dict[str, str]:
+    """Clear all stored frontend logs."""
+    global _frontend_logs
+    count = len(_frontend_logs)
+    _frontend_logs = []
+    return {"status": "ok", "cleared": count}
+
+
 @router.get("/debug/perf", response_model=None)
 def get_performance_metrics(request: Request) -> Union[JSONResponse, Dict[str, Any]]:
     """Get detailed performance metrics for all captures.

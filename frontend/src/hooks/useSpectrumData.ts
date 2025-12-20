@@ -82,6 +82,7 @@ class SpectrumWebSocketManager {
     onData: (data: SpectrumData) => void,
     onConnectionChange: (connected: boolean) => void
   ) {
+    console.log('[Spectrum] subscribe called:', { captureId, captureState, isPaused, isIdle: this.isIdle });
     // Initialize activity tracking on first subscription
     this.initActivityTracking();
 
@@ -156,23 +157,26 @@ class SpectrumWebSocketManager {
   }
 
   private connect() {
+    console.log('[Spectrum] connect() called:', { captureId: this.captureId, captureState: this.captureState, isIdle: this.isIdle });
     // Disconnect existing connection
     this.disconnect();
 
     // Don't connect if capture is not running or UI is idle
     if (this.captureState !== 'running' || this.isIdle || !this.captureId) {
+      console.log('[Spectrum] connect() skipped - capture not running or idle');
       this.notifyConnectionChange(false);
       return;
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/api/v1/stream/captures/${this.captureId}/spectrum`;
+    console.log('[Spectrum] Connecting to WebSocket:', wsUrl);
 
     try {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
-        console.log('Spectrum WebSocket connected');
+        console.log('[Spectrum] WebSocket connected successfully');
         this.reconnectAttempts = 0; // Reset on successful connection
         this.notifyConnectionChange(true);
       };

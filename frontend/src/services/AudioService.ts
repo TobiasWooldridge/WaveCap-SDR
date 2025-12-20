@@ -149,7 +149,8 @@ class AudioService {
       // Build WebSocket URL
       const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
       const wsUrl = `${wsProtocol}//${window.location.host}/api/v1/stream/channels/${channelId}?format=pcm16`;
-      console.log("[AudioService] Connecting to:", wsUrl);
+      console.log("[AudioService] Connecting to WebSocket:", wsUrl);
+      console.log("[AudioService] AudioContext state:", audioContext.state, "sampleRate:", audioContext.sampleRate);
 
       const ws = new WebSocket(wsUrl);
       ws.binaryType = "arraybuffer";
@@ -167,7 +168,7 @@ class AudioService {
     this.notifyListeners();
 
     ws.onopen = () => {
-      console.log("[AudioService] Connected:", channelId);
+      console.log("[AudioService] WebSocket connected:", channelId, "readyState:", ws.readyState);
     };
 
     ws.onmessage = (event) => {

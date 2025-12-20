@@ -19,7 +19,7 @@ class FrontendLogger {
   private buffer: LogEntry[] = [];
   private flushInterval: number | null = null;
   private readonly maxBufferSize = 50;
-  private readonly flushIntervalMs = 5000;
+  private readonly flushIntervalMs = 2000; // Flush every 2 seconds for faster debugging
   private originalConsole: {
     log: typeof console.log;
     info: typeof console.info;
@@ -167,11 +167,20 @@ class FrontendLogger {
     const entries = [...this.buffer];
     this.buffer = [];
 
+    // Convert to format expected by backend
+    const logs = entries.map((entry) => ({
+      level: entry.level === 'debug' ? 'log' : entry.level,
+      args: [entry.message, entry.data].filter(Boolean),
+      timestamp: entry.timestamp,
+      stack: entry.stack,
+      source: entry.source,
+    }));
+
     try {
-      await fetch('/api/v1/logs', {
+      await fetch('/api/v1/frontend-logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entries }),
+        body: JSON.stringify({ logs }),
       });
     } catch {
       // If flush fails, restore entries to buffer (but limit size)
