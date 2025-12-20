@@ -51,9 +51,10 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
   });
 
   // Use WebSocket calls if available, otherwise fall back to polling
-  const displayCalls = wsConnected && wsActiveCalls.length > 0
-    ? wsActiveCalls
-    : activeCalls ?? [];
+  const displayCalls = useMemo(
+    () => (wsConnected && wsActiveCalls.length > 0 ? wsActiveCalls : activeCalls ?? []),
+    [activeCalls, wsActiveCalls, wsConnected]
+  );
 
   // Mutations
   const startSystem = useStartTrunkingSystem();

@@ -113,7 +113,9 @@ function AudioWaveformComponent({
     if (readerRef.current) {
       try {
         await readerRef.current.cancel();
-      } catch {}
+      } catch (error) {
+        console.warn("Failed to cancel audio stream reader", error);
+      }
       readerRef.current = null;
     }
 

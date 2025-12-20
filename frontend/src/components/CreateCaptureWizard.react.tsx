@@ -96,7 +96,7 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
         await createChannel.mutateAsync({
           captureId: newCapture.id,
           request: {
-            mode: channelDef.mode as any,
+            mode: channelDef.mode,
             offsetHz: channelDef.offsetHz,
             squelchDb: channelDef.squelchDb,
           },

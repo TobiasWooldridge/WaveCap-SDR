@@ -3,6 +3,7 @@ import { Save, Zap } from "lucide-react";
 import { useDevices, usePowerCycleAllUSB } from "../hooks/useDevices";
 import { useUpdateDeviceNickname } from "../hooks/useDeviceNicknames";
 import { useToast } from "../hooks/useToast";
+import type { Device } from "../types";
 import Button from "./primitives/Button.react";
 import Flex from "./primitives/Flex.react";
 import Spinner from "./primitives/Spinner.react";
@@ -59,7 +60,7 @@ export const DeviceSettingsModal = ({ onClose }: DeviceSettingsModalProps) => {
     onClose();
   };
 
-  const getDeviceShorthand = (device: any): string => {
+  const getDeviceShorthand = (device: Device): string => {
     // Extract a short identifier from the device label
     const driver = device.driver.toUpperCase();
     const label = device.label || "";

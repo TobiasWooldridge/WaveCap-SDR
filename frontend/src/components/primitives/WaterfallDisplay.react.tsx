@@ -445,7 +445,21 @@ export default function WaterfallDisplay({
         cancelAnimationFrame(renderRequestRef.current);
       }
     };
-  }, [width, height, channels, spectrumInfo, colorScheme, intensity, capture.state, capture.bandwidth, getColor]);
+  }, [
+    width,
+    height,
+    channels,
+    spectrumInfo,
+    spectrumData,
+    colorScheme,
+    intensity,
+    capture,
+    capture.state,
+    capture.bandwidth,
+    capture.errorMessage,
+    isConnected,
+    getColor,
+  ]);
 
   // Determine badge status
   const getBadgeStatus = () => {

@@ -468,7 +468,21 @@ export default function SpectrumAnalyzer({
         }
       });
     }
-  }, [spectrumData, width, height, channels, capture.bandwidth, capture.sampleRate, peakHoldEnabled, averagingEnabled, bandPlanEnabled]);
+  }, [
+    spectrumData,
+    width,
+    height,
+    channels,
+    capture.bandwidth,
+    capture.sampleRate,
+    capture,
+    capture.state,
+    capture.errorMessage,
+    peakHoldEnabled,
+    averagingEnabled,
+    bandPlanEnabled,
+    isConnected,
+  ]);
 
   // Determine badge status
   const getBadgeStatus = () => {

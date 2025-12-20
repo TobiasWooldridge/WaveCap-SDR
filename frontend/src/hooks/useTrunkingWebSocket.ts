@@ -27,59 +27,14 @@ export function useTrunkingWebSocket(
   const { systemId, enabled = true, onCallStart, onCallEnd } = options;
   const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
+  const shouldReconnectRef = useRef(true);
 
   const [isConnected, setIsConnected] = useState(false);
   const [systems, setSystems] = useState<TrunkingSystem[]>([]);
   const [activeCalls, setActiveCalls] = useState<ActiveCall[]>([]);
   const [error, setError] = useState<string | null>(null);
-
-  const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      return;
-    }
-
-    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsHost = window.location.host;
-    const wsPath = systemId
-      ? `/api/v1/trunking/stream/${systemId}`
-      : "/api/v1/trunking/stream";
-    const wsUrl = `${wsProtocol}//${wsHost}${wsPath}`;
-
-    const ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-      setIsConnected(true);
-      setError(null);
-    };
-
-    ws.onclose = () => {
-      setIsConnected(false);
-      wsRef.current = null;
-
-      // Reconnect after delay if enabled
-      if (enabled) {
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connect();
-        }, 3000);
-      }
-    };
-
-    ws.onerror = () => {
-      setError("WebSocket connection failed");
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const message: TrunkingEvent = JSON.parse(event.data);
-        handleEvent(message);
-      } catch (e) {
-        console.error("Failed to parse trunking event:", e);
-      }
-    };
-
-    wsRef.current = ws;
-  }, [systemId, enabled]);
 
   const handleEvent = useCallback(
     (event: TrunkingEvent) => {
@@ -133,16 +88,95 @@ export function useTrunkingWebSocket(
     [queryClient, onCallStart, onCallEnd]
   );
 
+  const connect = useCallback(() => {
+    if (!mountedRef.current || !shouldReconnectRef.current) return;
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      return;
+    }
+    if (wsRef.current?.readyState === WebSocket.CONNECTING) {
+      return;
+    }
+
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    if (wsRef.current) {
+      wsRef.current.onopen = null;
+      wsRef.current.onmessage = null;
+      wsRef.current.onerror = null;
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsHost = window.location.host;
+    const wsPath = systemId
+      ? `/api/v1/trunking/stream/${systemId}`
+      : "/api/v1/trunking/stream";
+    const wsUrl = `${wsProtocol}//${wsHost}${wsPath}`;
+
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      if (!mountedRef.current) return;
+      setIsConnected(true);
+      setError(null);
+    };
+
+    ws.onclose = () => {
+      if (!mountedRef.current || !shouldReconnectRef.current) {
+        wsRef.current = null;
+        return;
+      }
+      setIsConnected(false);
+      wsRef.current = null;
+
+      // Reconnect after delay if enabled
+      if (enabled) {
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connect();
+        }, 3000);
+      }
+    };
+
+    ws.onerror = () => {
+      if (!mountedRef.current) return;
+      setError("WebSocket connection failed");
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message: TrunkingEvent = JSON.parse(event.data);
+        handleEvent(message);
+      } catch (e) {
+        console.error("Failed to parse trunking event:", e);
+      }
+    };
+
+    wsRef.current = ws;
+  }, [enabled, handleEvent, systemId]);
+
   useEffect(() => {
     if (enabled) {
+      mountedRef.current = true;
+      shouldReconnectRef.current = true;
       connect();
     }
 
     return () => {
+      mountedRef.current = false;
+      shouldReconnectRef.current = false;
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
       if (wsRef.current) {
+        wsRef.current.onopen = null;
+        wsRef.current.onmessage = null;
+        wsRef.current.onerror = null;
+        wsRef.current.onclose = null;
         wsRef.current.close();
         wsRef.current = null;
       }

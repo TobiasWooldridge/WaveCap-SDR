@@ -23,107 +23,8 @@ export function useStateWebSocket() {
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectAttempts = useRef(0);
   const maxReconnectAttempts = 10;
-
-  const connect = useCallback(() => {
-    // Clean up existing connection
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/api/v1/stream/state`;
-
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      console.log("[StateWS] Connected");
-      reconnectAttempts.current = 0;
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const message: StateMessage = JSON.parse(event.data);
-        handleMessage(message);
-      } catch (e) {
-        console.error("[StateWS] Failed to parse message:", e);
-      }
-    };
-
-    ws.onerror = (error) => {
-      console.error("[StateWS] Error:", error);
-    };
-
-    ws.onclose = (event) => {
-      console.log("[StateWS] Disconnected", event.code, event.reason);
-      wsRef.current = null;
-
-      // Attempt reconnection with exponential backoff
-      if (reconnectAttempts.current < maxReconnectAttempts) {
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
-        reconnectAttempts.current++;
-        console.log(`[StateWS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current})`);
-        reconnectTimeoutRef.current = window.setTimeout(connect, delay);
-      } else {
-        console.error("[StateWS] Max reconnection attempts reached");
-      }
-    };
-  }, []);
-
-  const handleMessage = useCallback((message: StateMessage) => {
-    if (message.type === "ping") {
-      // Keepalive - no action needed
-      return;
-    }
-
-    if (message.type === "snapshot") {
-      // Full state snapshot - replace all cached data
-      handleSnapshot(message);
-      return;
-    }
-
-    // Incremental state change
-    handleStateChange(message);
-  }, []);
-
-  const handleSnapshot = useCallback((message: StateSnapshotMessage) => {
-    console.log("[StateWS] Received snapshot:", {
-      captures: message.captures.length,
-      channels: message.channels.length,
-      scanners: message.scanners.length,
-    });
-
-    // Update captures cache
-    queryClient.setQueryData<Capture[]>(["captures"], message.captures);
-
-    // Update channels cache per capture
-    const channelsByCapture = new Map<string, Channel[]>();
-    for (const channel of message.channels) {
-      const existing = channelsByCapture.get(channel.captureId) || [];
-      existing.push(channel);
-      channelsByCapture.set(channel.captureId, existing);
-    }
-    for (const [captureId, channels] of channelsByCapture) {
-      queryClient.setQueryData<Channel[]>(["channels", captureId], channels);
-    }
-
-    // Update scanners cache
-    queryClient.setQueryData<Scanner[]>(["scanners"], message.scanners);
-  }, [queryClient]);
-
-  const handleStateChange = useCallback((message: StateChangeMessage) => {
-    const { type, action, id, data } = message;
-    console.log(`[StateWS] ${type}.${action}:`, id);
-
-    if (type === "capture") {
-      updateCaptureCache(action, id, data as Capture | null);
-    } else if (type === "channel") {
-      updateChannelCache(action, id, data as Channel | null);
-    } else if (type === "scanner") {
-      updateScannerCache(action, id, data as Scanner | null);
-    }
-  }, []);
+  const mountedRef = useRef(true);
+  const shouldReconnectRef = useRef(true);
 
   const updateCaptureCache = useCallback(
     (action: string, id: string, data: Capture | null) => {
@@ -236,15 +137,147 @@ export function useStateWebSocket() {
     [queryClient]
   );
 
+  const handleStateChange = useCallback((message: StateChangeMessage) => {
+    const { type, action, id, data } = message;
+    console.log(`[StateWS] ${type}.${action}:`, id);
+
+    if (type === "capture") {
+      updateCaptureCache(action, id, data as Capture | null);
+    } else if (type === "channel") {
+      updateChannelCache(action, id, data as Channel | null);
+    } else if (type === "scanner") {
+      updateScannerCache(action, id, data as Scanner | null);
+    }
+  }, [updateCaptureCache, updateChannelCache, updateScannerCache]);
+
+  const handleSnapshot = useCallback((message: StateSnapshotMessage) => {
+    console.log("[StateWS] Received snapshot:", {
+      captures: message.captures.length,
+      channels: message.channels.length,
+      scanners: message.scanners.length,
+    });
+
+    // Update captures cache
+    queryClient.setQueryData<Capture[]>(["captures"], message.captures);
+
+    // Update channels cache per capture
+    const channelsByCapture = new Map<string, Channel[]>();
+    for (const channel of message.channels) {
+      const existing = channelsByCapture.get(channel.captureId) || [];
+      existing.push(channel);
+      channelsByCapture.set(channel.captureId, existing);
+    }
+    for (const [captureId, channels] of channelsByCapture) {
+      queryClient.setQueryData<Channel[]>(["channels", captureId], channels);
+    }
+
+    // Update scanners cache
+    queryClient.setQueryData<Scanner[]>(["scanners"], message.scanners);
+  }, [queryClient]);
+
+  const handleMessage = useCallback((message: StateMessage) => {
+    if (message.type === "ping") {
+      // Keepalive - no action needed
+      return;
+    }
+
+    if (message.type === "snapshot") {
+      // Full state snapshot - replace all cached data
+      handleSnapshot(message);
+      return;
+    }
+
+    // Incremental state change
+    handleStateChange(message);
+  }, [handleSnapshot, handleStateChange]);
+
+  const connect = useCallback(() => {
+    if (!mountedRef.current || !shouldReconnectRef.current) return;
+
+    if (
+      wsRef.current &&
+      (wsRef.current.readyState === WebSocket.OPEN ||
+        wsRef.current.readyState === WebSocket.CONNECTING)
+    ) {
+      return;
+    }
+
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    // Clean up any stale connection
+    if (wsRef.current) {
+      wsRef.current.onopen = null;
+      wsRef.current.onmessage = null;
+      wsRef.current.onerror = null;
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/api/v1/stream/state`;
+
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log("[StateWS] Connected");
+      reconnectAttempts.current = 0;
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message: StateMessage = JSON.parse(event.data);
+        handleMessage(message);
+      } catch (e) {
+        console.error("[StateWS] Failed to parse message:", e);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error("[StateWS] Error:", error);
+    };
+
+    ws.onclose = (event) => {
+      if (!mountedRef.current || !shouldReconnectRef.current) {
+        wsRef.current = null;
+        return;
+      }
+      console.log("[StateWS] Disconnected", event.code, event.reason);
+      wsRef.current = null;
+
+      // Attempt reconnection with exponential backoff
+      if (reconnectAttempts.current < maxReconnectAttempts) {
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
+        reconnectAttempts.current++;
+        console.log(`[StateWS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current})`);
+        reconnectTimeoutRef.current = window.setTimeout(connect, delay);
+      } else {
+        console.error("[StateWS] Max reconnection attempts reached");
+      }
+    };
+  }, [handleMessage]);
+
   // Connect on mount, disconnect on unmount
   useEffect(() => {
+    mountedRef.current = true;
+    shouldReconnectRef.current = true;
     connect();
 
     return () => {
+      mountedRef.current = false;
+      shouldReconnectRef.current = false;
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
       if (wsRef.current) {
+        wsRef.current.onopen = null;
+        wsRef.current.onmessage = null;
+        wsRef.current.onerror = null;
+        wsRef.current.onclose = null;
         wsRef.current.close();
         wsRef.current = null;
       }

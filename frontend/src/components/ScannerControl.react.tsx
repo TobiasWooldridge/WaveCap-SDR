@@ -363,7 +363,7 @@ function CreateScannerWizard({ captureId, onCancel, onCreate }: CreateScannerWiz
         </label>
         <select
           value={mode}
-          onChange={(e) => setMode(e.target.value as any)}
+          onChange={(e) => setMode(e.target.value as Scanner["mode"])}
           style={{
             width: "100%",
             padding: "8px",

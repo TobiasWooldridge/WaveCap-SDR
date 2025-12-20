@@ -229,7 +229,7 @@ export interface UpdateChannelRequest {
 export interface RecipeChannel {
   offsetHz: number;
   name: string;
-  mode: string;
+  mode: Channel["mode"];
   squelchDb: number;
   // POCSAG decoding settings (NBFM only)
   enablePocsag?: boolean;
