@@ -24,8 +24,11 @@ scripts/run-with-timeout.sh --seconds 120 -- bash -lc 'cd backend && source .ven
 cd backend && source .venv/bin/activate
 PYTHONPATH=. pytest tests/test_captures_channels.py::test_channel_audio_stream -v
 
-# Type checking
+# Frontend quality checks (no unit tests, only type-check and lint)
 cd frontend && npm run type-check
+cd frontend && npm run lint
+
+# Backend type checking
 cd backend && source .venv/bin/activate && mypy wavecapsdr
 
 # Build frontend
@@ -119,6 +122,29 @@ WebSocket streams:
 
 ## Testing
 
+### Backend (pytest)
+
+459 tests in `backend/tests/` covering DSP, trunking, API, and integration:
+
+```bash
+cd backend && source .venv/bin/activate
+
+# Run all tests (with timeout to avoid hangs)
+scripts/run-with-timeout.sh --seconds 120 -- bash -lc 'cd backend && source .venv/bin/activate && PYTHONPATH=. pytest tests/'
+
+# Run all tests (direct)
+PYTHONPATH=. pytest tests/
+
+# Run unit tests only
+PYTHONPATH=. pytest tests/unit/
+
+# Skip hardware tests
+PYTHONPATH=. pytest tests/ -m "not hardware"
+
+# Run a single test
+PYTHONPATH=. pytest tests/test_captures_channels.py::test_channel_audio_stream -v
+```
+
 Tests use the `fake` driver to simulate SDR hardware:
 ```python
 cfg = AppConfig()
@@ -128,6 +154,17 @@ client = TestClient(app)
 ```
 
 Hardware tests are marked with `@pytest.mark.hardware` and skipped by default.
+
+### Frontend
+
+No unit test framework is installed. Quality checks:
+
+```bash
+cd frontend
+npm run type-check  # TypeScript validation
+npm run lint        # ESLint
+npm run build       # Compile check
+```
 
 ## SDRplay Dependencies
 

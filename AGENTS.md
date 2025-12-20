@@ -24,8 +24,9 @@ Scope: applies to the entire repo.
 ## Workflow Notes
 - Follow repository‑specific instructions in nested `AGENTS.md` files if present; their scope applies to their directory and descendants.
 - Run required checks before publishing a change:
-  - Backend: from `backend/`, run the test suite and ensure it passes.
-  - Frontend (when touched): from `frontend/`, run `npm ci && npm run build` and ensure it passes.
+  - Backend tests: `cd backend && source .venv/bin/activate && PYTHONPATH=. pytest tests/`
+  - Backend types: `cd backend && source .venv/bin/activate && mypy wavecapsdr`
+  - Frontend (no unit tests): `cd frontend && npm run type-check && npm run lint && npm run build`
 - Keep the working tree clean with meaningful commits.
 - Before publishing or opening a PR, sync with remote if you have access.
 - Always validate that the code compiles/builds before completion.
