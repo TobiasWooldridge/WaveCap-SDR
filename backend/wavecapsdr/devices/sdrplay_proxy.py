@@ -714,20 +714,24 @@ class SDRplayProxyDevice(Device):
         if ppm is not None:
             cmd["ppm"] = ppm
 
-        self._cmd_pipe.send(cmd)
+        _acquire_sdrplay_lock(self.operation_cooldown)
+        try:
+            self._cmd_pipe.send(cmd)
 
-        # Wait for confirmation
-        timeout = 5.0
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            if self._status_pipe.poll(timeout=0.1):
-                msg = self._status_pipe.recv()
-                if msg.get("type") == "configured":
-                    return
-                elif msg.get("type") == "configure_error":
-                    raise RuntimeError(f"Reconfigure failed: {msg.get('message')}")
+            # Wait for confirmation
+            timeout = 5.0
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                if self._status_pipe.poll(timeout=0.1):
+                    msg = self._status_pipe.recv()
+                    if msg.get("type") == "configured":
+                        return
+                    elif msg.get("type") == "configure_error":
+                        raise RuntimeError(f"Reconfigure failed: {msg.get('message')}")
 
-        raise TimeoutError("Reconfigure timed out")
+            raise TimeoutError("Reconfigure timed out")
+        finally:
+            _release_sdrplay_lock()
 
     def close(self) -> None:
         """Close device and terminate worker subprocess."""

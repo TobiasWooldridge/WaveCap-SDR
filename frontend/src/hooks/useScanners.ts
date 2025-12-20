@@ -3,6 +3,26 @@ import type { Scanner, CreateScannerRequest, UpdateScannerRequest } from '../typ
 
 const API_BASE = '/api/v1';
 
+async function parseErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const error = (await response.json()) as { detail?: unknown };
+    if (typeof error?.detail === 'string') {
+      return error.detail;
+    }
+  } catch {
+    // Ignore JSON parse failures
+  }
+
+  try {
+    const text = await response.text();
+    if (text) return text;
+  } catch {
+    // Ignore text parse failures
+  }
+
+  return fallback;
+}
+
 // Fetch all scanners
 async function fetchScanners(): Promise<Scanner[]> {
   const response = await fetch(`${API_BASE}/scanners`);
@@ -29,8 +49,11 @@ async function createScanner(request: CreateScannerRequest): Promise<Scanner> {
     body: JSON.stringify(request),
   });
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || `Failed to create scanner: ${response.statusText}`);
+    const message = await parseErrorMessage(
+      response,
+      `Failed to create scanner: ${response.statusText}`
+    );
+    throw new Error(message);
   }
   return response.json();
 }
@@ -43,8 +66,11 @@ async function updateScanner(scannerId: string, request: UpdateScannerRequest): 
     body: JSON.stringify(request),
   });
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || `Failed to update scanner: ${response.statusText}`);
+    const message = await parseErrorMessage(
+      response,
+      `Failed to update scanner: ${response.statusText}`
+    );
+    throw new Error(message);
   }
   return response.json();
 }

@@ -1,6 +1,26 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Channel, CreateChannelRequest, UpdateChannelRequest } from "../types";
 
+async function parseErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const error = (await response.json()) as { detail?: unknown };
+    if (typeof error?.detail === "string") {
+      return error.detail;
+    }
+  } catch {
+    // Ignore JSON parse failures
+  }
+
+  try {
+    const text = await response.text();
+    if (text) return text;
+  } catch {
+    // Ignore text parse failures
+  }
+
+  return fallback;
+}
+
 async function fetchChannels(captureId: string): Promise<Channel[]> {
   const response = await fetch(`/api/v1/captures/${captureId}/channels`);
   if (!response.ok) {
@@ -20,8 +40,8 @@ async function createChannel(
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to create channel");
+    const message = await parseErrorMessage(response, "Failed to create channel");
+    throw new Error(message);
   }
 
   return response.json();
@@ -48,8 +68,8 @@ async function updateChannel(
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to update channel");
+    const message = await parseErrorMessage(response, "Failed to update channel");
+    throw new Error(message);
   }
 
   return response.json();
@@ -60,8 +80,8 @@ async function startChannel(channelId: string): Promise<Channel> {
     method: "POST",
   });
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to start channel");
+    const message = await parseErrorMessage(response, "Failed to start channel");
+    throw new Error(message);
   }
   return response.json();
 }
@@ -71,8 +91,8 @@ async function stopChannel(channelId: string): Promise<Channel> {
     method: "POST",
   });
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to stop channel");
+    const message = await parseErrorMessage(response, "Failed to stop channel");
+    throw new Error(message);
   }
   return response.json();
 }

@@ -431,6 +431,7 @@ class Channel:
     _dmr_decoder: Optional[DMRDecoder] = None
     # IMBE voice codec decoder for P25 (lazily initialized)
     _imbe_decoder: Optional[IMBEDecoder] = None
+    _imbe_loop: Optional[asyncio.AbstractEventLoop] = None
     # RDS decoder for WBFM (lazily initialized)
     _rds_decoder: Optional[RDSDecoder] = None
     rds_data: Optional[RDSData] = None  # Current RDS data (exposed via API)
@@ -454,7 +455,20 @@ class Channel:
         self.state = "stopped"
         # Clean up IMBE decoder if running
         if self._imbe_decoder is not None:
-            asyncio.create_task(self._imbe_decoder.stop())
+            loop = self._imbe_loop
+            if loop is not None and not loop.is_closed():
+                try:
+                    asyncio.run_coroutine_threadsafe(self._imbe_decoder.stop(), loop)
+                    self._imbe_loop = None
+                    return
+                except Exception:
+                    pass
+            try:
+                asyncio.run(self._imbe_decoder.stop())
+            except RuntimeError:
+                # No available loop; best-effort cleanup
+                pass
+            self._imbe_loop = None
 
     def get_pocsag_messages(self, limit: int = 50, since_timestamp: Optional[float] = None) -> List[Dict[str, Any]]:
         """Get recent POCSAG messages.
@@ -966,6 +980,7 @@ class Channel:
                 self._imbe_checked = True
                 if IMBEDecoder.is_available():
                     self._imbe_decoder = IMBEDecoder(output_rate=self.cfg.audio_rate, input_rate=sample_rate)
+                    self._imbe_loop = asyncio.get_running_loop()
                     asyncio.create_task(self._imbe_decoder.start())
                     logger.info(f"Channel {self.cfg.id}: IMBE decoder initialized (DSD-FME)")
                 else:
@@ -1384,6 +1399,8 @@ class Capture:
     _fft_sinks: Set[Tuple[asyncio.Queue[Dict[str, Any]], asyncio.AbstractEventLoop]] = field(
         default_factory=set
     )  # Spectrum/FFT subscribers (only calculated when needed for efficiency)
+    _iq_sinks_lock: threading.Lock = field(default_factory=threading.Lock)
+    _fft_sinks_lock: threading.Lock = field(default_factory=threading.Lock)
     _stop_event: threading.Event = field(default_factory=threading.Event)
     _channels: Dict[str, Channel] = field(default_factory=dict)
     # Retry tracking (inspired by OpenWebRX)
@@ -1422,6 +1439,9 @@ class Capture:
     _perf_fft_times: List[float] = field(default_factory=list)   # Recent FFT times in ms
     _perf_max_samples: int = 100  # Keep last 100 samples for rolling average
     _perf_loop_counter: int = 0   # Counter for periodic logging
+    _dsp_inflight: int = 0
+    _dsp_inflight_lock: threading.Lock = field(default_factory=threading.Lock)
+    _dsp_drop_last_log: float = 0.0
 
     def get_perf_stats(self) -> Dict[str, Any]:
         """Get performance statistics for this capture."""
@@ -1534,13 +1554,17 @@ class Capture:
                 # Check if thread is alive
                 if self._thread is not None and not self._thread.is_alive():
                     # Thread died unexpectedly
-                    if self.state == "running":
+                    if self.state in ("running", "starting"):
                         print(
-                            f"[WARNING] Capture {self.cfg.id} thread died unexpectedly, scheduling restart",
+                            f"[WARNING] Capture {self.cfg.id} thread died unexpectedly",
                             flush=True
                         )
-                        self._schedule_restart()
-                        return  # Health monitor exits, will be restarted by new start()
+                        self.state = "failed"
+                        if not self.error_message:
+                            self.error_message = "Capture thread died unexpectedly"
+                        if self._auto_restart_enabled:
+                            self._schedule_restart()
+                    continue
 
                 # Update last run time
                 if self._thread is not None and self._thread.is_alive():
@@ -1639,6 +1663,13 @@ class Capture:
                     self.state = "failed"
                     self.error_message = f"No IQ samples received for {now - self._last_iq_time:.0f}s"
                     self._last_iq_time = now  # Reset to avoid log spam
+                    self._stop_event.set()
+                    if self._stream is not None:
+                        try:
+                            self._stream.close()
+                        except Exception:
+                            pass
+                        self._stream = None
                     # Don't auto-restart - let it stay in error state
 
                 # Sleep for a bit before next check
@@ -1688,6 +1719,15 @@ class Capture:
         self.state = "stopping"
         self._stop_event.set()
 
+        # Close stream early to unblock reads
+        if self._stream is not None:
+            stream = self._stream
+            self._stream = None
+            try:
+                stream.close()
+            except Exception:
+                pass
+
         # Wait for threads to finish gracefully
         if self._thread is not None:
             self._thread.join(timeout=2.0)
@@ -1698,14 +1738,6 @@ class Capture:
         if self._health_monitor is not None:
             self._health_monitor.join(timeout=1.0)
             self._health_monitor = None
-
-        # Close stream
-        if self._stream is not None:
-            try:
-                self._stream.close()
-            except Exception:
-                pass
-            self._stream = None
 
         # Note: We do NOT close the device here - the device should stay open
         # for the lifetime of the Capture. We only close the stream.
@@ -1817,27 +1849,31 @@ class Capture:
     async def subscribe_iq(self) -> asyncio.Queue[bytes]:
         q: asyncio.Queue[bytes] = asyncio.Queue(maxsize=8)
         loop = asyncio.get_running_loop()
-        self._iq_sinks.add((q, loop))
+        with self._iq_sinks_lock:
+            self._iq_sinks.add((q, loop))
         return q
 
     def unsubscribe(self, q: asyncio.Queue[bytes]) -> None:
-        for item in list(self._iq_sinks):
-            if item[0] is q:
-                self._iq_sinks.discard(item)
+        with self._iq_sinks_lock:
+            for item in list(self._iq_sinks):
+                if item[0] is q:
+                    self._iq_sinks.discard(item)
 
     async def subscribe_fft(self) -> asyncio.Queue[Dict[str, Any]]:
         """Subscribe to FFT/spectrum data. Only calculated when there are active subscribers."""
         q: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=4)
         loop = asyncio.get_running_loop()
-        self._fft_sinks.add((q, loop))
+        with self._fft_sinks_lock:
+            self._fft_sinks.add((q, loop))
         logger.info(f"FFT subscriber added for capture {self.cfg.id}, total subs: {len(self._fft_sinks)}")
         return q
 
     def unsubscribe_fft(self, q: asyncio.Queue[Dict[str, Any]]) -> None:
         """Unsubscribe from FFT/spectrum data."""
-        for item in list(self._fft_sinks):
-            if item[0] is q:
-                self._fft_sinks.discard(item)
+        with self._fft_sinks_lock:
+            for item in list(self._fft_sinks):
+                if item[0] is q:
+                    self._fft_sinks.discard(item)
 
     def _calculate_fft(self, samples: np.ndarray, sample_rate: int, fft_size: int = 2048) -> None:
         """Calculate FFT for spectrum display. Only called when there are active subscribers.
@@ -1882,7 +1918,9 @@ class Capture:
 
     async def _broadcast_fft(self) -> None:
         """Broadcast FFT data to all subscribers."""
-        if not self._fft_sinks or self._fft_power is None or self._fft_freqs is None:
+        with self._fft_sinks_lock:
+            fft_sinks = list(self._fft_sinks)
+        if not fft_sinks or self._fft_power is None or self._fft_freqs is None:
             return
 
         # Create payload with FFT data (use cached lists to avoid repeated .tolist())
@@ -1899,7 +1937,7 @@ class Capture:
         except RuntimeError:
             current_loop = None
 
-        for (q, loop) in list(self._fft_sinks):
+        for (q, loop) in fft_sinks:
             if current_loop is loop:
                 try:
                     q.put_nowait(payload)
@@ -1929,20 +1967,23 @@ class Capture:
                 try:
                     loop.call_soon_threadsafe(_try_put)
                 except Exception:
-                    try:
-                        self._fft_sinks.discard((q, loop))
-                    except Exception:
-                        pass
+                    with self._fft_sinks_lock:
+                        try:
+                            self._fft_sinks.discard((q, loop))
+                        except Exception:
+                            pass
 
     async def _broadcast_iq(self, payload: bytes) -> None:
-        if not self._iq_sinks:
+        with self._iq_sinks_lock:
+            iq_sinks = list(self._iq_sinks)
+        if not iq_sinks:
             return
         current_loop = None
         try:
             current_loop = asyncio.get_running_loop()
         except RuntimeError:
             current_loop = None
-        for (q, loop) in list(self._iq_sinks):
+        for (q, loop) in iq_sinks:
             if current_loop is loop:
                 try:
                     q.put_nowait(payload)
@@ -1972,10 +2013,11 @@ class Capture:
                 try:
                     loop.call_soon_threadsafe(_try_put)
                 except Exception:
-                    try:
-                        self._iq_sinks.discard((q, loop))
-                    except Exception:
-                        pass
+                    with self._iq_sinks_lock:
+                        try:
+                            self._iq_sinks.discard((q, loop))
+                        except Exception:
+                            pass
 
     def _process_channels_parallel(
         self,
@@ -2009,15 +2051,36 @@ class Capture:
             audio = ch.process_iq_chunk_sync(samples, self.cfg.sample_rate)
             return [(ch, audio)]
 
-        # Submit DSP work to executor (parallel)
+        # Submit DSP work to executor (parallel), with backpressure to avoid unbounded queueing
+        max_workers = getattr(executor, "_max_workers", 4)
+        max_inflight = max(4, max_workers * 2)
+        with self._dsp_inflight_lock:
+            inflight = self._dsp_inflight
+        if inflight >= max_inflight:
+            now = time.time()
+            if now - self._dsp_drop_last_log >= 2.0:
+                logger.warning(
+                    f"Capture {self.cfg.id}: DSP backlog {inflight}/{max_inflight}, skipping cycle to recover"
+                )
+                self._dsp_drop_last_log = now
+            return []
+
         futures: Dict[Future[Tuple[Optional[np.ndarray], Dict[str, Any]]], "Channel"] = {}
         for ch in channels:
+            with self._dsp_inflight_lock:
+                if self._dsp_inflight >= max_inflight:
+                    break
+                self._dsp_inflight += 1
             future = executor.submit(
                 _process_channel_dsp_stateless,
                 samples,
                 self.cfg.sample_rate,
                 ch.cfg,
             )
+            def _done(_fut: Future[Any]) -> None:
+                with self._dsp_inflight_lock:
+                    self._dsp_inflight = max(0, self._dsp_inflight - 1)
+            future.add_done_callback(_done)
             futures[future] = ch
 
         # Collect results and apply stateful processing
@@ -2043,6 +2106,7 @@ class Capture:
 
             except TimeoutError:
                 logger.warning(f"Channel {ch.cfg.id} DSP timeout")
+                future.cancel()
                 results.append((ch, None))
             except Exception as e:
                 logger.error(f"Channel {ch.cfg.id} DSP error: {e}")
@@ -2279,6 +2343,8 @@ class Capture:
                 logger.debug(f"Capture {self.cfg.id}: loop iteration {_capture_loop_counter}, calling read()")
             loop_start = time_module.perf_counter()
             try:
+                if self._stream is None:
+                    break
                 samples, overflow = self._stream.read(chunk)
                 if overflow:
                     self._iq_overflow_count += 1
@@ -2286,6 +2352,9 @@ class Capture:
                     self._report_iq_overflow()
             except Exception as e:
                 logger.error(f"Capture {self.cfg.id}: stream.read() exception: {e}")
+                if not self._stop_event.is_set():
+                    self.state = "failed"
+                    self.error_message = f"Stream read failed: {e}"
                 break
             if samples.size == 0:
                 # Light backoff to avoid busy-spin
@@ -2319,7 +2388,9 @@ class Capture:
             #
             # Duplicate minimal logic of _broadcast_iq without awaiting.
             payload = pack_iq16(samples)
-            for (q, loop) in list(self._iq_sinks):
+            with self._iq_sinks_lock:
+                iq_sinks = list(self._iq_sinks)
+            for (q, loop) in iq_sinks:
                 # Use default args to capture loop variables (avoids closure issues)
                 def _try_put(q: asyncio.Queue[bytes] = q, payload: bytes = payload) -> None:
                     try:
@@ -2336,10 +2407,11 @@ class Capture:
                 try:
                     loop.call_soon_threadsafe(_try_put)
                 except Exception:
-                    try:
-                        self._iq_sinks.discard((q, loop))
-                    except Exception:
-                        pass
+                    with self._iq_sinks_lock:
+                        try:
+                            self._iq_sinks.discard((q, loop))
+                        except Exception:
+                            pass
             # Checkpoint A: After IQ broadcast
             if _verbose_debug:
                 logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint A - after IQ broadcast")
@@ -2361,7 +2433,9 @@ class Capture:
                 logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint B - after channel metrics ({len(chans)} channels)")
             # Calculate FFT for spectrum display (only if there are active subscribers)
             fft_time_ms = 0.0
-            if self._fft_sinks:
+            with self._fft_sinks_lock:
+                fft_sinks = list(self._fft_sinks)
+            if fft_sinks:
                 # Debug: log that we have FFT subscribers
                 if self._fft_counter % 100 == 0:
                     logger.debug(f"FFT processing for {self.cfg.id}: {len(self._fft_sinks)} subscribers, counter={self._fft_counter}")
@@ -2371,7 +2445,7 @@ class Capture:
                 # - 1 viewer: configured FPS (default 15)
                 # - 2+ viewers: boost FPS for better responsiveness (up to 30)
                 base_fps = self.cfg.fft_fps or 15
-                subscriber_count = len(self._fft_sinks)
+                subscriber_count = len(fft_sinks)
                 if subscriber_count >= 2:
                     target_fps = min(30, base_fps * 2)
                 elif subscriber_count == 1:
@@ -2418,7 +2492,7 @@ class Capture:
                             "fftSize": fft_size,
                             "actualFps": round(self._fft_actual_fps, 1),
                         }
-                        for (fft_q, fft_loop) in list(self._fft_sinks):
+                        for (fft_q, fft_loop) in fft_sinks:
                             # Use default args to capture loop variables (avoids closure issues)
                             def _try_put_fft(q: asyncio.Queue[Dict[str, Any]] = fft_q, payload: Dict[str, Any] = payload_fft) -> None:
                                 try:
@@ -2435,10 +2509,11 @@ class Capture:
                             try:
                                 fft_loop.call_soon_threadsafe(_try_put_fft)
                             except Exception:
-                                try:
-                                    self._fft_sinks.discard((fft_q, fft_loop))
-                                except Exception:
-                                    pass
+                                with self._fft_sinks_lock:
+                                    try:
+                                        self._fft_sinks.discard((fft_q, fft_loop))
+                                    except Exception:
+                                        pass
 
             # Checkpoint C: After FFT processing
             if _verbose_debug:
@@ -2511,6 +2586,14 @@ class Capture:
             # Checkpoint E: End of loop iteration
             if _verbose_debug:
                 logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint E - loop iteration complete, loop_time={loop_time_ms:.1f}ms")
+
+        # Ensure stream is closed when the capture thread exits
+        if self._stream is not None:
+            try:
+                self._stream.close()
+            except Exception:
+                pass
+            self._stream = None
 
 
 class CaptureManager:
