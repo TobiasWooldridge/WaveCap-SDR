@@ -22,7 +22,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
@@ -349,6 +349,9 @@ class TrunkingSystem:
     # Control channel monitor (uses correct Phase I/II demodulator)
     _control_monitor: Optional[ControlChannelMonitor] = None
 
+    # Event loop for thread-safe async scheduling
+    _event_loop: Optional[asyncio.AbstractEventLoop] = field(default=None, repr=False)
+
     # Voice recorders
     _voice_recorders: List[VoiceRecorder] = field(default_factory=list)
 
@@ -416,6 +419,14 @@ class TrunkingSystem:
         logger.info(f"TrunkingSystem {self.cfg.id}: Starting...")
         self._set_state(TrunkingSystemState.STARTING)
         self._capture_manager = capture_manager
+        try:
+            self._event_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._event_loop = None
+            logger.warning(
+                "TrunkingSystem %s: No running event loop; async operations may be skipped",
+                self.cfg.id,
+            )
 
         # Validate config
         if not self.cfg.control_channels:
@@ -590,6 +601,23 @@ class TrunkingSystem:
 
         # Replace the sync processing method
         self._control_channel.process_iq_chunk_sync = wrapped_process_sync  # type: ignore[method-assign]
+
+    def _schedule_coroutine(self, coro: Coroutine[Any, Any, Any], context: str) -> None:
+        """Schedule a coroutine on the system event loop."""
+        loop = self._event_loop
+        if loop is not None and loop.is_running():
+            asyncio.run_coroutine_threadsafe(coro, loop)
+            return
+
+        try:
+            running_loop = asyncio.get_running_loop()
+            running_loop.create_task(coro)
+        except RuntimeError:
+            logger.warning(
+                "TrunkingSystem %s: No event loop to %s",
+                self.cfg.id,
+                context,
+            )
 
     def _handle_tsbk_callback(self, tsbk_data: Dict[str, Any]) -> None:
         """Handle TSBK message from P25 decoder.
@@ -869,17 +897,7 @@ class TrunkingSystem:
             recorder.setup_decimation_filter(self.cfg.sample_rate)
 
             # Start voice channel (async, schedule on event loop)
-            try:
-                loop = asyncio.get_running_loop()
-                asyncio.run_coroutine_threadsafe(
-                    recorder.start_voice_channel(),
-                    loop,
-                )
-            except RuntimeError:
-                # No running loop, log warning
-                logger.warning(
-                    f"TrunkingSystem {self.cfg.id}: No event loop to start voice channel"
-                )
+            self._schedule_coroutine(recorder.start_voice_channel(), "start voice channel")
 
             call.recorder_id = recorder.id
             call.state = CallState.RECORDING
@@ -1001,11 +1019,7 @@ class TrunkingSystem:
                         self._end_call(recorder.call_id, "preempted")
 
                     # Release is async, schedule it
-                    try:
-                        loop = asyncio.get_running_loop()
-                        asyncio.run_coroutine_threadsafe(recorder.release(), loop)
-                    except RuntimeError:
-                        pass
+                    self._schedule_coroutine(recorder.release(), "release preempted recorder")
                     return recorder
 
         return None
@@ -1042,11 +1056,7 @@ class TrunkingSystem:
         if call.recorder_id:
             for recorder in self._voice_recorders:
                 if recorder.id == call.recorder_id:
-                    try:
-                        loop = asyncio.get_running_loop()
-                        asyncio.run_coroutine_threadsafe(recorder.release(), loop)
-                    except RuntimeError:
-                        pass
+                    self._schedule_coroutine(recorder.release(), "release recorder")
                     break
 
         # Notify callback
