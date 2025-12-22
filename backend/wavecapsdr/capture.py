@@ -2038,13 +2038,13 @@ class Capture:
         samples: np.ndarray,
         executor: ThreadPoolExecutor,
     ) -> List[Tuple["Channel", Optional[np.ndarray]]]:
-        """Process all running channels in parallel using ThreadPoolExecutor.
+        """Process all running channels using ThreadPoolExecutor.
 
         NumPy/SciPy release the GIL during heavy computation, enabling true
-        parallelism in thread pools. This provides ~2.7x speedup for multi-channel
-        scenarios.
+        parallelism in thread pools. Always uses executor to keep capture thread
+        responsive - this prevents CPU-intensive modes (P25, DMR, high sample rates)
+        from blocking device I/O and causing buffer overflows.
 
-        For single channel, skips executor overhead and processes directly.
         Stateful decoders (RDS, POCSAG, P25, DMR) are handled after parallel DSP.
 
         Args:
@@ -2059,23 +2059,9 @@ class Capture:
         if not channels:
             return []
 
-        # For single channel, skip executor overhead - process directly
-        if len(channels) == 1:
-            ch = channels[0]
-            # Debug: Log that we're calling process_iq_chunk_sync
-            if not hasattr(self, "_iq_call_count"):
-                self._iq_call_count = 0
-            self._iq_call_count += 1
-            _verbose = self._iq_call_count <= 5 or self._iq_call_count % 100 == 0
-            if _verbose:
-                logger.info(f"Capture {self.cfg.id}: Calling process_iq_chunk_sync on {ch.cfg.id}, samples={len(samples)}")
-            import time as _time_mod
-            _start = _time_mod.perf_counter()
-            audio = ch.process_iq_chunk_sync(samples, self.cfg.sample_rate)
-            _elapsed = (_time_mod.perf_counter() - _start) * 1000
-            if _verbose or _elapsed > 100:  # Log if slow (>100ms)
-                logger.info(f"Capture {self.cfg.id}: process_iq_chunk_sync DONE on {ch.cfg.id}, elapsed={_elapsed:.1f}ms")
-            return [(ch, audio)]
+        # Always use ThreadPoolExecutor for DSP to keep capture thread responsive
+        # This prevents CPU-intensive modes (P25, DMR) from blocking device I/O
+        # The ~100-200μs executor overhead is acceptable tradeoff for stability
 
         # Submit DSP work to executor (parallel), with backpressure to avoid unbounded queueing
         max_workers = getattr(executor, "_max_workers", 4)
