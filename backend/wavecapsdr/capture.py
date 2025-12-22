@@ -1456,6 +1456,8 @@ class Capture:
     _dsp_inflight: int = 0
     _dsp_inflight_lock: threading.Lock = field(default_factory=threading.Lock)
     _dsp_drop_last_log: float = 0.0
+    # Per-capture DSP executor for CPU isolation between captures
+    _dsp_executor: Optional[ThreadPoolExecutor] = None
 
     def get_perf_stats(self) -> Dict[str, Any]:
         """Get performance statistics for this capture."""
@@ -1480,6 +1482,36 @@ class Capture:
         times_list.append(time_ms)
         if len(times_list) > self._perf_max_samples:
             times_list.pop(0)
+
+    def _get_dsp_executor(self) -> ThreadPoolExecutor:
+        """Get or create per-capture DSP executor.
+
+        Each capture gets its own executor for CPU isolation. This prevents
+        captures from competing for DSP threads, ensuring each radio/trunking
+        system has dedicated resources.
+
+        Workers sized based on expected channel count (2-4 per capture).
+        """
+        if self._dsp_executor is None:
+            # 3 workers handles typical use (1 control + voice recorders)
+            # For heavy multi-channel, the executor will queue work
+            max_workers = 3
+            self._dsp_executor = ThreadPoolExecutor(
+                max_workers=max_workers,
+                thread_name_prefix=f"DSP-{self.cfg.id}-"
+            )
+            logger.debug(f"Capture {self.cfg.id}: Created per-capture DSP executor with {max_workers} workers")
+        return self._dsp_executor
+
+    def _shutdown_dsp_executor(self) -> None:
+        """Shutdown per-capture DSP executor."""
+        if self._dsp_executor is not None:
+            logger.debug(f"Capture {self.cfg.id}: Shutting down per-capture DSP executor")
+            try:
+                self._dsp_executor.shutdown(wait=False, cancel_futures=True)
+            except Exception as e:
+                logger.warning(f"Capture {self.cfg.id}: Error shutting down DSP executor: {e}")
+            self._dsp_executor = None
 
     def _report_iq_overflow(self) -> None:
         """Rate-limited overflow reporting (max once per second)."""
@@ -1752,6 +1784,9 @@ class Capture:
         if self._health_monitor is not None:
             self._health_monitor.join(timeout=1.0)
             self._health_monitor = None
+
+        # Shutdown per-capture DSP executor
+        self._shutdown_dsp_executor()
 
         # Note: We do NOT close the device here - the device should stay open
         # for the lifetime of the Capture. We only close the stream.
@@ -2537,13 +2572,12 @@ class Capture:
             if _verbose_debug:
                 logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint C - after FFT ({len(self._fft_sinks)} sinks)")
             # Dispatch to channels for audio processing
-            # PARALLEL DSP: Use ThreadPoolExecutor for ~2.7x speedup with multiple channels
+            # PARALLEL DSP: Use per-capture ThreadPoolExecutor for CPU isolation
+            # Each capture gets its own DSP threads, preventing cross-capture starvation
             # NumPy/SciPy release the GIL during heavy computation, enabling true parallelism
-            # Only broadcast is scheduled on the event loop (lightweight queue operations)
             dsp_time_ms = 0.0
             if chans:
-                from .app import get_dsp_executor
-                dsp_executor = get_dsp_executor()
+                dsp_executor = self._get_dsp_executor()
                 samples_for_channels = samples.copy()
 
                 # Process all channels in parallel (or sequentially for single channel)
