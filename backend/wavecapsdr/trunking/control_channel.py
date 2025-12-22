@@ -24,12 +24,14 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from wavecapsdr.trunking.config import TrunkingProtocol
-from wavecapsdr.dsp.p25.c4fm import C4FMDemodulator
+# Use the proven-working C4FM demodulator from decoders/p25.py
+from wavecapsdr.decoders.p25 import C4FMDemodulator as P25C4FMDemodulator
 from wavecapsdr.decoders.p25_frames import (
     DUID,
     NID,
     TSDUFrame,
-    FRAME_SYNC_PATTERNS,
+    FRAME_SYNC_PATTERN,
+    FRAME_SYNC_DIBITS,
     decode_nid,
     decode_tsdu,
 )
@@ -56,7 +58,7 @@ class ControlChannelMonitor:
     sample_rate: int = 48000  # Input IQ sample rate
 
     # Demodulator (always C4FM for control channels)
-    _c4fm_demod: Optional[C4FMDemodulator] = None
+    _c4fm_demod: Optional[P25C4FMDemodulator] = None
 
     # TSBK parser
     _tsbk_parser: Optional[TSBKParser] = None
@@ -87,12 +89,14 @@ class ControlChannelMonitor:
         # P25 control channels ALWAYS use C4FM (Phase I signaling) at 4800 baud,
         # even for Phase II systems. Only voice channels use CQPSK/TDMA in Phase II.
         # This is a fundamental P25 design choice - control channel is backwards compatible.
-        self._c4fm_demod = C4FMDemodulator(
+        #
+        # Use the proven-working C4FM demodulator from decoders/p25.py
+        self._c4fm_demod = P25C4FMDemodulator(
             sample_rate=self.sample_rate,
             symbol_rate=4800,  # P25 control channel: always 4800 baud C4FM
         )
         logger.info(
-            f"ControlChannelMonitor: Using C4FM demodulator @ {self.sample_rate} Hz "
+            f"ControlChannelMonitor: Using P25C4FMDemodulator @ {self.sample_rate} Hz "
             f"(control channels always use C4FM, even for Phase II systems)"
         )
 
@@ -107,9 +111,8 @@ class ControlChannelMonitor:
         self.sync_state = SyncState.SEARCHING
         self._dibit_buffer.clear()
         self._sync_pattern_idx = 0
-
-        if self._c4fm_demod:
-            self._c4fm_demod.reset()
+        # P25C4FMDemodulator doesn't have a reset method; it maintains
+        # minimal state that resets naturally with new IQ blocks
 
     def process_iq(self, iq: np.ndarray) -> List[Dict[str, Any]]:
         """Process IQ samples and extract TSBK messages.
@@ -120,12 +123,30 @@ class ControlChannelMonitor:
         Returns:
             List of parsed TSBK results
         """
+        import time as _time_mod
+
         if iq.size == 0:
             return []
 
+        # DEBUG: Track call count
+        if not hasattr(self, '_process_iq_calls'):
+            self._process_iq_calls = 0
+        self._process_iq_calls += 1
+        _verbose = self._process_iq_calls <= 5
+
+        if _verbose:
+            logger.info(f"ControlChannelMonitor.process_iq: ENTRY call #{self._process_iq_calls}, iq.size={iq.size}")
+
         # Demodulate to dibits using C4FM (control channels always use C4FM)
         if self._c4fm_demod:
-            dibits, soft = self._c4fm_demod.demodulate(iq.astype(np.complex64))
+            _start = _time_mod.perf_counter()
+            if _verbose:
+                logger.info(f"ControlChannelMonitor.process_iq: calling demodulate")
+            # P25C4FMDemodulator.demodulate returns just dibits (no soft symbols)
+            dibits = self._c4fm_demod.demodulate(iq.astype(np.complex64))
+            _elapsed = (_time_mod.perf_counter() - _start) * 1000
+            if _verbose:
+                logger.info(f"ControlChannelMonitor.process_iq: demodulate returned {len(dibits)} dibits in {_elapsed:.1f}ms")
         else:
             return []
 
@@ -182,6 +203,13 @@ class ControlChannelMonitor:
                     self.on_sync_acquired()
 
             # In synced state, try to decode frame
+            # Debug: track frame decode attempts
+            if not hasattr(self, '_decode_attempts'):
+                self._decode_attempts = 0
+            self._decode_attempts += 1
+            if self._decode_attempts % 100 == 1:
+                logger.info(f"ControlChannelMonitor: Frame decode attempt {self._decode_attempts}, buffer={len(self._dibit_buffer)}")
+
             if len(self._dibit_buffer) < self.TSDU_FRAME_DIBITS:
                 # Need more dibits
                 break
@@ -190,23 +218,62 @@ class ControlChannelMonitor:
             frame_dibits = np.array(self._dibit_buffer[:self.TSDU_FRAME_DIBITS], dtype=np.uint8)
 
             # Verify sync pattern at start of frame
-            if not self._verify_sync(frame_dibits[:self.FRAME_SYNC_DIBITS]):
+            sync_dibits = self._get_sync_dibits()
+            frame_sync = frame_dibits[:self.FRAME_SYNC_DIBITS]
+            sync_errors = np.sum(frame_sync != sync_dibits)
+            if sync_errors > 4:  # Match search tolerance
                 # Lost sync
                 self.sync_state = SyncState.SEARCHING
                 self.sync_losses += 1
-                logger.warning("ControlChannelMonitor: Lost frame sync")
+                logger.warning(f"ControlChannelMonitor: Lost frame sync (errors={sync_errors})")
                 if self.on_sync_lost:
                     self.on_sync_lost()
                 # Don't consume dibits, let search find next sync
                 continue
+            # Debug: log successful sync verification (every 50 frames)
+            if not hasattr(self, '_verified_frames'):
+                self._verified_frames = 0
+            self._verified_frames += 1
+            if self._verified_frames % 50 == 1:
+                logger.info(f"ControlChannelMonitor: Sync verified (frame {self._verified_frames}, errors={sync_errors})")
 
             # Decode NID (Network ID) after sync
-            nid_dibits = frame_dibits[self.FRAME_SYNC_DIBITS:self.FRAME_SYNC_DIBITS + 32]
-            nid = decode_nid(nid_dibits)
+            # NID is 32 dibits of data, but there's a status symbol at position 11
+            # (35 dibits from frame start = 24 sync + 11 into NID), so we need 33 dibits
+            nid_dibits = frame_dibits[self.FRAME_SYNC_DIBITS:self.FRAME_SYNC_DIBITS + 33]
+
+            # Debug: log NID dibits for first few frames
+            if not hasattr(self, '_frame_count'):
+                self._frame_count = 0
+            self._frame_count += 1
+
+            if self._frame_count <= 10:
+                # Log DUID position dibits specifically
+                duid_pos_in_frame = self.FRAME_SYNC_DIBITS + 6  # positions 30-31
+                logger.info(
+                    f"ControlChannelMonitor: Frame {self._frame_count}, "
+                    f"frame_dibits[30:32]={list(frame_dibits[30:32])}, "
+                    f"nid_dibits[6:8]={list(nid_dibits[6:8])}, "
+                    f"NID dibits (33): {list(nid_dibits[:15])}..."
+                )
+
+            nid = decode_nid(nid_dibits, skip_status_at_11=True)
+
+            # Debug: log every 10th frame for now (to see DUID distribution)
+            if self._frame_count <= 5 or self._frame_count % 10 == 1:
+                logger.info(
+                    f"ControlChannelMonitor: Frame {self._frame_count}, NID={nid}, "
+                    f"DUID={nid.duid if nid else 'None'}, TSDU={DUID.TSDU}"
+                )
 
             if nid is not None and nid.duid == DUID.TSDU:
                 # This is a TSDU frame - decode it
+                logger.info(f"ControlChannelMonitor: Calling decode_tsdu on TSDU frame, frame_len={len(frame_dibits)}")
                 tsdu = decode_tsdu(frame_dibits)
+                if tsdu:
+                    logger.info(f"ControlChannelMonitor: decode_tsdu returned {len(tsdu.tsbk_blocks) if tsdu.tsbk_blocks else 0} TSBK blocks")
+                else:
+                    logger.info("ControlChannelMonitor: decode_tsdu returned None")
                 if tsdu and tsdu.tsbk_blocks:
                     self.frames_decoded += 1
 
@@ -250,14 +317,26 @@ class ControlChannelMonitor:
             return -1
 
         # Convert expected sync pattern to dibits
-        # P25 frame sync: 0x5575F5FF77FF (48 bits = 24 dibits)
         sync_dibits = self._get_sync_dibits()
 
-        # Search for pattern
+        # Debug: Log buffer sample every 1000 calls
+        if not hasattr(self, '_find_sync_calls'):
+            self._find_sync_calls = 0
+        self._find_sync_calls += 1
+        if self._find_sync_calls <= 3 or self._find_sync_calls % 500 == 0:
+            sample = self._dibit_buffer[:min(30, len(self._dibit_buffer))]
+            logger.info(
+                f"ControlChannelMonitor._find_sync_in_buffer: call #{self._find_sync_calls}, "
+                f"buffer_len={len(self._dibit_buffer)}, "
+                f"first_30_dibits={list(sample)}, "
+                f"expected_sync={list(sync_dibits[:12])}..."
+            )
+
+        # Search for pattern (allow 4 errors like P25FrameSync)
         for i in range(len(self._dibit_buffer) - self.FRAME_SYNC_DIBITS + 1):
             match = True
             errors = 0
-            max_errors = 2  # Allow up to 2 dibit errors
+            max_errors = 4  # Allow up to 4 dibit errors (matches P25FrameSync.sync_threshold)
 
             for j in range(self.FRAME_SYNC_DIBITS):
                 if self._dibit_buffer[i + j] != sync_dibits[j]:
@@ -282,22 +361,26 @@ class ControlChannelMonitor:
         """
         sync_dibits = self._get_sync_dibits()
         errors = np.sum(dibits != sync_dibits)
-        return errors <= 3  # Allow up to 3 dibit errors
+        return errors <= 4  # Allow up to 4 dibit errors (matches P25FrameSync)
 
     def _get_sync_dibits(self) -> np.ndarray:
         """Get P25 frame sync pattern as dibits.
 
-        The P25 frame sync is: 0x5575F5FF77FF (48 bits)
-        This maps to specific frequency deviations in C4FM.
+        P25 uses the SAME 48-bit sync pattern for ALL frame types (HDU, TSDU, LDU, etc).
+        The frame type (DUID) is in the NID that follows the sync pattern.
+
+        Per TIA-102.BAAA constellation mapping:
+        C4FM symbols: +3 +3 +3 +3 +3 -3 +3 +3 -3 -3 +3 +3 -3 -3 -3 -3 +3 -3 +3 -3 -3 -3 -3 -3
+
+        Correct dibit encoding:
+        +3 symbol -> dibit 1 (binary 01)
+        -3 symbol -> dibit 3 (binary 11)
+
+        This matches SDRTrunk's pattern: 0x5575F5FF77FF
         """
-        # Frame sync word: 0x5575F5FF77FF
-        # Bit pairs (MSB first) -> dibits
-        sync_hex = 0x5575F5FF77FF
-        dibits = []
-        for i in range(23, -1, -1):
-            dibit = (sync_hex >> (i * 2)) & 0x3
-            dibits.append(dibit)
-        return np.array(dibits, dtype=np.uint8)
+        # Updated to match correct P25 constellation mapping
+        return np.array([1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1,
+                         3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3], dtype=np.uint8)
 
     def _parse_tsbk(self, tsbk_data: bytes) -> Optional[Dict[str, Any]]:
         """Parse TSBK message.

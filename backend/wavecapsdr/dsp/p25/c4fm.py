@@ -95,10 +95,18 @@ class C4FMDemodulator:
         dibits, soft = demod.demodulate(iq_samples)
     """
 
-    # C4FM symbol deviation levels (normalized to +/-1 after FM demod scaling)
-    # Maps to dibits: +3 -> 01, +1 -> 00, -1 -> 10, -3 -> 11
+    # C4FM symbol deviation levels (normalized to phase after FM demod scaling)
+    # Per P25 TIA-102.BAAA-A and SDRTrunk Dibit.java:
+    # Symbol  Phase      Frequency   Dibit (binary)  Dibit (decimal)
+    # +3      +3π/4      +1800 Hz    01              1
+    # +1      +π/4       +600 Hz     00              0
+    # -1      -π/4       -600 Hz     10              2
+    # -3      -3π/4      -1800 Hz    11              3
+    #
+    # SDRTrunk decision boundary is π/2 (90 degrees)
+    # This differs from the old WaveCap mapping which used arbitrary frequency thresholds
     SYMBOL_LEVELS = np.array([3.0, 1.0, -1.0, -3.0], dtype=np.float32)
-    DIBIT_MAP = np.array([1, 0, 2, 3], dtype=np.uint8)  # Symbol index to dibit
+    DIBIT_MAP = np.array([1, 0, 2, 3], dtype=np.uint8)  # Maps symbol index to dibit (P25 standard)
 
     # Expected RMS of symbol levels: sqrt((9 + 1 + 1 + 9) / 4) ≈ 2.236
     EXPECTED_SYMBOL_RMS = np.sqrt(5.0)
@@ -106,7 +114,9 @@ class C4FMDemodulator:
     # Constellation gain bounds (per SDRTrunk: 1.0 to 1.25)
     GAIN_MIN = 1.0
     GAIN_MAX = 1.25
-    GAIN_INITIAL = 1.0  # Start at unity (SDRTrunk uses 1.219 for DQPSK phase)
+    # SDRTrunk initializes at 1.219 based on empirical testing with P25/DMR C4FM signals
+    # This compensates for pulse shaping filter amplitude compression
+    GAIN_INITIAL = 1.219
 
     # Gain adaptation rate (15% per update, per SDRTrunk EQUALIZER_LOOP_GAIN)
     GAIN_LOOP_ALPHA = 0.15
@@ -142,14 +152,18 @@ class C4FMDemodulator:
 
         # Calculate loop filter coefficients (proportional-integral)
         # Using standard formulas for 2nd order loop
-        damping = 1.0  # Critical damping
-        theta = loop_bw / (damping + 1 / (4 * damping))
-        d = 1 + 2 * damping * theta + theta**2
-        self._kp = 4 * damping * theta / d  # Proportional gain
-        self._ki = 4 * theta**2 / d  # Integral gain
+        # Per SDRTrunk P25P1DemodulatorC4FM.java lines 144-150
+        damping = 1.0  # Critical damping (prevents oscillation)
+        theta = loop_bw / (damping + 1.0 / (4.0 * damping))
+        d = 1.0 + 2.0 * damping * theta + theta * theta
+        self._kp = (4.0 * damping * theta) / d  # Proportional gain
+        self._ki = (4.0 * theta * theta) / d  # Integral gain
 
         # Loop filter state
         self._loop_integrator = 0.0
+
+        # Maximum integrator to prevent wind-up (±1/4 symbol period)
+        self._integrator_max = self.samples_per_symbol / 4.0
 
         # Previous sample for interpolation
         self._prev_samples = np.zeros(4, dtype=np.float32)
@@ -160,7 +174,9 @@ class C4FMDemodulator:
 
         # Deviation scaling: map FM output to symbol levels
         # P25 C4FM uses +/- 1800 Hz deviation for +/- 3 symbols
-        self._deviation_scale = symbol_rate / (1800 * 2)
+        # After FM discriminator, we want +/-1800 Hz to map to +/-3.0 symbol levels
+        # The discriminator outputs in units of Hz, so scale by 3.0/1800.0
+        self._deviation_scale = 3.0 / 1800.0
 
         # Constellation gain correction (adapted from SDRTrunk)
         # Compensates for pulse shaping induced amplitude compression
@@ -221,25 +237,38 @@ class C4FMDemodulator:
         return freq.astype(np.float32)
 
     def _interpolate(self, samples: np.ndarray, mu: float) -> float:
-        """Cubic interpolation for fractional delay.
+        """Interpolation for fractional delay.
 
-        Uses Farrow structure for efficient interpolation.
+        SDRTrunk uses simple linear interpolation (LinearInterpolator.java line 45).
+        This implementation supports both linear and cubic for comparison.
 
         Args:
-            samples: 4 consecutive samples
+            samples: 4 consecutive samples (only first 2 used for linear)
             mu: Fractional delay (0 to 1)
 
         Returns:
             Interpolated sample value
         """
-        # Cubic Lagrange interpolation
-        s0, s1, s2, s3 = samples
-        c0 = s1
-        c1 = (s2 - s0) / 2
-        c2 = s0 - 5 * s1 / 2 + 2 * s2 - s3 / 2
-        c3 = (s3 - s0) / 2 + 3 * (s1 - s2) / 2
+        # Safety check: need at least 2 samples
+        if len(samples) < 2:
+            return 0.0
 
-        return c0 + mu * (c1 + mu * (c2 + mu * c3))
+        # Linear interpolation (per SDRTrunk)
+        # This is simpler and proven to work well with P25 C4FM
+        # Formula: x1 + (x2 - x1) * mu
+        return samples[1] + (samples[2] - samples[1]) * mu if len(samples) >= 3 else samples[0]
+
+        # Cubic Lagrange interpolation (original WaveCap implementation)
+        # Theoretically better but more complex, not used by SDRTrunk
+        # Uncomment to use cubic instead of linear:
+        # if len(samples) != 4:
+        #     return samples[1] if len(samples) >= 2 else 0.0
+        # s0, s1, s2, s3 = samples
+        # c0 = s1
+        # c1 = (s2 - s0) / 2
+        # c2 = s0 - 5 * s1 / 2 + 2 * s2 - s3 / 2
+        # c3 = (s3 - s0) / 2 + 3 * (s1 - s2) / 2
+        # return c0 + mu * (c1 + mu * (c2 + mu * c3))
 
     def demodulate(self, iq: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Demodulate C4FM signal to dibits.
@@ -255,6 +284,15 @@ class C4FMDemodulator:
             - dibits: Hard decision dibits (0-3), shape (N,)
             - soft_symbols: Soft symbol values, shape (N,)
         """
+        # DEBUG: Track calls
+        if not hasattr(self, '_demod_calls'):
+            self._demod_calls = 0
+        self._demod_calls += 1
+        _verbose = self._demod_calls <= 5
+
+        if _verbose:
+            logger.info(f"C4FMDemodulator.demodulate: ENTRY call #{self._demod_calls}, iq len={len(iq)}")
+
         if len(iq) == 0:
             return (
                 np.array([], dtype=np.uint8),
@@ -262,77 +300,131 @@ class C4FMDemodulator:
             )
 
         # FM discriminator
+        if _verbose:
+            logger.info(f"C4FMDemodulator.demodulate: calling _fm_discriminator")
         freq = self._fm_discriminator(iq)
+        if _verbose:
+            logger.info(f"C4FMDemodulator.demodulate: _fm_discriminator returned {len(freq)} samples")
 
         # Matched filter (RRC)
+        if _verbose:
+            logger.info(f"C4FMDemodulator.demodulate: calling lfilter")
         filtered = signal.lfilter(self._rrc, 1.0, freq).astype(np.float32)
+        if _verbose:
+            logger.info(f"C4FMDemodulator.demodulate: lfilter returned {len(filtered)} samples")
 
         # Symbol timing recovery with Gardner TED
         dibits = []
         soft_symbols = []
 
-        # Process samples
-        i = 0
-        while i < len(filtered) - 4:
-            # Advance to next symbol timing position
-            advance = self.samples_per_symbol + self._loop_integrator
-            next_pos = int(self._ted_phase + advance)
+        # Process samples using NCO-style timing recovery
+        # buffer_pos tracks position through current buffer
+        # _ted_phase is fractional timing offset (0 to 1) that persists between calls
+        buffer_pos = 0.0
+        symbol_period = self.samples_per_symbol
 
-            if next_pos >= len(filtered) - 3:
+        if _verbose:
+            logger.info(f"C4FMDemodulator.demodulate: entering symbol recovery loop, filtered len={len(filtered)}, sps={symbol_period:.2f}")
+
+        while buffer_pos < len(filtered) - 4:
+            # Sample position (integer + fractional)
+            sample_idx = int(buffer_pos)
+            mu = buffer_pos - sample_idx + self._ted_phase
+
+            # Handle mu overflow (>= 1 means advance to next sample)
+            if mu >= 1.0:
+                mu -= 1.0
+                sample_idx += 1
+                if sample_idx >= len(filtered) - 3:
+                    break
+
+            if sample_idx + 3 >= len(filtered):
                 break
 
-            # Fractional interpolation position
-            mu = self._ted_phase + advance - next_pos
+            # Get samples for interpolation
+            samples = filtered[sample_idx : sample_idx + 4]
 
-            # Get interpolated samples for TED
-            idx = next_pos
-            if idx + 3 < len(filtered):
-                samples = filtered[idx : idx + 4]
+            # Interpolate current symbol
+            raw_symbol = self._interpolate(samples, mu)
 
-                # Interpolate current symbol
-                raw_symbol = self._interpolate(samples, mu)
+            # Guard against NaN/inf from interpolation
+            if not np.isfinite(raw_symbol):
+                raw_symbol = 0.0
 
-                # Apply constellation gain and DC offset correction
-                # This compensates for pulse shaping induced amplitude compression
-                current = (raw_symbol + self._dc_offset) * self._constellation_gain
+            # Apply constellation gain and DC offset correction
+            # This compensates for pulse shaping induced amplitude compression
+            current = (raw_symbol + self._dc_offset) * self._constellation_gain
 
-                # Gardner TED (uses mid-point between symbols)
-                # Error = mid * (prev - current)
-                mid_idx = int(next_pos - self.samples_per_symbol / 2)
-                if mid_idx >= 0 and mid_idx + 3 < len(filtered):
-                    mid_samples = filtered[mid_idx : mid_idx + 4]
-                    mid = self._interpolate(mid_samples, mu)
-                    error = mid * (self._prev_symbol - raw_symbol)
+            # Gardner TED (uses mid-point between symbols)
+            # Error = mid * (prev - current)
+            # Per SDRTrunk, this is calculated at the midpoint between the current and previous symbol
+            mid_idx = int(buffer_pos - symbol_period / 2)
+            if mid_idx >= 0 and mid_idx + 3 < len(filtered):
+                mid_samples = filtered[mid_idx : mid_idx + 4]
+                mid = self._interpolate(mid_samples, mu)
 
-                    # Loop filter
-                    self._loop_integrator += self._ki * error
-                    self._loop_integrator = np.clip(
-                        self._loop_integrator, -self.samples_per_symbol / 4, self.samples_per_symbol / 4
-                    )
+                # Gardner timing error detector
+                # Positive error means we're sampling late, negative means early
+                error = mid * (self._prev_symbol - raw_symbol)
 
-                # Symbol decision (using corrected value)
-                distances = np.abs(self.SYMBOL_LEVELS - current)
-                symbol_idx = int(np.argmin(distances))
-                dibit = self.DIBIT_MAP[symbol_idx]
+                # Guard against NaN/inf in error calculation
+                if not np.isfinite(error):
+                    error = 0.0
 
-                dibits.append(dibit)
-                soft_symbols.append(current)
+                # PI loop filter (per SDRTrunk lines 342-345)
+                # Integral term (accumulates error, clamped to prevent wind-up)
+                self._loop_integrator += self._ki * error
+                self._loop_integrator = np.clip(
+                    self._loop_integrator, -self._integrator_max, self._integrator_max
+                )
 
-                # Track symbols for gain calibration
-                self._symbol_buffer.append(raw_symbol)
-                self._symbols_since_sync += 1
+                # Proportional term (immediate response to error)
+                # Note: SDRTrunk applies Kp*error to timing phase, Ki*error to integrator
+                # The integrator is then added to buffer advance (see line 386)
+                phase_adjustment = self._kp * error
 
-                # Update gain at sync intervals (every 24 symbols)
-                # This aligns with P25 sync pattern spacing
-                if self._symbols_since_sync >= 24:
-                    self._update_constellation_gain()
-                    self._symbols_since_sync = 0
+                # Clamp phase adjustment to prevent wild swings
+                phase_adjustment = np.clip(phase_adjustment, -0.5, 0.5)
 
-                self._prev_symbol = raw_symbol
+                # Update timing phase (fractional offset within symbol period)
+                self._ted_phase += phase_adjustment
 
-            # Update phase
-            self._ted_phase = mu
-            i = next_pos + 1
+                # Normalize phase to [0, 1) range
+                self._ted_phase = self._ted_phase % 1.0
+                if self._ted_phase < 0:
+                    self._ted_phase += 1.0
+
+            # Symbol decision (using corrected value)
+            # Guard against NaN/inf values
+            if not np.isfinite(current):
+                current = 0.0  # Default to middle of constellation
+            distances = np.abs(self.SYMBOL_LEVELS - current)
+            symbol_idx = int(np.argmin(distances))
+            # Clamp index to valid range (safety)
+            symbol_idx = max(0, min(symbol_idx, 3))
+            dibit = self.DIBIT_MAP[symbol_idx]
+
+            dibits.append(dibit)
+            soft_symbols.append(current)
+
+            # Track symbols for gain calibration
+            self._symbol_buffer.append(raw_symbol)
+            self._symbols_since_sync += 1
+
+            # Update gain at sync intervals (every 24 symbols)
+            # This aligns with P25 sync pattern spacing
+            if self._symbols_since_sync >= 24:
+                self._update_constellation_gain()
+                self._symbols_since_sync = 0
+
+            self._prev_symbol = raw_symbol
+
+            # Advance buffer position by symbol period (adjusted by loop integrator)
+            # Ensure we always advance by at least half a symbol period to prevent infinite loops
+            advance = symbol_period + self._loop_integrator
+            if advance < symbol_period * 0.5:
+                advance = symbol_period * 0.5
+            buffer_pos += advance
 
         return (
             np.array(dibits, dtype=np.uint8),

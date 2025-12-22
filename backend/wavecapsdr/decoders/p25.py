@@ -65,13 +65,23 @@ class C4FMDemodulator:
         self.samples_per_symbol = sample_rate / symbol_rate  # Float for fractional
 
         # C4FM deviation levels (normalized to ±1)
-        # +3 = +1800 Hz, +1 = +600 Hz, -1 = -600 Hz, -3 = -1800 Hz
-        # Map to dibits: +3->3, +1->2, -1->1, -3->0
+        # P25 TIA-102.BAAA constellation mapping:
+        # Symbol | Frequency | Dibit Binary | Dibit Value
+        # +3     | +1800 Hz  | 01          | 1
+        # +1     | +600 Hz   | 00          | 0
+        # -1     | -600 Hz   | 10          | 2
+        # -3     | -1800 Hz  | 11          | 3
+        #
+        # After FM demodulation, normalized symbol levels are:
+        # +1.0 (max positive) = +3 symbol = dibit 1
+        # +0.33 (mid positive) = +1 symbol = dibit 0
+        # -0.33 (mid negative) = -1 symbol = dibit 2
+        # -1.0 (max negative) = -3 symbol = dibit 3
         self.deviation_hz = 600.0  # Base deviation (±600 Hz steps)
         self.max_deviation = 1800.0  # ±1800 Hz max
 
         # Symbol decision thresholds (normalized -1 to +1)
-        # Levels at -1, -0.33, +0.33, +1 -> thresholds at -0.67, 0, +0.67
+        # Thresholds at -0.67, 0, +0.67 separate the 4 symbol levels
         self.thresholds = np.array([-0.67, 0.0, 0.67])
 
         # Gardner TED state
@@ -215,15 +225,20 @@ class C4FMDemodulator:
             self._last_symbol = y_k
 
             # Map to dibit using thresholds
-            # Levels: -1 (dibit 0), -0.33 (dibit 1), +0.33 (dibit 2), +1 (dibit 3)
-            if y_k < self.thresholds[0]:
-                dibit = 0
-            elif y_k < self.thresholds[1]:
-                dibit = 1
-            elif y_k < self.thresholds[2]:
-                dibit = 2
-            else:
-                dibit = 3
+            # Per TIA-102.BAAA constellation:
+            # Symbol level (normalized) -> C4FM Symbol -> Dibit value
+            # < -0.67 (-1.0)  -> -3 symbol -> dibit 3
+            # -0.67 to 0      -> -1 symbol -> dibit 2
+            # 0 to +0.67      -> +1 symbol -> dibit 0
+            # > +0.67 (+1.0)  -> +3 symbol -> dibit 1
+            if y_k < self.thresholds[0]:  # < -0.67
+                dibit = 3  # -3 symbol
+            elif y_k < self.thresholds[1]:  # -0.67 to 0
+                dibit = 2  # -1 symbol
+            elif y_k < self.thresholds[2]:  # 0 to +0.67
+                dibit = 0  # +1 symbol
+            else:  # > +0.67
+                dibit = 1  # +3 symbol
 
             symbols.append(dibit)
 
@@ -369,10 +384,16 @@ class P25FrameSync:
     DUID_TDULC = 0xF # Terminator with LC
 
     # Frame sync pattern as dibits (24 dibits = 48 bits)
-    # +3=dibit 3, +1=dibit 2, -1=dibit 1, -3=dibit 0
-    # Pattern: +3+3+3+3+3-3+3+3-3-3+3+3+3+3-3+3-3+3-3-3-3+3-3-3
-    FRAME_SYNC_DIBITS = np.array([3, 3, 3, 3, 3, 0, 3, 3, 0, 0, 3, 3,
-                                   3, 3, 0, 3, 0, 3, 0, 0, 0, 3, 0, 0], dtype=np.uint8)
+    # Per TIA-102.BAAA, P25 uses the same sync pattern for all frame types:
+    # C4FM symbols: +3 +3 +3 +3 +3 -3 +3 +3 -3 -3 +3 +3 -3 -3 -3 -3 +3 -3 +3 -3 -3 -3 -3 -3
+    #
+    # Correct dibit encoding per constellation mapping:
+    # +3 symbol -> dibit 1 (binary 01)
+    # -3 symbol -> dibit 3 (binary 11)
+    #
+    # This matches SDRTrunk's pattern: 0x5575F5FF77FF
+    FRAME_SYNC_DIBITS = np.array([1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1,
+                                   3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3], dtype=np.uint8)
 
     def __init__(self) -> None:
         self.duid_to_frame_type = {
@@ -425,11 +446,28 @@ class P25FrameSync:
                 if nid_start + 8 > len(dibits):
                     continue
 
+                # Extract NAC (first 6 dibits = 12 bits)
+                nac_dibits = dibits[nid_start:nid_start + 6]
+                nac = 0
+                for d in nac_dibits:
+                    nac = (nac << 2) | int(d)
+
                 # Extract DUID (2 dibits after NAC)
                 duid_dibits = dibits[nid_start + 6:nid_start + 8]
                 duid = int((duid_dibits[0] << 2) | duid_dibits[1])
 
                 frame_type = self.duid_to_frame_type.get(duid, P25FrameType.UNKNOWN)
+
+                # Debug: log NAC and DUID for first few syncs
+                if not hasattr(self, '_sync_debug_count'):
+                    self._sync_debug_count = 0
+                self._sync_debug_count += 1
+                if self._sync_debug_count <= 10:
+                    logger.info(
+                        f"P25FrameSync: pos={start_pos}, NAC={nac:03x}, "
+                        f"NID dibits={list(dibits[nid_start:nid_start+8])}, "
+                        f"DUID={duid:x} -> {frame_type}"
+                    )
 
                 logger.debug(f"P25 sync found at {start_pos}, errors={errors}, DUID={duid:x} -> {frame_type}")
                 return start_pos, frame_type

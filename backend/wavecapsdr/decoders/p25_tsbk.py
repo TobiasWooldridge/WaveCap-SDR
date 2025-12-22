@@ -29,11 +29,12 @@ logger = logging.getLogger(__name__)
 
 
 class TSBKOpcode(IntEnum):
-    """TSBK Opcode values (6 bits)."""
-    # Voice grants
+    """TSBK Opcode values (6 bits) - per SDRTrunk Opcode.java."""
+    # Voice grants (OSP)
     GRP_V_CH_GRANT = 0x00  # Group Voice Channel Grant
     GRP_V_CH_GRANT_UPDT = 0x02  # Group Voice Channel Grant Update
-    UU_V_CH_GRANT = 0x03  # Unit to Unit Voice Channel Grant
+    GRP_V_CH_GRANT_UPDT_EXP = 0x03  # Group Voice Channel Grant Update Explicit
+    UU_V_CH_GRANT = 0x04  # Unit to Unit Voice Channel Grant
     UU_ANS_REQ = 0x05  # Unit to Unit Answer Request
     UU_V_CH_GRANT_UPDT = 0x06  # Unit to Unit Voice Channel Grant Update
 
@@ -190,6 +191,8 @@ class TSBKParser:
                 self._parse_grp_v_ch_grant(data, result)
             elif opcode == TSBKOpcode.GRP_V_CH_GRANT_UPDT:
                 self._parse_grp_v_ch_grant_updt(data, result)
+            elif opcode == TSBKOpcode.GRP_V_CH_GRANT_UPDT_EXP:
+                self._parse_grp_v_ch_grant_updt_exp(data, result)
             elif opcode == TSBKOpcode.UU_V_CH_GRANT:
                 self._parse_uu_v_ch_grant(data, result)
             elif opcode == TSBKOpcode.RFSS_STS_BCAST:
@@ -229,18 +232,31 @@ class TSBKParser:
     def _parse_grp_v_ch_grant(self, data: bytes, result: Dict[str, Any]) -> None:
         """Parse Group Voice Channel Grant.
 
-        Data format (64 bits per TIA-102.AABB-A):
-        - Service Options (8 bits)
-        - Channel (16 bits: 4-bit IDEN + 12-bit channel number)
-        - Group Address (16 bits)
-        - Source Address (24 bits)
+        Data format (64 bits per TIA-102.AABB-A, SDRTrunk bit positions):
+        - Bits 16-23: Service Options (8 bits)
+        - Bits 24-27: Frequency Band (4 bits)
+        - Bits 28-39: Channel Number (12 bits)
+        - Bits 40-55: Group Address (16 bits)
+        - Bits 56-79: Source Address (24 bits)
         """
         result['type'] = 'GROUP_VOICE_GRANT'
 
+        # Service options (byte 0 = bits 16-23)
         svc_opts = data[0]
-        channel = (data[1] << 8) | data[2]
+
+        # Frequency band (upper 4 bits of byte 1 = bits 24-27)
+        freq_band = (data[1] >> 4) & 0x0F
+
+        # Channel number (lower 4 bits of byte 1 + byte 2 = bits 28-39)
+        channel_num = ((data[1] & 0x0F) << 8) | data[2]
+
+        # Combine into 16-bit channel ID (4-bit band + 12-bit channel)
+        channel = (freq_band << 12) | channel_num
+
+        # Group address (bytes 3-4 = bits 40-55)
         tgid = (data[3] << 8) | data[4]
-        # Source is 24 bits (3 bytes) per P25 spec
+
+        # Source address (bytes 5-7 = bits 56-79)
         source = (data[5] << 16) | (data[6] << 8) | data[7]
 
         result['emergency'] = bool(svc_opts & 0x80)
@@ -249,6 +265,8 @@ class TSBKParser:
         result['priority'] = (svc_opts >> 0) & 0x07
 
         result['channel'] = channel
+        result['frequency_band'] = freq_band
+        result['channel_number'] = channel_num
         result['tgid'] = tgid
         result['source_id'] = source
 
@@ -257,7 +275,7 @@ class TSBKParser:
         result['frequency_hz'] = freq
         result['frequency_mhz'] = freq / 1e6 if freq else 0
 
-        logger.info(f"Voice Grant: TGID={tgid} CH={channel} "
+        logger.info(f"Voice Grant: TGID={tgid} BAND={freq_band} CH={channel_num} "
                    f"FREQ={result['frequency_mhz']:.4f} MHz "
                    f"SRC={source}")
 
@@ -273,55 +291,140 @@ class TSBKParser:
             )
             self.on_voice_grant(grant)
 
+    def _parse_grp_v_ch_grant_updt_exp(self, data: bytes, result: Dict[str, Any]) -> None:
+        """Parse Group Voice Channel Grant Update Explicit.
+
+        Contains explicit downlink/uplink frequencies instead of channel identifiers.
+
+        Data format per SDRTrunk:
+        - Bits 16-23: Service Options (8 bits)
+        - Bits 24-31: Reserved (8 bits)
+        - Bits 32-35: Downlink Frequency Band (4 bits)
+        - Bits 36-47: Downlink Channel Number (12 bits)
+        - Bits 48-51: Uplink Frequency Band (4 bits)
+        - Bits 52-63: Uplink Channel Number (12 bits)
+        - Bits 64-79: Group Address (16 bits)
+        """
+        result['type'] = 'GROUP_VOICE_GRANT_UPDATE_EXPLICIT'
+
+        # Service options (byte 0)
+        svc_opts = data[0]
+
+        # Reserved (byte 1)
+        # Skip
+
+        # Downlink: Frequency band (upper 4 bits of byte 2)
+        dl_freq_band = (data[2] >> 4) & 0x0F
+        # Downlink: Channel number (lower 4 bits of byte 2 + byte 3)
+        dl_channel_num = ((data[2] & 0x0F) << 8) | data[3]
+        dl_channel = (dl_freq_band << 12) | dl_channel_num
+
+        # Uplink: Frequency band (upper 4 bits of byte 4)
+        ul_freq_band = (data[4] >> 4) & 0x0F
+        # Uplink: Channel number (lower 4 bits of byte 4 + byte 5)
+        ul_channel_num = ((data[4] & 0x0F) << 8) | data[5]
+        ul_channel = (ul_freq_band << 12) | ul_channel_num
+
+        # Group address (bytes 6-7)
+        tgid = (data[6] << 8) | data[7]
+
+        result['emergency'] = bool(svc_opts & 0x80)
+        result['encrypted'] = bool(svc_opts & 0x40)
+        result['duplex'] = bool(svc_opts & 0x20)
+        result['priority'] = (svc_opts >> 0) & 0x07
+
+        result['downlink_channel'] = dl_channel
+        result['downlink_frequency_band'] = dl_freq_band
+        result['downlink_channel_number'] = dl_channel_num
+        result['downlink_frequency_hz'] = self.get_frequency(dl_channel)
+
+        result['uplink_channel'] = ul_channel
+        result['uplink_frequency_band'] = ul_freq_band
+        result['uplink_channel_number'] = ul_channel_num
+        result['uplink_frequency_hz'] = self.get_frequency(ul_channel)
+
+        result['tgid'] = tgid
+
+        logger.info(f"Voice Grant Update Explicit: TGID={tgid} "
+                   f"DL_BAND={dl_freq_band} DL_CH={dl_channel_num} "
+                   f"UL_BAND={ul_freq_band} UL_CH={ul_channel_num}")
+
     def _parse_grp_v_ch_grant_updt(self, data: bytes, result: Dict[str, Any]) -> None:
         """Parse Group Voice Channel Grant Update.
 
         Contains two channel/group pairs for active calls.
+
+        Data format per SDRTrunk:
+        - Bits 16-19: Frequency Band A (4 bits)
+        - Bits 20-31: Channel Number A (12 bits)
+        - Bits 32-47: Group Address A (16 bits)
+        - Bits 48-51: Frequency Band B (4 bits)
+        - Bits 52-63: Channel Number B (12 bits)
+        - Bits 64-79: Group Address B (16 bits)
         """
         result['type'] = 'GROUP_VOICE_GRANT_UPDATE'
 
-        # First grant
-        channel1 = (data[0] << 8) | data[1]
-        tgid1 = (data[2] << 8) | data[3]
+        # Grant A: Frequency band (upper 4 bits of byte 0)
+        freq_band_a = (data[0] >> 4) & 0x0F
+        # Channel number (lower 4 bits of byte 0 + byte 1)
+        channel_num_a = ((data[0] & 0x0F) << 8) | data[1]
+        channel_a = (freq_band_a << 12) | channel_num_a
+        # Group address (bytes 2-3)
+        tgid_a = (data[2] << 8) | data[3]
 
         result['grant1'] = {
-            'channel': channel1,
-            'tgid': tgid1,
-            'frequency_hz': self.get_frequency(channel1)
+            'channel': channel_a,
+            'frequency_band': freq_band_a,
+            'channel_number': channel_num_a,
+            'tgid': tgid_a,
+            'frequency_hz': self.get_frequency(channel_a)
         }
 
-        # Second grant (if present)
-        if len(data) >= 7:
-            channel2 = (data[4] << 8) | data[5]
-            tgid2 = (data[6] << 8) if len(data) > 6 else 0
+        # Grant B: Frequency band (upper 4 bits of byte 4)
+        freq_band_b = (data[4] >> 4) & 0x0F
+        # Channel number (lower 4 bits of byte 4 + byte 5)
+        channel_num_b = ((data[4] & 0x0F) << 8) | data[5]
+        channel_b = (freq_band_b << 12) | channel_num_b
+        # Group address (bytes 6-7)
+        tgid_b = (data[6] << 8) | data[7]
 
-            if channel2 != 0:
-                result['grant2'] = {
-                    'channel': channel2,
-                    'tgid': tgid2,
-                    'frequency_hz': self.get_frequency(channel2)
-                }
+        # Only include grant B if it's valid (non-zero and different from A)
+        if tgid_b != 0 and tgid_b != tgid_a:
+            result['grant2'] = {
+                'channel': channel_b,
+                'frequency_band': freq_band_b,
+                'channel_number': channel_num_b,
+                'tgid': tgid_b,
+                'frequency_hz': self.get_frequency(channel_b)
+            }
 
     def _parse_uu_v_ch_grant(self, data: bytes, result: Dict[str, Any]) -> None:
         """Parse Unit to Unit Voice Channel Grant.
 
-        Data format (64 bits per TIA-102.AABB-A):
-        - Channel (16 bits: 4-bit IDEN + 12-bit channel number)
-        - Target Address (24 bits)
-        - Source Address (24 bits)
+        Data format per SDRTrunk (NO service options):
+        - Bits 16-19: Frequency Band (4 bits)
+        - Bits 20-31: Channel Number (12 bits)
+        - Bits 32-55: Target Address (24 bits)
+        - Bits 56-79: Source Address (24 bits)
 
-        Note: This opcode has NO service options field - channel starts at bit 0.
+        Note: This opcode has NO service options field - channel starts at bit 16.
         """
         result['type'] = 'UNIT_TO_UNIT_GRANT'
 
-        # Channel is first (no service options in this opcode)
-        channel = (data[0] << 8) | data[1]
-        # Target is 24 bits (bytes 2-4)
+        # Frequency band (upper 4 bits of byte 0 = bits 16-19)
+        freq_band = (data[0] >> 4) & 0x0F
+        # Channel number (lower 4 bits of byte 0 + byte 1 = bits 20-31)
+        channel_num = ((data[0] & 0x0F) << 8) | data[1]
+        channel = (freq_band << 12) | channel_num
+
+        # Target address (bytes 2-4 = bits 32-55)
         target = (data[2] << 16) | (data[3] << 8) | data[4]
-        # Source is 24 bits (bytes 5-7)
+        # Source address (bytes 5-7 = bits 56-79)
         source = (data[5] << 16) | (data[6] << 8) | data[7]
 
         result['channel'] = channel
+        result['frequency_band'] = freq_band
+        result['channel_number'] = channel_num
         result['target_id'] = target
         result['source_id'] = source
         result['frequency_hz'] = self.get_frequency(channel)
@@ -332,21 +435,55 @@ class TSBKParser:
         """Parse RFSS Status Broadcast.
 
         Contains RFSS and site identification.
+
+        Data format per SDRTrunk:
+        - Bits 16-23: LRA (8 bits)
+        - Bit 27: Active Network Connection Flag
+        - Bits 28-39: System ID (12 bits)
+        - Bits 40-47: RFSS ID (8 bits)
+        - Bits 48-55: Site ID (8 bits)
+        - Bits 56-59: Frequency Band (4 bits)
+        - Bits 60-71: Channel Number (12 bits)
+        - Bits 72-79: System Service Class (8 bits)
         """
         result['type'] = 'RFSS_STATUS'
 
-        lra = data[0]  # Location Registration Area
-        sys_id = (data[1] << 4) | (data[2] >> 4)
-        rfss_id = data[2] & 0x0F
-        site_id = data[3]
-        channel = (data[4] << 8) | data[5]
-        svc_class = data[6]
+        # LRA (byte 0 = bits 16-23)
+        lra = data[0]
+
+        # System ID (12 bits spanning bytes 1-2):
+        # Upper 8 bits from low 4 bits of byte 1 + upper 4 bits of byte 2
+        # Bits 28-39 = bits 4-7 of byte 1 (after bit 27) + bits 0-7 of byte 2
+        sys_id = ((data[1] & 0x0F) << 8) | data[2]
+
+        # Active network connection flag (bit 27 = bit 3 of byte 1)
+        active_network = bool(data[1] & 0x08)
+
+        # RFSS ID (byte 3 upper 4 bits would be wrong - let me recalculate)
+        # Bits 40-47 = all of byte 3 (after system ID which ends at bit 39)
+        rfss_id = data[3]
+
+        # Site ID (byte 4 = bits 48-55)
+        site_id = data[4]
+
+        # Frequency band (upper 4 bits of byte 5 = bits 56-59)
+        freq_band = (data[5] >> 4) & 0x0F
+
+        # Channel number (lower 4 bits of byte 5 + byte 6 = bits 60-71)
+        channel_num = ((data[5] & 0x0F) << 8) | data[6]
+        channel = (freq_band << 12) | channel_num
+
+        # Service class (byte 7 = bits 72-79)
+        svc_class = data[7]
 
         result['lra'] = lra
+        result['active_network_connection'] = active_network
         result['system_id'] = sys_id
         result['rfss_id'] = rfss_id
         result['site_id'] = site_id
         result['channel'] = channel
+        result['frequency_band'] = freq_band
+        result['channel_number'] = channel_num
         result['service_class'] = svc_class
 
         # Update system status
@@ -355,46 +492,107 @@ class TSBKParser:
         self.system_status.site_id = site_id
         self.system_status.channel = channel
 
-        logger.info(f"RFSS Status: SysID={sys_id:03X} RFSS={rfss_id} Site={site_id}")
+        logger.info(f"RFSS Status: SysID={sys_id:03X} RFSS={rfss_id} Site={site_id} "
+                   f"BAND={freq_band} CH={channel_num}")
 
         if self.on_system_update:
             self.on_system_update(self.system_status)
 
     def _parse_net_sts_bcast(self, data: bytes, result: Dict[str, Any]) -> None:
-        """Parse Network Status Broadcast."""
+        """Parse Network Status Broadcast.
+
+        Data format per SDRTrunk:
+        - Bits 16-23: LRA (8 bits)
+        - Bits 24-43: WACN (20 bits)
+        - Bits 44-55: System ID (12 bits)
+        - Bits 56-59: Frequency Band (4 bits)
+        - Bits 60-71: Channel Number (12 bits)
+        - Bits 72-79: System Service Class (8 bits)
+        """
         result['type'] = 'NETWORK_STATUS'
 
+        # LRA (byte 0 = bits 16-23)
         lra = data[0]
-        wacn = (data[1] << 12) | (data[2] << 4) | (data[3] >> 4)
+
+        # WACN (20 bits spanning bytes 1-3):
+        # Byte 1 (8 bits) + byte 2 (8 bits) + upper 4 bits of byte 3
+        wacn = (data[1] << 12) | (data[2] << 4) | ((data[3] >> 4) & 0x0F)
+
+        # System ID (12 bits spanning bytes 3-4):
+        # Lower 4 bits of byte 3 + byte 4
         sys_id = ((data[3] & 0x0F) << 8) | data[4]
-        channel = (data[5] << 8) | data[6]
+
+        # Frequency band (upper 4 bits of byte 5)
+        freq_band = (data[5] >> 4) & 0x0F
+
+        # Channel number (lower 4 bits of byte 5 + byte 6)
+        channel_num = ((data[5] & 0x0F) << 8) | data[6]
+        channel = (freq_band << 12) | channel_num
+
+        # System service class (byte 7)
+        svc_class = data[7]
 
         result['lra'] = lra
         result['wacn'] = wacn  # Wide Area Communication Network
         result['system_id'] = sys_id
         result['channel'] = channel
+        result['frequency_band'] = freq_band
+        result['channel_number'] = channel_num
+        result['service_class'] = svc_class
 
         self.system_status.system_id = sys_id
+        self.system_status.services = svc_class
 
     def _parse_adj_sts_bcast(self, data: bytes, result: Dict[str, Any]) -> None:
         """Parse Adjacent Status Broadcast.
 
         Information about neighboring sites for roaming.
+
+        Data format (same structure as RFSS Status):
+        - Bits 16-23: LRA (8 bits)
+        - Bit 27: Active Network Connection Flag
+        - Bits 28-39: System ID (12 bits)
+        - Bits 40-47: RFSS ID (8 bits)
+        - Bits 48-55: Site ID (8 bits)
+        - Bits 56-59: Frequency Band (4 bits)
+        - Bits 60-71: Channel Number (12 bits)
+        - Bits 72-79: System Service Class (8 bits)
         """
         result['type'] = 'ADJACENT_STATUS'
 
+        # LRA (byte 0)
         lra = data[0]
-        sys_id = (data[1] << 4) | (data[2] >> 4)
-        rfss_id = data[2] & 0x0F
-        site_id = data[3]
-        channel = (data[4] << 8) | data[5]
-        svc_class = data[6]
+
+        # System ID (12 bits spanning bytes 1-2)
+        sys_id = ((data[1] & 0x0F) << 8) | data[2]
+
+        # Active network connection flag (bit 27 = bit 3 of byte 1)
+        active_network = bool(data[1] & 0x08)
+
+        # RFSS ID (byte 3)
+        rfss_id = data[3]
+
+        # Site ID (byte 4)
+        site_id = data[4]
+
+        # Frequency band (upper 4 bits of byte 5)
+        freq_band = (data[5] >> 4) & 0x0F
+
+        # Channel number (lower 4 bits of byte 5 + byte 6)
+        channel_num = ((data[5] & 0x0F) << 8) | data[6]
+        channel = (freq_band << 12) | channel_num
+
+        # Service class (byte 7)
+        svc_class = data[7]
 
         result['lra'] = lra
+        result['active_network_connection'] = active_network
         result['system_id'] = sys_id
         result['rfss_id'] = rfss_id
         result['site_id'] = site_id
         result['channel'] = channel
+        result['frequency_band'] = freq_band
+        result['channel_number'] = channel_num
         result['service_class'] = svc_class
 
     def _parse_iden_up_vu(self, data: bytes, result: Dict[str, Any]) -> None:
@@ -402,85 +600,136 @@ class TSBKParser:
 
         Defines channel numbering for a frequency band.
 
-        Data format (64 bits per TIA-102.AABB-A):
-        - Identifier (4 bits)
-        - Bandwidth (9 bits)
-        - TX Offset Sign (1 bit) - 1=positive, 0=negative
-        - TX Offset (8 bits)
-        - Channel Spacing (10 bits)
-        - Base Frequency (32 bits)
+        Data format per SDRTrunk:
+        - Bits 16-19: Identifier (4 bits)
+        - Bits 20-23: Bandwidth (4 bits) - NOTE: SDRTrunk uses 4 bits, not 9!
+        - Bit 24: TX Offset Sign (1 bit) - 1=positive, 0=negative
+        - Bits 25-37: TX Offset (13 bits)
+        - Bits 38-47: Channel Spacing (10 bits)
+        - Bits 48-79: Base Frequency (32 bits)
         """
         result['type'] = 'IDENTIFIER_UPDATE_VU'
 
+        # Identifier (upper 4 bits of byte 0 = bits 16-19)
         ident = (data[0] >> 4) & 0x0F
-        bw = ((data[0] & 0x0F) << 5) | (data[1] >> 3)
-        # TX offset sign is bit 2 of data[1] (1=positive, 0=negative per SDRTrunk)
-        tx_offset_sign = bool((data[1] >> 2) & 1)
-        # TX offset is 8 bits (2 bits from data[1] + 6 bits from data[2])
-        tx_offset = ((data[1] & 0x03) << 6) | (data[2] >> 2)
-        spacing = ((data[2] & 0x03) << 8) | data[3]
-        # Base frequency is 32 bits (was incorrectly 24 bits before)
-        base_freq = ((data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7]) * 0.000005
 
-        # Apply sign to TX offset
-        tx_offset_val = tx_offset if tx_offset_sign else -tx_offset
+        # Bandwidth (lower 4 bits of byte 0 = bits 20-23)
+        bw = data[0] & 0x0F
+
+        # TX offset sign (bit 24 = bit 0 of byte 1)
+        tx_offset_sign = bool(data[1] & 0x80)
+
+        # TX offset (13 bits spanning bytes 1-2):
+        # Lower 7 bits of byte 1 + upper 6 bits of byte 2
+        tx_offset = ((data[1] & 0x7F) << 6) | ((data[2] >> 2) & 0x3F)
+
+        # Channel spacing (10 bits spanning bytes 2-3):
+        # Lower 2 bits of byte 2 + all of byte 3
+        spacing = ((data[2] & 0x03) << 8) | data[3]
+
+        # Base frequency (32 bits = bytes 4-7)
+        base_freq_raw = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7]
+        # Convert to MHz: multiply by 5 Hz per SDRTrunk
+        base_freq = base_freq_raw * 0.000005
+
+        # Apply sign to TX offset (multiply by channel spacing per SDRTrunk)
+        tx_offset_hz = tx_offset * (spacing * 125)
+        if not tx_offset_sign:
+            tx_offset_hz *= -1
+
+        # Convert bandwidth code to kHz (per SDRTrunk)
+        if bw == 0x4:
+            bw_khz = 6.25
+        elif bw == 0x5:
+            bw_khz = 12.5
+        else:
+            bw_khz = 0
 
         result['identifier'] = ident
-        result['bandwidth_khz'] = bw * 0.125
+        result['bandwidth_khz'] = bw_khz
+        result['bandwidth_code'] = bw
         result['tx_offset_sign'] = tx_offset_sign
-        result['tx_offset_mhz'] = tx_offset_val * 0.25
+        result['tx_offset_hz'] = tx_offset_hz
+        result['tx_offset_mhz'] = tx_offset_hz / 1e6
         result['channel_spacing_khz'] = spacing * 0.125
         result['base_freq_mhz'] = base_freq
 
         # Store channel identifier
         chan_id = ChannelIdentifier(
             identifier=ident,
-            bw=int(bw * 0.125),
-            tx_offset=int(tx_offset_val * 0.25),
+            bw=int(bw_khz),
+            tx_offset=int(tx_offset_hz / 1e6),
             channel_spacing=int(spacing * 0.125),
             base_freq=base_freq
         )
         self.add_channel_id(chan_id)
 
         logger.info(f"Channel ID {ident}: base={base_freq:.4f} MHz, "
-                   f"spacing={spacing * 0.125} kHz, tx_offset={tx_offset_val * 0.25} MHz")
+                   f"spacing={spacing * 0.125} kHz, bw={bw_khz} kHz, "
+                   f"tx_offset={tx_offset_hz/1e6:.4f} MHz")
 
     def _parse_iden_up_tdma(self, data: bytes, result: Dict[str, Any]) -> None:
         """Parse Identifier Update for TDMA (Phase II).
 
-        Data format (64 bits per TIA-102.AABB-A):
-        - Identifier (4 bits)
-        - Channel Type (4 bits): access type + slot count
-        - TX Offset Sign (1 bit) - 1=positive, 0=negative
-        - TX Offset (13 bits)
-        - Channel Spacing (10 bits)
-        - Base Frequency (32 bits)
+        Data format per SDRTrunk:
+        - Bits 16-19: Identifier (4 bits)
+        - Bits 20-23: Channel Type (4 bits) - encodes access type and slot count
+        - Bit 24: TX Offset Sign (1 bit) - 1=positive, 0=negative
+        - Bits 25-37: TX Offset (13 bits)
+        - Bits 38-47: Channel Spacing (10 bits)
+        - Bits 48-79: Base Frequency (32 bits)
         """
         result['type'] = 'IDENTIFIER_UPDATE_TDMA'
 
+        # Identifier (upper 4 bits of byte 0 = bits 16-19)
         ident = (data[0] >> 4) & 0x0F
-        # TDMA-specific fields: Channel Type (4 bits)
-        access_type = (data[0] >> 2) & 0x03  # 0=FDMA, 1=TDMA, etc.
-        slot_count = (data[0] & 0x03) + 1
 
-        # TX offset sign is bit 0 of data[1] (bit 8 of data field)
-        # Per SDRTrunk FrequencyBandUpdateTDMA: TRANSMIT_OFFSET_SIGN = 24 (bit 8 of data)
-        tx_offset_sign = bool((data[1] >> 7) & 1)
-        # TX offset is 13 bits (bits 25-37)
-        tx_offset = ((data[1] & 0x7F) << 6) | (data[2] >> 2)
-        # Channel spacing is 10 bits
+        # Channel Type (lower 4 bits of byte 0 = bits 20-23)
+        # Per SDRTrunk ChannelType enum: encodes both access type and slot count
+        channel_type = data[0] & 0x0F
+
+        # TX offset sign (bit 24 = MSB of byte 1)
+        tx_offset_sign = bool(data[1] & 0x80)
+
+        # TX offset (13 bits spanning bytes 1-2):
+        # Lower 7 bits of byte 1 + upper 6 bits of byte 2
+        tx_offset = ((data[1] & 0x7F) << 6) | ((data[2] >> 2) & 0x3F)
+
+        # Channel spacing (10 bits spanning bytes 2-3):
+        # Lower 2 bits of byte 2 + all of byte 3
         spacing = ((data[2] & 0x03) << 8) | data[3]
-        # Base frequency is 32 bits
-        base_freq = ((data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7]) * 0.000005
 
-        # Apply sign to TX offset
-        tx_offset_val = tx_offset if tx_offset_sign else -tx_offset
+        # Base frequency (32 bits = bytes 4-7)
+        base_freq_raw = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7]
+        base_freq = base_freq_raw * 0.000005
+
+        # Apply sign to TX offset (multiply by channel spacing per SDRTrunk)
+        tx_offset_hz = tx_offset * (spacing * 125)
+        if not tx_offset_sign:
+            tx_offset_hz *= -1
+
+        # Decode channel type (per SDRTrunk ChannelType.java)
+        # Common values: 0x0=FDMA, 0x2=TDMA_2SLOT, 0x3=TDMA_4SLOT, 0x6=TDMA_6SLOT
+        if channel_type == 0x02:
+            access_type = 'TDMA'
+            slot_count = 2
+        elif channel_type == 0x03:
+            access_type = 'TDMA'
+            slot_count = 4
+        elif channel_type == 0x06:
+            access_type = 'TDMA'
+            slot_count = 6
+        else:
+            access_type = 'FDMA'
+            slot_count = 1
 
         result['identifier'] = ident
-        result['access_type'] = 'TDMA' if access_type == 1 else 'FDMA'
+        result['channel_type'] = channel_type
+        result['access_type'] = access_type
         result['slot_count'] = slot_count
         result['tx_offset_sign'] = tx_offset_sign
-        result['tx_offset_mhz'] = tx_offset_val * 0.25
+        result['tx_offset_hz'] = tx_offset_hz
+        result['tx_offset_mhz'] = tx_offset_hz / 1e6
         result['channel_spacing_khz'] = spacing * 0.125
         result['base_freq_mhz'] = base_freq
 
@@ -488,14 +737,14 @@ class TSBKParser:
         chan_id = ChannelIdentifier(
             identifier=ident,
             bw=0,  # Not specified in TDMA IDEN
-            tx_offset=int(tx_offset_val * 0.25),
+            tx_offset=int(tx_offset_hz / 1e6),
             channel_spacing=int(spacing * 0.125),
             base_freq=base_freq
         )
         self.add_channel_id(chan_id)
 
-        logger.info(f"Channel ID {ident} (TDMA): base={base_freq:.4f} MHz, "
-                   f"spacing={spacing * 0.125} kHz, tx_offset={tx_offset_val * 0.25} MHz")
+        logger.info(f"Channel ID {ident} ({access_type} {slot_count}-slot): base={base_freq:.4f} MHz, "
+                   f"spacing={spacing * 0.125} kHz, tx_offset={tx_offset_hz/1e6:.4f} MHz")
 
     def _parse_sys_srv_bcast(self, data: bytes, result: Dict[str, Any]) -> None:
         """Parse System Service Broadcast.

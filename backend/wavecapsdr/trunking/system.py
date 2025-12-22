@@ -453,6 +453,7 @@ class TrunkingSystem:
                 center_hz=self.cfg.center_hz,
                 sample_rate=self.cfg.sample_rate,
                 gain=self.cfg.gain,
+                antenna=self.cfg.antenna,
             )
 
             logger.info(
@@ -470,11 +471,14 @@ class TrunkingSystem:
                 offset_hz=cc_offset_hz,
             )
 
+            # Wire up TSBK callback from P25 decoder in the channel
+            # This routes TSBKs decoded by the channel's P25 decoder to the trunking system
+            self._control_channel.on_tsbk = self._handle_tsbk_callback
+
             # Start the control channel (sets state to "running" so it processes IQ)
             self._control_channel.start()
 
-            # Wire up TSBK callback from P25 decoder
-            # The P25Decoder has on_tsbk_message callback we can use
+            # Also set up ControlChannelMonitor as backup/alternative decoder
             self._setup_tsbk_callback()
 
             logger.info(
@@ -529,8 +533,8 @@ class TrunkingSystem:
         # Store original process_iq_chunk_sync method
         original_process_sync = self._control_channel.process_iq_chunk_sync
 
-        # Get control channel offset for freq shift
-        cc_offset_hz = self._control_channel.cfg.offset_hz
+        # Store reference to self for dynamic offset access in closure
+        system = self
 
         # Design anti-aliasing filter for decimation
         # Target output rate is 48kHz, P25 signal bandwidth is ~12.5kHz
@@ -557,14 +561,30 @@ class TrunkingSystem:
         # Store filter state for streaming
         filter_state = [anti_alias_zi.astype(np.complex128) if anti_alias_zi is not None else None]
 
+        # Debug counter for IQ flow monitoring
+        iq_debug_state = {"samples": 0, "calls": 0}
+
         def wrapped_process_sync(iq: np.ndarray, sample_rate: int) -> Optional[np.ndarray]:
             """Wrapped IQ processor that uses ControlChannelMonitor.
 
             This intercepts IQ samples, does frequency shift to center on control channel,
             decimates to 48kHz with proper anti-aliasing, and feeds to our ControlChannelMonitor.
             """
-            # Shift frequency to center on control channel
+            # Debug: Track IQ flow
+            iq_debug_state["samples"] += len(iq)
+            iq_debug_state["calls"] += 1
+            _verbose = iq_debug_state["calls"] <= 5 or iq_debug_state["calls"] % 100 == 0
+            if _verbose:
+                logger.info(
+                    f"TrunkingSystem {self.cfg.id}: wrapped_process_sync ENTRY call #{iq_debug_state['calls']}, "
+                    f"samples={len(iq)}"
+                )
+
+            # Shift frequency to center on control channel (dynamic offset for hunting)
+            cc_offset_hz = system._control_channel.cfg.offset_hz if system._control_channel else 0
             centered_iq = freq_shift(iq, cc_offset_hz, sample_rate)
+            if _verbose:
+                logger.info(f"TrunkingSystem {self.cfg.id}: after freq_shift")
 
             # Apply anti-aliasing filter and decimate
             if decim_factor > 1 and anti_alias_taps is not None:
@@ -580,11 +600,17 @@ class TrunkingSystem:
                 decimated_iq = filtered_iq[::decim_factor]
             else:
                 decimated_iq = centered_iq
+            if _verbose:
+                logger.info(f"TrunkingSystem {self.cfg.id}: after decimation, decimated_iq size={len(decimated_iq)}")
 
             # Feed to ControlChannelMonitor
             if self._control_monitor is not None:
                 try:
+                    if _verbose:
+                        logger.info(f"TrunkingSystem {self.cfg.id}: calling process_iq on control_monitor")
                     tsbk_results = self._control_monitor.process_iq(decimated_iq)
+                    if _verbose:
+                        logger.info(f"TrunkingSystem {self.cfg.id}: process_iq returned {len(tsbk_results)} results")
 
                     # Handle each TSBK result
                     for tsbk_data in tsbk_results:
@@ -592,7 +618,11 @@ class TrunkingSystem:
                             self._handle_parsed_tsbk(tsbk_data)
 
                 except Exception as e:
-                    logger.error(f"TrunkingSystem {self.cfg.id}: Control monitor error: {e}")
+                    import traceback
+                    logger.error(f"TrunkingSystem {self.cfg.id}: Control monitor error: {e}\n{traceback.format_exc()}")
+
+            # Check for control channel hunting (no TSBK received for too long)
+            self._check_control_channel_hunt()
 
             # Route IQ to active voice recorders
             for recorder in self._voice_recorders:
@@ -944,6 +974,53 @@ class TrunkingSystem:
             f"base={chan_id.base_freq_hz/1e6:.4f} MHz, "
             f"spacing={chan_id.channel_spacing_hz/1e3:.1f} kHz"
         )
+
+    def _check_control_channel_hunt(self) -> None:
+        """Check if we need to hunt for a different control channel.
+
+        If no TSBK has been received for too long, try the next control channel
+        in the configured list.
+        """
+        # Only hunt if we're in searching state
+        if self.control_channel_state == ControlChannelState.LOCKED:
+            return
+
+        # Check timeout
+        now = time.time()
+        last_tsbk = self._last_tsbk_time if self._last_tsbk_time > 0 else self._state_change_time
+        elapsed = now - last_tsbk
+
+        if elapsed < self._control_channel_timeout:
+            return
+
+        # Time to try the next control channel
+        num_channels = len(self.cfg.control_channels)
+        if num_channels <= 1:
+            return
+
+        # Advance to next control channel
+        old_index = self.control_channel_index
+        self.control_channel_index = (self.control_channel_index + 1) % num_channels
+        self.control_channel_freq_hz = self.cfg.control_channels[self.control_channel_index]
+
+        logger.info(
+            f"TrunkingSystem {self.cfg.id}: Control channel hunt - "
+            f"trying {self.control_channel_freq_hz/1e6:.4f} MHz "
+            f"(channel {self.control_channel_index + 1}/{num_channels})"
+        )
+
+        # Update the control channel offset
+        if self._control_channel is not None:
+            new_offset = self.control_channel_freq_hz - self.cfg.center_hz
+            self._control_channel.cfg.offset_hz = new_offset
+
+        # Reset state tracking
+        self._state_change_time = now
+        self._last_tsbk_time = 0.0
+
+        # Reset the control channel monitor
+        if self._control_monitor is not None:
+            self._control_monitor.reset()
 
     def _handle_rfss_status(self, result: Dict[str, Any]) -> None:
         """Handle RFSS Status Broadcast TSBK."""

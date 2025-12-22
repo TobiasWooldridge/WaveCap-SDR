@@ -21,8 +21,71 @@ import numpy as np
 
 from wavecapsdr.dsp.fec.golay import golay_decode
 from wavecapsdr.dsp.fec.trellis import trellis_decode
+from wavecapsdr.dsp.fec.bch import bch_decode
+from wavecapsdr.decoders.nac_tracker import NACTracker
 
 logger = logging.getLogger(__name__)
+
+
+# P25 Phase 1 data interleave/deinterleave pattern (196 bits)
+# This pattern is used for TSBK and PDU blocks
+DATA_DEINTERLEAVE = [
+    0, 1, 2, 3, 16, 17, 18, 19, 32, 33, 34, 35, 48, 49, 50, 51, 64, 65, 66, 67,
+    80, 81, 82, 83, 96, 97, 98, 99, 112, 113, 114, 115, 128, 129, 130, 131, 144, 145, 146, 147,
+    160, 161, 162, 163, 176, 177, 178, 179, 192, 193, 194, 195, 4, 5, 6, 7, 20, 21, 22, 23,
+    36, 37, 38, 39, 52, 53, 54, 55, 68, 69, 70, 71, 84, 85, 86, 87, 100, 101, 102, 103,
+    116, 117, 118, 119, 132, 133, 134, 135, 148, 149, 150, 151, 164, 165, 166, 167, 180, 181, 182, 183,
+    8, 9, 10, 11, 24, 25, 26, 27, 40, 41, 42, 43, 56, 57, 58, 59, 72, 73, 74, 75,
+    88, 89, 90, 91, 104, 105, 106, 107, 120, 121, 122, 123, 136, 137, 138, 139, 152, 153, 154, 155,
+    168, 169, 170, 171, 184, 185, 186, 187, 12, 13, 14, 15, 28, 29, 30, 31, 44, 45, 46, 47,
+    60, 61, 62, 63, 76, 77, 78, 79, 92, 93, 94, 95, 108, 109, 110, 111, 124, 125, 126, 127,
+    140, 141, 142, 143, 156, 157, 158, 159, 172, 173, 174, 175, 188, 189, 190, 191
+]
+
+
+# CRC-16 CCITT lookup table for 80-bit P25 messages (64 data + 16 CRC bits)
+# Pre-computed XOR values for each bit position when that bit is set
+# Polynomial: x^16 + x^12 + x^5 + 1 (0x1021)
+# Generator = 0x1021, computed by shifting 0x8000 through 80 bit positions
+def _generate_ccitt_checksums(num_bits: int = 80) -> list:
+    """Generate CRC-16 CCITT checksums for bit positions."""
+    checksums = []
+    poly = 0x1021  # CRC-16 CCITT polynomial
+
+    for bit_pos in range(num_bits):
+        # Start with 1 in the current bit position
+        crc = 0
+        bit_in_byte = 7 - (bit_pos % 8)
+        byte_pos = bit_pos // 8
+
+        # Process as if only this bit is set
+        # Shift through 16 iterations to get CRC contribution
+        value = 0x8000 >> (bit_pos % 16) if bit_pos < 16 else 0
+
+        # For simplicity, compute directly
+        # Each bit contributes: shift the CRC and XOR if MSB was set
+        crc = 0
+        for i in range(16):
+            msb = (crc >> 15) & 1
+            crc = (crc << 1) & 0xFFFF
+            if bit_pos < 16:
+                crc |= 1 if (bit_pos == i) else 0
+            if msb:
+                crc ^= poly
+
+        # For bits beyond first 16, continue shifting
+        for i in range(max(0, bit_pos - 15)):
+            msb = (crc >> 15) & 1
+            crc = (crc << 1) & 0xFFFF
+            if msb:
+                crc ^= poly
+
+        checksums.append(crc)
+
+    return checksums
+
+# Pre-generate the table at module load time
+CCITT_80_CHECKSUMS = _generate_ccitt_checksums(80)
 
 
 class DUID(IntEnum):
@@ -36,18 +99,17 @@ class DUID(IntEnum):
     TDULC = 0xF  # Terminator Data Unit with Link Control
 
 
-# Frame sync patterns (48 bits = 24 dibits)
-# These are transmitted as differential symbols
-FRAME_SYNC_PATTERNS = {
-    # Pattern (as 48-bit value): DUID
-    0x5575F5FF77FF: DUID.HDU,    # +3+3-3+3-3+3-3-3+3+3-3-3+3+3
-    0x5575F5FF77FD: DUID.TDU,
-    0x5575F5FF77F7: DUID.LDU1,
-    0x5575F5FF775F: DUID.TSDU,
-    0x5575F5FF7757: DUID.LDU2,
-    0x5575F5FF755F: DUID.PDU,
-    0x5575F5FF7555: DUID.TDULC,
-}
+# Frame sync pattern (48 bits = 24 dibits)
+# Per TIA-102.BAAA, P25 Phase 1 uses ONE sync pattern for ALL frame types.
+# The frame type is determined by the DUID field in the NID that follows sync.
+#
+# C4FM symbol sequence: +3 +3 +3 +3 +3 -3 +3 +3 -3 -3 +3 +3 -3 -3 -3 -3 +3 -3 +3 -3 -3 -3 -3 -3
+# Dibit encoding (per constellation): +3 symbol = dibit 1, -3 symbol = dibit 3
+# Dibits: 1 1 1 1 1 3 1 1 3 3 1 1 3 3 3 3 1 3 1 3 3 3 3 3
+# Hex value: 0x5575F5FF77FF (verified against SDRTrunk)
+FRAME_SYNC_PATTERN = 0x5575F5FF77FF
+FRAME_SYNC_DIBITS = np.array([1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1,
+                               3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3], dtype=np.uint8)
 
 # Status symbols positions in frames (for de-interleaving)
 STATUS_SYMBOL_INTERVAL = 35  # Status symbol every 35 dibits
@@ -193,6 +255,77 @@ def bits_to_int(bits: np.ndarray, start: int, length: int) -> int:
     return value
 
 
+def deinterleave_data(bits: np.ndarray) -> np.ndarray:
+    """Deinterleave 196-bit block using P25 data deinterleave pattern.
+
+    Args:
+        bits: Interleaved bit array (must be 196 bits)
+
+    Returns:
+        Deinterleaved bit array (196 bits)
+    """
+    if len(bits) != 196:
+        logger.warning(f"deinterleave_data: expected 196 bits, got {len(bits)}")
+        return bits
+
+    deinterleaved = np.zeros(196, dtype=np.uint8)
+    for i in range(196):
+        if bits[i]:
+            deinterleaved[DATA_DEINTERLEAVE[i]] = 1
+
+    return deinterleaved
+
+
+def crc16_ccitt_p25(bits: np.ndarray) -> Tuple[bool, int]:
+    """Validate CRC-16 CCITT for P25 TSBK message.
+
+    P25 TSBK uses 96-bit messages: 80 bits data + 16 CRC bits.
+    The CRC is computed over the first 80 bits.
+
+    CRC-16 CCITT parameters:
+    - Polynomial: 0x1021 (x^16 + x^12 + x^5 + 1)
+    - Initial value: 0xFFFF
+    - No final XOR
+
+    Args:
+        bits: 96-bit array (80 bits data + 16 bits CRC)
+
+    Returns:
+        Tuple of (crc_valid, corrected_bit_count)
+        - crc_valid: True if CRC passed
+        - corrected_bit_count: 0=passed, -1=failed (no correction attempted)
+    """
+    if len(bits) < 96:
+        return (False, -1)
+
+    # Calculate CRC over first 80 bits using standard CCITT algorithm
+    poly = 0x1021
+    crc = 0xFFFF  # Initial value
+
+    for i in range(80):
+        bit = int(bits[i])
+        msb = (crc >> 15) & 1
+        crc = ((crc << 1) | bit) & 0xFFFF
+        if msb:
+            crc ^= poly
+
+    # Process 16 more zero bits to flush (standard CRC finalization)
+    for _ in range(16):
+        msb = (crc >> 15) & 1
+        crc = (crc << 1) & 0xFFFF
+        if msb:
+            crc ^= poly
+
+    # Extract received CRC (bits 80-95)
+    received_crc = bits_to_int(bits, 80, 16)
+
+    if crc == received_crc:
+        return (True, 0)
+
+    # CRC failed
+    return (False, -1)
+
+
 def remove_status_symbols(dibits: np.ndarray) -> np.ndarray:
     """Remove status symbols from dibit stream.
 
@@ -212,37 +345,122 @@ def remove_status_symbols(dibits: np.ndarray) -> np.ndarray:
     return np.array(result, dtype=np.uint8)
 
 
-def decode_nid(dibits: np.ndarray) -> Optional[NID]:
-    """Decode Network ID from first 32 dibits (64 bits).
+def decode_nid(
+    dibits: np.ndarray,
+    skip_status_at_11: bool = True,
+    nac_tracker: Optional[NACTracker] = None,
+) -> Optional[NID]:
+    """Decode Network ID from NID dibits with BCH error correction.
 
-    NID structure:
-    - NAC (12 bits) + DUID (4 bits) = 8 dibits
-    - BCH(63,16) parity = 24 dibits
+    NID structure (64 bits = 32 dibits of data):
+    - NAC (12 bits) + DUID (4 bits) = 8 dibits = 16 bits
+    - BCH(63,16,23) parity = 24 dibits = 47 bits (63 - 16)
 
-    Uses Golay decoding for error correction.
+    IMPORTANT: P25 inserts a status symbol every 35 dibits from frame start.
+    Since sync is 24 dibits, the first status symbol appears at position 11
+    within the NID dibits (24 + 11 = 35). This status symbol must be skipped.
+
+    BCH Error Correction:
+    - First pass: decode codeword as-is
+    - Second pass (if first fails): use tracked NAC to overwrite NAC field and retry
+
+    Args:
+        dibits: NID dibits (33 if status included, 32 if already stripped)
+        skip_status_at_11: If True, expects 33 dibits and skips position 11
+        nac_tracker: Optional NAC tracker for BCH second-pass correction
+
+    Returns:
+        Decoded NID or None if decoding fails
     """
-    if len(dibits) < 32:
+    required_len = 33 if skip_status_at_11 else 32
+    if len(dibits) < required_len:
+        logger.debug(f"decode_nid: too short, len={len(dibits)}, required={required_len}")
         return None
 
-    # Extract NAC and DUID (first 8 dibits = 16 bits)
-    nac_duid = 0
-    for i in range(8):
-        nac_duid = (nac_duid << 2) | dibits[i]
+    # Build clean dibit array, skipping status symbol at position 11 if needed
+    clean_dibits = []
+    for i in range(required_len):
+        if skip_status_at_11 and i == 11:
+            continue  # Skip status symbol (CRITICAL - matches SDRTrunk line 824)
+        clean_dibits.append(int(dibits[i]))  # Ensure Python int
 
-    nac = (nac_duid >> 4) & 0xFFF
-    duid_val = nac_duid & 0xF
+    if len(clean_dibits) < 32:
+        logger.debug(f"decode_nid: clean_dibits too short after skip: {len(clean_dibits)}")
+        return None
+
+    # Convert dibits to bits for BCH decoder (32 dibits = 64 bits)
+    bits = np.zeros(64, dtype=np.uint8)
+    for i, d in enumerate(clean_dibits):
+        bits[i * 2] = (d >> 1) & 1
+        bits[i * 2 + 1] = d & 1
+
+    # Note: BCH(63,16,23) expects 63 bits, but NID is 64 bits (16 data + 48 parity)
+    # We use the first 63 bits for BCH decoding
+    bch_codeword = bits[:63]
+
+    # Get tracked NAC if available
+    tracked_nac = nac_tracker.get_tracked_nac() if nac_tracker else None
+
+    # BCH decode with optional NAC tracking assistance
+    decoded_data, errors = bch_decode(bch_codeword, tracked_nac)
+
+    if errors < 0:
+        # BCH decode failed - use simple extraction as fallback
+        # This works because NAC/DUID are in the first 8 dibits before status symbol
+        logger.debug("decode_nid: BCH decode failed, using simple extraction")
+
+        # Extract NAC from first 6 dibits (12 bits)
+        nac = 0
+        for i in range(min(6, len(clean_dibits))):
+            nac = (nac << 2) | clean_dibits[i]
+
+        # Extract DUID from dibits 6-7 (4 bits)
+        if len(clean_dibits) >= 8:
+            duid_val = (clean_dibits[6] << 2) | clean_dibits[7]
+        else:
+            return None
+
+        # Validate DUID
+        try:
+            duid = DUID(duid_val)
+        except ValueError:
+            logger.warning(f"Invalid DUID from simple extraction: 0x{duid_val:x}")
+            return None
+
+        # Track NAC even from simple extraction
+        if nac_tracker is not None and 0x001 <= nac <= 0xFFE:
+            nac_tracker.track(nac)
+
+        # Return with high error count to indicate BCH failed
+        return NID(nac=nac, duid=duid, errors=99)
+
+    # Extract NAC (12 bits) and DUID (4 bits) from decoded data
+    nac = (decoded_data >> 4) & 0xFFF
+    duid_val = decoded_data & 0xF
 
     # Validate DUID
     try:
         duid = DUID(duid_val)
     except ValueError:
-        logger.warning(f"Invalid DUID: {duid_val}")
-        duid = DUID.HDU  # Default
+        logger.warning(f"Invalid DUID after BCH: 0x{duid_val:x}")
+        return None
 
-    # BCH error correction would go here
-    # For now, just return decoded values
+    # Track the NAC for future BCH decodes
+    if nac_tracker is not None:
+        nac_tracker.track(nac)
 
-    return NID(nac=nac, duid=duid, errors=0)
+    # Debug logging (first 10 decodes only)
+    if not hasattr(decode_nid, '_decode_count'):
+        decode_nid._decode_count = 0
+    decode_nid._decode_count += 1
+    if decode_nid._decode_count <= 10:
+        tracked_nac_str = f"0x{tracked_nac:03x}" if tracked_nac else "0x000"
+        logger.info(
+            f"decode_nid: NAC=0x{nac:03x}, DUID=0x{duid_val:x}, "
+            f"errors={errors}, tracked_nac={tracked_nac_str}"
+        )
+
+    return NID(nac=nac, duid=duid, errors=errors)
 
 
 def decode_hdu(dibits: np.ndarray) -> Optional[HDUFrame]:
@@ -383,22 +601,88 @@ def decode_tdu(dibits: np.ndarray) -> Optional[TDUFrame]:
     return TDUFrame(nid=nid, link_control=lc)
 
 
+def remove_status_symbols_with_offset(dibits: np.ndarray, frame_offset: int) -> np.ndarray:
+    """Remove status symbols from dibit stream with frame position offset.
+
+    Status symbols appear every 35 dibits from frame start. When extracting
+    a portion of the frame, we need to know the frame offset to correctly
+    identify status symbol positions.
+
+    Args:
+        dibits: Dibit array to process
+        frame_offset: Starting position within the frame (for status symbol calculation)
+
+    Returns:
+        Dibit array with status symbols removed
+    """
+    if len(dibits) == 0:
+        return dibits
+
+    result = []
+    for i, d in enumerate(dibits):
+        frame_pos = frame_offset + i
+        # Status symbol at every 35th position from frame start (positions 35, 70, 105, ...)
+        # Frame position 35 is the first status symbol (in NID)
+        if (frame_pos + 1) % STATUS_SYMBOL_INTERVAL != 0:
+            result.append(d)
+
+    return np.array(result, dtype=np.uint8)
+
+
 def decode_tsdu(dibits: np.ndarray) -> Optional[TSDUFrame]:
     """Decode Trunking Signaling Data Unit.
 
-    TSDU contains 1-3 TSBK blocks, each 96 bits.
+    TSDU structure (360 dibits typical):
+    - Sync: 24 dibits (48 bits)
+    - NID: 33 dibits (includes status symbol at position 11)
+    - TSBK blocks: up to 3 blocks, each 196 dibits (with status symbols)
+
+    TSDU contains 1-3 TSBK blocks, each 96 bits after decoding.
     """
-    if len(dibits) < 100:
-        logger.debug(f"TSDU too short: {len(dibits)} dibits")
+    # Frame sync is 24 dibits
+    SYNC_DIBITS = 24
+    # NID is 33 dibits (32 data + status symbol at position 11)
+    NID_DIBITS = 33
+
+    min_frame_dibits = SYNC_DIBITS + NID_DIBITS + 100  # At least some TSBK data
+    if len(dibits) < min_frame_dibits:
+        logger.debug(f"TSDU too short: {len(dibits)} dibits, need at least {min_frame_dibits}")
         return None
 
-    # Decode NID
-    nid = decode_nid(dibits[:32])
+    # Skip sync (24 dibits), decode NID (33 dibits with status symbol)
+    nid_start = SYNC_DIBITS
+    nid_end = nid_start + NID_DIBITS
+    nid_dibits = dibits[nid_start:nid_end]
+
+    # Debug: log first 15 NID dibits
+    if not hasattr(decode_tsdu, '_debug_count'):
+        decode_tsdu._debug_count = 0
+    decode_tsdu._debug_count += 1
+    if decode_tsdu._debug_count <= 10:
+        logger.info(f"decode_tsdu: nid_dibits[0:15]={list(nid_dibits[:15])}, len={len(nid_dibits)}")
+
+    nid = decode_nid(nid_dibits, skip_status_at_11=True)
     if nid is None:
+        logger.debug("TSDU: NID decode failed")
         return None
 
-    # Extract TSBK blocks
-    tsbk_blocks = extract_tsbk_blocks(dibits[32:])
+    if decode_tsdu._debug_count <= 10:
+        logger.info(f"decode_tsdu: NID decoded: nac=0x{nid.nac:03x}, duid={nid.duid}")
+
+    # Extract TSBK data and remove status symbols
+    # TSBK data starts at frame position 57 (after sync + NID)
+    tsbk_data_start = nid_end
+    tsbk_raw = dibits[tsbk_data_start:]
+
+    # Remove status symbols from TSBK data
+    # Status symbols are at frame positions 70, 105, 140, etc.
+    # which are positions 13, 48, 83, etc. relative to TSBK data start
+    tsbk_clean = remove_status_symbols_with_offset(tsbk_raw, frame_offset=tsbk_data_start)
+
+    logger.debug(f"TSDU: tsbk_raw={len(tsbk_raw)}, tsbk_clean={len(tsbk_clean)} dibits")
+
+    # Extract TSBK blocks from cleaned data
+    tsbk_blocks = extract_tsbk_blocks(tsbk_clean)
 
     return TSDUFrame(
         nid=nid,
@@ -580,43 +864,94 @@ def extract_encryption_sync(dibits: np.ndarray) -> EncryptionSync:
 def extract_tsbk_blocks(dibits: np.ndarray) -> List[TSBKBlock]:
     """Extract TSBK blocks from TSDU.
 
-    Each TSBK is 96 bits (48 dibits) with trellis coding.
+    CRITICAL: Each TSBK block in a TSDU is:
+    - 196 dibits (interleaved, trellis-encoded)
+    - After deinterleaving: 196 bits
+    - After trellis 1/2 rate decode: 98 bits
+    - Final structure: 1 LB + 1 Protect + 6 Opcode + 8 MFID + 64 Data + 16 CRC = 96 bits
+      (2 bits are flushing bits from trellis and discarded)
+
     TSDU can contain 1-3 TSBK blocks.
+
+    Processing steps per SDRTrunk:
+    1. Remove status symbols from dibit stream (ALREADY DONE at framer level in SDRTrunk)
+    2. For each TSBK block (196 dibits):
+       a. Convert dibits to bits (196 dibits → 392 bits, but use first 196)
+       b. Deinterleave using DATA_DEINTERLEAVE pattern
+       c. Trellis decode 196 bits → 98 bits (discard last 2 flushing bits)
+       d. Validate CRC-16 CCITT on first 96 bits
+       e. Parse TSBK structure
+
+    Args:
+        dibits: TSDU dibits after NID
+
+    Returns:
+        List of decoded TSBK blocks (1-3 blocks)
     """
     blocks = []
-    clean_dibits = remove_status_symbols(dibits)
 
-    # Each TSBK is 196 dibits after trellis encoding (98 dibits encoded -> 196 dibits)
-    # But we receive already de-trellis-coded data
-    block_size = 48  # dibits per decoded TSBK
+    # TSDU structure: up to 3 TSBK blocks, each 196 dibits
+    TSBK_ENCODED_SIZE = 196  # dibits per TSBK (interleaved, trellis-encoded)
 
     offset = 0
-    while offset + block_size <= len(clean_dibits) and len(blocks) < 3:
-        block_dibits = clean_dibits[offset:offset + block_size]
-
-        # Convert to bits
-        bits = dibits_to_bits(block_dibits)
-
-        if len(bits) < 96:
+    for block_idx in range(3):  # Max 3 TSBKs per TSDU
+        # Check if we have enough dibits for another TSBK
+        if offset + TSBK_ENCODED_SIZE > len(dibits):
             break
 
-        # Parse TSBK fields
-        last_block = bool(bits[0])
-        protect = bool(bits[1])
-        opcode = bits_to_int(bits, 2, 6)
-        mfid = bits_to_int(bits, 8, 8)
+        # Extract 196 dibits for this TSBK
+        tsbk_dibits = dibits[offset:offset + TSBK_ENCODED_SIZE]
 
-        # Data (64 bits = 8 bytes)
-        # Note: The TSBK data field is 64 bits per TIA-102.AABB-A, not 56 bits.
-        # Structure: bits 16-79 contain the message-specific data.
+        # Convert dibits to bits (196 dibits → 392 bits)
+        interleaved_bits = dibits_to_bits(tsbk_dibits)
+
+        if len(interleaved_bits) < 196:
+            logger.warning(f"TSBK block {block_idx}: insufficient bits ({len(interleaved_bits)})")
+            break
+
+        # Step 1: Deinterleave using P25 data pattern (first 196 bits)
+        deinterleaved_bits = deinterleave_data(interleaved_bits[:196])
+
+        # Step 2: Trellis decode (1/2 rate: 196 bits → 98 bits)
+        # Convert bits back to dibits for trellis decoder
+        trellis_dibits = np.zeros(98, dtype=np.uint8)
+        for i in range(98):
+            trellis_dibits[i] = (deinterleaved_bits[i*2] << 1) | deinterleaved_bits[i*2 + 1]
+
+        # Trellis decode
+        decoded_dibits, error_metric = trellis_decode(trellis_dibits)
+
+        # Convert decoded dibits to bits (49 dibits → 98 bits, but we only need 96)
+        if len(decoded_dibits) < 48:
+            logger.warning(f"TSBK block {block_idx}: trellis decode failed, got {len(decoded_dibits)} dibits")
+            break
+
+        # Take first 48 decoded dibits and convert to 96 bits
+        decoded_bits = np.zeros(96, dtype=np.uint8)
+        for i in range(48):
+            if i < len(decoded_dibits):
+                decoded_bits[i*2] = (decoded_dibits[i] >> 1) & 1
+                decoded_bits[i*2 + 1] = decoded_dibits[i] & 1
+
+        # Step 3: Validate CRC-16 CCITT (first 80 bits + 16-bit CRC = 96 bits total)
+        crc_valid, crc_errors = crc16_ccitt_p25(decoded_bits)
+
+        # Step 4: Parse TSBK structure
+        # Bit layout: LB(1) + Protect(1) + Opcode(6) + MFID(8) + Data(64) + CRC(16)
+        last_block = bool(decoded_bits[0])
+        protect = bool(decoded_bits[1])
+        opcode = bits_to_int(decoded_bits, 2, 6)
+        mfid = bits_to_int(decoded_bits, 8, 8)
+
+        # Extract data (64 bits = 8 bytes, starting at bit 16)
         data = bytearray(8)
         for i in range(8):
-            data[i] = bits_to_int(bits, 16 + i * 8, 8)
+            data[i] = bits_to_int(decoded_bits, 16 + i * 8, 8)
 
-        # CRC (16 bits) - verify (at bit 80, after 64 bits of data)
-        crc_received = bits_to_int(bits, 80, 16)
-        # CRC calculation would go here
-        crc_valid = True  # Simplified
+        logger.info(
+            f"TSBK {block_idx}: LB={last_block} opcode=0x{opcode:02x} "
+            f"mfid=0x{mfid:02x} crc_valid={crc_valid} errors={crc_errors} error_metric={error_metric}"
+        )
 
         blocks.append(TSBKBlock(
             last_block=last_block,
@@ -626,9 +961,11 @@ def extract_tsbk_blocks(dibits: np.ndarray) -> List[TSBKBlock]:
             crc_valid=crc_valid
         ))
 
+        # Stop if this was the last block
         if last_block:
             break
 
-        offset += block_size
+        # Move to next TSBK block
+        offset += TSBK_ENCODED_SIZE
 
     return blocks

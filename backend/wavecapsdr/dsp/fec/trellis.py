@@ -29,30 +29,38 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-# P25 trellis encoder state transition table
+# P25 trellis encoder state transition table (from SDRTrunk P25_1_2_Node.java)
 # For each state (0-3) and input dibit (0-3), gives (next_state, output_dibit_pair)
 # Output is the 4-bit constellation point selection (2 dibits)
+#
+# SDRTrunk transition matrix (nibbles):
+#   State 0: {2,12,1,15}   -> {(0,2),(3,0),(0,1),(3,3)}
+#   State 1: {14,0,13,3}   -> {(3,2),(0,0),(3,1),(0,3)}
+#   State 2: {9,7,10,4}    -> {(2,1),(1,3),(2,2),(1,0)}
+#   State 3: {5,11,6,8}    -> {(1,1),(2,3),(1,2),(2,0)}
+#
+# Next state calculation: state transitions follow standard 2-bit shift register
 TRELLIS_ENCODER = {
-    # State 0
-    (0, 0): (0, (0, 0)),
-    (0, 1): (1, (1, 2)),
-    (0, 2): (2, (2, 1)),
+    # State 0: inputs 0,1,2,3 produce outputs (0,2),(3,0),(0,1),(3,3)
+    (0, 0): (0, (0, 2)),
+    (0, 1): (1, (3, 0)),
+    (0, 2): (2, (0, 1)),
     (0, 3): (3, (3, 3)),
-    # State 1
-    (1, 0): (0, (3, 0)),
-    (1, 1): (1, (2, 2)),
-    (1, 2): (2, (1, 1)),
+    # State 1: inputs 0,1,2,3 produce outputs (3,2),(0,0),(3,1),(0,3)
+    (1, 0): (0, (3, 2)),
+    (1, 1): (1, (0, 0)),
+    (1, 2): (2, (3, 1)),
     (1, 3): (3, (0, 3)),
-    # State 2
-    (2, 0): (0, (3, 3)),
-    (2, 1): (1, (2, 1)),
-    (2, 2): (2, (1, 2)),
-    (2, 3): (3, (0, 0)),
-    # State 3
-    (3, 0): (0, (0, 3)),
-    (3, 1): (1, (1, 1)),
-    (3, 2): (2, (2, 2)),
-    (3, 3): (3, (3, 0)),
+    # State 2: inputs 0,1,2,3 produce outputs (2,1),(1,3),(2,2),(1,0)
+    (2, 0): (0, (2, 1)),
+    (2, 1): (1, (1, 3)),
+    (2, 2): (2, (2, 2)),
+    (2, 3): (3, (1, 0)),
+    # State 3: inputs 0,1,2,3 produce outputs (1,1),(2,3),(1,2),(2,0)
+    (3, 0): (0, (1, 1)),
+    (3, 1): (1, (2, 3)),
+    (3, 2): (2, (1, 2)),
+    (3, 3): (3, (2, 0)),
 }
 
 # Build reverse lookup: (state, output_pair) -> (prev_state, input_dibit)

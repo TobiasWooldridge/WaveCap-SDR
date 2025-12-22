@@ -439,6 +439,8 @@ class Channel:
     _pocsag_decoder: Optional[POCSAGDecoder] = None
     _pocsag_messages: list[POCSAGMessage] = field(default_factory=list)
     _pocsag_max_messages: int = 100  # Ring buffer size
+    # TSBK callback for trunking integration (called when P25 TSBK is decoded)
+    on_tsbk: Optional[Callable[[Dict[str, Any]], None]] = None
     # Drop tracking for rate-limited logging
     _drop_count: int = 0
     _last_drop_log_time: float = 0.0
@@ -1004,12 +1006,18 @@ class Channel:
             try:
                 frames = self._p25_decoder.process_iq(base)
 
-                # Log decoded frames (for debugging)
+                # Log decoded frames and invoke callbacks
                 for frame in frames:
                     if frame.tgid is not None:
                         logger.debug(f"Channel {self.cfg.id}: P25 frame type={frame.frame_type.value} TGID={frame.tgid}")
                     elif frame.tsbk_data:
                         logger.debug(f"Channel {self.cfg.id}: P25 TSBK: {frame.tsbk_data}")
+                        # Invoke TSBK callback for trunking integration
+                        if self.on_tsbk is not None:
+                            try:
+                                self.on_tsbk(frame.tsbk_data)
+                            except Exception as cb_err:
+                                logger.error(f"Channel {self.cfg.id}: TSBK callback error: {cb_err}")
             except Exception as e:
                 logger.error(f"Channel {self.cfg.id}: P25 decoding error: {e}")
 
@@ -1269,6 +1277,12 @@ class Channel:
                         logger.debug(f"Channel {self.cfg.id}: P25 frame type={frame.frame_type.value} TGID={frame.tgid}")
                     elif frame.tsbk_data:
                         logger.debug(f"Channel {self.cfg.id}: P25 TSBK: {frame.tsbk_data}")
+                        # Invoke TSBK callback for trunking integration
+                        if self.on_tsbk is not None:
+                            try:
+                                self.on_tsbk(frame.tsbk_data)
+                            except Exception as cb_err:
+                                logger.error(f"Channel {self.cfg.id}: TSBK callback error: {cb_err}")
             except Exception as e:
                 logger.error(f"Channel {self.cfg.id}: P25 decoding error: {e}")
             return None  # P25 doesn't output audio yet
@@ -2048,7 +2062,19 @@ class Capture:
         # For single channel, skip executor overhead - process directly
         if len(channels) == 1:
             ch = channels[0]
+            # Debug: Log that we're calling process_iq_chunk_sync
+            if not hasattr(self, "_iq_call_count"):
+                self._iq_call_count = 0
+            self._iq_call_count += 1
+            _verbose = self._iq_call_count <= 5 or self._iq_call_count % 100 == 0
+            if _verbose:
+                logger.info(f"Capture {self.cfg.id}: Calling process_iq_chunk_sync on {ch.cfg.id}, samples={len(samples)}")
+            import time as _time_mod
+            _start = _time_mod.perf_counter()
             audio = ch.process_iq_chunk_sync(samples, self.cfg.sample_rate)
+            _elapsed = (_time_mod.perf_counter() - _start) * 1000
+            if _verbose or _elapsed > 100:  # Log if slow (>100ms)
+                logger.info(f"Capture {self.cfg.id}: process_iq_chunk_sync DONE on {ch.cfg.id}, elapsed={_elapsed:.1f}ms")
             return [(ch, audio)]
 
         # Submit DSP work to executor (parallel), with backpressure to avoid unbounded queueing
@@ -2157,6 +2183,12 @@ class Capture:
                             logger.debug(f"Channel {ch.cfg.id}: P25 frame type={frame.frame_type.value} TGID={frame.tgid}")
                         elif frame.tsbk_data:
                             logger.debug(f"Channel {ch.cfg.id}: P25 TSBK: {frame.tsbk_data}")
+                            # Invoke TSBK callback for trunking integration
+                            if ch.on_tsbk is not None:
+                                try:
+                                    ch.on_tsbk(frame.tsbk_data)
+                                except Exception as cb_err:
+                                    logger.error(f"Channel {ch.cfg.id}: TSBK callback error: {cb_err}")
                 except Exception as e:
                     logger.error(f"Channel {ch.cfg.id}: P25 decoding error: {e}")
             return None  # P25 doesn't output audio yet
@@ -2340,7 +2372,7 @@ class Capture:
         while not self._stop_event.is_set():
             _capture_loop_counter += 1
             if _capture_loop_counter <= 30 or _capture_loop_counter % 1000 == 0:
-                logger.debug(f"Capture {self.cfg.id}: loop iteration {_capture_loop_counter}, calling read()")
+                logger.info(f"Capture {self.cfg.id}: loop iteration {_capture_loop_counter}, calling read()")
             loop_start = time_module.perf_counter()
             try:
                 if self._stream is None:
@@ -2373,7 +2405,7 @@ class Capture:
             # Verbose debug for first 30 iterations to trace where loop stops
             _verbose_debug = _capture_loop_counter <= 30 or self._iq_debug_counter % 100 == 1
             if _verbose_debug:
-                logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} received {samples.size} IQ samples, chunk={chunk}")
+                logger.info(f"Capture {self.cfg.id}: iter={_capture_loop_counter} GOT DATA: {samples.size} IQ samples, chunk={chunk}")
             # Broadcast IQ to subscribers (schedule on their loops)
             # Use asyncio.run() is not allowed here; rely on _broadcast_iq scheduling
             try:
