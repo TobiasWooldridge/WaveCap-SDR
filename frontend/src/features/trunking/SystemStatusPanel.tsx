@@ -1,4 +1,4 @@
-import { Radio, Activity, Signal, Lock, Unlock } from "lucide-react";
+import { Radio, Activity, Signal, Lock, Unlock, Volume2, VolumeX } from "lucide-react";
 import type { TrunkingSystem } from "../../types/trunking";
 import Flex from "../../components/primitives/Flex.react";
 
@@ -8,6 +8,10 @@ interface SystemStatusPanelProps {
   onStop: () => void;
   isStarting?: boolean;
   isStopping?: boolean;
+  // Audio controls
+  isPlayingAudio?: boolean;
+  onPlayAudio?: () => void;
+  onStopAudio?: () => void;
 }
 
 function formatFrequency(hz: number | null): string {
@@ -49,10 +53,14 @@ export function SystemStatusPanel({
   onStop,
   isStarting,
   isStopping,
+  isPlayingAudio,
+  onPlayAudio,
+  onStopAudio,
 }: SystemStatusPanelProps) {
   const isRunning = system.state === "running" || system.state === "searching" || system.state === "syncing";
   const isStopped = system.state === "stopped";
   const isBusy = isStarting || isStopping;
+  const canPlayAudio = isRunning && onPlayAudio && onStopAudio;
 
   return (
     <div className="card">
@@ -68,6 +76,21 @@ export function SystemStatusPanel({
           </span>
         </Flex>
         <Flex gap={1}>
+          {/* Audio play/stop button */}
+          {canPlayAudio && (
+            <button
+              className={`btn btn-sm ${isPlayingAudio ? "btn-warning" : "btn-success"}`}
+              onClick={isPlayingAudio ? onStopAudio : onPlayAudio}
+              title={isPlayingAudio ? "Stop audio" : "Play all audio"}
+            >
+              <Flex align="center" gap={1}>
+                {isPlayingAudio ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                <span style={{ fontSize: "11px" }}>
+                  {isPlayingAudio ? "Stop" : "Listen"}
+                </span>
+              </Flex>
+            </button>
+          )}
           {isStopped && (
             <button
               className="btn btn-sm btn-success"

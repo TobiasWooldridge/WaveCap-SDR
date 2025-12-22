@@ -62,6 +62,7 @@ export interface ActiveCall {
   encrypted: boolean;
   audioFrames: number;
   durationSeconds: number;
+  recorderId: string | null;
 }
 
 export interface VocoderStatus {

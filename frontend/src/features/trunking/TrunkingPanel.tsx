@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import {
   Radio,
   Phone,
@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   CheckCircle,
   XCircle,
+  History,
 } from "lucide-react";
 import {
   useTrunkingSystem,
@@ -17,14 +18,21 @@ import {
   useVocoderStatus,
 } from "../../hooks/useTrunking";
 import { useTrunkingWebSocket } from "../../hooks/useTrunkingWebSocket";
+import { useTrunkingSystemAudio } from "../../hooks/useAudio";
+import { useToast } from "../../hooks/useToast";
+import { copyToClipboard } from "../../utils/clipboard";
 import type { ActiveCall } from "../../types/trunking";
 import { SystemStatusPanel } from "./SystemStatusPanel";
 import { ActiveCallsTable } from "./ActiveCallsTable";
 import { TalkgroupDirectory } from "./TalkgroupDirectory";
+import { CallEventLog, CallEvent } from "./CallEventLog";
+import { StreamLinks, TRUNKING_SYSTEM_STREAM_FORMATS } from "../../components/StreamLinks";
 import Flex from "../../components/primitives/Flex.react";
 import Spinner from "../../components/primitives/Spinner.react";
 
 type TabId = "active" | "talkgroups" | "history";
+
+const MAX_EVENTS = 100; // Keep last 100 events
 
 interface TrunkingPanelProps {
   /** System ID to display - selection is managed by parent */
@@ -34,6 +42,38 @@ interface TrunkingPanelProps {
 
 export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>("active");
+  const [callEvents, setCallEvents] = useState<CallEvent[]>([]);
+  const toast = useToast();
+
+  // Track events for the event log
+  const handleCallStart = useCallback((call: ActiveCall) => {
+    const event: CallEvent = {
+      id: call.id,
+      timestamp: call.startTime,
+      type: "start",
+      talkgroupId: call.talkgroupId,
+      talkgroupName: call.talkgroupName,
+      sourceId: call.sourceId,
+      frequencyHz: call.frequencyHz,
+      encrypted: call.encrypted,
+    };
+    setCallEvents((prev) => [...prev.slice(-MAX_EVENTS + 1), event]);
+  }, []);
+
+  const handleCallEnd = useCallback((call: ActiveCall) => {
+    const event: CallEvent = {
+      id: call.id,
+      timestamp: Date.now() / 1000, // Use current time for end event
+      type: "end",
+      talkgroupId: call.talkgroupId,
+      talkgroupName: call.talkgroupName,
+      sourceId: call.sourceId,
+      frequencyHz: call.frequencyHz,
+      durationSeconds: call.durationSeconds,
+      encrypted: call.encrypted,
+    };
+    setCallEvents((prev) => [...prev.slice(-MAX_EVENTS + 1), event]);
+  }, []);
 
   // Data fetching for the selected system
   const { data: system, isLoading: systemLoading } = useTrunkingSystem(systemId);
@@ -48,7 +88,16 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
   } = useTrunkingWebSocket({
     systemId,
     enabled: !!systemId,
+    onCallStart: handleCallStart,
+    onCallEnd: handleCallEnd,
   });
+
+  // Audio playback for trunking system
+  const {
+    isPlaying: isPlayingAudio,
+    play: playAudio,
+    stop: stopAudio,
+  } = useTrunkingSystemAudio(systemId);
 
   // Use WebSocket calls if available, otherwise fall back to polling
   const displayCalls = useMemo(
@@ -65,6 +114,35 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
     () => new Set(displayCalls.map((c: ActiveCall) => c.talkgroupId)),
     [displayCalls]
   );
+
+  // Handle stream URL copy
+  const handleCopyUrl = useCallback(async (url: string) => {
+    const success = await copyToClipboard(url);
+    if (success) {
+      toast.success("URL copied to clipboard");
+    } else {
+      toast.error("Failed to copy URL");
+    }
+  }, [toast]);
+
+  // Per-call audio playback state (using system audio for now)
+  // Note: Per-call playback would require additional state tracking
+  // For MVP, the master play button handles all audio
+  const [playingCallId, setPlayingCallId] = useState<string | null>(null);
+
+  const handlePlayCall = useCallback(async (callId: string, _streamId: string) => {
+    if (playingCallId === callId) {
+      // Stop this call - for now just toggle off the indicator
+      setPlayingCallId(null);
+    } else {
+      // Start this call - for now just toggle on the indicator
+      // The system audio already includes all calls
+      setPlayingCallId(callId);
+      if (!isPlayingAudio) {
+        await playAudio();
+      }
+    }
+  }, [playingCallId, isPlayingAudio, playAudio]);
 
   if (systemLoading) {
     return (
@@ -111,6 +189,17 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
         onStop={() => stopSystem.mutate(system.id)}
         isStarting={startSystem.isPending}
         isStopping={stopSystem.isPending}
+        isPlayingAudio={isPlayingAudio}
+        onPlayAudio={playAudio}
+        onStopAudio={stopAudio}
+      />
+
+      {/* System-level stream links */}
+      <StreamLinks
+        formats={TRUNKING_SYSTEM_STREAM_FORMATS}
+        baseUrl={`/api/v1/trunking/stream/${systemId}/voice`}
+        buttonLabel="System Stream URLs"
+        onCopyUrl={handleCopyUrl}
       />
 
       {/* Vocoder warning if not available */}
@@ -173,12 +262,32 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
                 )}
               </button>
             </li>
+            <li className="nav-item">
+              <button
+                className={`nav-link ${activeTab === "history" ? "active" : ""}`}
+                onClick={() => setActiveTab("history")}
+              >
+                <History size={14} className="me-1" />
+                History
+                {callEvents.length > 0 && (
+                  <span className="badge bg-info ms-1">
+                    {callEvents.length}
+                  </span>
+                )}
+              </button>
+            </li>
           </ul>
         </div>
 
         <div className="card-body">
           {activeTab === "active" && (
-            <ActiveCallsTable calls={displayCalls} />
+            <ActiveCallsTable
+              calls={displayCalls}
+              systemId={systemId}
+              onPlayAudio={handlePlayCall}
+              playingCallId={playingCallId}
+              onCopyUrl={handleCopyUrl}
+            />
           )}
 
           {activeTab === "talkgroups" && talkgroups && (
@@ -186,6 +295,10 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
               talkgroups={talkgroups}
               activeTalkgroups={activeTalkgroupIds}
             />
+          )}
+
+          {activeTab === "history" && (
+            <CallEventLog events={callEvents} maxHeight={400} />
           )}
         </div>
       </div>

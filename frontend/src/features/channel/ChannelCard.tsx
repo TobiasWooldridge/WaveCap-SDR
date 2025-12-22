@@ -11,9 +11,9 @@ import Flex from "../../components/primitives/Flex.react";
 import SMeter from "../../components/primitives/SMeter.react";
 import AudioWaveform from "../../components/primitives/AudioWaveform.react";
 import { FrequencyLabel } from "../../components/FrequencyLabel.react";
+import { StreamLinks, CHANNEL_STREAM_FORMATS } from "../../components/StreamLinks";
 import { ChannelSettings } from "./ChannelSettings";
 import { RdsDisplay } from "./RdsDisplay";
-import { StreamUrlDropdown } from "./StreamUrlDropdown";
 
 interface ChannelCardProps {
   channel: Channel;
@@ -213,7 +213,11 @@ export const ChannelCard = memo(function ChannelCard({ channel, capture }: Chann
           )}
 
           {/* Stream URL */}
-          <StreamUrlDropdown channelId={channel.id} onCopyUrl={handleCopyUrl} />
+          <StreamLinks
+            formats={CHANNEL_STREAM_FORMATS}
+            baseUrl={`${window.location.origin}/api/v1/stream/channels/${channel.id}`}
+            onCopyUrl={handleCopyUrl}
+          />
 
           {/* Expanded Settings */}
           {isExpanded && (

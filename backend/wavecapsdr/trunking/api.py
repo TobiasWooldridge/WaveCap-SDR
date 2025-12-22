@@ -68,9 +68,12 @@ class CreateSystemRequest(BaseModel):
     center_hz: float = Field(..., description="SDR center frequency (Hz)")
     sample_rate: int = Field(8_000_000, description="SDR sample rate (Hz)")
     device_id: Optional[str] = Field(None, description="SoapySDR device string")
+    gain: Optional[float] = Field(None, description="RF gain (None = auto)")
+    antenna: Optional[str] = Field(None, description="SDR antenna port")
     max_voice_recorders: int = Field(4, ge=1, le=16, description="Maximum concurrent recordings")
     recording_path: Optional[str] = Field(None, description="Path for audio file storage")
     record_unknown: bool = Field(False, description="Record unknown talkgroups")
+    squelch_db: float = Field(-50.0, description="Squelch level for voice channels (dB)")
     talkgroups: Optional[Dict[str, TalkgroupRequest]] = Field(
         None, description="Initial talkgroup configuration"
     )
@@ -108,6 +111,7 @@ class ActiveCallResponse(BaseModel):
     encrypted: bool
     audioFrames: int
     durationSeconds: float
+    recorderId: Optional[str] = None
 
 
 class TalkgroupResponse(BaseModel):
@@ -264,10 +268,13 @@ async def create_system(request: Request, req: CreateSystemRequest) -> SystemRes
         center_hz=req.center_hz,
         sample_rate=req.sample_rate,
         device_id=req.device_id or "",
+        gain=req.gain,
+        antenna=req.antenna,
         max_voice_recorders=req.max_voice_recorders,
         talkgroups=talkgroups,
         recording_path=req.recording_path or "./recordings",
         record_unknown=req.record_unknown,
+        squelch_db=req.squelch_db,
     )
 
     try:
@@ -414,6 +421,7 @@ async def get_system_active_calls(request: Request, system_id: str) -> List[Acti
             encrypted=c.encrypted,
             audioFrames=c.audio_frames,
             durationSeconds=c.duration_seconds,
+            recorderId=c.recorder_id,
         )
         for c in calls
     ]
@@ -439,6 +447,7 @@ async def get_all_active_calls(request: Request) -> List[ActiveCallResponse]:
             encrypted=c.encrypted,
             audioFrames=c.audio_frames,
             durationSeconds=c.duration_seconds,
+            recorderId=c.recorder_id,
         )
         for c in calls
     ]

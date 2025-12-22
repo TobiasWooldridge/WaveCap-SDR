@@ -25,6 +25,7 @@ export function useAudio() {
     () => audioService.getState()
   );
 
+  // Channel methods
   const play = useCallback(async (channelId: string) => {
     await audioService.play(channelId);
   }, []);
@@ -45,15 +46,60 @@ export function useAudio() {
     return state.playingChannels.has(channelId);
   }, [state.playingChannels]);
 
+  // Trunking system methods
+  const playTrunkingSystem = useCallback(async (systemId: string) => {
+    await audioService.playTrunkingSystem(systemId);
+  }, []);
+
+  const stopTrunkingSystem = useCallback((systemId: string) => {
+    audioService.stopTrunkingSystem(systemId);
+  }, []);
+
+  const isTrunkingSystemPlaying = useCallback((systemId: string) => {
+    return state.playingTrunkingSystems.has(systemId);
+  }, [state.playingTrunkingSystems]);
+
+  // Trunking voice stream methods
+  const playTrunkingVoiceStream = useCallback(async (systemId: string, streamId: string) => {
+    await audioService.playTrunkingVoiceStream(systemId, streamId);
+  }, []);
+
+  const stopTrunkingVoiceStream = useCallback((streamId: string) => {
+    audioService.stopTrunkingVoiceStream(streamId);
+  }, []);
+
+  const isTrunkingStreamPlaying = useCallback((streamId: string) => {
+    return state.playingTrunkingStreams.has(streamId);
+  }, [state.playingTrunkingStreams]);
+
+  const stopAllTrunking = useCallback(() => {
+    audioService.stopAllTrunking();
+  }, []);
+
   return {
+    // Channel state
     playingChannels: state.playingChannels,
+    // Trunking state
+    playingTrunkingSystems: state.playingTrunkingSystems,
+    playingTrunkingStreams: state.playingTrunkingStreams,
+    // Global state
     masterVolume: state.masterVolume,
     isContextReady: state.isContextReady,
+    // Channel methods
     play,
     stop,
     stopAll,
-    setMasterVolume,
     isPlaying,
+    // Trunking methods
+    playTrunkingSystem,
+    stopTrunkingSystem,
+    isTrunkingSystemPlaying,
+    playTrunkingVoiceStream,
+    stopTrunkingVoiceStream,
+    isTrunkingStreamPlaying,
+    stopAllTrunking,
+    // Volume
+    setMasterVolume,
   };
 }
 
@@ -78,6 +124,63 @@ export function useChannelAudio(channelId: string) {
     isPlaying,
     play: () => play(channelId),
     stop: () => stop(channelId),
+    toggle,
+  };
+}
+
+/**
+ * Hook to track audio state for a trunking system.
+ * Provides play/stop/toggle for the multiplexed voice stream.
+ */
+export function useTrunkingSystemAudio(systemId: string) {
+  const {
+    playingTrunkingSystems,
+    playTrunkingSystem,
+    stopTrunkingSystem,
+  } = useAudio();
+
+  const isPlaying = playingTrunkingSystems.has(systemId);
+
+  const toggle = useCallback(async () => {
+    if (isPlaying) {
+      stopTrunkingSystem(systemId);
+    } else {
+      await playTrunkingSystem(systemId);
+    }
+  }, [systemId, isPlaying, playTrunkingSystem, stopTrunkingSystem]);
+
+  return {
+    isPlaying,
+    play: () => playTrunkingSystem(systemId),
+    stop: () => stopTrunkingSystem(systemId),
+    toggle,
+  };
+}
+
+/**
+ * Hook to track audio state for a specific trunking voice stream.
+ */
+export function useTrunkingStreamAudio(systemId: string, streamId: string) {
+  const {
+    playingTrunkingStreams,
+    playTrunkingVoiceStream,
+    stopTrunkingVoiceStream,
+  } = useAudio();
+
+  const isPlaying = playingTrunkingStreams.has(streamId);
+
+  const toggle = useCallback(async () => {
+    if (isPlaying) {
+      stopTrunkingVoiceStream(streamId);
+    } else {
+      await playTrunkingVoiceStream(systemId, streamId);
+    }
+  }, [systemId, streamId, isPlaying, playTrunkingVoiceStream, stopTrunkingVoiceStream]);
+
+  return {
+    isPlaying,
+    play: () => playTrunkingVoiceStream(systemId, streamId),
+    stop: () => stopTrunkingVoiceStream(streamId),
     toggle,
   };
 }
