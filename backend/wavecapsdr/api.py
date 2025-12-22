@@ -310,18 +310,58 @@ def _compute_config_warnings(cap: Any) -> list[ConfigWarning]:
     """Compute configuration warnings for a capture."""
     warnings: list[ConfigWarning] = []
 
+    device_id_lower = cap.cfg.device_id.lower() if cap.cfg.device_id else ""
+    is_rtl = "rtlsdr" in device_id_lower or "rtl-sdr" in device_id_lower
+    is_sdrplay = "sdrplay" in device_id_lower
+
     # RTL-SDR unstable sample rate warning
     # RTL-SDR devices are known to be unstable at sample rates below ~900kHz
     # The most stable rates are 1.024 MHz, 2.048 MHz, and 2.4 MHz
-    device_id_lower = cap.cfg.device_id.lower() if cap.cfg.device_id else ""
-    is_rtl = "rtlsdr" in device_id_lower or "rtl-sdr" in device_id_lower
-
     if is_rtl and cap.cfg.sample_rate < 900_000:
         warnings.append(ConfigWarning(
             code="rtl_unstable_sample_rate",
             severity="warning",
             message=f"Sample rate {cap.cfg.sample_rate / 1_000_000:.3f} MHz may be unstable on RTL-SDR. "
                     f"Consider using 1.024 MHz or higher to reduce IQ overflows."
+        ))
+
+    # Bandwidth exceeds sample rate warning
+    # Bandwidth should not exceed sample rate (Nyquist limit)
+    if cap.cfg.bandwidth and cap.cfg.bandwidth > cap.cfg.sample_rate:
+        warnings.append(ConfigWarning(
+            code="bandwidth_exceeds_sample_rate",
+            severity="warning",
+            message=f"Bandwidth ({cap.cfg.bandwidth / 1_000_000:.3f} MHz) exceeds sample rate "
+                    f"({cap.cfg.sample_rate / 1_000_000:.3f} MHz). Reduce bandwidth or increase sample rate."
+        ))
+
+    # Bandwidth too close to sample rate (may cause aliasing at edges)
+    # Generally bandwidth should be at most 80% of sample rate for clean edges
+    if cap.cfg.bandwidth and cap.cfg.bandwidth > cap.cfg.sample_rate * 0.9:
+        if cap.cfg.bandwidth <= cap.cfg.sample_rate:  # Don't duplicate the exceeds warning
+            warnings.append(ConfigWarning(
+                code="bandwidth_near_sample_rate",
+                severity="info",
+                message=f"Bandwidth is >{90}% of sample rate. Consider reducing bandwidth or "
+                        f"increasing sample rate to avoid aliasing at spectrum edges."
+            ))
+
+    # Very high sample rate warning for SDRplay
+    # SDRplay can do 10 MHz but may have USB bandwidth issues
+    if is_sdrplay and cap.cfg.sample_rate > 8_000_000:
+        warnings.append(ConfigWarning(
+            code="sdrplay_high_sample_rate",
+            severity="info",
+            message=f"Sample rate {cap.cfg.sample_rate / 1_000_000:.1f} MHz is high for SDRplay. "
+                    f"May cause USB bandwidth issues on some systems."
+        ))
+
+    # Gain set to 0 warning (might be unintentional)
+    if cap.cfg.gain is not None and cap.cfg.gain == 0:
+        warnings.append(ConfigWarning(
+            code="zero_gain",
+            severity="info",
+            message="Gain is set to 0 dB. If signals appear weak, try increasing gain."
         ))
 
     return warnings

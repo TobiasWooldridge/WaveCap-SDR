@@ -168,7 +168,7 @@ python adjust_settings.py --capture c1 --frequency 90.3 --gain 35 --bandwidth 20
 ### FM Broadcast Radio
 ```json
 {
-  "sampleRate": 250000,
+  "sampleRate": 1024000,
   "bandwidth": 200000,
   "mode": "wbfm",
   "enableDeemphasis": true,
@@ -200,6 +200,50 @@ python adjust_settings.py --capture c1 --frequency 90.3 --gain 35 --bandwidth 20
 }
 ```
 
+## Configuration Warnings
+
+WaveCap-SDR automatically detects problematic configurations and displays warnings in the UI. Check `configWarnings` in capture API responses to see current warnings.
+
+### Check Current Warnings
+
+```bash
+curl -s http://127.0.0.1:8087/api/v1/captures/c1 | jq '.configWarnings'
+```
+
+### Warning Types
+
+| Code | Severity | Description | Resolution |
+|------|----------|-------------|------------|
+| `rtl_unstable_sample_rate` | warning | RTL-SDR sample rate <900kHz causes IQ overflows | Use 1.024 MHz, 2.048 MHz, or 2.4 MHz |
+| `bandwidth_exceeds_sample_rate` | warning | Bandwidth > sample rate violates Nyquist | Reduce bandwidth or increase sample rate |
+| `bandwidth_near_sample_rate` | info | Bandwidth >90% of sample rate causes edge aliasing | Use bandwidth ≤80% of sample rate |
+| `sdrplay_high_sample_rate` | info | SDRplay >8 MHz may cause USB issues | Lower sample rate if experiencing dropouts |
+| `zero_gain` | info | Gain set to 0 dB | Increase gain if signals are weak |
+
+### Best Practices to Avoid Warnings
+
+1. **RTL-SDR Sample Rates**: Use 1.024 MHz, 2.048 MHz, or 2.4 MHz
+   ```bash
+   curl -X PATCH http://127.0.0.1:8087/api/v1/captures/c1 \
+     -H "Content-Type: application/json" \
+     -d '{"sampleRate": 1024000}'
+   ```
+
+2. **Bandwidth/Sample Rate Ratio**: Keep bandwidth ≤80% of sample rate
+   ```bash
+   # For 2 MHz sample rate, use ≤1.6 MHz bandwidth
+   curl -X PATCH http://127.0.0.1:8087/api/v1/captures/c1 \
+     -H "Content-Type: application/json" \
+     -d '{"sampleRate": 2000000, "bandwidth": 1600000}'
+   ```
+
+3. **SDRplay Sample Rates**: Stay ≤8 MHz for reliable USB throughput
+   ```bash
+   curl -X PATCH http://127.0.0.1:8087/api/v1/captures/c1 \
+     -H "Content-Type: application/json" \
+     -d '{"sampleRate": 6000000}'
+   ```
+
 ## Common Issues
 
 ### Issue: Audio Too Quiet
@@ -225,6 +269,18 @@ python adjust_settings.py --capture c1 --frequency 90.3 --gain 35 --bandwidth 20
 - Lower `squelchDb` (more negative)
 - Adjust AGC attack/release times
 - Check if frequency offset is correct
+
+### Issue: IQ Overflows (RTL-SDR)
+**Solutions**:
+- Use stable sample rate (1.024 MHz, 2.048 MHz, or 2.4 MHz)
+- Avoid sample rates below 900 kHz
+- Check USB connection quality
+
+### Issue: Aliasing at Spectrum Edges
+**Solutions**:
+- Reduce bandwidth to ≤80% of sample rate
+- Increase sample rate if wider bandwidth needed
+- Use appropriate IF filter settings
 
 ## Files in This Skill
 
