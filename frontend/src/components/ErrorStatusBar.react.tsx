@@ -1,11 +1,11 @@
 import { useEffect } from "react";
-import { AlertTriangle, Droplets, RefreshCw } from "lucide-react";
+import { AlertTriangle, Droplets, RefreshCw, Settings } from "lucide-react";
 import { useErrorContextOptional } from "../context/ErrorContext";
 import type { Capture } from "../types";
 
 interface Props {
   captureId?: string;
-  capture?: Capture;  // Optional capture for enhanced info (sample rate, etc.)
+  capture?: Capture;  // Optional capture for enhanced info (sample rate, configWarnings, etc.)
 }
 
 // Track if CSS has been injected
@@ -71,7 +71,11 @@ export function ErrorStatusBar({ captureId, capture }: Props) {
   const retryAttempt = retryEvent?.details?.attempt as number | undefined;
   const retryMaxAttempts = retryEvent?.details?.max_attempts as number | undefined;
 
-  const hasErrors = hasOverflows || hasDrops || retryEvent;
+  // Get config warnings from capture
+  const configWarnings = capture?.configWarnings ?? [];
+  const hasConfigWarnings = configWarnings.length > 0;
+
+  const hasErrors = hasOverflows || hasDrops || retryEvent || hasConfigWarnings;
 
   // Always render a container to reserve space and prevent reflow
   return (
@@ -117,6 +121,12 @@ export function ErrorStatusBar({ captureId, capture }: Props) {
           {retryAttempt ?? "?"}/{retryMaxAttempts ?? "?"}
         </span>
       )}
+      {hasConfigWarnings && configWarnings.map((warning, idx) => (
+        <span key={warning.code + idx} className="d-flex align-items-center gap-1">
+          <Settings size={16} />
+          <strong>Config:</strong> {warning.message}
+        </span>
+      ))}
     </div>
   );
 }

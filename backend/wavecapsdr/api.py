@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 from .models import (
     DeviceModel,
     CaptureModel,
+    ConfigWarning,
     CreateCaptureRequest,
     UpdateCaptureRequest,
     ChannelModel,
@@ -305,6 +306,27 @@ def _to_rds_data_model(rds_data: Any) -> Optional[RDSDataModel]:
     )
 
 
+def _compute_config_warnings(cap: Any) -> list[ConfigWarning]:
+    """Compute configuration warnings for a capture."""
+    warnings: list[ConfigWarning] = []
+
+    # RTL-SDR unstable sample rate warning
+    # RTL-SDR devices are known to be unstable at sample rates below ~900kHz
+    # The most stable rates are 1.024 MHz, 2.048 MHz, and 2.4 MHz
+    device_id_lower = cap.cfg.device_id.lower() if cap.cfg.device_id else ""
+    is_rtl = "rtlsdr" in device_id_lower or "rtl-sdr" in device_id_lower
+
+    if is_rtl and cap.cfg.sample_rate < 900_000:
+        warnings.append(ConfigWarning(
+            code="rtl_unstable_sample_rate",
+            severity="warning",
+            message=f"Sample rate {cap.cfg.sample_rate / 1_000_000:.3f} MHz may be unstable on RTL-SDR. "
+                    f"Consider using 1.024 MHz or higher to reduce IQ overflows."
+        ))
+
+    return warnings
+
+
 def _to_capture_model(cap: Any) -> CaptureModel:
     """Helper to convert a Capture to CaptureModel consistently."""
     from .error_tracker import get_error_tracker, ErrorStats
@@ -319,6 +341,9 @@ def _to_capture_model(cap: Any) -> CaptureModel:
     retry_attempt = cap._retry_count if is_retrying else None
     retry_max = cap._max_retries if is_retrying else None
     retry_delay = cap._retry_delay if is_retrying else None
+
+    # Compute configuration warnings
+    config_warnings = _compute_config_warnings(cap)
 
     return CaptureModel(
         id=cap.cfg.id,
@@ -347,6 +372,8 @@ def _to_capture_model(cap: Any) -> CaptureModel:
         retryAttempt=retry_attempt,
         retryMaxAttempts=retry_max,
         retryDelay=retry_delay,
+        # Configuration warnings
+        configWarnings=config_warnings,
     )
 
 

@@ -114,6 +114,13 @@ class UpdateCaptureRequest(BaseModel):
         return v if v else None
 
 
+class ConfigWarning(BaseModel):
+    """A configuration warning for display in the UI."""
+    code: str  # Machine-readable code (e.g., "rtl_unstable_sample_rate")
+    severity: Literal["warning", "info"] = "warning"
+    message: str  # Human-readable message
+
+
 class CaptureModel(BaseModel):
     id: str
     deviceId: str
@@ -141,6 +148,8 @@ class CaptureModel(BaseModel):
     retryAttempt: Optional[int] = None  # Current retry attempt (null if not retrying)
     retryMaxAttempts: Optional[int] = None
     retryDelay: Optional[float] = None  # Delay in seconds before next retry
+    # Configuration warnings
+    configWarnings: list[ConfigWarning] = []  # Lint warnings about configuration
 
 
 class CreateChannelRequest(BaseModel):

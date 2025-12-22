@@ -17,6 +17,12 @@ export interface Device {
   shorthand?: string | null;  // Auto-generated shorthand name (e.g., "RTL-SDR", "SDRplay RSPdx")
 }
 
+export interface ConfigWarning {
+  code: string;  // Machine-readable code (e.g., "rtl_unstable_sample_rate")
+  severity: "warning" | "info";
+  message: string;  // Human-readable message
+}
+
 export interface Capture {
   id: string;
   deviceId: string;
@@ -44,6 +50,8 @@ export interface Capture {
   retryAttempt: number | null;  // Current retry attempt (null if not retrying)
   retryMaxAttempts: number | null;
   retryDelay: number | null;  // Delay in seconds before next retry
+  // Configuration warnings
+  configWarnings?: ConfigWarning[];  // Lint warnings about configuration
 }
 
 export interface Channel {
