@@ -137,10 +137,12 @@ class TrellisDecoder:
             exp_soft = (CONSTELLATION[expected[0]], CONSTELLATION[expected[1]])
             metric = (soft[0] - exp_soft[0]) ** 2 + (soft[1] - exp_soft[1]) ** 2
         else:
-            # Hard-decision: Hamming distance in dibit space
-            d0 = 0 if received[0] == expected[0] else 1
-            d1 = 0 if received[1] == expected[1] else 1
-            metric = float(d0 + d1)
+            # Hard-decision: Hamming distance counting actual bit errors
+            # Each dibit is 2 bits, so XOR and count set bits (0-2 per dibit, 0-4 total)
+            # This matches OP25's count_bits(codeword ^ next_words[state][j])
+            xor0 = received[0] ^ expected[0]
+            xor1 = received[1] ^ expected[1]
+            metric = float(bin(xor0).count('1') + bin(xor1).count('1'))
 
         return metric
 

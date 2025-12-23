@@ -590,24 +590,15 @@ trunking:
       id: sa_grn
       name: SA GRN (South Australia Government Radio Network)
       protocol: p25_phase1
-      modulation: c4fm  # Try C4FM - some sites may use standard 4FSK
-      # System ID 0x3DC = 988, WACN 0xBEE00 = 781056
-      # See backend/config/SA_GRN_README.md for frequency sources
+      modulation: c4fm
       system_id: 988
       wacn: 781056
       control_channels:
-      # Control channels from SAScan.net.au and RadioReference (Dec 2024)
-      # Southern Adelaide sites for Woodcroft coverage
-      - 415.25 MHz    # Sellicks - south of Adelaide, close to Woodcroft!
-      - 414.8875 MHz  # Mt Barker (Mt Barker Summit)
-      - 414.75 MHz    # Birdwood (McVitties Hill)
-      - 413.350 MHz   # Hackham West (Site 009)
-      - 413.175 MHz   # Bull Creek (Site 084)
-      - 413.3125 MHz  # Adelaide Main GRN Site
+      - 413.3125 MHz
       center_hz: 415.5 MHz
       sample_rate: 6000000
       device_id: driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240305E670,serial=240305E670
-      gain: 30  # Lower gain to avoid overload
+      gain: 30
       antenna: Antenna A
       device_settings:
         rfnotch_ctrl: 'false'
@@ -617,7 +608,7 @@ trunking:
       record_unknown: true
       min_call_duration: 1.0
       squelch_db: -60
-      control_channel_timeout: 30  # 30 seconds per frequency to lock
+      control_channel_timeout: 30
       talkgroups:
         100:
           name: CFS State Dispatch

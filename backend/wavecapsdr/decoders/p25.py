@@ -440,10 +440,26 @@ class C4FMDemodulator:
     Demodulates 4800 baud C4FM signal to dibits using:
     - FM discriminator for frequency demodulation
     - Root-Raised Cosine (RRC) matched filter
-    - Gardner Timing Error Detector (TED) for symbol timing recovery
+    - MMSE (Minimum Mean Square Error) interpolation for symbol timing
+    - Symbol spread tracking for automatic deviation adaptation
+    - Fine frequency correction for DC offset removal
+
+    Based on OP25's fsk4_demod_ff implementation.
 
     NOTE: For simulcast/LSM systems (like SA-GRN), use CQPSKDemodulator instead.
     """
+
+    # MMSE interpolation taps from OP25 (8 taps, 128 fractional steps)
+    # This provides much more accurate interpolation than linear
+    MMSE_NTAPS = 8
+    MMSE_NSTEPS = 128
+    MMSE_TAPS = np.array([
+        # Each row is tap coefficients for a fractional offset (0/128 to 128/128)
+        # Subset of key positions - full table generated at init
+        [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],  # 0/128 (integer)
+        [-6.77751e-03, 3.94578e-02, -1.42658e-01, 6.09836e-01, 6.09836e-01, -1.42658e-01, 3.94578e-02, -6.77751e-03],  # 64/128 (0.5)
+        [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0],  # 128/128 (1.0)
+    ], dtype=np.float32)
 
     def __init__(self, sample_rate: int = 48000, symbol_rate: int = 4800):
         self.sample_rate = sample_rate
@@ -460,44 +476,93 @@ class C4FMDemodulator:
         self.deviation_hz = 600.0  # Base deviation (±600 Hz steps)
         self.max_deviation = 1800.0  # ±1800 Hz max
 
-        # Adaptive 4-level thresholds (will be computed from signal statistics)
-        # Initial thresholds assume normalized signal in [-3, +3] range
+        # Thresholds for 4-level slicing (fixed, based on symbol spread)
         self._threshold_low = -2.0   # Between -3 and -1
         self._threshold_mid = 0.0    # Between -1 and +1
         self._threshold_high = 2.0   # Between +1 and +3
-        self._threshold_alpha = 0.02  # Threshold adaptation rate
-        self._threshold_window = 500  # Symbols for threshold estimation
-        self._use_4level = True       # Enable 4-level slicing (vs binary fallback)
+        self._use_4level = True
 
-        # Gardner TED state
-        self._mu = 0.0  # Fractional symbol timing offset (0 to 1)
-        self._gain_mu = 0.05  # Timing loop gain (controls convergence speed)
-        self._last_sample = 0.0  # Previous sample for interpolation
-        self._last_symbol = 0.0  # Previous symbol value
+        # Symbol timing recovery state (OP25-style)
+        self._symbol_clock = 0.0  # Fractional position within symbol
+        self._symbol_time = symbol_rate / sample_rate  # Time increment per sample
+
+        # Symbol spread tracking (OP25 adaptation)
+        # Nominal spread of 2.0 gives outputs at -3, -1, +1, +3
+        self._symbol_spread = 2.0
+        self._K_SYMBOL_SPREAD = 0.0100  # Spread tracking gain (from OP25)
+
+        # Timing loop gain (from OP25)
+        self._K_SYMBOL_TIMING = 0.025  # Symbol clock tracking gain
+
+        # Fine frequency correction (OP25's DC offset tracking)
+        self._fine_freq_correction = 0.0
+        self._K_FINE_FREQUENCY = 0.125  # Fast fine loop gain
+
+        # Coarse frequency correction for external tuning requests
+        self._coarse_freq_correction = 0.0
+        self._K_COARSE_FREQUENCY = 0.00125
+
+        # Sample history for MMSE interpolation
+        self._history = np.zeros(self.MMSE_NTAPS, dtype=np.float32)
+        self._history_idx = 0
+
+        # Generate full MMSE interpolation table
+        self._mmse_taps = self._generate_mmse_taps()
 
         # RRC filter coefficients (alpha=0.2 for P25)
         self._rrc_taps = self._design_rrc_filter(alpha=0.2, num_taps=65)
 
-        # DC removal state
-        self._dc_alpha = 0.01
+        # DC removal state (alpha=0.05 gives 20-symbol time constant for faster convergence)
+        self._dc_alpha = 0.05
         self._dc_estimate = 0.0
 
-        # AGC state
-        self._agc_history: list[float] = []
-        self._agc_window = 500  # Increased for better threshold estimation
+        # Constellation gain normalization
+        self._constellation_gain = 1.0
+        self._target_std = 2.5
 
         # Diagnostic: symbol value tracking
         self._symbol_values: list[float] = []
         self._symbol_count = 0
-        self._diag_interval = 1000  # Log every N symbols
+        self._diag_interval = 1000
+
+    def _generate_mmse_taps(self) -> np.ndarray:
+        """
+        Generate full MMSE interpolation table.
+
+        Uses sinc-based interpolation with windowing for optimal
+        fractional sample reconstruction.
+        """
+        taps = np.zeros((self.MMSE_NSTEPS + 1, self.MMSE_NTAPS), dtype=np.float32)
+
+        for step in range(self.MMSE_NSTEPS + 1):
+            mu = step / self.MMSE_NSTEPS  # Fractional offset 0.0 to 1.0
+
+            for tap in range(self.MMSE_NTAPS):
+                # Tap positions: -3, -2, -1, 0, 1, 2, 3, 4 relative to sample point
+                t = tap - 3 - mu
+
+                if abs(t) < 1e-6:
+                    # At sample point
+                    taps[step, tap] = 1.0
+                else:
+                    # Sinc interpolation with Hann window
+                    sinc_val = np.sin(np.pi * t) / (np.pi * t)
+                    # Hann window over 8 taps
+                    window = 0.5 * (1 + np.cos(np.pi * t / 4)) if abs(t) < 4 else 0
+                    taps[step, tap] = sinc_val * window
+
+            # Normalize taps so they sum to 1
+            tap_sum = np.sum(taps[step])
+            if abs(tap_sum) > 1e-6:
+                taps[step] /= tap_sum
+
+        return taps
 
     def _design_rrc_filter(self, alpha: float = 0.2, num_taps: int = 65) -> np.ndarray:
         """Design Root-Raised Cosine filter for P25 C4FM."""
-        # RRC filter design
         sps = int(round(self.samples_per_symbol))
         t = np.arange(-(num_taps-1)//2, (num_taps-1)//2 + 1) / sps
 
-        # Handle special cases
         h = np.zeros(num_taps)
         for i, ti in enumerate(t):
             if ti == 0:
@@ -513,7 +578,6 @@ class C4FMDemodulator:
                 else:
                     h[i] = 0.0
 
-        # Normalize
         h = h / np.sqrt(np.sum(h**2))
         return h.astype(np.float32)
 
@@ -559,167 +623,178 @@ class C4FMDemodulator:
         except Exception:
             filtered = inst_freq
 
-        # NOTE: AGC is applied at symbol level in _gardner_timing_recovery, not here
-        # This avoids the problem of inter-symbol transitions biasing the AGC
+        # Constellation gain normalization
+        if len(filtered) > 100:
+            current_std = np.std(filtered)
+            if current_std > 0.1:
+                ideal_gain = self._target_std / current_std
+                self._constellation_gain = self._constellation_gain * 0.95 + ideal_gain * 0.05
+                self._constellation_gain = max(0.1, min(2.0, self._constellation_gain))
 
-        # Symbol timing recovery using Gardner TED
-        symbols = self._gardner_timing_recovery(filtered)
+        filtered = filtered * self._constellation_gain
+
+        # Symbol timing recovery using MMSE interpolation (OP25-style)
+        symbols = self._mmse_timing_recovery(filtered)
 
         return symbols
 
-    def _gardner_timing_recovery(self, samples: np.ndarray) -> np.ndarray:
+    def _mmse_interpolate(self, mu: float) -> float:
         """
-        Gardner Timing Error Detector for symbol timing recovery.
+        MMSE FIR interpolation at fractional offset mu.
 
-        The Gardner TED works by computing:
-        e(k) = (y(k) - y(k-1)) * y(k-0.5)
+        Args:
+            mu: Fractional offset 0.0 to 1.0
 
-        Where y(k-0.5) is the mid-sample between symbols.
+        Returns:
+            Interpolated sample value
         """
-        sps = self.samples_per_symbol
+        # Select tap coefficients for this fractional offset
+        imu = int(round(mu * self.MMSE_NSTEPS))
+        if imu > self.MMSE_NSTEPS:
+            imu = self.MMSE_NSTEPS
+
+        # Apply FIR filter with history buffer
+        result = 0.0
+        for i in range(self.MMSE_NTAPS):
+            hist_idx = (self._history_idx + i) % self.MMSE_NTAPS
+            result += self._mmse_taps[imu, i] * self._history[hist_idx]
+
+        return result
+
+    def _mmse_timing_recovery(self, samples: np.ndarray) -> np.ndarray:
+        """
+        Symbol timing recovery using MMSE interpolation (OP25-style).
+
+        This implements OP25's fsk4_demod_ff tracking loop which includes:
+        - MMSE FIR interpolation for accurate fractional sample recovery
+        - Symbol spread tracking (adapts to actual signal deviation)
+        - Fine frequency correction (tracks DC offset)
+        - Gradient-based timing adjustment
+        """
         symbols = []
 
-        i = 0
-        while i < len(samples) - int(sps) - 1:
-            # Current sample index (with fractional offset)
-            idx = i + self._mu
+        for sample in samples:
+            # Add sample to history buffer
+            self._history[self._history_idx] = sample
+            self._history_idx = (self._history_idx + 1) % self.MMSE_NTAPS
 
-            # Linear interpolation for fractional sample
-            idx_int = int(idx)
-            frac = idx - idx_int
+            # Advance symbol clock
+            self._symbol_clock += self._symbol_time
 
-            if idx_int + 1 >= len(samples):
-                break
+            # Output symbol when clock wraps
+            if self._symbol_clock > 1.0:
+                self._symbol_clock -= 1.0
 
-            # Interpolated symbol sample
-            y_k = samples[idx_int] * (1 - frac) + samples[idx_int + 1] * frac
+                # Get fractional timing offset for interpolation
+                mu = self._symbol_clock / self._symbol_time
+                if mu > 1.0:
+                    mu = 1.0
 
-            # Mid-sample (half symbol period back)
-            mid_idx = idx - sps / 2
-            if mid_idx < 0:
-                mid_idx = 0
-            mid_int = int(mid_idx)
-            mid_frac = mid_idx - mid_int
+                # MMSE interpolate at current position and one step ahead
+                interp = self._mmse_interpolate(mu)
 
-            if mid_int + 1 >= len(samples):
-                y_mid = samples[mid_int] if mid_int < len(samples) else 0
-            else:
-                y_mid = samples[mid_int] * (1 - mid_frac) + samples[mid_int + 1] * mid_frac
+                # Also get interpolation at next fractional step (for gradient)
+                mu_p1 = min(mu + 1.0 / self.MMSE_NSTEPS, 1.0)
+                interp_p1 = self._mmse_interpolate(mu_p1)
 
-            # Gardner timing error
-            ted = (y_k - self._last_symbol) * y_mid
+                # Apply fine frequency correction (DC offset tracking)
+                interp -= self._fine_freq_correction
+                interp_p1 -= self._fine_freq_correction
 
-            # Update timing offset
-            self._mu = self._mu + self._gain_mu * ted
+                # Output normalized by symbol spread
+                output = 2.0 * interp / self._symbol_spread
 
-            # Keep mu in range [0, 1)
-            while self._mu >= 1.0:
-                self._mu -= 1.0
-                i += 1
-            while self._mu < 0.0:
-                self._mu += 1.0
-                i -= 1
+                # Compute symbol error for tracking loops
+                symbol_error = self._compute_symbol_error(interp)
 
-            self._last_symbol = y_k
+                # Update symbol spread (OP25-style adaptation)
+                self._update_symbol_spread(interp, symbol_error)
 
-            # Track symbol values for adaptive threshold computation
-            self._agc_history.append(y_k)
-            if len(self._agc_history) > self._agc_window:
-                self._agc_history.pop(0)
-
-            # Adaptive 4-level slicing for C4FM
-            # P25 C4FM uses 4 levels: -3, -1, +1, +3 mapping to dibits 3, 2, 0, 1
-            #
-            # Update adaptive thresholds periodically from symbol distribution
-            if len(self._agc_history) >= self._threshold_window and self._symbol_count % 100 == 0:
-                self._update_thresholds()
-
-            # 4-level symbol slicing
-            if self._use_4level:
-                if y_k < self._threshold_low:
-                    dibit = 3  # -3 symbol -> dibit 11
-                elif y_k < self._threshold_mid:
-                    dibit = 2  # -1 symbol -> dibit 10
-                elif y_k < self._threshold_high:
-                    dibit = 0  # +1 symbol -> dibit 00
+                # Update timing using gradient
+                if interp_p1 < interp:
+                    self._symbol_clock += symbol_error * self._K_SYMBOL_TIMING
                 else:
-                    dibit = 1  # +3 symbol -> dibit 01
-            else:
-                # Binary fallback (for sync detection with degraded signal)
-                if y_k < 0:
-                    dibit = 3
-                else:
-                    dibit = 1
+                    self._symbol_clock -= symbol_error * self._K_SYMBOL_TIMING
 
-            symbols.append(dibit)
-
-            # Diagnostic: track symbol values
-            self._symbol_values.append(y_k)
-            self._symbol_count += 1
-            if self._symbol_count % self._diag_interval == 0:
-                vals = np.array(self._symbol_values[-self._diag_interval:])
-                # Count symbols in each decision region
-                d3_count = np.sum(vals < self._threshold_low)
-                d2_count = np.sum((vals >= self._threshold_low) & (vals < self._threshold_mid))
-                d0_count = np.sum((vals >= self._threshold_mid) & (vals < self._threshold_high))
-                d1_count = np.sum(vals >= self._threshold_high)
-                logger.info(
-                    f"C4FM symbols (4-level): count={self._symbol_count}, "
-                    f"dist=[d0:{d0_count}, d1:{d1_count}, d2:{d2_count}, d3:{d3_count}], "
-                    f"thresh=[{self._threshold_low:.2f}, {self._threshold_mid:.2f}, {self._threshold_high:.2f}], "
-                    f"mean={vals.mean():.3f}, std={vals.std():.3f}"
+                # Update frequency correction loops
+                self._coarse_freq_correction += (
+                    (self._fine_freq_correction - self._coarse_freq_correction)
+                    * self._K_COARSE_FREQUENCY
                 )
+                self._fine_freq_correction += symbol_error * self._K_FINE_FREQUENCY
 
-            # Advance by one symbol period
-            i += int(sps)
+                # 4-level symbol slicing (using normalized output)
+                if output < -2.0:
+                    dibit = 3  # -3 symbol
+                elif output < 0.0:
+                    dibit = 2  # -1 symbol
+                elif output < 2.0:
+                    dibit = 0  # +1 symbol
+                else:
+                    dibit = 1  # +3 symbol
+
+                symbols.append(dibit)
+
+                # Diagnostic tracking
+                self._symbol_values.append(output)
+                self._symbol_count += 1
+                if self._symbol_count % self._diag_interval == 0:
+                    vals = np.array(self._symbol_values[-self._diag_interval:])
+                    d3 = np.sum(vals < -2.0)
+                    d2 = np.sum((vals >= -2.0) & (vals < 0.0))
+                    d0 = np.sum((vals >= 0.0) & (vals < 2.0))
+                    d1 = np.sum(vals >= 2.0)
+                    logger.info(
+                        f"C4FM MMSE: count={self._symbol_count}, "
+                        f"dist=[d0:{d0}, d1:{d1}, d2:{d2}, d3:{d3}], "
+                        f"spread={self._symbol_spread:.3f}, "
+                        f"fine_freq={self._fine_freq_correction:.3f}, "
+                        f"mean={vals.mean():.3f}, std={vals.std():.3f}"
+                    )
 
         return np.array(symbols, dtype=np.uint8)
 
-    def _update_thresholds(self) -> None:
+    def _compute_symbol_error(self, interp: float) -> float:
         """
-        Update adaptive thresholds from symbol value distribution.
+        Compute symbol error for tracking loops.
 
-        For C4FM, we use fixed thresholds based on the expected symbol levels.
-        With FM discriminator scaled to ±3 for ±1800 Hz deviation:
-        - +3 symbol = +3.0 output
-        - +1 symbol = +1.0 output
-        - -1 symbol = -1.0 output
-        - -3 symbol = -3.0 output
-
-        Thresholds at midpoints: -2.0, 0.0, +2.0
+        Determines which symbol level was detected and computes
+        the error from the expected position.
         """
-        if len(self._agc_history) < self._threshold_window:
-            return
-
-        vals = np.array(self._agc_history[-self._threshold_window:])
-        std = np.std(vals)
-
-        # If signal std is too high (>10), this is likely noise - don't adapt
-        # Valid C4FM signal should have std ~2.0 (symbols at ±3, ±1)
-        if std > 10.0:
-            # Noise detected - reset thresholds toward expected values
-            alpha = 0.01  # Slow convergence toward fixed values
-            self._threshold_low = self._threshold_low * (1 - alpha) + (-2.0) * alpha
-            self._threshold_mid = self._threshold_mid * (1 - alpha) + 0.0 * alpha
-            self._threshold_high = self._threshold_high * (1 - alpha) + 2.0 * alpha
-            return
-
-        # Signal detected (reasonable std) - use fixed thresholds
-        # This is more reliable than adaptive thresholds for C4FM
-        if std < 5.0:
-            # Good signal - quickly converge to fixed thresholds
-            alpha = 0.1
-            self._threshold_low = self._threshold_low * (1 - alpha) + (-2.0) * alpha
-            self._threshold_mid = self._threshold_mid * (1 - alpha) + 0.0 * alpha
-            self._threshold_high = self._threshold_high * (1 - alpha) + 2.0 * alpha
-            self._use_4level = True
+        if interp < -self._symbol_spread:
+            # Symbol is -3: Expected at -1.5 * symbol_spread
+            return interp + (1.5 * self._symbol_spread)
+        elif interp < 0.0:
+            # Symbol is -1: Expected at -0.5 * symbol_spread
+            return interp + (0.5 * self._symbol_spread)
+        elif interp < self._symbol_spread:
+            # Symbol is +1: Expected at +0.5 * symbol_spread
+            return interp - (0.5 * self._symbol_spread)
         else:
-            # Moderate signal - slower convergence
-            alpha = 0.02
-            self._threshold_low = self._threshold_low * (1 - alpha) + (-2.0) * alpha
-            self._threshold_mid = self._threshold_mid * (1 - alpha) + 0.0 * alpha
-            self._threshold_high = self._threshold_high * (1 - alpha) + 2.0 * alpha
-            self._use_4level = True
+            # Symbol is +3: Expected at +1.5 * symbol_spread
+            return interp - (1.5 * self._symbol_spread)
+
+    def _update_symbol_spread(self, interp: float, symbol_error: float) -> None:
+        """
+        Update symbol spread (deviation) estimate.
+
+        Tracks the actual signal deviation level adaptively.
+        """
+        # Outer symbols contribute half as much to spread adaptation
+        if interp < -self._symbol_spread or interp >= self._symbol_spread:
+            # Outer symbol (±3)
+            self._symbol_spread -= symbol_error * 0.5 * self._K_SYMBOL_SPREAD
+        else:
+            # Inner symbol (±1)
+            if interp < 0.0:
+                self._symbol_spread -= symbol_error * self._K_SYMBOL_SPREAD
+            else:
+                self._symbol_spread += symbol_error * self._K_SYMBOL_SPREAD
+
+        # Constrain spread to ±20% of nominal 2.0
+        SYMBOL_SPREAD_MAX = 2.4
+        SYMBOL_SPREAD_MIN = 1.6
+        self._symbol_spread = max(SYMBOL_SPREAD_MIN, min(SYMBOL_SPREAD_MAX, self._symbol_spread))
 
 
 class P25TrellisDecoder:
@@ -812,7 +887,7 @@ class P25FrameSync:
             self.DUID_PDU: P25FrameType.PDU,
             self.DUID_TDULC: P25FrameType.TDU,
         }
-        self.sync_threshold = 4  # Allow 4 dibit errors in 24-dibit sync
+        self.sync_threshold = 4  # Allow 4 dibit errors (8 bit errors, ~17% BER)
 
     def find_sync(self, dibits: np.ndarray) -> Tuple[Optional[int], Optional[P25FrameType]]:
         """
@@ -1360,6 +1435,13 @@ class P25Decoder:
             _, err_raw = self.trellis.decode(data)
             results.append((f"{name}_raw", data, err_raw))
 
+            # Note: Additional transformations tested but didn't help:
+            # - Polarity inversion (XOR 2): swaps 0↔2, 1↔3
+            # - Bit-reversal within dibit: 0→0, 1→2, 2→1, 3→3
+            # - Full inversion (XOR 3): swaps 0↔3, 1↔2
+            # All produce similar ~22-28 error rates, suggesting issue is
+            # with symbol timing recovery rather than dibit mapping.
+
         if not results:
             return None
 
@@ -1378,9 +1460,38 @@ class P25Decoder:
             logger.debug(f"TSBK trellis output too short: {len(decoded)} dibits (need {TSBK_DECODED_DIBITS})")
             return None
 
-        # Check error threshold - allow up to 8 bit errors (16%)
-        if errors > 8:
-            logger.debug(f"TSBK too many errors: {errors}")
+        # Convert dibits to bits for CRC validation
+        decoded_bits = np.zeros(96, dtype=np.uint8)
+        for i in range(min(48, len(decoded))):
+            decoded_bits[i*2] = (decoded[i] >> 1) & 1
+            decoded_bits[i*2 + 1] = decoded[i] & 1
+
+        # Calculate CRC-16 CCITT over first 80 bits
+        poly = 0x1021
+        crc = 0xFFFF
+        for i in range(80):
+            bit = int(decoded_bits[i])
+            msb = (crc >> 15) & 1
+            crc = ((crc << 1) | bit) & 0xFFFF
+            if msb:
+                crc ^= poly
+        for _ in range(16):
+            msb = (crc >> 15) & 1
+            crc = (crc << 1) & 0xFFFF
+            if msb:
+                crc ^= poly
+        # Extract received CRC
+        received_crc = 0
+        for i in range(16):
+            received_crc = (received_crc << 1) | int(decoded_bits[80 + i])
+        crc_valid = (crc == received_crc)
+
+        # Log all decode attempts for debugging
+        logger.info(f"TSBK CRC check: errors={errors}, crc_valid={crc_valid}, calc_crc=0x{crc:04x}, recv_crc=0x{received_crc:04x}")
+
+        # Check error threshold - temporarily relaxed for debugging
+        if errors > 30 or (errors > 8 and not crc_valid):
+            logger.debug(f"TSBK rejected: errors={errors}, crc_valid={crc_valid}")
             return None
 
         self._tsbk_decode_count += 1
