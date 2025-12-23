@@ -246,7 +246,7 @@ class CQPSKDemodulator:
         magnitudes = np.abs(x)
         mean_mag = np.mean(magnitudes) if len(magnitudes) > 0 else 1.0
         max_mag = np.max(magnitudes) if len(magnitudes) > 0 else 0.0
-        if mean_mag > 0.01:
+        if mean_mag > 1e-8:
             target_gain = self._agc_target / mean_mag
             self._agc_gain = self._agc_gain * (1 - self._agc_alpha) + target_gain * self._agc_alpha
             self._agc_gain = np.clip(self._agc_gain, 0.01, 500.0)

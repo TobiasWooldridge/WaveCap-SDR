@@ -119,6 +119,7 @@ class SDRplayProxyStream(StreamHandle):
     _last_read_idx: int = 0
     _closed: bool = False
     _data_ready: bool = False
+    _last_data_time: float = 0.0  # Time when we last received data
 
     _debug_counter: int = 0
 
@@ -151,6 +152,10 @@ class SDRplayProxyStream(StreamHandle):
         """
         self._debug_counter += 1
 
+        # CRITICAL DEBUG: Log at start to confirm read() is being called
+        if self._debug_counter <= 30:
+            logger.info(f"SDRplayProxyStream.read() ENTRY: counter={self._debug_counter}")
+
         if self._closed:
             if self._debug_counter <= 10 or self._debug_counter % 1000 == 0:
                 logger.warning(f"SDRplayProxyStream.read()[{self._debug_counter}]: stream is closed")
@@ -178,16 +183,49 @@ class SDRplayProxyStream(StreamHandle):
             self._empty_reads = getattr(self, '_empty_reads', 0) + 1
 
             # Workaround for macOS SharedMemory coherency issue:
-            # If we've had many empty reads but the stream shows ready (FLAG_DATA_READY set),
-            # re-attach to the shared memory to force a fresh view.
-            if self._empty_reads >= 100 and (flags & FLAG_DATA_READY):
-                if not getattr(self, '_reattach_attempted', False):
-                    self._reattach_attempted = True
+            # Re-attach to the shared memory to force a fresh view when:
+            # 1. Early startup: worker reports ready but we see stale header
+            # 2. After initial data: coherency broke, need to recover quickly
+            import time as time_mod
+            now = time_mod.time()
+            time_since_data = now - self._last_data_time if self._last_data_time > 0 else 0
+
+            # Be AGGRESSIVE with re-attach after we've received data before:
+            # - If we had data, re-attach every 0.3 seconds while empty (not every 2s)
+            # - If startup, re-attach after 30 empty reads (~0.6s)
+            last_reattach = getattr(self, '_last_reattach_time', 0)
+            time_since_reattach = now - last_reattach if last_reattach > 0 else float('inf')
+
+            should_reattach = (
+                # Throttle: don't re-attach more than once per 0.2 seconds
+                time_since_reattach > 0.2 and (
+                    # Case 1: Early startup - worker reports ready but we see stale header
+                    (self._empty_reads >= 30 and (flags & FLAG_DATA_READY)) or
+                    # Case 2: After initial data - coherency broke, re-attach quickly
+                    (self._last_data_time > 0 and time_since_data > 0.3 and self._empty_reads >= 5)
+                )
+            )
+            # Debug: log every 50 empty reads to understand why re-attach isn't triggering
+            if self._empty_reads % 50 == 0:
+                case1 = (self._empty_reads >= 30 and (flags & FLAG_DATA_READY))
+                case2 = (self._last_data_time > 0 and time_since_data > 0.3 and self._empty_reads >= 5)
+                throttle_ok = time_since_reattach > 0.2
+                logger.info(
+                    f"SDRplayProxyStream: DEBUG empty={self._empty_reads}, throttle_ok={throttle_ok}, "
+                    f"case1={case1}, case2={case2}, should_reattach={should_reattach}, flags={flags}"
+                )
+            if should_reattach:
+                reattach_count = getattr(self, '_reattach_count', 0)
+                # Allow many more reattach attempts for ongoing operation (100 vs 5 during startup)
+                max_reattach = 100 if self._last_data_time > 0 else 5
+                if reattach_count < max_reattach:
+                    self._reattach_count = reattach_count + 1
+                    self._last_reattach_time = now  # Track when we last tried
                     try:
                         shm_name = self.shm.name
                         logger.warning(
-                            f"SDRplayProxyStream: {self._empty_reads} empty reads but FLAG_DATA_READY set. "
-                            f"Re-attaching to shared memory {shm_name}..."
+                            f"SDRplayProxyStream: {self._empty_reads} empty reads, time_since_data={time_since_data:.1f}s. "
+                            f"Re-attaching to shared memory {shm_name}... (attempt {reattach_count + 1}/{max_reattach})"
                         )
                         # Close current reference (don't unlink!)
                         old_shm = self.shm
@@ -195,12 +233,13 @@ class SDRplayProxyStream(StreamHandle):
                         self.shm = SharedMemory(name=shm_name)
                         old_shm.close()
                         logger.info(f"SDRplayProxyStream: Re-attached to {shm_name}")
-                        self._empty_reads = 0
+                        # DON'T reset empty_reads here - we only reset when we get data
                         # Try reading again with fresh attachment
                         write_idx, _, sample_count, overflow_count, sample_rate, flags, timestamp = _read_header(self.shm)
                         available = write_idx - self._last_read_idx
                         if available > 0:
                             logger.info(f"SDRplayProxyStream: Re-attach successful! Now have {available} samples available")
+                            self._empty_reads = 0  # Reset only on success
                             # Continue to process samples below
                         else:
                             return np.empty(0, dtype=np.complex64), False
@@ -220,6 +259,9 @@ class SDRplayProxyStream(StreamHandle):
         else:
             # Reset empty read counter when we get samples
             self._empty_reads = 0
+            self._reattach_count = 0  # Reset reattach counter on success
+            import time as time_mod
+            self._last_data_time = time_mod.time()
 
         # Detect ring buffer overrun: if available > BUFFER_SAMPLES, the writer
         # has wrapped around and overwritten data before we could read it.

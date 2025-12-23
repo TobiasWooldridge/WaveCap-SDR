@@ -52,6 +52,8 @@ export interface Capture {
   retryDelay: number | null;  // Delay in seconds before next retry
   // Configuration warnings
   configWarnings?: ConfigWarning[];  // Lint warnings about configuration
+  // Trunking system ownership
+  trunkingSystemId?: string | null;  // Set if this capture is managed by a trunking system
 }
 
 export interface Channel {

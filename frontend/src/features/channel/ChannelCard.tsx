@@ -18,9 +18,10 @@ import { RdsDisplay } from "./RdsDisplay";
 interface ChannelCardProps {
   channel: Channel;
   capture: Capture;
+  readOnly?: boolean;
 }
 
-export const ChannelCard = memo(function ChannelCard({ channel, capture }: ChannelCardProps) {
+export const ChannelCard = memo(function ChannelCard({ channel, capture, readOnly = false }: ChannelCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editNameValue, setEditNameValue] = useState("");
@@ -108,25 +109,30 @@ export const ChannelCard = memo(function ChannelCard({ channel, capture }: Chann
                 <span style={{ fontSize: "11px" }}>{isPlaying ? "Stop" : "Listen"}</span>
               </Flex>
             </Button>
-            <Button
-              use="secondary"
-              size="sm"
-              onClick={() => setIsExpanded(!isExpanded)}
-              title={isExpanded ? "Collapse" : "Settings"}
-              className="p-1"
-            >
-              {isExpanded ? <ChevronUp size={14} /> : <Settings size={14} />}
-            </Button>
-            <Button
-              use="danger"
-              size="sm"
-              appearance="outline"
-              onClick={handleDelete}
-              title="Delete"
-              className="p-1"
-            >
-              <Trash2 size={14} />
-            </Button>
+            {/* Hide settings and delete buttons when read-only (trunking-managed) */}
+            {!readOnly && (
+              <>
+                <Button
+                  use="secondary"
+                  size="sm"
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  title={isExpanded ? "Collapse" : "Settings"}
+                  className="p-1"
+                >
+                  {isExpanded ? <ChevronUp size={14} /> : <Settings size={14} />}
+                </Button>
+                <Button
+                  use="danger"
+                  size="sm"
+                  appearance="outline"
+                  onClick={handleDelete}
+                  title="Delete"
+                  className="p-1"
+                >
+                  <Trash2 size={14} />
+                </Button>
+              </>
+            )}
           </Flex>
         </Flex>
       </div>
@@ -138,14 +144,17 @@ export const ChannelCard = memo(function ChannelCard({ channel, capture }: Chann
           <div>
             <Flex justify="between" align="center">
               <div className="small text-muted">{channel.mode.toUpperCase()}</div>
-              <button
-                className="btn btn-sm p-0"
-                style={{ width: "16px", height: "16px" }}
-                onClick={handleStartEditName}
-                title="Edit name"
-              >
-                <Edit2 size={12} />
-              </button>
+              {/* Hide edit name button when read-only (trunking-managed) */}
+              {!readOnly && (
+                <button
+                  className="btn btn-sm p-0"
+                  style={{ width: "16px", height: "16px" }}
+                  onClick={handleStartEditName}
+                  title="Edit name"
+                >
+                  <Edit2 size={12} />
+                </button>
+              )}
             </Flex>
 
             {isEditingName ? (
@@ -242,7 +251,8 @@ export const ChannelCard = memo(function ChannelCard({ channel, capture }: Chann
     prevCh.rdsData === nextCh.rdsData &&
     prevProps.capture.id === nextProps.capture.id &&
     prevProps.capture.centerHz === nextProps.capture.centerHz &&
-    prevProps.capture.sampleRate === nextProps.capture.sampleRate
+    prevProps.capture.sampleRate === nextProps.capture.sampleRate &&
+    prevProps.readOnly === nextProps.readOnly
   );
 });
 

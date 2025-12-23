@@ -70,6 +70,10 @@ class AppState:
         trunking_manager = TrunkingManager()
         trunking_manager.set_capture_manager(captures)
 
+        # Set config path for state persistence
+        if config_path:
+            trunking_manager.set_config_path(config_path)
+
         # Register trunking systems from config (loaded during manager.start())
         for sys_id, sys_data in cfg.trunking_systems.items():
             try:

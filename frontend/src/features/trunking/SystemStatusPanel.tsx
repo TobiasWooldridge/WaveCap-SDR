@@ -57,10 +57,12 @@ export function SystemStatusPanel({
   onPlayAudio,
   onStopAudio,
 }: SystemStatusPanelProps) {
-  const isRunning = system.state === "running" || system.state === "searching" || system.state === "syncing";
-  const isStopped = system.state === "stopped";
+  // Show Stop button for any active state
+  const isRunning = system.state !== "stopped" && system.state !== "failed";
+  const isStopped = system.state === "stopped" || system.state === "failed";
   const isBusy = isStarting || isStopping;
-  const canPlayAudio = isRunning && onPlayAudio && onStopAudio;
+  // Show Listen button when system is actively decoding
+  const canPlayAudio = isRunning && system.state !== "starting" && onPlayAudio && onStopAudio;
 
   return (
     <div className="card">

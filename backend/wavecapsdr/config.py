@@ -399,6 +399,46 @@ def save_config(config: AppConfig, path_str: str) -> None:
     if config.device_names:
         existing_data["device_names"] = config.device_names
 
+    # Trunking systems
+    if config.trunking_systems:
+        trunking_data = existing_data.setdefault("trunking", {})
+        trunking_data["systems"] = config.trunking_systems
+
     # Write to file with nice formatting
     with path.open("w", encoding="utf-8") as f:
         yaml.dump(existing_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+
+def update_trunking_system_state(
+    path_str: str, system_id: str, auto_start: bool
+) -> None:
+    """Update a specific trunking system's auto_start state in the config file.
+
+    This function reads the existing config, updates just the auto_start field
+    for the specified system, and writes it back. Used to persist state changes
+    across server restarts.
+
+    Args:
+        path_str: Path to the config file
+        system_id: ID of the trunking system to update
+        auto_start: New auto_start value
+    """
+    path = Path(path_str)
+    if not path.exists():
+        return
+
+    raw = _read_yaml(path)
+
+    # Navigate to trunking.systems.{system_id}
+    trunking = raw.setdefault("trunking", {})
+    systems = trunking.setdefault("systems", {})
+
+    if system_id not in systems:
+        return
+
+    # Update the auto_start field
+    systems[system_id]["auto_start"] = auto_start
+
+    # Write back
+    with path.open("w", encoding="utf-8") as f:
+        yaml.dump(raw, f, default_flow_style=False, sort_keys=False, allow_unicode=True)

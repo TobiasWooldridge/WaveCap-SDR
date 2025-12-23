@@ -24,8 +24,9 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from wavecapsdr.trunking.config import TrunkingProtocol
-# Use the proven-working C4FM demodulator from decoders/p25.py
+# Use demodulators from decoders/p25.py
 from wavecapsdr.decoders.p25 import C4FMDemodulator as P25C4FMDemodulator
+from wavecapsdr.decoders.p25 import CQPSKDemodulator as P25CQPSKDemodulator
 from wavecapsdr.decoders.p25_frames import (
     DUID,
     NID,
@@ -46,19 +47,26 @@ class SyncState(str, Enum):
     SYNCED = "synced"        # Locked to frame timing
 
 
+class P25Modulation(str, Enum):
+    """P25 modulation types."""
+    C4FM = "c4fm"    # Standard non-simulcast
+    LSM = "lsm"      # Linear Simulcast Modulation (CQPSK)
+
+
 @dataclass
 class ControlChannelMonitor:
     """P25 control channel monitor.
 
     Demodulates and decodes P25 control channel to extract TSBK messages.
-    Supports both Phase I (C4FM) and Phase II (CQPSK) systems.
+    Supports both C4FM (standard) and LSM/CQPSK (simulcast) modulation.
     """
 
     protocol: TrunkingProtocol
     sample_rate: int = 48000  # Input IQ sample rate
+    modulation: P25Modulation = P25Modulation.LSM  # Default to LSM for simulcast systems
 
-    # Demodulator (always C4FM for control channels)
-    _c4fm_demod: Optional[P25C4FMDemodulator] = None
+    # Demodulator - either C4FM or CQPSK based on modulation
+    _demod: Optional[Any] = None  # P25C4FMDemodulator or P25CQPSKDemodulator
 
     # TSBK parser
     _tsbk_parser: Optional[TSBKParser] = None
@@ -86,19 +94,34 @@ class ControlChannelMonitor:
 
     def __post_init__(self) -> None:
         """Initialize demodulators and parser."""
-        # P25 control channels ALWAYS use C4FM (Phase I signaling) at 4800 baud,
-        # even for Phase II systems. Only voice channels use CQPSK/TDMA in Phase II.
-        # This is a fundamental P25 design choice - control channel is backwards compatible.
+        # P25 control channels can use either C4FM or LSM (CQPSK) modulation.
+        # - C4FM: Standard non-simulcast systems
+        # - LSM/CQPSK: Simulcast systems (like SA-GRN with 240+ sites)
         #
-        # Use the proven-working C4FM demodulator from decoders/p25.py
-        self._c4fm_demod = P25C4FMDemodulator(
-            sample_rate=self.sample_rate,
-            symbol_rate=4800,  # P25 control channel: always 4800 baud C4FM
-        )
-        logger.info(
-            f"ControlChannelMonitor: Using P25C4FMDemodulator @ {self.sample_rate} Hz "
-            f"(control channels always use C4FM, even for Phase II systems)"
-        )
+        # For simulcast, the same signal is transmitted from multiple sites
+        # simultaneously. CQPSK/LSM is more robust to the multipath interference
+        # that occurs when signals from different sites combine.
+        #
+        if self.modulation == P25Modulation.LSM:
+            # Use CQPSK demodulator for simulcast systems
+            self._demod = P25CQPSKDemodulator(
+                sample_rate=self.sample_rate,
+                symbol_rate=4800,
+            )
+            logger.info(
+                f"ControlChannelMonitor: Using P25CQPSKDemodulator @ {self.sample_rate} Hz "
+                f"(LSM/CQPSK for simulcast systems)"
+            )
+        else:
+            # Use C4FM demodulator for standard systems
+            self._demod = P25C4FMDemodulator(
+                sample_rate=self.sample_rate,
+                symbol_rate=4800,
+            )
+            logger.info(
+                f"ControlChannelMonitor: Using P25C4FMDemodulator @ {self.sample_rate} Hz "
+                f"(C4FM for standard systems)"
+            )
 
         # Create TSBK parser
         self._tsbk_parser = TSBKParser()
@@ -138,12 +161,12 @@ class ControlChannelMonitor:
             logger.info(f"ControlChannelMonitor.process_iq: ENTRY call #{self._process_iq_calls}, iq.size={iq.size}")
 
         # Demodulate to dibits using C4FM (control channels always use C4FM)
-        if self._c4fm_demod:
+        if self._demod:
             _start = _time_mod.perf_counter()
             if _verbose:
                 logger.info(f"ControlChannelMonitor.process_iq: calling demodulate")
             # P25C4FMDemodulator.demodulate returns just dibits (no soft symbols)
-            dibits = self._c4fm_demod.demodulate(iq.astype(np.complex64))
+            dibits = self._demod.demodulate(iq.astype(np.complex64))
             _elapsed = (_time_mod.perf_counter() - _start) * 1000
             if _verbose:
                 logger.info(f"ControlChannelMonitor.process_iq: demodulate returned {len(dibits)} dibits in {_elapsed:.1f}ms")
@@ -282,15 +305,15 @@ class ControlChannelMonitor:
                         if not tsbk_block.crc_valid:
                             continue  # Skip blocks with bad CRC
 
-                        tsbk_bytes = tsbk_block.data
-                        result = self._parse_tsbk(tsbk_bytes)
+                        # Pass opcode and mfid from TSBKBlock to parser
+                        result = self._parse_tsbk(tsbk_block.opcode, tsbk_block.mfid, tsbk_block.data)
                         if result:
                             results.append(result)
                             self.tsbk_decoded += 1
 
                         # Call TSBK callback
                         if self.on_tsbk:
-                            self.on_tsbk(tsbk_bytes)
+                            self.on_tsbk(tsbk_block.data)
 
             # Consume frame from buffer
             self._dibit_buffer = self._dibit_buffer[self.TSDU_FRAME_DIBITS:]
@@ -382,11 +405,13 @@ class ControlChannelMonitor:
         return np.array([1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1,
                          3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3], dtype=np.uint8)
 
-    def _parse_tsbk(self, tsbk_data: bytes) -> Optional[Dict[str, Any]]:
+    def _parse_tsbk(self, opcode: int, mfid: int, data: bytes) -> Optional[Dict[str, Any]]:
         """Parse TSBK message.
 
         Args:
-            tsbk_data: Raw TSBK data (12 bytes)
+            opcode: TSBK opcode (6 bits)
+            mfid: Manufacturer ID (8 bits, 0 = standard)
+            data: TSBK data payload (8 bytes)
 
         Returns:
             Parsed TSBK dictionary or None
@@ -395,9 +420,9 @@ class ControlChannelMonitor:
             return None
 
         try:
-            return self._tsbk_parser.parse(tsbk_data)
+            return self._tsbk_parser.parse(opcode, mfid, data)
         except Exception as e:
-            logger.error(f"ControlChannelMonitor: TSBK parse error: {e}")
+            logger.error(f"ControlChannelMonitor: TSBK parse error (opcode=0x{opcode:02X}): {e}")
             return None
 
     def get_stats(self) -> Dict[str, Any]:

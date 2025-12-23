@@ -150,6 +150,8 @@ class CaptureModel(BaseModel):
     retryDelay: Optional[float] = None  # Delay in seconds before next retry
     # Configuration warnings
     configWarnings: list[ConfigWarning] = []  # Lint warnings about configuration
+    # Trunking system ownership
+    trunkingSystemId: Optional[str] = None  # Set if this capture is managed by a trunking system
 
 
 class CreateChannelRequest(BaseModel):

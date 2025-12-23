@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { Plus, VolumeX, Volume2 } from "lucide-react";
+import { Plus, VolumeX, Volume2, Radio, ArrowRight } from "lucide-react";
 import type { Capture } from "../../types";
 import { useChannels, useCreateChannel, useStartChannel } from "../../hooks/useChannels";
 import { useAudio } from "../../hooks/useAudio";
 import { useToast } from "../../hooks/useToast";
+import { useTrunkingSystems } from "../../hooks/useTrunking";
+import { useSelectedRadio } from "../../hooks/useSelectedRadio";
 import { ChannelCard } from "./ChannelCard";
 import Button from "../../components/primitives/Button.react";
 import Flex from "../../components/primitives/Flex.react";
@@ -23,6 +25,8 @@ export function ChannelList({ capture }: ChannelListProps) {
   const startChannel = useStartChannel(capture.id);
   const { playingChannels, stopAll, masterVolume, setMasterVolume } = useAudio();
   const toast = useToast();
+  const { data: trunkingSystems } = useTrunkingSystems();
+  const { selectTab } = useSelectedRadio();
 
   const [showNewChannel, setShowNewChannel] = useState(false);
   const [newFrequency, setNewFrequency] = useState(capture.centerHz);
@@ -31,6 +35,13 @@ export function ChannelList({ capture }: ChannelListProps) {
 
   const hasPlayingChannels = playingChannels.size > 0;
   const channelCount = channels?.length ?? 0;
+
+  // Check if this capture is managed by a trunking system
+  const trunkingSystemId = capture.trunkingSystemId;
+  const trunkingSystem = trunkingSystemId && trunkingSystems
+    ? trunkingSystems.find(s => s.id === trunkingSystemId)
+    : null;
+  const isTrunkingManaged = !!trunkingSystemId;
 
   const handleCreateChannel = async () => {
     try {
@@ -64,6 +75,24 @@ export function ChannelList({ capture }: ChannelListProps) {
 
   return (
     <Flex direction="column" gap={2}>
+      {/* Trunking info banner */}
+      {isTrunkingManaged && (
+        <div className="alert alert-info py-2 px-3 mb-0 d-flex align-items-center gap-2">
+          <Radio size={16} />
+          <span className="small flex-grow-1">
+            Managed by trunking system <strong>{trunkingSystem?.name || trunkingSystemId}</strong>
+          </span>
+          <Button
+            size="sm"
+            use="link"
+            onClick={() => selectTab("trunking", trunkingSystemId!)}
+            className="p-0 text-decoration-none"
+          >
+            Go to Trunking <ArrowRight size={14} className="ms-1" />
+          </Button>
+        </div>
+      )}
+
       {/* Header with controls */}
       <div className="d-flex align-items-center gap-2 p-2 bg-light rounded border">
         <span className="fw-semibold small">
@@ -80,15 +109,18 @@ export function ChannelList({ capture }: ChannelListProps) {
           </>
         )}
 
-        <Button
-          size="sm"
-          use="primary"
-          onClick={() => setShowNewChannel(!showNewChannel)}
-          className="ms-auto"
-        >
-          <Plus size={14} className="me-1" />
-          Add
-        </Button>
+        {/* Hide Add button when managed by trunking */}
+        {!isTrunkingManaged && (
+          <Button
+            size="sm"
+            use="primary"
+            onClick={() => setShowNewChannel(!showNewChannel)}
+            className="ms-auto"
+          >
+            <Plus size={14} className="me-1" />
+            Add
+          </Button>
+        )}
       </div>
 
       {/* New Channel Form */}
@@ -164,7 +196,7 @@ export function ChannelList({ capture }: ChannelListProps) {
       )}
 
       {channels?.map((channel) => (
-        <ChannelCard key={channel.id} channel={channel} capture={capture} />
+        <ChannelCard key={channel.id} channel={channel} capture={capture} readOnly={isTrunkingManaged} />
       ))}
     </Flex>
   );

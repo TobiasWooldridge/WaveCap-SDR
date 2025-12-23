@@ -29,53 +29,80 @@ logger = logging.getLogger(__name__)
 
 
 class TSBKOpcode(IntEnum):
-    """TSBK Opcode values (6 bits) - per SDRTrunk Opcode.java."""
-    # Voice grants (OSP)
-    GRP_V_CH_GRANT = 0x00  # Group Voice Channel Grant
-    GRP_V_CH_GRANT_UPDT = 0x02  # Group Voice Channel Grant Update
+    """TSBK Opcode values (6 bits) - per SDRTrunk Opcode.java.
+
+    OSP = Outbound Signaling Packet (tower to mobile)
+    ISP = Inbound Signaling Packet (mobile to tower)
+    """
+    # Voice grants (OSP) - 0x00-0x07
+    GRP_V_CH_GRANT = 0x00           # Group Voice Channel Grant
+    GRP_V_CH_GRANT_UPDT = 0x02      # Group Voice Channel Grant Update
     GRP_V_CH_GRANT_UPDT_EXP = 0x03  # Group Voice Channel Grant Update Explicit
-    UU_V_CH_GRANT = 0x04  # Unit to Unit Voice Channel Grant
-    UU_ANS_REQ = 0x05  # Unit to Unit Answer Request
-    UU_V_CH_GRANT_UPDT = 0x06  # Unit to Unit Voice Channel Grant Update
+    UU_V_CH_GRANT = 0x04            # Unit to Unit Voice Channel Grant
+    UU_ANS_REQ = 0x05               # Unit to Unit Answer Request
+    UU_V_CH_GRANT_UPDT = 0x06       # Unit to Unit Voice Channel Grant Update
 
-    # Data grants
-    GRP_DATA_CH_GRANT = 0x25  # Group Data Channel Grant
-    IND_DATA_CH_GRANT = 0x26  # Individual Data Channel Grant
+    # Telephone interconnect - 0x08-0x0A
+    TEL_INT_CH_GRANT = 0x08         # Telephone Interconnect Voice Channel Grant
+    TEL_INT_CH_GRANT_UPDT = 0x09    # Telephone Interconnect Voice Channel Grant Update
+    TEL_INT_ANS_REQ = 0x0A          # Telephone Interconnect Answer Request
 
-    # Call control
-    TEL_INT_CH_GRANT = 0x08  # Telephone Interconnect Voice Channel Grant
-    TEL_INT_ANS_REQ = 0x09  # Telephone Interconnect Answer Request
+    # Data grants (obsolete) - 0x10-0x13
+    IND_DATA_CH_GRANT = 0x10        # Individual Data Channel Grant (obsolete)
+    GRP_DATA_CH_GRANT = 0x11        # Group Data Channel Grant (obsolete)
+    GRP_DATA_CH_ANN = 0x12          # Group Data Channel Announcement (obsolete)
+    GRP_DATA_CH_ANN_EXP = 0x13      # Group Data Channel Announcement Explicit (obsolete)
 
-    # System information
-    NET_STS_BCAST = 0x20  # Network Status Broadcast
-    RFSS_STS_BCAST = 0x28  # RFSS Status Broadcast
-    ADJ_STS_BCAST = 0x3A  # Adjacent Status Broadcast
-    SYS_SRV_BCAST = 0x2A  # System Service Broadcast
+    # SNDCP data - 0x14-0x16
+    SNDCP_CH_GNT = 0x14             # SNDCP Data Channel Grant
+    SNDCP_PAGE_REQ = 0x15           # SNDCP Data Page Request
+    SNDCP_CH_ANN_EXP = 0x16         # SNDCP Data Channel Announcement Explicit
 
-    # Channel identification
-    IDEN_UP_VU = 0x34  # Identifier Update for VHF/UHF
-    IDEN_UP_TDMA = 0x33  # Identifier Update for TDMA
+    # Status/Message - 0x18-0x1F
+    STATUS_UPDT = 0x18              # Status Update
+    STATUS_QUERY = 0x1A             # Status Query
+    MSG_UPDT = 0x1C                 # Message Update
+    RADIO_MON_CMD = 0x1D            # Radio Unit Monitor Command
+    RADIO_MON_ENH_CMD = 0x1E        # Radio Unit Monitor Enhanced Command
+    CALL_ALRT = 0x1F                # Call Alert
 
-    # Control
-    ACK_RSP_U = 0x21  # Acknowledge Response - Unit
-    QUE_RSP = 0x22  # Queued Response
-    DENY_RSP = 0x27  # Deny Response
-    GRP_AFF_RSP = 0x29  # Group Affiliation Response
-    LOC_REG_RSP = 0x2B  # Location Registration Response
+    # Control responses - 0x20-0x27
+    ACK_RSP = 0x20                  # Acknowledge Response
+    QUE_RSP = 0x21                  # Queued Response
+    EXT_FNCT_CMD = 0x24             # Extended Function Command
+    DENY_RSP = 0x27                 # Deny Response
 
-    # Authentication
-    AUTH_CMD = 0x2C  # Authentication Command
-    AUTH_DMAN = 0x2D  # Authentication Demand
-    AUTH_FNE_RST = 0x2E  # Authentication FNE Result
+    # Affiliation/Registration - 0x28-0x2F
+    GRP_AFF_RSP = 0x28              # Group Affiliation Response
+    SCCB_EXP = 0x29                 # Secondary Control Channel Broadcast Explicit
+    GRP_AFF_QUERY = 0x2A            # Group Affiliation Query
+    LOC_REG_RSP = 0x2B              # Location Registration Response
+    UNIT_REG_RSP = 0x2C             # Unit Registration Response
+    UNIT_REG_CMD = 0x2D             # Unit Registration Command
+    AUTH_CMD = 0x2E                 # Authentication Command
+    UNIT_DEREG_ACK = 0x2F           # Unit De-registration Acknowledge
 
-    # SNDCP (data)
-    SNDCP_CH_GNT = 0x31  # SNDCP Data Channel Grant
-    SNDCP_CH_ANN_UPDT = 0x32  # SNDCP Data Channel Announcement Update
+    # Synchronization/Authentication - 0x30-0x32
+    TDMA_SYNC = 0x30                # TDMA Sync Broadcast
+    AUTH_DMAN = 0x31                # Authentication Demand
+    AUTH_FNE_RSP = 0x32             # Authentication FNE Response
 
-    # Miscellaneous
-    CALL_ALRT = 0x1F  # Call Alert
-    EXT_FNCT_CMD = 0x24  # Extended Function Command
-    ROAM_ADDR_CMD = 0x2F  # Roaming Address Command
+    # Channel identification - 0x33-0x35
+    IDEN_UP_TDMA = 0x33             # Identifier Update TDMA
+    IDEN_UP_VU = 0x34               # Identifier Update VHF/UHF
+    TIME_DATE_ANN = 0x35            # Time and Date Announcement
+
+    # Roaming - 0x36-0x37
+    ROAM_ADDR_CMD = 0x36            # Roaming Address Command
+    ROAM_ADDR_UPDT = 0x37           # Roaming Address Update
+
+    # System status broadcasts - 0x38-0x3D
+    SYS_SRV_BCAST = 0x38            # System Service Broadcast
+    SCCB = 0x39                     # Secondary Control Channel Broadcast
+    RFSS_STS_BCAST = 0x3A           # RFSS Status Broadcast
+    NET_STS_BCAST = 0x3B            # Network Status Broadcast
+    ADJ_STS_BCAST = 0x3C            # Adjacent Status Broadcast
+    IDEN_UP = 0x3D                  # Identifier Update
 
 
 @dataclass
@@ -211,9 +238,28 @@ class TSBKParser:
                 self._parse_grp_aff_rsp(data, result)
             elif opcode == TSBKOpcode.DENY_RSP:
                 self._parse_deny_rsp(data, result)
+            elif opcode == TSBKOpcode.IDEN_UP:
+                # IDEN_UP (0x3D) uses same format as IDEN_UP_VU (0x34)
+                self._parse_iden_up_vu(data, result)
+                result['type'] = 'IDENTIFIER_UPDATE'
+            elif opcode == TSBKOpcode.UU_V_CH_GRANT_UPDT:
+                self._parse_uu_v_ch_grant_updt(data, result)
+            elif opcode == TSBKOpcode.ACK_RSP:
+                result['type'] = 'ACKNOWLEDGE_RESPONSE'
+                result['data'] = data.hex()
+            elif opcode == TSBKOpcode.QUE_RSP:
+                result['type'] = 'QUEUED_RESPONSE'
+                result['data'] = data.hex()
+            elif opcode == TSBKOpcode.EXT_FNCT_CMD:
+                result['type'] = 'EXTENDED_FUNCTION_COMMAND'
+                result['data'] = data.hex()
+            elif opcode == TSBKOpcode.SCCB:
+                result['type'] = 'SECONDARY_CONTROL_CHANNEL'
+                result['data'] = data.hex()
             else:
                 result['type'] = 'UNKNOWN'
                 result['data'] = data.hex()
+                logger.debug(f"Unknown TSBK opcode 0x{opcode:02X}: {data.hex()}")
         except Exception as e:
             logger.warning(f"Error parsing TSBK opcode {opcode:02X}: {e}")
             result['type'] = 'PARSE_ERROR'
@@ -430,6 +476,53 @@ class TSBKParser:
         result['frequency_hz'] = self.get_frequency(channel)
         result['emergency'] = False  # No service options in this opcode
         result['encrypted'] = False
+
+        logger.info(f"Unit-to-Unit Grant: TARGET={target} SRC={source} CH={channel} "
+                   f"FREQ={result['frequency_hz']/1e6:.4f} MHz")
+
+    def _parse_uu_v_ch_grant_updt(self, data: bytes, result: Dict[str, Any]) -> None:
+        """Parse Unit to Unit Voice Channel Grant Update.
+
+        Data format per SDRTrunk:
+        - Bits 16-19: Frequency Band A (4 bits)
+        - Bits 20-31: Channel Number A (12 bits)
+        - Bits 32-55: Target Address A (24 bits)
+        - Bits 56-59: Frequency Band B (4 bits)
+        - Bits 60-71: Channel Number B (12 bits)
+        - Bits 72-95: Target Address B (24 bits)
+        """
+        result['type'] = 'UNIT_TO_UNIT_GRANT_UPDATE'
+
+        # Grant A
+        freq_band_a = (data[0] >> 4) & 0x0F
+        channel_num_a = ((data[0] & 0x0F) << 8) | data[1]
+        channel_a = (freq_band_a << 12) | channel_num_a
+        target_a = (data[2] << 16) | (data[3] << 8) | data[4]
+
+        result['grant1'] = {
+            'channel': channel_a,
+            'frequency_band': freq_band_a,
+            'channel_number': channel_num_a,
+            'target_id': target_a,
+            'frequency_hz': self.get_frequency(channel_a)
+        }
+
+        # Grant B (if present - check if non-zero)
+        # Note: UU grant update only has 6 data bytes, remaining 2 might be padding
+        if len(data) >= 8:
+            freq_band_b = (data[5] >> 4) & 0x0F
+            channel_num_b = ((data[5] & 0x0F) << 8) | data[6]
+            if channel_num_b != 0:
+                channel_b = (freq_band_b << 12) | channel_num_b
+                target_b = data[7] if len(data) > 7 else 0
+
+                result['grant2'] = {
+                    'channel': channel_b,
+                    'frequency_band': freq_band_b,
+                    'channel_number': channel_num_b,
+                    'target_id': target_b,
+                    'frequency_hz': self.get_frequency(channel_b)
+                }
 
     def _parse_rfss_sts_bcast(self, data: bytes, result: Dict[str, Any]) -> None:
         """Parse RFSS Status Broadcast.

@@ -171,6 +171,58 @@ def health_check(request: Request) -> JSONResponse:
     return JSONResponse(status_code=status_code, content=health_status)
 
 
+@router.post("/shutdown")
+async def shutdown_server(request: Request) -> Dict[str, str]:
+    """Gracefully shutdown the server.
+
+    This endpoint triggers a graceful shutdown sequence:
+    1. Stop all trunking systems (saves state)
+    2. Stop all captures
+    3. Shutdown SDR devices
+    4. Terminate the server process
+
+    The server will acknowledge the request immediately and then shutdown.
+    """
+    import os
+    import signal
+
+    state: Optional[AppState] = getattr(request.app.state, "app_state", None)
+    if state is None:
+        return {"status": "error", "message": "AppState not initialized"}
+
+    logger.info("Shutdown requested via API - starting graceful shutdown")
+
+    async def do_shutdown() -> None:
+        """Perform shutdown in background to allow response to be sent."""
+        await asyncio.sleep(0.5)  # Allow response to be sent
+
+        try:
+            # Stop trunking systems first
+            if hasattr(state, "trunking_manager") and state.trunking_manager:
+                logger.info("Stopping trunking systems...")
+                await state.trunking_manager.stop()
+
+            # Stop all captures
+            logger.info("Stopping captures...")
+            for capture in state.captures.list_captures():
+                try:
+                    await state.captures.stop_capture(capture.cfg.id)
+                except Exception as e:
+                    logger.error(f"Error stopping capture {capture.cfg.id}: {e}")
+
+            logger.info("Graceful shutdown complete - sending SIGTERM")
+        except Exception as e:
+            logger.error(f"Error during shutdown: {e}")
+        finally:
+            # Send SIGTERM to ourselves to trigger uvicorn shutdown
+            os.kill(os.getpid(), signal.SIGTERM)
+
+    # Schedule shutdown in background
+    asyncio.create_task(do_shutdown())
+
+    return {"status": "ok", "message": "Shutdown initiated"}
+
+
 # Frontend log storage
 _frontend_logs: List[Dict[str, Any]] = []
 _FRONTEND_LOG_MAX = 500  # Keep last 500 log entries
@@ -367,8 +419,13 @@ def _compute_config_warnings(cap: Any) -> list[ConfigWarning]:
     return warnings
 
 
-def _to_capture_model(cap: Any) -> CaptureModel:
-    """Helper to convert a Capture to CaptureModel consistently."""
+def _to_capture_model(cap: Any, trunking_manager: Any = None) -> CaptureModel:
+    """Helper to convert a Capture to CaptureModel consistently.
+
+    Args:
+        cap: Capture instance to convert
+        trunking_manager: Optional TrunkingManager to look up trunking ownership
+    """
     from .error_tracker import get_error_tracker, ErrorStats
 
     # Get overflow rate from error tracker
@@ -384,6 +441,11 @@ def _to_capture_model(cap: Any) -> CaptureModel:
 
     # Compute configuration warnings
     config_warnings = _compute_config_warnings(cap)
+
+    # Check if this capture is owned by a trunking system
+    trunking_system_id = None
+    if trunking_manager is not None:
+        trunking_system_id = trunking_manager.get_system_for_capture(cap.cfg.id)
 
     return CaptureModel(
         id=cap.cfg.id,
@@ -414,6 +476,8 @@ def _to_capture_model(cap: Any) -> CaptureModel:
         retryDelay=retry_delay,
         # Configuration warnings
         configWarnings=config_warnings,
+        # Trunking system ownership
+        trunkingSystemId=trunking_system_id,
     )
 
 
@@ -961,7 +1025,8 @@ def identify_frequency(
 
 @router.get("/captures", response_model=List[CaptureModel])
 def list_captures(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> List[CaptureModel]:
-    return [_to_capture_model(c) for c in state.captures.list_captures()]
+    tm = getattr(state, "trunking_manager", None)
+    return [_to_capture_model(c, tm) for c in state.captures.list_captures()]
 
 
 @router.post("/captures", response_model=CaptureModel)
@@ -1045,7 +1110,8 @@ def create_capture(
         )
 
     # Emit state change for WebSocket subscribers
-    capture_model = _to_capture_model(cap)
+    tm = getattr(state, "trunking_manager", None)
+    capture_model = _to_capture_model(cap, tm)
     get_broadcaster().emit_capture_change("created", cap.cfg.id, capture_model.model_dump())
     if default_channel:
         channel_model = _to_channel_model(default_channel)
@@ -1088,7 +1154,8 @@ async def start_capture(
             get_broadcaster().emit_channel_change("started", ch.cfg.id, channel_model.model_dump())
 
     # Emit capture started
-    capture_model = _to_capture_model(cap)
+    tm = getattr(state, "trunking_manager", None)
+    capture_model = _to_capture_model(cap, tm)
     get_broadcaster().emit_capture_change("started", cid, capture_model.model_dump())
     return capture_model
 
@@ -1105,7 +1172,8 @@ async def stop_capture(
     await cap.stop()
 
     # Emit capture stopped
-    capture_model = _to_capture_model(cap)
+    tm = getattr(state, "trunking_manager", None)
+    capture_model = _to_capture_model(cap, tm)
     get_broadcaster().emit_capture_change("stopped", cid, capture_model.model_dump())
     return capture_model
 
@@ -1124,10 +1192,12 @@ async def restart_capture(
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
 
+    tm = getattr(state, "trunking_manager", None)
+
     # Stop first (if running)
     if cap.state in ("running", "starting", "failed"):
         await cap.stop()
-        get_broadcaster().emit_capture_change("stopped", cid, _to_capture_model(cap).model_dump())
+        get_broadcaster().emit_capture_change("stopped", cid, _to_capture_model(cap, tm).model_dump())
 
     # Brief pause to let SDR device settle
     await asyncio.sleep(0.5)
@@ -1142,7 +1212,7 @@ async def restart_capture(
             get_broadcaster().emit_channel_change("started", ch.cfg.id, _to_channel_model(ch).model_dump())
 
     # Emit capture started
-    capture_model = _to_capture_model(cap)
+    capture_model = _to_capture_model(cap, tm)
     get_broadcaster().emit_capture_change("started", cid, capture_model.model_dump())
     return capture_model
 
@@ -1156,7 +1226,8 @@ def get_capture(
     cap = state.captures.get_capture(cid)
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
-    return _to_capture_model(cap)
+    tm = getattr(state, "trunking_manager", None)
+    return _to_capture_model(cap, tm)
 
 
 @router.patch("/captures/{cid}", response_model=CaptureModel)
@@ -1444,7 +1515,8 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
                 print(f"Warning: Failed to persist config changes to file: {e}")
 
     # Emit state change for WebSocket subscribers
-    capture_model = _to_capture_model(cap)
+    tm = getattr(state, "trunking_manager", None)
+    capture_model = _to_capture_model(cap, tm)
     get_broadcaster().emit_capture_change("updated", cid, capture_model.model_dump())
 
     return capture_model
@@ -2341,7 +2413,8 @@ async def stream_state(websocket: WebSocket) -> None:
 
     try:
         # Send initial full state snapshot
-        captures = [_to_capture_model(c).model_dump() for c in app_state.captures.list_captures()]
+        tm = getattr(app_state, "trunking_manager", None)
+        captures = [_to_capture_model(c, tm).model_dump() for c in app_state.captures.list_captures()]
         channels = [_to_channel_model(ch).model_dump() for ch in app_state.captures.list_channels()]
         scanners = [
             _to_scanner_model(sid, s).model_dump()

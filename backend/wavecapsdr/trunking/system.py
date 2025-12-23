@@ -454,6 +454,7 @@ class TrunkingSystem:
                 sample_rate=self.cfg.sample_rate,
                 gain=self.cfg.gain,
                 antenna=self.cfg.antenna,
+                device_settings=self.cfg.device_settings if self.cfg.device_settings else None,
             )
 
             logger.info(
@@ -573,18 +574,26 @@ class TrunkingSystem:
             # Debug: Track IQ flow
             iq_debug_state["samples"] += len(iq)
             iq_debug_state["calls"] += 1
-            _verbose = iq_debug_state["calls"] <= 5 or iq_debug_state["calls"] % 100 == 0
+            _verbose = iq_debug_state["calls"] <= 20 or iq_debug_state["calls"] % 50 == 0
             if _verbose:
-                logger.info(
-                    f"TrunkingSystem {self.cfg.id}: wrapped_process_sync ENTRY call #{iq_debug_state['calls']}, "
-                    f"samples={len(iq)}"
+                # Log raw IQ magnitude
+                raw_mag = np.abs(iq)
+                # Use print for guaranteed output
+                print(
+                    f"[RAW_IQ] TrunkingSystem call #{iq_debug_state['calls']}: "
+                    f"samples={len(iq)}, raw_mean={np.mean(raw_mag):.4f}, raw_max={np.max(raw_mag):.4f}",
+                    flush=True
                 )
 
             # Shift frequency to center on control channel (dynamic offset for hunting)
             cc_offset_hz = system._control_channel.cfg.offset_hz if system._control_channel else 0
             centered_iq = freq_shift(iq, cc_offset_hz, sample_rate)
             if _verbose:
-                logger.info(f"TrunkingSystem {self.cfg.id}: after freq_shift")
+                centered_mag = np.abs(centered_iq)
+                logger.info(
+                    f"TrunkingSystem {self.cfg.id}: after freq_shift offset={cc_offset_hz/1e3:.1f}kHz, "
+                    f"centered_mean={np.mean(centered_mag):.4f}"
+                )
 
             # Apply anti-aliasing filter and decimate
             if decim_factor > 1 and anti_alias_taps is not None:
@@ -601,7 +610,11 @@ class TrunkingSystem:
             else:
                 decimated_iq = centered_iq
             if _verbose:
-                logger.info(f"TrunkingSystem {self.cfg.id}: after decimation, decimated_iq size={len(decimated_iq)}")
+                decim_mag = np.abs(decimated_iq)
+                logger.info(
+                    f"TrunkingSystem {self.cfg.id}: after decim factor={decim_factor}, "
+                    f"size={len(decimated_iq)}, decim_mean={np.mean(decim_mag):.4f}"
+                )
 
             # Feed to ControlChannelMonitor
             if self._control_monitor is not None:
@@ -689,21 +702,21 @@ class TrunkingSystem:
                 f"at {self.control_channel_freq_hz/1e6:.4f} MHz"
             )
 
-        # Handle the TSBK based on opcode
-        opcode = tsbk_data.get("opcode")
+        # Handle the TSBK based on opcode name (parser returns numeric in 'opcode', string in 'opcode_name')
+        opcode_name = tsbk_data.get("opcode_name", "")
 
         # Voice grants
-        if opcode in ("GRP_V_CH_GRANT", "GRP_V_CH_GRANT_UPDT", "UU_V_CH_GRANT"):
+        if opcode_name in ("GRP_V_CH_GRANT", "GRP_V_CH_GRANT_UPDT", "GRP_V_CH_GRANT_UPDT_EXP", "UU_V_CH_GRANT"):
             self._handle_voice_grant(tsbk_data)
 
         # Channel identifiers
-        elif opcode in ("IDEN_UP", "IDEN_UP_VU"):
+        elif opcode_name in ("IDEN_UP", "IDEN_UP_VU", "IDEN_UP_TDMA"):
             self._handle_channel_identifier(tsbk_data)
 
         # System status
-        elif opcode == "RFSS_STS_BCAST":
+        elif opcode_name == "RFSS_STS_BCAST":
             self._handle_rfss_status(tsbk_data)
-        elif opcode == "NET_STS_BCAST":
+        elif opcode_name == "NET_STS_BCAST":
             self._handle_net_status(tsbk_data)
 
     async def _cleanup_capture(self) -> None:
@@ -811,15 +824,29 @@ class TrunkingSystem:
             logger.error(f"TrunkingSystem {self.cfg.id}: Error processing TSBK: {e}")
 
     def _handle_voice_grant(self, result: Dict[str, Any]) -> None:
-        """Handle a voice channel grant TSBK."""
-        grant: Optional[VoiceGrant] = result.get("grant")
-        if grant is None:
+        """Handle a voice channel grant TSBK.
+
+        Parser result contains:
+        - tgid: Talkgroup ID
+        - source_id: Source radio address
+        - channel: 16-bit channel ID (4-bit band + 12-bit channel number)
+        - frequency_hz: Calculated frequency (if channel ID known)
+        - encrypted: bool
+        - emergency: bool
+        """
+        # Extract fields from parser result
+        tgid = result.get("tgid")
+        if tgid is None:
+            logger.warning(f"TrunkingSystem {self.cfg.id}: Voice grant missing tgid")
             return
 
         self._grant_count += 1
 
-        # Get talkgroup info
-        tgid = grant.talkgroup_id
+        source_id = result.get("source_id", 0)
+        channel_id = result.get("channel", 0)
+        encrypted = result.get("encrypted", False)
+
+        # Get talkgroup config
         tg_config = self.cfg.get_talkgroup(tgid)
 
         # Check if talkgroup is monitored
@@ -827,12 +854,12 @@ class TrunkingSystem:
             logger.debug(f"TrunkingSystem {self.cfg.id}: Ignoring grant for unmonitored TG {tgid}")
             return
 
-        # Calculate voice channel frequency
-        freq_hz = self._calculate_frequency(grant.channel_id)
+        # Calculate voice channel frequency from channel ID
+        freq_hz = self._calculate_frequency(channel_id)
         if freq_hz is None:
             logger.warning(
                 f"TrunkingSystem {self.cfg.id}: Cannot calculate frequency for "
-                f"channel ID {grant.channel_id}"
+                f"channel ID 0x{channel_id:04X} (no IDEN_UP received for band {(channel_id >> 12) & 0xF})"
             )
             return
 
@@ -847,9 +874,9 @@ class TrunkingSystem:
             # A different source_id means a different talker, which should be a new call
             # UNLESS the source_id is 0 (some systems don't send source on every grant)
             source_changed = (
-                grant.source_id != 0 and
+                source_id != 0 and
                 call.source_id != 0 and
-                grant.source_id != call.source_id
+                source_id != call.source_id
             )
 
             # Hard 2-second staleness threshold (per SDRTrunk)
@@ -861,7 +888,7 @@ class TrunkingSystem:
                 # Different talker - end old call and start new one
                 logger.info(
                     f"TrunkingSystem {self.cfg.id}: Talker change on TG {tgid}: "
-                    f"source {call.source_id} -> {grant.source_id}"
+                    f"source {call.source_id} -> {source_id}"
                 )
                 self._end_call(existing_call_id, "talker_change")
                 # Fall through to create new call below
@@ -879,8 +906,8 @@ class TrunkingSystem:
                 # Same talker, not stale - update existing call
                 call.last_activity_time = now
                 # Update source_id if we got a non-zero value
-                if grant.source_id != 0:
-                    call.source_id = grant.source_id
+                if source_id != 0:
+                    call.source_id = source_id
 
                 # Check if frequency changed (call continuing on different channel)
                 if abs(call.frequency_hz - freq_hz) > 1000:
@@ -889,7 +916,7 @@ class TrunkingSystem:
                         f"{call.frequency_hz/1e6:.4f} to {freq_hz/1e6:.4f} MHz"
                     )
                     call.frequency_hz = freq_hz
-                    call.channel_id = grant.channel_id
+                    call.channel_id = channel_id
 
                     # Retune recorder if assigned
                     if call.recorder_id:
@@ -909,13 +936,13 @@ class TrunkingSystem:
             id=str(uuid.uuid4())[:8],
             talkgroup_id=tgid,
             talkgroup_name=tg_name,
-            source_id=grant.source_id,
+            source_id=source_id,
             frequency_hz=freq_hz,
-            channel_id=grant.channel_id,
+            channel_id=channel_id,
             state=CallState.TUNING,
             start_time=time.time(),
             last_activity_time=time.time(),
-            encrypted=grant.encrypted,
+            encrypted=encrypted,
         )
 
         # Try to assign a voice recorder
@@ -928,8 +955,8 @@ class TrunkingSystem:
                 talkgroup_name=tg_name,
                 center_hz=self.cfg.center_hz,
                 protocol=self.cfg.protocol,
-                source_id=grant.source_id,
-                encrypted=grant.encrypted,
+                source_id=source_id,
+                encrypted=encrypted,
             )
             # Set up decimation filter for IQ processing
             recorder.setup_decimation_filter(self.cfg.sample_rate)
@@ -961,18 +988,36 @@ class TrunkingSystem:
             self._set_state(TrunkingSystemState.RUNNING)
 
     def _handle_channel_identifier(self, result: Dict[str, Any]) -> None:
-        """Handle a channel identifier TSBK (IDEN_UP, IDEN_UP_VU)."""
-        chan_id: Optional[ChannelIdentifier] = result.get("channel_id")
-        if chan_id is None:
+        """Handle a channel identifier TSBK (IDEN_UP, IDEN_UP_VU, IDEN_UP_TDMA).
+
+        Parser result contains:
+        - identifier: 4-bit channel band ID
+        - base_freq_mhz: Base frequency in MHz
+        - channel_spacing_khz: Channel spacing in kHz
+        - bandwidth_khz: Channel bandwidth in kHz
+        - tx_offset_hz: TX offset in Hz
+        """
+        ident = result.get("identifier")
+        if ident is None:
+            logger.warning(f"TrunkingSystem {self.cfg.id}: IDEN_UP missing identifier")
             return
+
+        # Create ChannelIdentifier from parser fields
+        chan_id = ChannelIdentifier(
+            identifier=ident,
+            bw=int(result.get("bandwidth_khz", 12.5)),
+            tx_offset=int(result.get("tx_offset_hz", 0) / 1e6),
+            channel_spacing=int(result.get("channel_spacing_khz", 12.5)),
+            base_freq=result.get("base_freq_mhz", 0.0),
+        )
 
         # Store in our map
         self._channel_identifiers[chan_id.identifier] = chan_id
 
-        logger.debug(
+        logger.info(
             f"TrunkingSystem {self.cfg.id}: Channel ID {chan_id.identifier}: "
-            f"base={chan_id.base_freq_hz/1e6:.4f} MHz, "
-            f"spacing={chan_id.channel_spacing_hz/1e3:.1f} kHz"
+            f"base={chan_id.base_freq:.4f} MHz, "
+            f"spacing={chan_id.channel_spacing} kHz"
         )
 
     def _check_control_channel_hunt(self) -> None:
@@ -1055,21 +1100,25 @@ class TrunkingSystem:
         """Calculate frequency from channel ID.
 
         The channel ID format is: IDEN (4 bits) | CHANNEL (12 bits)
+
+        Returns frequency in Hz.
         """
         iden = (channel_id >> 12) & 0xF
         channel = channel_id & 0xFFF
 
         chan_info = self._channel_identifiers.get(iden)
         if chan_info is None:
-            # Try common P25 defaults if we haven't received IDEN_UP yet
-            # 700 MHz band: 12.5 kHz spacing, base ~769 MHz
-            # 800 MHz band: 12.5 kHz spacing, base ~851 MHz
+            # No IDEN_UP received yet for this band
             logger.warning(
                 f"TrunkingSystem {self.cfg.id}: No channel identifier for IDEN {iden}"
             )
             return None
 
-        freq_hz = chan_info.base_freq_hz + (channel * chan_info.channel_spacing_hz)
+        # ChannelIdentifier has base_freq in MHz and channel_spacing in kHz
+        # Convert to Hz for calculation
+        base_freq_hz = chan_info.base_freq * 1e6
+        channel_spacing_hz = chan_info.channel_spacing * 1e3
+        freq_hz = base_freq_hz + (channel * channel_spacing_hz)
         return freq_hz
 
     def _get_available_recorder(self, talkgroup_id: int) -> Optional[VoiceRecorder]:

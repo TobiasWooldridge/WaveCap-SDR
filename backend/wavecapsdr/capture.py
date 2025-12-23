@@ -2186,6 +2186,20 @@ class Capture:
             base = freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate) if ch.cfg.offset_hz != 0.0 else iq
 
             if base.size > 0:
+                # Diagnostic: Log raw and frequency-shifted IQ magnitude
+                if not hasattr(ch, '_p25_diag_count'):
+                    ch._p25_diag_count = 0
+                ch._p25_diag_count += 1
+                if ch._p25_diag_count <= 10 or ch._p25_diag_count % 100 == 0:
+                    raw_mag = np.abs(iq)
+                    base_mag = np.abs(base)
+                    print(
+                        f"[P25_IQ] Channel {ch.cfg.id} call #{ch._p25_diag_count}: "
+                        f"raw_mean={np.mean(raw_mag):.4f}, raw_max={np.max(raw_mag):.4f}, "
+                        f"after_shift_mean={np.mean(base_mag):.4f}, offset={ch.cfg.offset_hz/1e3:.1f}kHz",
+                        flush=True
+                    )
+
                 # Decimate to P25 processing rate (~48 kHz) if needed
                 # This is critical for wideband captures (e.g., 8 MHz trunking)
                 p25_iq, p25_rate = decimate_iq_for_p25(base, self.cfg.sample_rate)

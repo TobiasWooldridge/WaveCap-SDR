@@ -73,12 +73,17 @@ class TrunkingSystemConfig:
     sample_rate: int = 8_000_000
     device_id: str = ""
     gain: Optional[float] = None  # RF gain (None = auto)
+    antenna: Optional[str] = None  # SDR antenna port
+    device_settings: Dict[str, str] = field(default_factory=dict)  # Device-specific settings (e.g., rfnotch_ctrl, dabnotch_ctrl)
     max_voice_recorders: int = 4
     talkgroups: Dict[int, TalkgroupConfig] = field(default_factory=dict)
     recording_path: str = "./recordings"
     record_unknown: bool = False
     min_call_duration: float = 1.0
     squelch_db: float = -50.0
+
+    # Startup/shutdown
+    auto_start: bool = True  # Start system automatically on server startup
 
     # Advanced settings
     control_channel_timeout: float = 10.0  # Seconds before trying next CC
@@ -153,12 +158,14 @@ class TrunkingSystemConfig:
             sample_rate=int(data.get("sample_rate", 8_000_000)),
             device_id=data.get("device_id", ""),
             gain=gain,
+            antenna=data.get("antenna"),
             max_voice_recorders=int(data.get("max_voice_recorders", 4)),
             talkgroups=talkgroups,
             recording_path=data.get("recording_path", "./recordings"),
             record_unknown=data.get("record_unknown", False),
             min_call_duration=float(data.get("min_call_duration", 1.0)),
             squelch_db=float(data.get("squelch_db", -50.0)),
+            auto_start=data.get("auto_start", True),
         )
 
     def to_dict(self) -> Dict:
@@ -188,6 +195,7 @@ class TrunkingSystemConfig:
             "record_unknown": self.record_unknown,
             "min_call_duration": self.min_call_duration,
             "squelch_db": self.squelch_db,
+            "auto_start": self.auto_start,
         }
 
 

@@ -21,6 +21,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
+from wavecapsdr.config import update_trunking_system_state
 from wavecapsdr.trunking.config import TrunkingSystemConfig, load_talkgroups_csv
 from wavecapsdr.trunking.system import (
     TrunkingSystem,
@@ -32,6 +33,9 @@ if TYPE_CHECKING:
     from wavecapsdr.capture import CaptureManager
 
 logger = logging.getLogger(__name__)
+
+# Default config file path
+DEFAULT_CONFIG_PATH = "config/wavecapsdr.yaml"
 
 
 @dataclass
@@ -59,10 +63,22 @@ class TrunkingManager:
     # Pending configs to load on start()
     _pending_configs: List[TrunkingSystemConfig] = field(default_factory=list)
 
+    # Config file path for state persistence
+    _config_path: str = DEFAULT_CONFIG_PATH
+
     def __post_init__(self) -> None:
         """Initialize the manager."""
         self._pending_configs = []
         logger.info("TrunkingManager initialized")
+
+    def set_config_path(self, config_path: str) -> None:
+        """Set the config file path for state persistence.
+
+        Args:
+            config_path: Path to the config file
+        """
+        self._config_path = config_path
+        logger.debug(f"TrunkingManager: Config path set to {config_path}")
 
     def set_capture_manager(self, capture_manager: "CaptureManager") -> None:
         """Set the CaptureManager reference for SDR access.
@@ -117,15 +133,19 @@ class TrunkingManager:
         logger.info("TrunkingManager started")
 
     async def stop(self) -> None:
-        """Stop the trunking manager and all systems."""
+        """Stop the trunking manager and all systems.
+
+        This is a graceful shutdown - it does NOT persist auto_start=false
+        so that systems will automatically restart on the next server start.
+        """
         if not self._running:
             return
 
         self._running = False
 
-        # Stop all systems
+        # Stop all systems without persisting (graceful shutdown preserves restart state)
         for system_id in list(self._systems.keys()):
-            await self.stop_system(system_id)
+            await self.stop_system(system_id, persist=False)
 
         # Cancel maintenance task
         if self._maintenance_task:
@@ -183,6 +203,14 @@ class TrunkingManager:
             "system": system.to_dict(),
         })
 
+        # Auto-start if configured (persist=False since config already has auto_start=true)
+        if config.auto_start:
+            logger.info(f"Auto-starting trunking system: {config.id}")
+            try:
+                await self.start_system(config.id, persist=False)
+            except Exception as e:
+                logger.error(f"Failed to auto-start system '{config.id}': {e}")
+
         return system
 
     async def remove_system(self, system_id: str) -> None:
@@ -210,11 +238,12 @@ class TrunkingManager:
             "systemId": system_id,
         })
 
-    async def start_system(self, system_id: str) -> None:
+    async def start_system(self, system_id: str, persist: bool = True) -> None:
         """Start a trunking system.
 
         Args:
             system_id: System ID to start
+            persist: Whether to persist auto_start=true to config file
 
         Raises:
             ValueError: If system not found
@@ -231,17 +260,35 @@ class TrunkingManager:
         system = self._systems[system_id]
         await system.start(self._capture_manager)
 
-    async def stop_system(self, system_id: str) -> None:
+        # Persist auto_start=true to config
+        if persist:
+            try:
+                update_trunking_system_state(self._config_path, system_id, True)
+                logger.info(f"Persisted auto_start=true for system '{system_id}'")
+            except Exception as e:
+                logger.warning(f"Failed to persist state for '{system_id}': {e}")
+
+    async def stop_system(self, system_id: str, persist: bool = True) -> None:
         """Stop a trunking system.
 
         Args:
             system_id: System ID to stop
+            persist: Whether to persist auto_start=false to config file.
+                     Set to False during graceful shutdown to preserve restart state.
         """
         if system_id not in self._systems:
             raise ValueError(f"System '{system_id}' not found")
 
         system = self._systems[system_id]
         await system.stop()
+
+        # Persist auto_start=false to config (unless during graceful shutdown)
+        if persist:
+            try:
+                update_trunking_system_state(self._config_path, system_id, False)
+                logger.info(f"Persisted auto_start=false for system '{system_id}'")
+            except Exception as e:
+                logger.warning(f"Failed to persist state for '{system_id}': {e}")
 
     def get_system(self, system_id: str) -> Optional[TrunkingSystem]:
         """Get a trunking system by ID.
@@ -253,6 +300,21 @@ class TrunkingManager:
             TrunkingSystem or None if not found
         """
         return self._systems.get(system_id)
+
+    def get_system_for_capture(self, capture_id: str) -> Optional[str]:
+        """Get the trunking system ID that owns a capture.
+
+        Args:
+            capture_id: Capture ID to look up
+
+        Returns:
+            Trunking system ID if the capture is owned by a trunking system,
+            None otherwise
+        """
+        for system in self._systems.values():
+            if system._capture is not None and system._capture.cfg.id == capture_id:
+                return system.cfg.id
+        return None
 
     def list_systems(self) -> List[TrunkingSystem]:
         """Get all trunking systems.
