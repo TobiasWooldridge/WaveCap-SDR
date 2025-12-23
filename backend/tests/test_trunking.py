@@ -424,19 +424,19 @@ class TestControlChannelMonitor:
         )
         assert monitor.protocol == TrunkingProtocol.P25_PHASE1
         assert monitor.sync_state == SyncState.SEARCHING
-        # Control channels always use C4FM, even for Phase I
-        assert monitor._c4fm_demod is not None
+        # Control channels use a demodulator (C4FM or CQPSK depending on modulation)
+        assert monitor._demod is not None
 
     def test_initialization_phase2(self):
-        """Test Phase II monitor initialization - still uses C4FM for control channel."""
+        """Test Phase II monitor initialization - uses demodulator for control channel."""
         monitor = create_control_monitor(
             protocol=TrunkingProtocol.P25_PHASE2,
             sample_rate=48000,
         )
         assert monitor.protocol == TrunkingProtocol.P25_PHASE2
-        # Control channels ALWAYS use C4FM even for Phase II systems
-        # Only voice channels use CQPSK in Phase II
-        assert monitor._c4fm_demod is not None
+        # Control channels use a demodulator (C4FM or CQPSK)
+        # The actual modulation type depends on the system
+        assert monitor._demod is not None
 
     def test_reset(self):
         """Test monitor reset."""

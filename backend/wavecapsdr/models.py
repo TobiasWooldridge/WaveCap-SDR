@@ -7,7 +7,7 @@ import re
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 
-Mode = Literal["wbfm", "nbfm", "am", "sam", "ssb", "raw", "p25", "dmr"]
+Mode = Literal["wbfm", "nbfm", "am", "sam", "ssb", "raw", "p25", "dmr", "nxdn", "dstar", "ysf"]
 StreamFormat = Literal["iq16", "f32", "pcm16"]
 Transport = Literal["ws", "http"]
 
@@ -48,7 +48,8 @@ class CreateCaptureRequest(BaseModel):
     createDefaultChannel: bool = True
     name: Optional[str] = Field(None, max_length=200)  # User-provided name (optional)
     # FFT/Spectrum settings
-    fftFps: Optional[int] = Field(None, ge=1, le=60)  # 1-60 FPS
+    fftFps: Optional[int] = Field(None, ge=1, le=60)  # Target FPS (1-60)
+    fftMaxFps: Optional[int] = Field(None, ge=1, le=120)  # Max FPS cap (1-120)
     fftSize: Optional[int] = Field(None)  # 512, 1024, 2048, 4096
     fftAccelerator: Optional[str] = Field(None, pattern=r'^(auto|scipy|fftw|mlx|cuda)$')  # FFT backend
 
@@ -93,7 +94,8 @@ class UpdateCaptureRequest(BaseModel):
     iqBalanceAuto: Optional[bool] = None
     name: Optional[str] = Field(None, max_length=200)  # User-provided name (optional)
     # FFT/Spectrum settings
-    fftFps: Optional[int] = Field(None, ge=1, le=60)  # 1-60 FPS
+    fftFps: Optional[int] = Field(None, ge=1, le=60)  # Target FPS (1-60)
+    fftMaxFps: Optional[int] = Field(None, ge=1, le=120)  # Max FPS cap (1-120)
     fftSize: Optional[int] = Field(None)  # 512, 1024, 2048, 4096
     fftAccelerator: Optional[str] = Field(None, pattern=r'^(auto|scipy|fftw|mlx|cuda)$')  # FFT backend
 
@@ -143,6 +145,7 @@ class CaptureModel(BaseModel):
     autoName: Optional[str] = None  # Auto-generated name (e.g., "FM 90.3 - RTL-SDR")
     # FFT/Spectrum settings
     fftFps: int = 15  # Target FFT frames per second
+    fftMaxFps: int = 60  # Maximum FFT frames per second (hard cap)
     fftSize: int = 2048  # FFT bin count
     fftAccelerator: str = "auto"  # FFT backend: auto, scipy, fftw, mlx, cuda
     # Error indicators for UI

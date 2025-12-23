@@ -348,8 +348,8 @@ def _process_channel_dsp_stateless(
             iq_interleaved[1::2] = base.imag
             audio = iq_interleaved
 
-    # P25 and DMR require stateful decoders - handled separately
-    elif cfg.mode in ("p25", "dmr"):
+    # Digital voice modes require stateful decoders - handled separately
+    elif cfg.mode in ("p25", "dmr", "nxdn", "dstar", "ysf"):
         # Just return base IQ for stateful processing later
         if base.size > 0:
             power = np.mean(np.abs(base) ** 2)
@@ -1612,6 +1612,7 @@ class CaptureConfig:
     iq_balance_auto: bool = True
     # FFT/Spectrum settings
     fft_fps: int = 15  # Target FFT frames per second (1-60)
+    fft_max_fps: int = 60  # Maximum FFT frames per second (hard cap, 1-120)
     fft_size: int = 2048  # FFT bin count (512, 1024, 2048, 4096)
     fft_accelerator: str = "auto"  # FFT backend: auto, scipy, fftw, mlx, cuda
 
@@ -2537,6 +2538,37 @@ class Capture:
 
             return decoded_audio
 
+        # NXDN decoding (stub - not yet implemented)
+        if ch.cfg.mode == "nxdn":
+            # NXDN uses 4FSK modulation and AMBE+2 codec (similar to DMR)
+            # Sample rate: 4800/9600 baud
+            # TODO: Implement NXDNDecoder with AMBE+2 integration
+            if not getattr(ch, '_nxdn_warned', False):
+                logger.warning(f"Channel {ch.cfg.id}: NXDN mode not yet implemented - no audio output")
+                ch._nxdn_warned = True
+            return None
+
+        # D-Star decoding (stub - not yet implemented)
+        if ch.cfg.mode == "dstar":
+            # D-Star uses GMSK modulation and AMBE codec
+            # Data rate: 4800 bps (voice + data)
+            # TODO: Implement DStarDecoder with AMBE integration
+            if not getattr(ch, '_dstar_warned', False):
+                logger.warning(f"Channel {ch.cfg.id}: D-Star mode not yet implemented - no audio output")
+                ch._dstar_warned = True
+            return None
+
+        # YSF/Fusion decoding (stub - not yet implemented)
+        if ch.cfg.mode == "ysf":
+            # YSF (Yaesu System Fusion) uses C4FM modulation
+            # Multiple codec modes: DN (digital narrow), VW (voice wide), FR (full rate)
+            # Codecs: AMBE+2 (DN), IMBE (VW), or mixed
+            # TODO: Implement YSFDecoder with AMBE+2/IMBE integration
+            if not getattr(ch, '_ysf_warned', False):
+                logger.warning(f"Channel {ch.cfg.id}: YSF (Fusion) mode not yet implemented - no audio output")
+                ch._ysf_warned = True
+            return None
+
         if audio is None:
             return None
 
@@ -2801,13 +2833,15 @@ class Capture:
                 # Adaptive FFT FPS based on subscriber count
                 # - No viewers: low FPS (5) to save CPU
                 # - 1 viewer: configured FPS (default 15)
-                # - 2+ viewers: boost FPS for better responsiveness (up to 30)
+                # - 2+ viewers: boost FPS for better responsiveness (up to 2x target)
+                # Final FPS is capped at fft_max_fps (hard limit)
                 base_fps = self.cfg.fft_fps or 15
+                max_fps = self.cfg.fft_max_fps or 60
                 subscriber_count = len(fft_sinks)
                 if subscriber_count >= 2:
-                    target_fps = min(30, base_fps * 2)
+                    target_fps = min(max_fps, base_fps * 2)
                 elif subscriber_count == 1:
-                    target_fps = base_fps
+                    target_fps = min(max_fps, base_fps)
                 else:
                     target_fps = 5  # Minimal FPS when no active viewers
 
@@ -3108,6 +3142,15 @@ class CaptureManager:
             cfg.agc_target_db = -20.0
             cfg.agc_attack_ms = 5.0
             cfg.agc_release_ms = 50.0
+
+        # Digital voice modes - handled by stateful decoders
+        # These modes use C4FM/GMSK/4FSK modulation and voice codecs
+        elif mode in ("p25", "dmr", "nxdn", "dstar", "ysf"):
+            # Digital voice modes use their own audio path via codec decoders
+            # No analog filtering needed - decoded audio bypasses DSP chain
+            cfg.enable_agc = False  # Voice codecs have their own gain control
+            cfg.enable_fm_highpass = False
+            cfg.enable_fm_lowpass = False
 
     def create_channel(
         self,
