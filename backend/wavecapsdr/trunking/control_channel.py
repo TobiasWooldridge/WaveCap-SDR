@@ -439,17 +439,26 @@ class ControlChannelMonitor:
 def create_control_monitor(
     protocol: TrunkingProtocol,
     sample_rate: int = 48000,
+    modulation: Optional[P25Modulation] = None,
 ) -> ControlChannelMonitor:
     """Create a control channel monitor.
 
     Args:
         protocol: P25 protocol (Phase I or II)
         sample_rate: Input sample rate in Hz
+        modulation: Override modulation type (None = use default for protocol)
 
     Returns:
         Configured ControlChannelMonitor
     """
+    # Determine modulation based on protocol if not specified
+    if modulation is None:
+        # Phase 2 uses CQPSK/LSM, Phase 1 typically uses C4FM
+        # But many simulcast systems use LSM even for Phase 1
+        modulation = P25Modulation.LSM  # Default to LSM for compatibility
+
     return ControlChannelMonitor(
         protocol=protocol,
         sample_rate=sample_rate,
+        modulation=modulation,
     )

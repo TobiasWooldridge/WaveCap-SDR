@@ -18,8 +18,8 @@ antennas:
     uhf_amateur: Ant A
 presets:
   kexp:
-    center_hz: 90300000
-    sample_rate: 250000
+    center_hz: 92700000
+    sample_rate: 1024000
     offsets:
     - 0.0
     gain: 21.1
@@ -39,15 +39,12 @@ presets:
     ppm: 0.0
     antenna: Antenna A
   sa_grn:
-    # SA Government Radio Network P25 Phase 1 (400-422 MHz UHF)
-    # System ID: 0x3DC, WACN: 0xBEE00
-    # Adelaide Metro control channels: 413.2625, 414.7625, 417.7625 MHz
     center_hz: 415000000
     sample_rate: 6000000
     offsets:
-    - -1737500  # 413.2625 MHz - Control
-    - -237500   # 414.7625 MHz - Control
-    - 2762500   # 417.7625 MHz - Control
+    - -1737500
+    - -237500
+    - 2762500
     gain: 40.0
     bandwidth: 5000000.0
     ppm: 0.0
@@ -587,48 +584,142 @@ recipes:
     gain: 40
     bandwidth: 25000
     frequency_label: Pager Frequency (MHz)
-
-# P25 Trunking Systems
 trunking:
   systems:
-    psern:
-      id: psern
-      name: PSERN (Puget Sound Emergency Radio Network)
-      protocol: p25_phase2
-      # King County simulcast control channels (770-776 MHz range)
+    sa_grn:
+      id: sa_grn
+      name: SA GRN (South Australia Government Radio Network)
+      protocol: p25_phase1
+      modulation: c4fm  # Try C4FM - some sites may use standard 4FSK
+      # System ID 0x3DC = 988, WACN 0xBEE00 = 781056
+      # See backend/config/SA_GRN_README.md for frequency sources
+      system_id: 988
+      wacn: 781056
       control_channels:
-        - 774031250   # 774.03125 MHz - Primary CC
-        - 774281250   # 774.28125 MHz - Alternate CC
-        - 773781250   # 773.78125 MHz - Alternate CC
-      center_hz: 774000000
-      sample_rate: 2000000
-      device_id: "driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070"
-      gain: 40
+      # Control channels from SAScan.net.au and RadioReference (Dec 2024)
+      # Southern Adelaide sites for Woodcroft coverage
+      - 415.25 MHz    # Sellicks - south of Adelaide, close to Woodcroft!
+      - 414.8875 MHz  # Mt Barker (Mt Barker Summit)
+      - 414.75 MHz    # Birdwood (McVitties Hill)
+      - 413.350 MHz   # Hackham West (Site 009)
+      - 413.175 MHz   # Bull Creek (Site 084)
+      - 413.3125 MHz  # Adelaide Main GRN Site
+      center_hz: 415.5 MHz
+      sample_rate: 6000000
+      device_id: driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240305E670,serial=240305E670
+      gain: 30  # Lower gain to avoid overload
+      antenna: Antenna A
+      device_settings:
+        rfnotch_ctrl: 'false'
+        dabnotch_ctrl: 'false'
       max_voice_recorders: 4
-      recording_path: ./recordings/psern
+      recording_path: ./recordings/sa_grn
       record_unknown: true
       min_call_duration: 1.0
-      squelch_db: -55
+      squelch_db: -60
+      control_channel_timeout: 30  # 30 seconds per frequency to lock
       talkgroups:
-        # Seattle Police
-        1616: {name: "Seattle PD Dispatch", category: "Police", priority: 1}
-        1617: {name: "Seattle PD North", category: "Police", priority: 2}
-        1618: {name: "Seattle PD South", category: "Police", priority: 2}
-        1619: {name: "Seattle PD West", category: "Police", priority: 2}
-        # Seattle Fire
-        1808: {name: "Seattle Fire Dispatch", category: "Fire", priority: 1}
-        1809: {name: "Seattle Fire TAC 1", category: "Fire", priority: 2}
-        # King County Sheriff
-        2416: {name: "King Co Sheriff Dispatch", category: "Police", priority: 1}
-        # Bellevue
-        2816: {name: "Bellevue PD Dispatch", category: "Police", priority: 2}
-        # Medic One
-        3008: {name: "King Co Medic One", category: "EMS", priority: 1}
-
-# Auto-start captures disabled - create manually via UI
-# captures:
-# - preset: kexp
-#   device_id: 'driver=rtlsdr,...'
+        100:
+          name: CFS State Dispatch
+          category: Fire
+          priority: 1
+        101:
+          name: CFS Adelaide Metro
+          category: Fire
+          priority: 1
+        102:
+          name: CFS Barossa
+          category: Fire
+          priority: 2
+        103:
+          name: CFS Hills
+          category: Fire
+          priority: 2
+        104:
+          name: CFS Murraylands
+          category: Fire
+          priority: 2
+        105:
+          name: CFS South East
+          category: Fire
+          priority: 2
+        106:
+          name: CFS Yorke Peninsula
+          category: Fire
+          priority: 2
+        107:
+          name: CFS Eyre Peninsula
+          category: Fire
+          priority: 2
+        108:
+          name: CFS Flinders
+          category: Fire
+          priority: 2
+        110:
+          name: CFS Ops 1
+          category: Fire
+          priority: 2
+        111:
+          name: CFS Ops 2
+          category: Fire
+          priority: 2
+        112:
+          name: CFS Ops 3
+          category: Fire
+          priority: 2
+        200:
+          name: MFS Dispatch
+          category: Fire
+          priority: 1
+        201:
+          name: MFS Fireground 1
+          category: Fire
+          priority: 2
+        202:
+          name: MFS Fireground 2
+          category: Fire
+          priority: 2
+        203:
+          name: MFS Fireground 3
+          category: Fire
+          priority: 2
+        300:
+          name: SES State Ops
+          category: Emergency
+          priority: 1
+        301:
+          name: SES Metro
+          category: Emergency
+          priority: 2
+        302:
+          name: SES Country
+          category: Emergency
+          priority: 2
+        303:
+          name: SES Rescue
+          category: Emergency
+          priority: 2
+        400:
+          name: SA Water Ops
+          category: Utilities
+          priority: 3
+        401:
+          name: SA Power Networks
+          category: Utilities
+          priority: 3
+        500:
+          name: DEW Operations
+          category: Government
+          priority: 3
+        501:
+          name: Forestry SA
+          category: Government
+          priority: 3
+        502:
+          name: Parks SA
+          category: Government
+          priority: 3
+      auto_start: true
 device_names:
   ? 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
     V4,serial=00000001,tuner=Rafael Micro R828D'
@@ -641,3 +732,4 @@ device_names:
     Blog V4
   driver=sdrplay,label=SDRplay Dev1 RSPdx-R2 240305E670,serial=240305E670: RSPdx-R2
     E670
+captures: []

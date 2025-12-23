@@ -28,7 +28,7 @@ import numpy as np
 
 from scipy import signal as scipy_signal
 
-from wavecapsdr.trunking.config import TrunkingSystemConfig, TrunkingProtocol
+from wavecapsdr.trunking.config import TrunkingSystemConfig, TrunkingProtocol, P25Modulation
 from wavecapsdr.trunking.control_channel import ControlChannelMonitor, create_control_monitor
 from wavecapsdr.trunking.voice_channel import VoiceChannel, VoiceChannelConfig, RadioLocation
 from wavecapsdr.decoders.p25_tsbk import TSBKParser, VoiceGrant, ChannelIdentifier
@@ -384,9 +384,13 @@ class TrunkingSystem:
     # Timing
     _state_change_time: float = field(default_factory=time.time)
     _control_channel_timeout: float = 10.0  # Seconds before trying next CC
+    _hunt_check_task: Optional[asyncio.Task[None]] = None
 
     def __post_init__(self) -> None:
         """Initialize after dataclass creation."""
+        # Use config timeout if specified
+        self._control_channel_timeout = self.cfg.control_channel_timeout
+
         # Create TSBK parser
         self._tsbk_parser = TSBKParser()
 
@@ -472,6 +476,10 @@ class TrunkingSystem:
                 offset_hz=cc_offset_hz,
             )
 
+            # Set modulation for the channel's P25 decoder
+            if self.cfg.modulation:
+                self._control_channel.p25_modulation = self.cfg.modulation
+
             # Wire up TSBK callback from P25 decoder in the channel
             # This routes TSBKs decoded by the channel's P25 decoder to the trunking system
             self._control_channel.on_tsbk = self._handle_tsbk_callback
@@ -506,6 +514,10 @@ class TrunkingSystem:
             f"at {self.control_channel_freq_hz/1e6:.4f} MHz"
         )
 
+        # Start background hunt check loop
+        if self._event_loop is not None:
+            self._hunt_check_task = self._event_loop.create_task(self._hunt_check_loop())
+
     def _setup_tsbk_callback(self) -> None:
         """Set up control channel decoding using ControlChannelMonitor.
 
@@ -519,16 +531,18 @@ class TrunkingSystem:
         if self._control_channel is None or self._capture is None:
             return
 
-        # Create ControlChannelMonitor with correct protocol
+        # Create ControlChannelMonitor with correct protocol and modulation
         # Sample rate 48000 is standard for P25 decoding
         self._control_monitor = create_control_monitor(
             protocol=self.cfg.protocol,
             sample_rate=48000,
+            modulation=self.cfg.modulation,
         )
 
+        mod_str = self.cfg.modulation.value if self.cfg.modulation else "auto"
         logger.info(
             f"TrunkingSystem {self.cfg.id}: Created ControlChannelMonitor "
-            f"for {self.cfg.protocol.value}"
+            f"for {self.cfg.protocol.value} (modulation: {mod_str})"
         )
 
         # Store original process_iq_chunk_sync method
@@ -736,6 +750,15 @@ class TrunkingSystem:
 
         logger.info(f"TrunkingSystem {self.cfg.id}: Stopping...")
         self._set_state(TrunkingSystemState.STOPPING)
+
+        # Cancel hunt check loop
+        if self._hunt_check_task is not None:
+            self._hunt_check_task.cancel()
+            try:
+                await self._hunt_check_task
+            except asyncio.CancelledError:
+                pass
+            self._hunt_check_task = None
 
         # End all active calls
         for call_id in list(self._active_calls.keys()):
@@ -1035,6 +1058,17 @@ class TrunkingSystem:
         last_tsbk = self._last_tsbk_time if self._last_tsbk_time > 0 else self._state_change_time
         elapsed = now - last_tsbk
 
+        # Debug: Log hunting status periodically
+        if not hasattr(self, '_hunt_log_count'):
+            self._hunt_log_count = 0
+        self._hunt_log_count += 1
+        if self._hunt_log_count % 100 == 1:
+            logger.info(
+                f"TrunkingSystem {self.cfg.id}: Hunt check - "
+                f"elapsed={elapsed:.1f}s, timeout={self._control_channel_timeout}s, "
+                f"num_channels={len(self.cfg.control_channels)}"
+            )
+
         if elapsed < self._control_channel_timeout:
             return
 
@@ -1066,6 +1100,29 @@ class TrunkingSystem:
         # Reset the control channel monitor
         if self._control_monitor is not None:
             self._control_monitor.reset()
+
+    async def _hunt_check_loop(self) -> None:
+        """Background loop to periodically check for control channel hunting.
+
+        This runs independently of IQ processing to ensure hunting happens
+        even when no data is being received.
+        """
+        logger.info(f"TrunkingSystem {self.cfg.id}: Starting hunt check loop")
+        try:
+            while True:
+                await asyncio.sleep(1.0)  # Check every second
+
+                # Only hunt when in searching state
+                if self.state not in (TrunkingSystemState.SEARCHING, TrunkingSystemState.RUNNING):
+                    continue
+
+                # Check for hunting
+                self._check_control_channel_hunt()
+
+        except asyncio.CancelledError:
+            logger.info(f"TrunkingSystem {self.cfg.id}: Hunt check loop cancelled")
+        except Exception as e:
+            logger.error(f"TrunkingSystem {self.cfg.id}: Hunt check loop error: {e}")
 
     def _handle_rfss_status(self, result: Dict[str, Any]) -> None:
         """Handle RFSS Status Broadcast TSBK."""

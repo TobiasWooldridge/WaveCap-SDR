@@ -541,8 +541,9 @@ class C4FMDemodulator:
         # FM discriminator (quadrature demodulation)
         x: np.ndarray = iq.astype(np.complex64, copy=False)
         prod = x[1:] * np.conj(x[:-1])
-        # Normalize to approximately ±1 range
-        inst_freq = cast(np.ndarray, np.angle(prod)) * self.sample_rate / (2 * np.pi * self.max_deviation)
+        # Scale to ±3 symbol range for ±1800 Hz deviation
+        # Using deviation_hz (600) as base: ±1800/600 = ±3, ±600/600 = ±1
+        inst_freq = cast(np.ndarray, np.angle(prod)) * self.sample_rate / (2 * np.pi * self.deviation_hz)
 
         if len(inst_freq) < len(self._rrc_taps):
             return cast(np.ndarray, np.array([], dtype=np.uint8))
@@ -678,44 +679,47 @@ class C4FMDemodulator:
         """
         Update adaptive thresholds from symbol value distribution.
 
-        Uses k-means style clustering to find the 4 symbol levels,
-        then sets thresholds at midpoints between clusters.
+        For C4FM, we use fixed thresholds based on the expected symbol levels.
+        With FM discriminator scaled to ±3 for ±1800 Hz deviation:
+        - +3 symbol = +3.0 output
+        - +1 symbol = +1.0 output
+        - -1 symbol = -1.0 output
+        - -3 symbol = -3.0 output
+
+        Thresholds at midpoints: -2.0, 0.0, +2.0
         """
         if len(self._agc_history) < self._threshold_window:
             return
 
         vals = np.array(self._agc_history[-self._threshold_window:])
+        std = np.std(vals)
 
-        # Sort values and divide into quartiles as initial cluster estimate
-        sorted_vals = np.sort(vals)
-        n = len(sorted_vals)
+        # If signal std is too high (>10), this is likely noise - don't adapt
+        # Valid C4FM signal should have std ~2.0 (symbols at ±3, ±1)
+        if std > 10.0:
+            # Noise detected - reset thresholds toward expected values
+            alpha = 0.01  # Slow convergence toward fixed values
+            self._threshold_low = self._threshold_low * (1 - alpha) + (-2.0) * alpha
+            self._threshold_mid = self._threshold_mid * (1 - alpha) + 0.0 * alpha
+            self._threshold_high = self._threshold_high * (1 - alpha) + 2.0 * alpha
+            return
 
-        # Estimate 4 cluster centers from quartile medians
-        q1_center = np.median(sorted_vals[:n//4])        # -3 cluster
-        q2_center = np.median(sorted_vals[n//4:n//2])    # -1 cluster
-        q3_center = np.median(sorted_vals[n//2:3*n//4])  # +1 cluster
-        q4_center = np.median(sorted_vals[3*n//4:])      # +3 cluster
-
-        # Check if we have 4 distinct levels or just 2 (binary signal)
-        spread = q4_center - q1_center
-        inner_spread = q3_center - q2_center
-
-        if spread > 0.01 and inner_spread > spread * 0.1:
-            # 4-level signal detected - set thresholds at midpoints
-            new_low = (q1_center + q2_center) / 2
-            new_mid = (q2_center + q3_center) / 2
-            new_high = (q3_center + q4_center) / 2
-
-            # Smooth threshold updates
-            alpha = self._threshold_alpha
-            self._threshold_low = self._threshold_low * (1 - alpha) + new_low * alpha
-            self._threshold_mid = self._threshold_mid * (1 - alpha) + new_mid * alpha
-            self._threshold_high = self._threshold_high * (1 - alpha) + new_high * alpha
+        # Signal detected (reasonable std) - use fixed thresholds
+        # This is more reliable than adaptive thresholds for C4FM
+        if std < 5.0:
+            # Good signal - quickly converge to fixed thresholds
+            alpha = 0.1
+            self._threshold_low = self._threshold_low * (1 - alpha) + (-2.0) * alpha
+            self._threshold_mid = self._threshold_mid * (1 - alpha) + 0.0 * alpha
+            self._threshold_high = self._threshold_high * (1 - alpha) + 2.0 * alpha
             self._use_4level = True
         else:
-            # Binary signal - fall back to single threshold at median
-            self._threshold_mid = np.median(vals)
-            self._use_4level = False
+            # Moderate signal - slower convergence
+            alpha = 0.02
+            self._threshold_low = self._threshold_low * (1 - alpha) + (-2.0) * alpha
+            self._threshold_mid = self._threshold_mid * (1 - alpha) + 0.0 * alpha
+            self._threshold_high = self._threshold_high * (1 - alpha) + 2.0 * alpha
+            self._use_4level = True
 
 
 class P25TrellisDecoder:

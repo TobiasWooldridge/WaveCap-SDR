@@ -8,15 +8,63 @@ Defines the configuration schema for trunking systems including:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
+
+
+def parse_frequency(value: Union[str, int, float]) -> float:
+    """Parse a frequency value with optional unit suffix.
+
+    Supports formats like:
+    - 412950000 (raw Hz as int/float)
+    - "412.95 MHz" or "412.95MHz"
+    - "412950 kHz" or "412950kHz"
+    - "412950000 Hz" or "412950000Hz"
+    - "412.95" (assumed MHz if < 1000, otherwise Hz)
+
+    Returns:
+        Frequency in Hz as float
+    """
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    # Parse string with optional unit
+    value = str(value).strip()
+
+    # Match number with optional unit
+    match = re.match(r'^([\d.]+)\s*(MHz|mhz|MHZ|kHz|khz|KHZ|Hz|hz|HZ)?$', value)
+    if not match:
+        raise ValueError(f"Invalid frequency format: {value}")
+
+    num = float(match.group(1))
+    unit = (match.group(2) or '').lower()
+
+    if unit == 'mhz':
+        return num * 1_000_000
+    elif unit == 'khz':
+        return num * 1_000
+    elif unit == 'hz':
+        return num
+    else:
+        # No unit specified - assume MHz if small number, Hz if large
+        if num < 1000:
+            return num * 1_000_000  # Assume MHz
+        else:
+            return num  # Assume Hz
 
 
 class TrunkingProtocol(str, Enum):
     """Supported trunking protocols."""
     P25_PHASE1 = "p25_phase1"  # C4FM, IMBE (SA-GRN, most systems)
     P25_PHASE2 = "p25_phase2"  # CQPSK/TDMA, AMBE+2 (PSERN, newer systems)
+
+
+class P25Modulation(str, Enum):
+    """P25 modulation types."""
+    C4FM = "c4fm"    # Standard 4FSK modulation
+    LSM = "lsm"      # Linear Simulcast Modulation (CQPSK)
 
 
 @dataclass
@@ -68,6 +116,7 @@ class TrunkingSystemConfig:
     id: str
     name: str
     protocol: TrunkingProtocol = TrunkingProtocol.P25_PHASE1
+    modulation: Optional[P25Modulation] = None  # None = auto-detect based on protocol
     control_channels: List[float] = field(default_factory=list)
     center_hz: float = 851_000_000
     sample_rate: int = 8_000_000
@@ -145,6 +194,15 @@ class TrunkingSystemConfig:
         except ValueError:
             protocol = TrunkingProtocol.P25_PHASE1
 
+        # Parse modulation
+        modulation_str = data.get("modulation")
+        modulation = None
+        if modulation_str:
+            try:
+                modulation = P25Modulation(modulation_str.lower())
+            except ValueError:
+                pass  # Use default
+
         gain = data.get("gain")
         if gain is not None:
             gain = float(gain)
@@ -153,8 +211,9 @@ class TrunkingSystemConfig:
             id=data.get("id", "system"),
             name=data.get("name", "P25 System"),
             protocol=protocol,
-            control_channels=[float(f) for f in data.get("control_channels", [])],
-            center_hz=float(data.get("center_hz", 851_000_000)),
+            modulation=modulation,
+            control_channels=[parse_frequency(f) for f in data.get("control_channels", [])],
+            center_hz=parse_frequency(data.get("center_hz", 851_000_000)),
             sample_rate=int(data.get("sample_rate", 8_000_000)),
             device_id=data.get("device_id", ""),
             gain=gain,
@@ -166,6 +225,7 @@ class TrunkingSystemConfig:
             min_call_duration=float(data.get("min_call_duration", 1.0)),
             squelch_db=float(data.get("squelch_db", -50.0)),
             auto_start=data.get("auto_start", True),
+            control_channel_timeout=float(data.get("control_channel_timeout", 10.0)),
         )
 
     def to_dict(self) -> Dict:
