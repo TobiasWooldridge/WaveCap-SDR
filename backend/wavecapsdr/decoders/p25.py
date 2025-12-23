@@ -19,7 +19,98 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 from dataclasses import dataclass
 from enum import Enum
 
+from wavecapsdr.decoders.p25_tsbk import TSBKParser
+from wavecapsdr.dsp.fec.trellis import TrellisDecoder, trellis_decode
+
 logger = logging.getLogger(__name__)
+
+
+class DibitRingBuffer:
+    """
+    Pre-allocated ring buffer for dibit accumulation.
+
+    Avoids repeated np.concatenate() calls which create new arrays each time.
+    Uses a simple circular buffer with head/tail pointers.
+    """
+
+    def __init__(self, capacity: int = 8000):
+        self._buffer = np.zeros(capacity, dtype=np.uint8)
+        self._capacity = capacity
+        self._head = 0  # Write position
+        self._tail = 0  # Read position
+        self._size = 0  # Current number of elements
+
+    def append(self, dibits: np.ndarray) -> None:
+        """Append dibits to the buffer, discarding oldest if full."""
+        n = len(dibits)
+        if n == 0:
+            return
+
+        # If incoming data is larger than capacity, only keep last 'capacity' elements
+        if n >= self._capacity:
+            dibits = dibits[-self._capacity:]
+            n = len(dibits)
+            self._buffer[:] = dibits
+            self._head = 0
+            self._tail = 0
+            self._size = n
+            return
+
+        # Make room if needed by discarding oldest
+        if self._size + n > self._capacity:
+            discard = self._size + n - self._capacity
+            self._tail = (self._tail + discard) % self._capacity
+            self._size -= discard
+
+        # Write new data, handling wrap-around
+        space_to_end = self._capacity - self._head
+        if n <= space_to_end:
+            self._buffer[self._head:self._head + n] = dibits
+        else:
+            # Split write across wrap-around
+            self._buffer[self._head:] = dibits[:space_to_end]
+            self._buffer[:n - space_to_end] = dibits[space_to_end:]
+
+        self._head = (self._head + n) % self._capacity
+        self._size += n
+
+    def consume(self, n: int) -> None:
+        """Remove n elements from the front of the buffer."""
+        if n >= self._size:
+            self._tail = self._head
+            self._size = 0
+        else:
+            self._tail = (self._tail + n) % self._capacity
+            self._size -= n
+
+    def get_contiguous(self, max_len: Optional[int] = None) -> np.ndarray:
+        """
+        Get buffer contents as a contiguous array.
+
+        This creates a copy but is only called when we need to process frames.
+        """
+        if self._size == 0:
+            return np.array([], dtype=np.uint8)
+
+        length = self._size if max_len is None else min(self._size, max_len)
+
+        if self._tail + length <= self._capacity:
+            # No wrap-around, return view (or copy for safety)
+            return self._buffer[self._tail:self._tail + length].copy()
+        else:
+            # Handle wrap-around
+            result = np.empty(length, dtype=np.uint8)
+            first_part = self._capacity - self._tail
+            result[:first_part] = self._buffer[self._tail:]
+            result[first_part:length] = self._buffer[:length - first_part]
+            return result
+
+    def __len__(self) -> int:
+        return self._size
+
+    @property
+    def size(self) -> int:
+        return self._size
 
 
 class P25FrameType(Enum):
@@ -49,6 +140,299 @@ class P25Frame:
     errors: int = 0  # Error count
 
 
+class CQPSKDemodulator:
+    """
+    CQPSK (Compatible QPSK) / LSM (Linear Simulcast Modulation) demodulator for P25 Phase 1.
+
+    Used for P25 simulcast systems (like SA-GRN) that use phase modulation instead of C4FM.
+
+    P25 CQPSK is π/4-DQPSK where the transmitted symbol is encoded as a phase CHANGE:
+    - dibit 00 → +π/4 (+45°)   → symbol +1
+    - dibit 01 → +3π/4 (+135°) → symbol +3
+    - dibit 10 → -3π/4 (-135°) → symbol -3
+    - dibit 11 → -π/4 (-45°)   → symbol -1
+
+    Demodulates 4800 baud CQPSK signal to dibits using:
+    - Carrier frequency offset estimation and correction
+    - Differential demodulation (phase transitions)
+    - Gardner Timing Error Detector (TED) for symbol timing recovery
+    - π/4-DQPSK slicing with rotated decision boundaries
+    """
+
+    def __init__(self, sample_rate: int = 48000, symbol_rate: int = 4800):
+        self.sample_rate = sample_rate
+        self.symbol_rate = symbol_rate
+        self.samples_per_symbol = sample_rate / symbol_rate  # Float for fractional
+
+        # π/4-DQPSK decision boundaries
+        # Phase changes are at ±π/4 (±45°) and ±3π/4 (±135°)
+        # Decision boundaries are at 0, ±π/2, ±π
+        self.quarter_pi = np.pi / 4
+        self.half_pi = np.pi / 2
+        self.three_quarter_pi = 3 * np.pi / 4
+
+        # Carrier frequency offset estimation
+        self._freq_offset = 0.0  # Estimated frequency offset in radians/sample
+        self._freq_alpha = 0.001  # Frequency tracking loop gain
+        self._phase_acc = 0.0  # Phase accumulator for NCO
+
+        # AGC state
+        self._agc_gain = 1.0
+        self._agc_alpha = 0.005
+        self._agc_target = 1.0  # Target magnitude for normalized IQ
+
+        # Gardner TED state
+        self._mu = 0.0  # Fractional symbol timing offset (0 to 1)
+        self._gain_mu = 0.05  # Timing loop gain
+        self._prev_symbol = 0.0 + 0.0j
+        self._prev_diff = 0.0 + 0.0j
+
+        # RRC filter for matched filtering
+        self._rrc_taps = self._design_rrc_filter(alpha=0.2, num_taps=65)
+
+        # Diagnostic tracking
+        self._symbol_values: list[float] = []
+        self._symbol_count = 0
+        self._diag_interval = 1000
+        self._raw_phases: list[float] = []
+
+    def _design_rrc_filter(self, alpha: float = 0.2, num_taps: int = 65) -> np.ndarray:
+        """Design Root-Raised Cosine filter for P25."""
+        sps = int(round(self.samples_per_symbol))
+        t = np.arange(-(num_taps-1)//2, (num_taps-1)//2 + 1) / sps
+
+        h = np.zeros(num_taps)
+        for i, ti in enumerate(t):
+            if ti == 0:
+                h[i] = 1.0 - alpha + 4*alpha/np.pi
+            elif abs(ti) == 1/(4*alpha) if alpha > 0 else False:
+                h[i] = (alpha/np.sqrt(2)) * ((1+2/np.pi)*np.sin(np.pi/(4*alpha)) +
+                                              (1-2/np.pi)*np.cos(np.pi/(4*alpha)))
+            else:
+                num = np.sin(np.pi*ti*(1-alpha)) + 4*alpha*ti*np.cos(np.pi*ti*(1+alpha))
+                den = np.pi*ti*(1-(4*alpha*ti)**2)
+                if abs(den) > 1e-10:
+                    h[i] = num / den
+                else:
+                    h[i] = 0.0
+
+        h = h / np.sqrt(np.sum(h**2))
+        return h.astype(np.float32)
+
+    def demodulate(self, iq: np.ndarray) -> np.ndarray:
+        """
+        Demodulate CQPSK signal to dibits using differential phase detection.
+
+        Args:
+            iq: Complex IQ samples
+
+        Returns:
+            Array of dibits (0-3) as uint8
+        """
+        if iq.size == 0:
+            return cast(np.ndarray, np.array([], dtype=np.uint8))
+
+        # Ensure complex input
+        if not np.iscomplexobj(iq):
+            logger.warning(f"CQPSK demodulate: expected complex IQ, got {iq.dtype}")
+            if len(iq) % 2 == 0:
+                iq = iq[::2] + 1j * iq[1::2]
+            else:
+                return cast(np.ndarray, np.array([], dtype=np.uint8))
+
+        x: np.ndarray = iq.astype(np.complex64, copy=False)
+
+        # AGC: normalize IQ magnitude
+        magnitudes = np.abs(x)
+        mean_mag = np.mean(magnitudes) if len(magnitudes) > 0 else 1.0
+        max_mag = np.max(magnitudes) if len(magnitudes) > 0 else 0.0
+        if mean_mag > 0.01:
+            target_gain = self._agc_target / mean_mag
+            self._agc_gain = self._agc_gain * (1 - self._agc_alpha) + target_gain * self._agc_alpha
+            self._agc_gain = np.clip(self._agc_gain, 0.01, 500.0)
+
+        # Log raw IQ signal strength periodically
+        if not hasattr(self, '_iq_diag_count'):
+            self._iq_diag_count = 0
+        self._iq_diag_count += 1
+        if self._iq_diag_count % 20 == 1:
+            logger.info(
+                f"CQPSK raw IQ: samples={len(x)}, mean_mag={mean_mag:.4f}, max_mag={max_mag:.4f}, "
+                f"agc_gain={self._agc_gain:.2f}, dtype={x.dtype}"
+            )
+
+        x = x * self._agc_gain
+
+        # Apply frequency offset correction (NCO)
+        if abs(self._freq_offset) > 1e-6:
+            n = np.arange(len(x))
+            nco = np.exp(-1j * (self._phase_acc + self._freq_offset * n))
+            x = x * nco
+            self._phase_acc += self._freq_offset * len(x)
+            # Keep phase in [-π, π]
+            self._phase_acc = np.angle(np.exp(1j * self._phase_acc))
+
+        # RRC matched filter (complex)
+        if len(x) >= len(self._rrc_taps):
+            x_i = np.convolve(x.real, self._rrc_taps, mode='same')
+            x_q = np.convolve(x.imag, self._rrc_taps, mode='same')
+            x = x_i + 1j * x_q
+
+        # Symbol timing recovery with differential demodulation
+        symbols = self._cqpsk_timing_recovery(x)
+
+        return symbols
+
+    def _cqpsk_timing_recovery(self, samples: np.ndarray) -> np.ndarray:
+        """
+        CQPSK timing recovery with differential phase detection.
+
+        Uses π/4-DQPSK differential detection where:
+        - diff = curr * conj(prev) gives phase change from prev to curr
+        - Phase changes are ±π/4, ±3π/4 for the 4 dibits
+        """
+        sps = self.samples_per_symbol
+        symbols = []
+
+        i = int(sps)  # Start after one symbol period
+        while i < len(samples) - int(sps) - 1:
+            # Current sample index (with fractional offset)
+            idx = i + self._mu
+            idx_int = int(idx)
+            frac = idx - idx_int
+
+            if idx_int + 1 >= len(samples):
+                break
+
+            # Interpolated current symbol sample
+            curr = samples[idx_int] * (1 - frac) + samples[idx_int + 1] * frac
+
+            # Previous symbol sample (one symbol period back)
+            prev_idx = idx - sps
+            prev_int = int(prev_idx)
+            prev_frac = prev_idx - prev_int
+            if prev_int < 0:
+                prev_int = 0
+                prev_frac = 0
+            if prev_int + 1 >= len(samples):
+                prev = samples[prev_int] if prev_int < len(samples) else self._prev_symbol
+            else:
+                prev = samples[prev_int] * (1 - prev_frac) + samples[prev_int + 1] * prev_frac
+
+            # Mid-symbol sample (half symbol period back from current)
+            mid_idx = idx - sps / 2
+            mid_int = int(mid_idx)
+            mid_frac = mid_idx - mid_int
+            if mid_int < 0:
+                mid_int = 0
+                mid_frac = 0
+            if mid_int + 1 >= len(samples):
+                mid = samples[mid_int] if mid_int < len(samples) else 0
+            else:
+                mid = samples[mid_int] * (1 - mid_frac) + samples[mid_int + 1] * mid_frac
+
+            # Differential demodulation: curr * conj(prev)
+            # This gives the phase change FROM prev TO curr, which is the transmitted dibit
+            diff = curr * np.conj(prev)
+            phase = np.angle(diff)
+
+            # Track raw phase for frequency offset estimation
+            self._raw_phases.append(phase)
+            if len(self._raw_phases) > 100:
+                self._raw_phases.pop(0)
+
+            # π/4-DQPSK slicing:
+            # Phase changes are at ±π/4 (±45°) and ±3π/4 (±135°)
+            # Decision boundaries at 0, ±π/2, π
+            #
+            # Mapping (TIA-102.BAAB):
+            # +π/4 (+45°)   → dibit 00 → value 0 (+1 symbol)
+            # +3π/4 (+135°) → dibit 01 → value 1 (+3 symbol)
+            # -3π/4 (-135°) → dibit 10 → value 2 (-3 symbol)
+            # -π/4 (-45°)   → dibit 11 → value 3 (-1 symbol)
+            if phase >= self.half_pi:
+                # +3π/4 quadrant: +90° to +180°
+                dibit = 1  # dibit 01 = +3
+            elif phase >= 0:
+                # +π/4 quadrant: 0° to +90°
+                dibit = 0  # dibit 00 = +1
+            elif phase >= -self.half_pi:
+                # -π/4 quadrant: -90° to 0°
+                dibit = 3  # dibit 11 = -1
+            else:
+                # -3π/4 quadrant: -180° to -90°
+                dibit = 2  # dibit 10 = -3
+
+            symbols.append(dibit)
+
+            # Frequency offset estimation from differential phase mean
+            # If phases are consistently offset, there's a frequency error
+            if len(self._raw_phases) >= 20 and self._symbol_count % 100 == 0:
+                phase_mean = np.mean(self._raw_phases)
+                # Map phase to nearest constellation point and compute error
+                if phase_mean >= self.half_pi:
+                    expected = self.three_quarter_pi
+                elif phase_mean >= 0:
+                    expected = self.quarter_pi
+                elif phase_mean >= -self.half_pi:
+                    expected = -self.quarter_pi
+                else:
+                    expected = -self.three_quarter_pi
+                freq_error = (phase_mean - expected) / sps  # radians per sample
+                self._freq_offset += self._freq_alpha * freq_error
+
+            # Gardner TED for symbol timing
+            curr_diff = diff
+            if abs(self._prev_diff) > 0.01:
+                # Gardner: error = (prev - curr) * mid
+                ted_error = ((self._prev_diff.real - curr_diff.real) * mid.real +
+                             (self._prev_diff.imag - curr_diff.imag) * mid.imag)
+                self._mu += self._gain_mu * ted_error
+                while self._mu >= 1.0:
+                    self._mu -= 1.0
+                    i += 1
+                while self._mu < 0.0:
+                    self._mu += 1.0
+                    i -= 1
+
+            # Save state
+            self._prev_symbol = curr
+            self._prev_diff = curr_diff
+
+            # Diagnostic tracking
+            self._symbol_values.append(phase)
+            self._symbol_count += 1
+            if self._symbol_count % self._diag_interval == 0:
+                vals = np.array(self._symbol_values[-self._diag_interval:])
+                # Count symbols in each quadrant (decision regions)
+                q1 = np.sum(vals >= self.half_pi)  # dibit 1 (+3)
+                q0 = np.sum((vals >= 0) & (vals < self.half_pi))  # dibit 0 (+1)
+                q3 = np.sum((vals >= -self.half_pi) & (vals < 0))  # dibit 3 (-1)
+                q2 = np.sum(vals < -self.half_pi)  # dibit 2 (-3)
+
+                # Also track phase clustering
+                # For a good signal, phases should cluster near ±π/4, ±3π/4
+                phase_ranges = {
+                    '+3π/4': np.sum((vals >= self.half_pi) & (vals < np.pi)),
+                    '+π/4': np.sum((vals >= 0) & (vals < self.half_pi)),
+                    '-π/4': np.sum((vals >= -self.half_pi) & (vals < 0)),
+                    '-3π/4': np.sum(vals < -self.half_pi),
+                }
+
+                logger.info(
+                    f"CQPSK symbols: count={self._symbol_count}, "
+                    f"dist=[d0:{q0}, d1:{q1}, d2:{q2}, d3:{q3}], "
+                    f"freq_off={self._freq_offset*self.sample_rate/(2*np.pi):.1f}Hz, "
+                    f"agc={self._agc_gain:.2f}, "
+                    f"phase mean={vals.mean():.3f}, std={vals.std():.3f}"
+                )
+
+            # Advance by one symbol period
+            i += int(sps)
+
+        return np.array(symbols, dtype=np.uint8)
+
+
 class C4FMDemodulator:
     """
     C4FM (4-level FSK) demodulator for P25 Phase 1.
@@ -57,6 +441,8 @@ class C4FMDemodulator:
     - FM discriminator for frequency demodulation
     - Root-Raised Cosine (RRC) matched filter
     - Gardner Timing Error Detector (TED) for symbol timing recovery
+
+    NOTE: For simulcast/LSM systems (like SA-GRN), use CQPSKDemodulator instead.
     """
 
     def __init__(self, sample_rate: int = 48000, symbol_rate: int = 4800):
@@ -71,18 +457,17 @@ class C4FMDemodulator:
         # +1     | +600 Hz   | 00          | 0
         # -1     | -600 Hz   | 10          | 2
         # -3     | -1800 Hz  | 11          | 3
-        #
-        # After FM demodulation, normalized symbol levels are:
-        # +1.0 (max positive) = +3 symbol = dibit 1
-        # +0.33 (mid positive) = +1 symbol = dibit 0
-        # -0.33 (mid negative) = -1 symbol = dibit 2
-        # -1.0 (max negative) = -3 symbol = dibit 3
         self.deviation_hz = 600.0  # Base deviation (±600 Hz steps)
         self.max_deviation = 1800.0  # ±1800 Hz max
 
-        # Symbol decision thresholds (normalized -1 to +1)
-        # Thresholds at -0.67, 0, +0.67 separate the 4 symbol levels
-        self.thresholds = np.array([-0.67, 0.0, 0.67])
+        # Adaptive 4-level thresholds (will be computed from signal statistics)
+        # Initial thresholds assume normalized signal in [-3, +3] range
+        self._threshold_low = -2.0   # Between -3 and -1
+        self._threshold_mid = 0.0    # Between -1 and +1
+        self._threshold_high = 2.0   # Between +1 and +3
+        self._threshold_alpha = 0.02  # Threshold adaptation rate
+        self._threshold_window = 500  # Symbols for threshold estimation
+        self._use_4level = True       # Enable 4-level slicing (vs binary fallback)
 
         # Gardner TED state
         self._mu = 0.0  # Fractional symbol timing offset (0 to 1)
@@ -96,6 +481,15 @@ class C4FMDemodulator:
         # DC removal state
         self._dc_alpha = 0.01
         self._dc_estimate = 0.0
+
+        # AGC state
+        self._agc_history: list[float] = []
+        self._agc_window = 500  # Increased for better threshold estimation
+
+        # Diagnostic: symbol value tracking
+        self._symbol_values: list[float] = []
+        self._symbol_count = 0
+        self._diag_interval = 1000  # Log every N symbols
 
     def _design_rrc_filter(self, alpha: float = 0.2, num_taps: int = 65) -> np.ndarray:
         """Design Root-Raised Cosine filter for P25 C4FM."""
@@ -164,6 +558,9 @@ class C4FMDemodulator:
         except Exception:
             filtered = inst_freq
 
+        # NOTE: AGC is applied at symbol level in _gardner_timing_recovery, not here
+        # This avoids the problem of inter-symbol transitions biasing the AGC
+
         # Symbol timing recovery using Gardner TED
         symbols = self._gardner_timing_recovery(filtered)
 
@@ -224,143 +621,149 @@ class C4FMDemodulator:
 
             self._last_symbol = y_k
 
-            # Map to dibit using thresholds
-            # Per TIA-102.BAAA constellation:
-            # Symbol level (normalized) -> C4FM Symbol -> Dibit value
-            # < -0.67 (-1.0)  -> -3 symbol -> dibit 3
-            # -0.67 to 0      -> -1 symbol -> dibit 2
-            # 0 to +0.67      -> +1 symbol -> dibit 0
-            # > +0.67 (+1.0)  -> +3 symbol -> dibit 1
-            if y_k < self.thresholds[0]:  # < -0.67
-                dibit = 3  # -3 symbol
-            elif y_k < self.thresholds[1]:  # -0.67 to 0
-                dibit = 2  # -1 symbol
-            elif y_k < self.thresholds[2]:  # 0 to +0.67
-                dibit = 0  # +1 symbol
-            else:  # > +0.67
-                dibit = 1  # +3 symbol
+            # Track symbol values for adaptive threshold computation
+            self._agc_history.append(y_k)
+            if len(self._agc_history) > self._agc_window:
+                self._agc_history.pop(0)
+
+            # Adaptive 4-level slicing for C4FM
+            # P25 C4FM uses 4 levels: -3, -1, +1, +3 mapping to dibits 3, 2, 0, 1
+            #
+            # Update adaptive thresholds periodically from symbol distribution
+            if len(self._agc_history) >= self._threshold_window and self._symbol_count % 100 == 0:
+                self._update_thresholds()
+
+            # 4-level symbol slicing
+            if self._use_4level:
+                if y_k < self._threshold_low:
+                    dibit = 3  # -3 symbol -> dibit 11
+                elif y_k < self._threshold_mid:
+                    dibit = 2  # -1 symbol -> dibit 10
+                elif y_k < self._threshold_high:
+                    dibit = 0  # +1 symbol -> dibit 00
+                else:
+                    dibit = 1  # +3 symbol -> dibit 01
+            else:
+                # Binary fallback (for sync detection with degraded signal)
+                if y_k < 0:
+                    dibit = 3
+                else:
+                    dibit = 1
 
             symbols.append(dibit)
+
+            # Diagnostic: track symbol values
+            self._symbol_values.append(y_k)
+            self._symbol_count += 1
+            if self._symbol_count % self._diag_interval == 0:
+                vals = np.array(self._symbol_values[-self._diag_interval:])
+                # Count symbols in each decision region
+                d3_count = np.sum(vals < self._threshold_low)
+                d2_count = np.sum((vals >= self._threshold_low) & (vals < self._threshold_mid))
+                d0_count = np.sum((vals >= self._threshold_mid) & (vals < self._threshold_high))
+                d1_count = np.sum(vals >= self._threshold_high)
+                logger.info(
+                    f"C4FM symbols (4-level): count={self._symbol_count}, "
+                    f"dist=[d0:{d0_count}, d1:{d1_count}, d2:{d2_count}, d3:{d3_count}], "
+                    f"thresh=[{self._threshold_low:.2f}, {self._threshold_mid:.2f}, {self._threshold_high:.2f}], "
+                    f"mean={vals.mean():.3f}, std={vals.std():.3f}"
+                )
 
             # Advance by one symbol period
             i += int(sps)
 
         return np.array(symbols, dtype=np.uint8)
 
+    def _update_thresholds(self) -> None:
+        """
+        Update adaptive thresholds from symbol value distribution.
+
+        Uses k-means style clustering to find the 4 symbol levels,
+        then sets thresholds at midpoints between clusters.
+        """
+        if len(self._agc_history) < self._threshold_window:
+            return
+
+        vals = np.array(self._agc_history[-self._threshold_window:])
+
+        # Sort values and divide into quartiles as initial cluster estimate
+        sorted_vals = np.sort(vals)
+        n = len(sorted_vals)
+
+        # Estimate 4 cluster centers from quartile medians
+        q1_center = np.median(sorted_vals[:n//4])        # -3 cluster
+        q2_center = np.median(sorted_vals[n//4:n//2])    # -1 cluster
+        q3_center = np.median(sorted_vals[n//2:3*n//4])  # +1 cluster
+        q4_center = np.median(sorted_vals[3*n//4:])      # +3 cluster
+
+        # Check if we have 4 distinct levels or just 2 (binary signal)
+        spread = q4_center - q1_center
+        inner_spread = q3_center - q2_center
+
+        if spread > 0.01 and inner_spread > spread * 0.1:
+            # 4-level signal detected - set thresholds at midpoints
+            new_low = (q1_center + q2_center) / 2
+            new_mid = (q2_center + q3_center) / 2
+            new_high = (q3_center + q4_center) / 2
+
+            # Smooth threshold updates
+            alpha = self._threshold_alpha
+            self._threshold_low = self._threshold_low * (1 - alpha) + new_low * alpha
+            self._threshold_mid = self._threshold_mid * (1 - alpha) + new_mid * alpha
+            self._threshold_high = self._threshold_high * (1 - alpha) + new_high * alpha
+            self._use_4level = True
+        else:
+            # Binary signal - fall back to single threshold at median
+            self._threshold_mid = np.median(vals)
+            self._use_4level = False
+
 
 class P25TrellisDecoder:
     """
-    P25 1/2 rate trellis decoder.
+    P25 1/2 rate trellis decoder (Viterbi algorithm).
 
-    P25 uses a 4-state trellis code that encodes 1 dibit (2 bits) to 1 symbol.
-    TSBK uses 1/2 rate trellis with the following constellation:
+    This is a wrapper around the optimized TrellisDecoder in dsp/fec/trellis.py.
 
-    Dibit input (2 bits) maps to 4-level symbol:
-    Dibit 0 (00) -> -3, Dibit 1 (01) -> -1, Dibit 2 (10) -> +1, Dibit 3 (11) -> +3
+    P25 uses a 4-state trellis code where:
+    - Input: 2 bits (dibit) per time instant
+    - Output: 4 bits (nibble/symbol) per time instant
+    - Each 4-bit symbol is encoded as two consecutive C4FM dibits
 
-    The trellis has 4 states based on previous dibit.
+    For TSBK (96 data bits = 48 input dibits):
+    - 48 input dibits + 1 flushing = 49 symbols
+    - 49 * 4 bits = 196 transmitted bits = 98 dibits
     """
 
-    # Trellis constellation for 1/2 rate code
-    # Maps (current_state, input_dibit) -> (output_dibit, next_state)
-    # This is the P25 1/2 rate trellis encoder table
-    TRELLIS_TABLE = np.array([
-        # State 0 transitions
-        [(0, 0), (2, 1), (1, 2), (3, 3)],
-        # State 1 transitions
-        [(2, 0), (0, 1), (3, 2), (1, 3)],
-        # State 2 transitions
-        [(1, 0), (3, 1), (0, 2), (2, 3)],
-        # State 3 transitions
-        [(3, 0), (1, 1), (2, 2), (0, 3)],
-    ], dtype=object)
-
-    # Inverse lookup: given (current_state, output_dibit) -> input_dibit
-    # Built from TRELLIS_TABLE
-    TRELLIS_DECODE = None
-
     def __init__(self):
-        if P25TrellisDecoder.TRELLIS_DECODE is None:
-            self._build_decode_table()
-
-    @classmethod
-    def _build_decode_table(cls):
-        """Build inverse trellis lookup table."""
-        # decode_table[state][output] = (input, next_state)
-        cls.TRELLIS_DECODE = [[None] * 4 for _ in range(4)]
-        for state in range(4):
-            for inp in range(4):
-                out, next_state = cls.TRELLIS_TABLE[state][inp]
-                cls.TRELLIS_DECODE[state][out] = (inp, next_state)
+        self._decoder = TrellisDecoder()
 
     def decode(self, dibits: np.ndarray) -> Tuple[Optional[np.ndarray], int]:
         """
         Decode trellis-encoded dibits using Viterbi algorithm.
 
         Args:
-            dibits: Array of received dibits (0-3)
+            dibits: Array of received dibits (0-3), length should be 98 for TSBK
 
         Returns:
             (decoded_dibits, error_count) or (None, -1) if decode failed
         """
-        if len(dibits) < 2:
+        if len(dibits) < 4:
             return None, -1
 
-        n = len(dibits)
-        NUM_STATES = 4
+        try:
+            decoded, error_metric = self._decoder.decode(dibits)
 
-        # Viterbi path metrics (cumulative Hamming distance)
-        # path_metric[state] = cumulative error count to reach this state
-        path_metric = np.full(NUM_STATES, np.inf)
-        path_metric[0] = 0  # Start in state 0
-
-        # Path history for traceback
-        # history[i][state] = (prev_state, decoded_dibit)
-        history = [[None] * NUM_STATES for _ in range(n)]
-
-        # Forward pass
-        for i, rx_dibit in enumerate(dibits):
-            new_metric = np.full(NUM_STATES, np.inf)
-            rx_dibit = int(rx_dibit) & 0x3  # Ensure valid
-
-            for state in range(NUM_STATES):
-                if path_metric[state] == np.inf:
-                    continue
-
-                # Try all input dibits and see which one could produce rx_dibit
-                for inp in range(4):
-                    expected_out, next_state = self.TRELLIS_TABLE[state][inp]
-
-                    # Hamming distance between received and expected
-                    # For dibits, count bit differences
-                    err = bin(rx_dibit ^ expected_out).count('1')
-                    branch_metric = path_metric[state] + err
-
-                    if branch_metric < new_metric[next_state]:
-                        new_metric[next_state] = branch_metric
-                        history[i][next_state] = (state, inp)
-
-            path_metric = new_metric
-
-        # Find best ending state
-        best_state = int(np.argmin(path_metric))
-        best_metric = int(path_metric[best_state])
-
-        if best_metric == np.inf:
-            return None, -1
-
-        # Traceback to recover decoded dibits
-        decoded = []
-        state = best_state
-        for i in range(n - 1, -1, -1):
-            if history[i][state] is None:
+            if len(decoded) == 0:
                 return None, -1
-            prev_state, decoded_dibit = history[i][state]
-            decoded.append(decoded_dibit)
-            state = prev_state
 
-        decoded.reverse()
-        return np.array(decoded, dtype=np.uint8), best_metric
+            # Truncate to 48 dibits for TSBK (remove flushing dibit)
+            if len(decoded) > 48:
+                decoded = decoded[:48]
+
+            return decoded, int(error_metric)
+        except Exception as e:
+            logger.debug(f"Trellis decode error: {e}")
+            return None, -1
 
 
 class P25FrameSync:
@@ -475,9 +878,19 @@ class P25FrameSync:
         return None, None
 
 
+class P25Modulation(str, Enum):
+    """P25 Phase 1 modulation types."""
+    C4FM = "c4fm"    # Standard 4-level FSK (non-simulcast)
+    LSM = "lsm"      # Linear Simulcast Modulation (CQPSK/differential QPSK)
+
+
 class P25Decoder:
     """
     Complete P25 Phase 1 decoder with trunking support.
+
+    Supports both C4FM and LSM (CQPSK) modulation:
+    - C4FM: Standard 4-level FSK for non-simulcast systems
+    - LSM: CQPSK for simulcast systems (like SA-GRN with 240+ sites)
     """
 
     # P25 frame sizes in dibits
@@ -486,14 +899,26 @@ class P25Decoder:
     MIN_FRAME_DIBITS = 150  # Minimum to attempt frame decode (sync + NID + some data)
     MAX_BUFFER_DIBITS = 4000  # ~2 frames worth, prevent unbounded growth
 
-    def __init__(self, sample_rate: int = 48000):
+    def __init__(self, sample_rate: int = 48000, modulation: P25Modulation = P25Modulation.LSM):
         self.sample_rate = sample_rate
-        self.demodulator = C4FMDemodulator(sample_rate)
+        self.modulation = modulation
+
+        # Select demodulator based on modulation type
+        if modulation == P25Modulation.LSM:
+            self.demodulator = CQPSKDemodulator(sample_rate)
+            logger.info(f"P25 decoder initialized with CQPSK/LSM demodulator (sample_rate={sample_rate})")
+        else:
+            self.demodulator = C4FMDemodulator(sample_rate)
+            logger.info(f"P25 decoder initialized with C4FM demodulator (sample_rate={sample_rate})")
+
         self.frame_sync = P25FrameSync()
         self.trellis = P25TrellisDecoder()
 
-        # Dibit buffer for accumulating across IQ chunks
-        self._dibit_buffer: np.ndarray = np.array([], dtype=np.uint8)
+        # TSBK parser for full parsing of control channel messages
+        self.tsbk_parser = TSBKParser()
+
+        # Pre-allocated ring buffer for dibit accumulation (avoids repeated allocations)
+        self._dibit_buffer = DibitRingBuffer(capacity=self.MAX_BUFFER_DIBITS)
 
         # Trunking state
         self.control_channel = True  # Are we on control channel?
@@ -510,8 +935,6 @@ class P25Decoder:
         self._no_sync_count = 0
         self._sync_count = 0
         self._tsbk_decode_count = 0
-
-        logger.info(f"P25 decoder initialized (sample_rate={sample_rate})")
 
     def process_iq(self, iq: np.ndarray) -> list[P25Frame]:
         """
@@ -534,19 +957,13 @@ class P25Decoder:
         if len(new_dibits) == 0:
             return []
 
-        # Append to buffer - ensure uint8 dtype is preserved
-        self._dibit_buffer = np.concatenate([self._dibit_buffer, new_dibits]).astype(np.uint8)
+        # Validate and clip dibits to valid range (0-3) before buffering
+        if np.any(new_dibits > 3):
+            logger.warning(f"P25: new dibits out of range (max={new_dibits.max()}), clipping")
+            new_dibits = np.clip(new_dibits, 0, 3).astype(np.uint8)
 
-        # Validate and clip dibits to valid range (0-3)
-        # This prevents overflow errors in frame decoding
-        if np.any(self._dibit_buffer > 3):
-            logger.warning(f"P25: dibit buffer contains out-of-range values (max={self._dibit_buffer.max()}), clipping")
-            self._dibit_buffer = np.clip(self._dibit_buffer, 0, 3).astype(np.uint8)
-
-        # Prevent unbounded buffer growth
-        if len(self._dibit_buffer) > self.MAX_BUFFER_DIBITS:
-            # Keep last half of buffer (might have partial frame)
-            self._dibit_buffer = self._dibit_buffer[-self.MAX_BUFFER_DIBITS // 2:]
+        # Append to ring buffer (auto-discards oldest when full)
+        self._dibit_buffer.append(new_dibits)
 
         # Log status periodically
         if self._process_count % 100 == 0:
@@ -556,8 +973,11 @@ class P25Decoder:
         if len(self._dibit_buffer) < self.MIN_FRAME_DIBITS:
             return []
 
+        # Get contiguous view of buffer for sync detection
+        buffer_data = self._dibit_buffer.get_contiguous()
+
         # Find frame sync in buffer
-        sync_pos, frame_type = self.frame_sync.find_sync(self._dibit_buffer)
+        sync_pos, frame_type = self.frame_sync.find_sync(buffer_data)
 
         if sync_pos is None:
             self._no_sync_count += 1
@@ -566,58 +986,76 @@ class P25Decoder:
         self._sync_count += 1
         logger.info(f"Found P25 frame sync at position {sync_pos}: {frame_type} (buffer={len(self._dibit_buffer)})")
 
-        # P25 frame structure:
-        # - 24 dibits: Frame sync
-        # - 8 dibits: NID (NAC + DUID) - already parsed by find_sync
-        # - Frame data starts after sync + NID
-        SYNC_DIBITS = 24
-        NID_DIBITS = 8  # Minimal NID we used for DUID extraction
-        header_dibits = SYNC_DIBITS + NID_DIBITS
+        # Work with the buffer_data array from here on
 
-        # Minimum frame data dibits required per frame type (after sync+NID header)
-        # These are approximate minimums for meaningful decode
+        # P25 frame structure (per TIA-102.BAAA and SDRTrunk):
+        # - 24 dibits: Frame sync (FS)
+        # - 32 dibits: NID (NAC + DUID + BCH parity) - but includes 1 status at position 35
+        # - 1 status dibit at position 35 (within NID)
+        # - Frame data starts after position 57 (24 + 32 + 1 status = 57 raw dibits)
+        #
+        # Status symbols occur every 35 dibits from frame start:
+        # - Position 35: Status 1 (in NID)
+        # - Position 70: Status 2 (in data, but position 71 after skipping first status)
+        # - Position 105: Status 3 (= 106 raw)
+        # - etc.
+        SYNC_DIBITS = 24
+        FULL_NID_DIBITS = 32  # Full NID (NAC + DUID + BCH parity)
+        # We use 8 for minimal extraction, but for proper framing need to account for status
+
+        # For TSDU, we need to extract starting at position 57 (after sync + NID + 1 status)
+        # and then strip subsequent status symbols every 35 dibits
+        if frame_type == P25FrameType.TSDU:
+            # TSDU starts after sync + NID + 1 status = 57 dibits
+            header_raw_dibits = 57  # 24 + 32 + 1
+        else:
+            # For other frame types, use minimal header (we'll fix these later)
+            header_raw_dibits = 32  # Just sync + minimal NID
+
+        # Minimum raw frame data dibits required per frame type
+        # For TSDU: 98 clean dibits requires ~101 raw dibits (with status symbols)
         MIN_FRAME_DATA: Dict[P25FrameType, int] = {
             P25FrameType.HDU: 100,    # Header data unit
             P25FrameType.LDU1: 900,   # Voice frame 1
             P25FrameType.LDU2: 900,   # Voice frame 2
             P25FrameType.TDU: 10,     # Terminator (short)
-            P25FrameType.TSDU: 196,   # TSBK block (1 TSBK = 196 encoded dibits)
+            P25FrameType.TSDU: 104,   # 98 clean + ~3 status symbols + margin
             P25FrameType.PDU: 100,    # Packet data unit
             P25FrameType.UNKNOWN: 32, # Minimum for any unknown frame
         }
 
         # Calculate available frame data
-        available_data = len(self._dibit_buffer) - sync_pos - header_dibits
+        available_data = len(buffer_data) - sync_pos - header_raw_dibits
         min_required = MIN_FRAME_DATA.get(frame_type, MIN_FRAME_DATA[P25FrameType.UNKNOWN])
 
         if available_data < min_required:
             # Not enough data for this frame type - keep sync position and wait for more
             logger.debug(f"P25: Need more data for {frame_type}: have {available_data}, need {min_required}")
             # Trim buffer to start at sync position (discard data before sync)
-            self._dibit_buffer = self._dibit_buffer[sync_pos:]
+            self._dibit_buffer.consume(sync_pos)
             return []
 
-        # Extract frame data after sync + NID header
-        frame_dibits = self._dibit_buffer[sync_pos + header_dibits:]
+        # Extract frame data after header (from the buffer_data array we already have)
+        frame_dibits = buffer_data[sync_pos + header_raw_dibits:]
 
         # Consume the entire frame from buffer
-        # For TSDU, consume one TSBK worth; for others, be conservative
+        # For TSDU, need raw dibits including status symbols
         if frame_type == P25FrameType.TSDU:
-            # TSDU can have up to 3 TSBK blocks (196 dibits each = 588 max)
-            # But we process one at a time, so consume just one TSBK
-            consume_len = sync_pos + header_dibits + 196
+            # TSDU: 98 clean dibits + 3 status symbols = 101 raw dibits
+            # But assembler may need up to 104 raw to get 98 clean
+            consume_len = sync_pos + header_raw_dibits + 104
         elif frame_type in (P25FrameType.LDU1, P25FrameType.LDU2):
             # LDU frames are ~1800 bits = 900 dibits
-            consume_len = sync_pos + header_dibits + 900
+            consume_len = sync_pos + header_raw_dibits + 900
         elif frame_type == P25FrameType.HDU:
-            consume_len = sync_pos + header_dibits + 500  # HDU is ~648 bits
+            consume_len = sync_pos + header_raw_dibits + 500  # HDU is ~648 bits
         else:
             # For TDU and others, consume header plus minimal frame
-            consume_len = sync_pos + header_dibits + min_required
+            consume_len = sync_pos + header_raw_dibits + min_required
 
-        # Don't consume more than buffer length
-        consume_len = min(consume_len, len(self._dibit_buffer))
-        self._dibit_buffer = self._dibit_buffer[consume_len:]
+        # Consume from ring buffer (don't consume more than available)
+        consume_len = min(consume_len, len(buffer_data))
+        self._dibit_buffer.consume(consume_len)
 
         # Decode frame based on type
         frames = []
@@ -729,74 +1167,261 @@ class P25Decoder:
         logger.info("TDU: End of transmission")
         return P25Frame(frame_type=P25FrameType.TDU, nac=0, duid=3)
 
+    # P25 Data Deinterleave pattern (196 bits)
+    # From TIA-102.BAAA / SDRTrunk P25P1Interleave.java
+    DATA_DEINTERLEAVE = np.array([
+        0, 1, 2, 3, 16, 17, 18, 19, 32, 33, 34, 35, 48, 49, 50, 51,
+        64, 65, 66, 67, 80, 81, 82, 83, 96, 97, 98, 99, 112, 113, 114, 115,
+        128, 129, 130, 131, 144, 145, 146, 147, 160, 161, 162, 163, 176, 177, 178, 179,
+        192, 193, 194, 195, 4, 5, 6, 7, 20, 21, 22, 23, 36, 37, 38, 39,
+        52, 53, 54, 55, 68, 69, 70, 71, 84, 85, 86, 87, 100, 101, 102, 103,
+        116, 117, 118, 119, 132, 133, 134, 135, 148, 149, 150, 151, 164, 165, 166, 167,
+        180, 181, 182, 183, 8, 9, 10, 11, 24, 25, 26, 27, 40, 41, 42, 43,
+        56, 57, 58, 59, 72, 73, 74, 75, 88, 89, 90, 91, 104, 105, 106, 107,
+        120, 121, 122, 123, 136, 137, 138, 139, 152, 153, 154, 155, 168, 169, 170, 171,
+        184, 185, 186, 187, 12, 13, 14, 15, 28, 29, 30, 31, 44, 45, 46, 47,
+        60, 61, 62, 63, 76, 77, 78, 79, 92, 93, 94, 95, 108, 109, 110, 111,
+        124, 125, 126, 127, 140, 141, 142, 143, 156, 157, 158, 159, 172, 173, 174, 175,
+        188, 189, 190, 191
+    ], dtype=np.int16)
+
+    def _deinterleave_data(self, dibits: np.ndarray) -> np.ndarray:
+        """
+        Deinterleave P25 data block (TSBK).
+
+        Converts 98 dibits to 196 bits, applies deinterleave, converts back to dibits.
+        Vectorized implementation using numpy advanced indexing.
+        """
+        if len(dibits) < 98:
+            return dibits
+
+        # Vectorized conversion: 98 dibits -> 196 bits
+        # Extract high and low bits, then interleave them
+        d = (dibits[:98] & 0x3).astype(np.uint8)
+        high_bits = (d >> 1) & 1
+        low_bits = d & 1
+        bits = np.empty(196, dtype=np.uint8)
+        bits[0::2] = high_bits
+        bits[1::2] = low_bits
+
+        # Apply deinterleave pattern using advanced indexing (scatter)
+        # deinterleaved[pattern[i]] = bits[i] for all i
+        deinterleaved = np.zeros(196, dtype=np.uint8)
+        deinterleaved[self.DATA_DEINTERLEAVE] = bits
+
+        # Vectorized conversion: 196 bits -> 98 dibits
+        result = ((deinterleaved[0::2] & 1) << 1) | (deinterleaved[1::2] & 1)
+        return result.astype(np.uint8)
+
+    def _interleave_data(self, dibits: np.ndarray) -> np.ndarray:
+        """
+        Interleave P25 data block (reverse of deinterleave).
+        Used for testing if data is already deinterleaved.
+        Vectorized implementation using numpy advanced indexing.
+        """
+        if len(dibits) < 98:
+            return dibits
+
+        # Vectorized conversion: 98 dibits -> 196 bits
+        d = (dibits[:98] & 0x3).astype(np.uint8)
+        high_bits = (d >> 1) & 1
+        low_bits = d & 1
+        bits = np.empty(196, dtype=np.uint8)
+        bits[0::2] = high_bits
+        bits[1::2] = low_bits
+
+        # Apply interleave (gather from deinterleave positions)
+        # interleaved[i] = bits[pattern[i]]
+        interleaved = bits[self.DATA_DEINTERLEAVE]
+
+        # Vectorized conversion: 196 bits -> 98 dibits
+        result = ((interleaved[0::2] & 1) << 1) | (interleaved[1::2] & 1)
+        return result.astype(np.uint8)
+
+    # Pre-computed status symbol positions for common initial counters
+    # Status symbols occur every 36 dibits; first skip is at (35 - initial_counter)
+    # These arrays contain indices to KEEP (non-status positions) for up to 120 raw dibits
+    _STATUS_KEEP_INDICES: Dict[int, np.ndarray] = {}
+
+    @classmethod
+    def _get_status_keep_indices(cls, initial_counter: int, max_len: int = 120) -> np.ndarray:
+        """Get pre-computed indices of non-status dibits for given initial counter."""
+        cache_key = (initial_counter, max_len)
+        if cache_key not in cls._STATUS_KEEP_INDICES:
+            # Compute which indices to keep (not status symbols)
+            keep = []
+            counter = initial_counter
+            for i in range(max_len):
+                counter += 1
+                if counter == 36:
+                    counter = 0
+                    continue  # Skip this index
+                keep.append(i)
+            cls._STATUS_KEEP_INDICES[cache_key] = np.array(keep, dtype=np.int16)
+        return cls._STATUS_KEEP_INDICES[cache_key]
+
+    def _strip_status_symbols(self, dibits: np.ndarray, initial_counter: int = 21) -> np.ndarray:
+        """
+        Strip P25 status symbols from raw dibit stream.
+
+        P25 inserts a status symbol every 35 dibits. The status counter is
+        reset to 0 on frame sync detect. For TSDU data (starting at position 57),
+        the counter starts at 21.
+
+        When counter reaches 36, that dibit is a status symbol and is skipped.
+
+        Args:
+            dibits: Raw dibit stream with embedded status symbols
+            initial_counter: Starting value of status symbol counter (21 for TSDU)
+
+        Returns:
+            Clean dibit stream with status symbols removed
+        """
+        n = len(dibits)
+        if n == 0:
+            return np.array([], dtype=np.uint8)
+
+        # Use pre-computed keep indices for vectorized extraction
+        keep_indices = self._get_status_keep_indices(initial_counter, max_len=n)
+
+        # Only use indices that are within bounds
+        valid_indices = keep_indices[keep_indices < n]
+
+        return dibits[valid_indices].astype(np.uint8)
+
     def _decode_tsdu(self, dibits: np.ndarray) -> Optional[P25Frame]:
         """
         Decode Trunking Signaling Data Unit (TSBK messages).
 
         A TSDU contains 1-3 TSBK (Trunking Signaling Block) messages.
         Each TSBK is:
-        - 196 encoded dibits (98 data dibits after 1/2 rate trellis decode)
+        - 98 encoded dibits (which form 49 4-bit symbols)
+        - Deinterleaved, then trellis decoded to 48 dibits (96 bits = 12 bytes)
         - Decoded content:
           - LB (1 bit): Last Block flag
+          - Protect (1 bit): Protected flag
           - Opcode (6 bits): Message type
-          - MFR (1 bit): Manufacturer bit
-          - Data (72 bits): Opcode-specific payload
+          - MFID (8 bits): Manufacturer ID (0=standard, 0x90=Motorola)
+          - Data (64 bits = 8 bytes): Opcode-specific payload
           - CRC-16 (16 bits): Error check
 
-        TSDU structure allows up to 3 TSBKs (588 dibits max).
+        TSDU structure allows up to 3 TSBKs.
         """
-        # Minimum: one TSBK block = 196 encoded dibits
-        TSBK_ENCODED_DIBITS = 196
-        TSBK_DECODED_DIBITS = 98  # After 1/2 rate trellis decode
+        # One TSBK block = 98 encoded dibits (49 4-bit symbols)
+        TSBK_ENCODED_DIBITS = 98
+        TSBK_DECODED_DIBITS = 48  # After 1/2 rate trellis decode (96 bits)
 
-        logger.debug(f"TSDU decode: received {len(dibits)} dibits")
+        logger.debug(f"TSDU decode: received {len(dibits)} raw dibits")
 
-        if len(dibits) < 48:  # Need at least some data
-            logger.warning(f"TSDU too short: {len(dibits)} dibits (need 48+)")
+        # Try multiple approaches to find the best decoding
+
+        if len(dibits) < 98:
+            logger.debug(f"TSDU too short: {len(dibits)} dibits (need 98+)")
             return None
 
-        # Try to decode TSBK with trellis decoder
-        # For now, try to decode up to one TSBK block
-        block_dibits = dibits[:min(len(dibits), TSBK_ENCODED_DIBITS)]
+        # Approach 1: Raw data without status stripping
+        raw_dibits = dibits[:TSBK_ENCODED_DIBITS] if len(dibits) >= 98 else None
 
+        # Approach 2: Strip status symbols (initial counter=21 for TSDU data after header)
+        clean_dibits = None
+        if len(dibits) >= 101:
+            clean_dibits = self._strip_status_symbols(dibits, initial_counter=21)
+            if len(clean_dibits) >= 98:
+                clean_dibits = clean_dibits[:TSBK_ENCODED_DIBITS]
+            else:
+                clean_dibits = None
+
+        # Approach 3: Strip status with counter=0 (in case our counter is wrong)
+        clean_dibits_c0 = None
+        if len(dibits) >= 101:
+            clean_dibits_c0 = self._strip_status_symbols(dibits, initial_counter=0)
+            if len(clean_dibits_c0) >= 98:
+                clean_dibits_c0 = clean_dibits_c0[:TSBK_ENCODED_DIBITS]
+            else:
+                clean_dibits_c0 = None
+
+        # Collect all approaches with deinterleave variations
+        results = []
+
+        for name, data in [("raw", raw_dibits), ("strip21", clean_dibits), ("strip0", clean_dibits_c0)]:
+            if data is None:
+                continue
+
+            # Try with deinterleave
+            deint = self._deinterleave_data(data)
+            _, err_deint = self.trellis.decode(deint)
+            results.append((f"{name}_deint", deint, err_deint))
+
+            # Try without deinterleave
+            _, err_raw = self.trellis.decode(data)
+            results.append((f"{name}_raw", data, err_raw))
+
+        if not results:
+            return None
+
+        # Find best result
+        best = min(results, key=lambda x: x[2])
+        logger.info(f"TSBK decode attempts: {[(n, e) for n, _, e in results]}, best={best[0]} with {best[2]} errors")
+
+        block_dibits = best[1]
         decoded, errors = self.trellis.decode(block_dibits)
 
-        if decoded is None or errors > len(block_dibits) // 4:
-            # Too many errors, try without trellis (raw decode for debugging)
+        if decoded is None:
             logger.debug(f"TSBK trellis decode failed: errors={errors}")
-            # Fall back to raw decode (won't work, but log for debugging)
-            decoded = block_dibits
+            return None
 
-        if len(decoded) < 48:
+        if len(decoded) < TSBK_DECODED_DIBITS:
+            logger.debug(f"TSBK trellis output too short: {len(decoded)} dibits (need {TSBK_DECODED_DIBITS})")
+            return None
+
+        # Check error threshold - allow up to 8 bit errors (16%)
+        if errors > 8:
+            logger.debug(f"TSBK too many errors: {errors}")
             return None
 
         self._tsbk_decode_count += 1
 
         # Extract TSBK fields from decoded dibits
-        # LB (1 bit) + Opcode (6 bits) + MFR (1 bit) = 8 bits = 4 dibits
-        # Extract as 8 bits
+        # TSBK structure (96 decoded bits = 48 dibits):
+        # - Bits 0-1: Last Block (LB) and Protect flags
+        # - Bits 2-7: Opcode (6 bits)
+        # - Bits 8-15: Manufacturer ID (8 bits)
+        # - Bits 16-79: Data (64 bits = 8 bytes)
+        # - Bits 80-95: CRC (16 bits)
+
+        # Extract header: first 8 bits (4 dibits) = LB + Protect + Opcode
         header_bits = 0
         for i in range(4):
             header_bits = (header_bits << 2) | (decoded[i] & 0x3)
 
         lb = (header_bits >> 7) & 0x1
-        opcode = (header_bits >> 1) & 0x3F
-        mfr = header_bits & 0x1
+        protect = (header_bits >> 6) & 0x1
+        opcode = header_bits & 0x3F
 
-        # Extract data (72 bits = 36 dibits, starting at dibit 4)
-        data_bits = 0
-        for i in range(36):
-            if 4 + i < len(decoded):
-                data_bits = (data_bits << 2) | (decoded[4 + i] & 0x3)
+        # Extract MFID: next 8 bits (4 dibits)
+        mfid = 0
+        for i in range(4, 8):
+            if i < len(decoded):
+                mfid = (mfid << 2) | (decoded[i] & 0x3)
 
-        # Decode based on opcode
-        tsbk_data = self._decode_tsbk_opcode(opcode, decoded[4:])
+        # Extract data payload: 64 bits (32 dibits) starting at dibit 8
+        data_bytes = bytearray()
+        for byte_idx in range(8):  # 8 bytes of data
+            byte_val = 0
+            for dibit_idx in range(4):  # 4 dibits per byte
+                dibit_pos = 8 + byte_idx * 4 + dibit_idx
+                if dibit_pos < len(decoded):
+                    byte_val = (byte_val << 2) | (decoded[dibit_pos] & 0x3)
+            data_bytes.append(byte_val)
+
+        # Use TSBKParser for full parsing
+        tsbk_data = self.tsbk_parser.parse(opcode, mfid, bytes(data_bytes))
         tsbk_data['lb'] = lb
-        tsbk_data['mfr'] = mfr
+        tsbk_data['protect'] = protect
         tsbk_data['raw_opcode'] = opcode
         tsbk_data['trellis_errors'] = errors
 
-        logger.info(f"TSBK: LB={lb} Opcode=0x{opcode:02X} MFR={mfr} Errors={errors} -> {tsbk_data.get('type', 'UNKNOWN')}")
+        logger.info(f"TSBK: LB={lb} Opcode=0x{opcode:02X} MFID={mfid} Errors={errors} -> {tsbk_data.get('type', 'UNKNOWN')}")
 
         if self.on_tsbk_message:
             self.on_tsbk_message(tsbk_data)
@@ -810,72 +1435,131 @@ class P25Decoder:
         )
 
     def _decode_tsbk_opcode(self, opcode: int, dibits: np.ndarray) -> Dict[str, Any]:
-        """Decode TSBK opcode and extract trunking information"""
+        """Decode TSBK opcode and extract trunking information.
+
+        Uses correct P25 TIA-102.AABB opcode values matching SDRTrunk.
+        """
         data: Dict[str, Any] = {}
 
-        # Common TSBK opcodes
+        # Voice grants (OSP) - 0x00-0x06
         if opcode == 0x00:  # Group Voice Channel Grant
-            # Extract frequency and talkgroup
-            if len(dibits) >= 20:
-                tgid = 0
-                for i in range(8):
-                    tgid = (tgid << 2) | dibits[i]
-
-                freq_data = 0
-                for i in range(8):
-                    freq_data = (freq_data << 2) | dibits[8 + i]
-
-                # Convert to actual frequency (simplified)
-                freq_mhz = 851.0 + (freq_data * 0.00625)  # Example: 800 MHz band
-
-                data['type'] = 'GROUP_VOICE_GRANT'
-                data['tgid'] = tgid
-                data['frequency_mhz'] = freq_mhz
-
-                if self.on_grant:
-                    self.on_grant(tgid, freq_mhz * 1e6)
+            data['type'] = 'GRP_V_CH_GRANT'
+            data['opcode_name'] = 'GRP_V_CH_GRANT'
 
         elif opcode == 0x02:  # Group Voice Channel Grant Update
-            data['type'] = 'GROUP_VOICE_GRANT_UPDATE'
+            data['type'] = 'GRP_V_CH_GRANT_UPDT'
+            data['opcode_name'] = 'GRP_V_CH_GRANT_UPDT'
 
-        elif opcode == 0x03:  # Unit to Unit Voice Channel Grant
-            data['type'] = 'UNIT_TO_UNIT_GRANT'
+        elif opcode == 0x03:  # Group Voice Channel Grant Update Explicit
+            data['type'] = 'GRP_V_CH_GRANT_UPDT_EXP'
+            data['opcode_name'] = 'GRP_V_CH_GRANT_UPDT_EXP'
 
-        elif opcode == 0x20:  # Network Status Broadcast
-            data['type'] = 'NETWORK_STATUS'
+        elif opcode == 0x04:  # Unit to Unit Voice Channel Grant
+            data['type'] = 'UU_V_CH_GRANT'
+            data['opcode_name'] = 'UU_V_CH_GRANT'
 
-        elif opcode == 0x28:  # RFSS Status Broadcast
-            data['type'] = 'RFSS_STATUS'
+        elif opcode == 0x05:  # Unit to Unit Answer Request
+            data['type'] = 'UU_ANS_REQ'
+            data['opcode_name'] = 'UU_ANS_REQ'
 
-        elif opcode == 0x2A:  # System Service Broadcast
-            data['type'] = 'SYSTEM_SERVICE'
+        elif opcode == 0x06:  # Unit to Unit Voice Channel Grant Update
+            data['type'] = 'UU_V_CH_GRANT_UPDT'
+            data['opcode_name'] = 'UU_V_CH_GRANT_UPDT'
 
-        elif opcode == 0x34:  # IDEN_UP_VU - Channel ID Update (Voice)
-            # Contains channel frequency band info
-            data['type'] = 'IDEN_UP_VU'
+        # Telephone interconnect - 0x08-0x0A
+        elif opcode == 0x08:  # Telephone Interconnect Voice Channel Grant
+            data['type'] = 'TEL_INT_CH_GRANT'
+            data['opcode_name'] = 'TEL_INT_CH_GRANT'
 
-        elif opcode == 0x35:  # IDEN_UP_TDMA - Channel ID Update (TDMA)
+        # Control responses - 0x20-0x27
+        elif opcode == 0x20:  # Acknowledge Response
+            data['type'] = 'ACK_RSP'
+            data['opcode_name'] = 'ACK_RSP'
+
+        elif opcode == 0x21:  # Queued Response
+            data['type'] = 'QUE_RSP'
+            data['opcode_name'] = 'QUE_RSP'
+
+        elif opcode == 0x24:  # Extended Function Command
+            data['type'] = 'EXT_FNCT_CMD'
+            data['opcode_name'] = 'EXT_FNCT_CMD'
+
+        elif opcode == 0x27:  # Deny Response
+            data['type'] = 'DENY_RSP'
+            data['opcode_name'] = 'DENY_RSP'
+
+        # Affiliation/Registration - 0x28-0x2F
+        elif opcode == 0x28:  # Group Affiliation Response
+            data['type'] = 'GRP_AFF_RSP'
+            data['opcode_name'] = 'GRP_AFF_RSP'
+
+        elif opcode == 0x2E:  # Authentication Command
+            data['type'] = 'AUTH_CMD'
+            data['opcode_name'] = 'AUTH_CMD'
+
+        # Channel identification - 0x33-0x35
+        elif opcode == 0x33:  # Identifier Update TDMA
             data['type'] = 'IDEN_UP_TDMA'
+            data['opcode_name'] = 'IDEN_UP_TDMA'
 
-        elif opcode == 0x3A:  # Adjacent Status Broadcast
-            data['type'] = 'ADJ_STS_BCAST'
+        elif opcode == 0x34:  # Identifier Update VHF/UHF
+            data['type'] = 'IDEN_UP_VU'
+            data['opcode_name'] = 'IDEN_UP_VU'
 
-        elif opcode == 0x3C:  # RFSS Status Broadcast Explicit
-            data['type'] = 'RFSS_STS_BCAST'
-
-        # Motorola-specific opcodes (high opcode values typically MFR=1)
-        elif opcode == 0x3F:  # Motorola: OSP_TDULC (common on Moto systems)
-            data['type'] = 'MOT_TDULC'
-
-        elif opcode == 0x3D:  # Motorola: MAINT (maintenance message)
-            data['type'] = 'MOT_MAINT'
-
-        elif opcode == 0x3B:  # Time/Date announcement
+        elif opcode == 0x35:  # Time and Date Announcement
             data['type'] = 'TIME_DATE_ANN'
+            data['opcode_name'] = 'TIME_DATE_ANN'
+
+        # System status broadcasts - 0x38-0x3D
+        elif opcode == 0x38:  # System Service Broadcast
+            data['type'] = 'SYS_SRV_BCAST'
+            data['opcode_name'] = 'SYS_SRV_BCAST'
+
+        elif opcode == 0x39:  # Secondary Control Channel Broadcast
+            data['type'] = 'SCCB'
+            data['opcode_name'] = 'SCCB'
+
+        elif opcode == 0x3A:  # RFSS Status Broadcast
+            data['type'] = 'RFSS_STS_BCAST'
+            data['opcode_name'] = 'RFSS_STS_BCAST'
+
+        elif opcode == 0x3B:  # Network Status Broadcast
+            data['type'] = 'NET_STS_BCAST'
+            data['opcode_name'] = 'NET_STS_BCAST'
+
+        elif opcode == 0x3C:  # Adjacent Status Broadcast
+            data['type'] = 'ADJ_STS_BCAST'
+            data['opcode_name'] = 'ADJ_STS_BCAST'
+
+        elif opcode == 0x3D:  # Identifier Update
+            data['type'] = 'IDEN_UP'
+            data['opcode_name'] = 'IDEN_UP'
+
+        # Reserved opcodes that appear on SA-GRN
+        elif opcode == 0x0C:  # Reserved
+            data['type'] = 'OSP_RESERVED_0C'
+            data['opcode_name'] = 'OSP_RESERVED_0C'
+
+        elif opcode == 0x0E:  # Reserved
+            data['type'] = 'OSP_RESERVED_0E'
+            data['opcode_name'] = 'OSP_RESERVED_0E'
+
+        elif opcode == 0x11:  # Group Data Channel Grant (obsolete)
+            data['type'] = 'GRP_DATA_CH_GRANT'
+            data['opcode_name'] = 'GRP_DATA_CH_GRANT'
+
+        elif opcode == 0x13:  # Group Data Channel Announcement Explicit (obsolete)
+            data['type'] = 'GRP_DATA_CH_ANN_EXP'
+            data['opcode_name'] = 'GRP_DATA_CH_ANN_EXP'
+
+        elif opcode == 0x1B:  # Reserved
+            data['type'] = 'OSP_RESERVED_1B'
+            data['opcode_name'] = 'OSP_RESERVED_1B'
 
         else:
             data['type'] = 'UNKNOWN'
             data['opcode'] = opcode
+            data['opcode_name'] = f'UNKNOWN_0x{opcode:02X}'
 
         return data
 

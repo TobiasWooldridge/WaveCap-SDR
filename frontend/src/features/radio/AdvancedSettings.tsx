@@ -4,6 +4,7 @@ import type { Capture, Device } from "../../types";
 import { useDebouncedMutation } from "../../hooks/useDebouncedMutation";
 import { useUpdateCapture } from "../../hooks/useCaptures";
 import Flex from "../../components/primitives/Flex.react";
+import { SDRplaySettings, isSDRplayDevice } from "./SDRplaySettings";
 
 interface AdvancedSettingsProps {
   capture: Capture;
@@ -181,8 +182,10 @@ export function AdvancedSettingsContent({ capture, device: _device }: AdvancedSe
         </Flex>
       )}
 
-      {/* Device Settings */}
-      {hasDeviceSettings && (
+      {/* Device Settings - SDRplay-specific panel or generic */}
+      {isSDRplayDevice(capture.deviceId) ? (
+        <SDRplaySettings capture={capture} device={_device} />
+      ) : hasDeviceSettings ? (
         <Flex direction="column" gap={2}>
           <label className="form-label mb-0 small fw-semibold">Device Settings</label>
           {Object.entries(deviceSettings).map(([key, value]) => (
@@ -200,7 +203,7 @@ export function AdvancedSettingsContent({ capture, device: _device }: AdvancedSe
             </Flex>
           ))}
         </Flex>
-      )}
+      ) : null}
 
       {!isRunning && (
         <small className="text-muted">Start capture to apply changes</small>
