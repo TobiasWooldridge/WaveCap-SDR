@@ -429,6 +429,8 @@ class Channel:
     # Digital voice decoders (lazily initialized)
     _p25_decoder: Optional[P25Decoder] = None
     _dmr_decoder: Optional[DMRDecoder] = None
+    # P25 modulation type (set by TrunkingSystem for control channels)
+    p25_modulation: Optional["P25Modulation"] = None  # from trunking.config
     # IMBE voice codec decoder for P25 (lazily initialized)
     _imbe_decoder: Optional[IMBEDecoder] = None
     _imbe_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -2184,6 +2186,7 @@ class Capture:
         if ch.cfg.mode == "p25":
             # Get frequency-shifted IQ for P25 decoding
             base = freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate) if ch.cfg.offset_hz != 0.0 else iq
+            decoded_audio: Optional[np.ndarray] = None
 
             if base.size > 0:
                 # Diagnostic: Log raw and frequency-shifted IQ magnitude
@@ -2204,13 +2207,25 @@ class Capture:
                 # This is critical for wideband captures (e.g., 8 MHz trunking)
                 p25_iq, p25_rate = decimate_iq_for_p25(base, self.cfg.sample_rate)
 
-                # Initialize decoder with the decimated sample rate
+                # Initialize P25 frame decoder with the decimated sample rate
                 if ch._p25_decoder is None:
-                    ch._p25_decoder = P25Decoder(p25_rate)
+                    # Use modulation from channel if set (e.g., by TrunkingSystem)
+                    from wavecapsdr.trunking.config import P25Modulation as P25Mod
+                    modulation = ch.p25_modulation if ch.p25_modulation else P25Mod.LSM
+                    ch._p25_decoder = P25Decoder(p25_rate, modulation=modulation)
                     ch._p25_decoder.on_voice_frame = lambda voice_data: ch._handle_p25_voice(voice_data)
                     ch._p25_decoder.on_grant = lambda tgid, freq: ch._handle_trunking_grant(tgid, freq)
-                    logger.info(f"Channel {ch.cfg.id}: P25 decoder initialized (sample_rate={p25_rate}, decimation={self.cfg.sample_rate // p25_rate}x)")
+                    logger.info(f"Channel {ch.cfg.id}: P25 decoder initialized (sample_rate={p25_rate}, decimation={self.cfg.sample_rate // p25_rate}x, modulation={modulation.value})")
 
+                # Initialize IMBE voice decoder for P25 voice decoding via DSD-FME
+                if ch._imbe_decoder is None and IMBEDecoder.is_available():
+                    ch._imbe_decoder = IMBEDecoder(output_rate=ch.cfg.audio_rate, input_rate=p25_rate)
+                    ch._imbe_loop = self._main_loop
+                    if self._main_loop is not None:
+                        ch._imbe_decoder.start_in_loop(self._main_loop)
+                        logger.info(f"Channel {ch.cfg.id}: IMBE decoder initialized (input={p25_rate}Hz, output={ch.cfg.audio_rate}Hz)")
+
+                # Process P25 frames for TSBK/trunking
                 try:
                     frames = ch._p25_decoder.process_iq(p25_iq)
                     for frame in frames:
@@ -2226,7 +2241,27 @@ class Capture:
                                     logger.error(f"Channel {ch.cfg.id}: TSBK callback error: {cb_err}")
                 except Exception as e:
                     logger.error(f"Channel {ch.cfg.id}: P25 decoding error: {e}")
-            return None  # P25 doesn't output audio yet
+
+                # P25 IMBE voice decoding via DSD-FME discriminator approach
+                # Compute FM discriminator output (instantaneous frequency) and feed to DSD-FME
+                if ch._imbe_decoder is not None and ch._imbe_decoder.running and p25_iq.size > 0:
+                    try:
+                        # Compute FM discriminator (same as C4FM demodulation)
+                        iq_c64: np.ndarray = p25_iq.astype(np.complex64, copy=False)
+                        prod = iq_c64[1:] * np.conj(iq_c64[:-1])
+                        discriminator = np.angle(prod) * p25_rate / (2 * np.pi)
+
+                        # Queue discriminator audio for IMBE decoding (non-blocking)
+                        ch._imbe_decoder.decode_sync(discriminator)
+
+                        # Get any decoded audio available from previous frames
+                        decoded_audio = ch._imbe_decoder.get_audio_sync()
+                        if decoded_audio is not None and decoded_audio.size > 0:
+                            ch._update_audio_metrics(decoded_audio)
+                    except Exception as e:
+                        logger.error(f"Channel {ch.cfg.id}: IMBE decoding error: {e}")
+
+            return decoded_audio
 
         # DMR decoding (requires stateful decoder, processes IQ not audio)
         if ch.cfg.mode == "dmr":

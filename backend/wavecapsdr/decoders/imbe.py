@@ -179,6 +179,72 @@ class IMBEDecoder:
         except asyncio.TimeoutError:
             return None
 
+    # --- Sync methods for use from capture thread ---
+
+    def decode_sync(self, discriminator_audio: np.ndarray) -> None:
+        """
+        Queue discriminator audio for decoding (sync version).
+
+        Can be called from any thread - uses non-blocking queue put.
+        The async decoder task will process queued data.
+
+        Args:
+            discriminator_audio: Instantaneous frequency values from FM discriminator
+        """
+        if not self.running:
+            return
+
+        try:
+            self._input_queue.put_nowait(discriminator_audio)
+        except asyncio.QueueFull:
+            # Drop oldest to make room
+            self.frames_dropped += 1
+            try:
+                self._input_queue.get_nowait()
+                self._input_queue.put_nowait(discriminator_audio)
+            except (asyncio.QueueEmpty, asyncio.QueueFull):
+                pass
+
+    def get_audio_sync(self) -> Optional[np.ndarray]:
+        """
+        Get decoded audio if available (sync version).
+
+        Can be called from any thread - uses non-blocking queue get.
+
+        Returns:
+            PCM audio samples as float32 array normalized to [-1, 1],
+            or None if no audio available yet.
+        """
+        try:
+            return self._output_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            return None
+
+    def start_in_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """
+        Start the decoder from a sync context.
+
+        Schedules the async start() method on the provided event loop.
+        The decoder subprocess will run in the event loop's thread.
+
+        Args:
+            loop: Event loop to run the decoder in
+        """
+        if self.running:
+            return
+
+        if not self.is_available():
+            logger.warning(
+                "DSD-FME not found - P25 voice decoding disabled. "
+                "Install from: https://github.com/lwvmobile/dsd-fme"
+            )
+            return
+
+        try:
+            asyncio.run_coroutine_threadsafe(self.start(), loop)
+        except Exception as e:
+            logger.error(f"Failed to start IMBE decoder: {e}")
+
     def _get_dsd_args(self) -> list[str]:
         """Get DSD-FME command line arguments."""
         return [
