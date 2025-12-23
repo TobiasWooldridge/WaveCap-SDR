@@ -23,6 +23,7 @@ from .devices.base import Device, DeviceDriver, StreamHandle
 # from .sdrplay_recovery import attempt_recovery
 from .dsp.fm import wbfm_demod, nbfm_demod, quadrature_demod
 from .dsp.am import am_demod, ssb_demod
+from .dsp.sam import sam_demod_simple
 from .dsp.rds import RDSDecoder, RDSData
 from .dsp.pocsag import POCSAGDecoder, POCSAGMessage
 from .encoders import create_encoder, AudioEncoder
@@ -308,6 +309,22 @@ def _process_channel_dsp_stateless(
             notch_frequencies=cfg.notch_frequencies if cfg.notch_frequencies else None,
         )
 
+    elif cfg.mode == "sam":
+        # Synchronous AM with PLL carrier recovery
+        audio = sam_demod_simple(
+            base,
+            sample_rate,
+            audio_rate=cfg.audio_rate,
+            sideband=cfg.sam_sideband,
+            pll_bandwidth=cfg.sam_pll_bandwidth_hz,
+            enable_agc=cfg.enable_agc,
+            enable_highpass=cfg.enable_am_highpass,
+            highpass_hz=cfg.am_highpass_hz,
+            enable_lowpass=cfg.enable_am_lowpass,
+            lowpass_hz=cfg.am_lowpass_hz,
+            agc_target_db=cfg.agc_target_db,
+        )
+
     elif cfg.mode == "ssb":
         audio = ssb_demod(
             base,
@@ -379,6 +396,10 @@ class ChannelConfig:
     ssb_bandpass_high_hz: float = 3_000
     ssb_mode: str = "usb"  # "usb" or "lsb"
     ssb_bfo_offset_hz: float = 1500.0  # BFO offset for centering voice passband
+
+    # SAM (Synchronous AM) settings
+    sam_sideband: str = "dsb"  # "dsb", "usb", or "lsb"
+    sam_pll_bandwidth_hz: float = 50.0  # PLL loop bandwidth (10-200 Hz)
 
     # AGC (Automatic Gain Control)
     enable_agc: bool = False  # Default off for FM, enabled for AM/SSB
@@ -965,6 +986,41 @@ class Channel:
 
             await self._broadcast(audio)
 
+        elif self.cfg.mode == "sam":
+            # Synchronous AM with PLL carrier recovery
+            base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+            audio = sam_demod_simple(
+                base,
+                sample_rate,
+                audio_rate=self.cfg.audio_rate,
+                sideband=self.cfg.sam_sideband,
+                pll_bandwidth=self.cfg.sam_pll_bandwidth_hz,
+                enable_agc=self.cfg.enable_agc,
+                enable_highpass=self.cfg.enable_am_highpass,
+                highpass_hz=self.cfg.am_highpass_hz,
+                enable_lowpass=self.cfg.enable_am_lowpass,
+                lowpass_hz=self.cfg.am_lowpass_hz,
+                agc_target_db=self.cfg.agc_target_db,
+            )
+
+            # Calculate signal power in dB (always, for metrics)
+            if audio.size > 0:
+                power = np.mean(audio ** 2)
+                power_db = 10.0 * np.log10(power + 1e-10)
+                self.signal_power_db = float(power_db)
+            else:
+                self.signal_power_db = None
+
+            # Update audio output level metrics
+            self._update_audio_metrics(audio)
+
+            # Apply squelch if configured (use RSSI for proper RF-level squelch)
+            if self.cfg.squelch_db is not None and audio.size > 0:
+                if self.rssi_db is not None and self.rssi_db < self.cfg.squelch_db:
+                    audio = np.zeros_like(audio)
+
+            await self._broadcast(audio)
+
         elif self.cfg.mode == "ssb":
             # SSB demodulation (USB or LSB)
             base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
@@ -1246,6 +1302,34 @@ class Channel:
                 lowpass_hz=self.cfg.am_lowpass_hz,
                 agc_target_db=self.cfg.agc_target_db,
                 notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+            )
+
+            if audio is not None and audio.size > 0:
+                power = np.mean(audio ** 2)
+                power_db = 10.0 * np.log10(power + 1e-10)
+                self.signal_power_db = float(power_db)
+                self._update_audio_metrics(audio)
+            else:
+                self.signal_power_db = None
+
+            if audio is not None and self.cfg.squelch_db is not None and audio.size > 0:
+                if self.rssi_db is not None and self.rssi_db < self.cfg.squelch_db:
+                    audio = np.zeros_like(audio)
+
+        elif self.cfg.mode == "sam":
+            base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+            audio = sam_demod_simple(
+                base,
+                sample_rate,
+                audio_rate=self.cfg.audio_rate,
+                sideband=self.cfg.sam_sideband,
+                pll_bandwidth=self.cfg.sam_pll_bandwidth_hz,
+                enable_agc=self.cfg.enable_agc,
+                enable_highpass=self.cfg.enable_am_highpass,
+                highpass_hz=self.cfg.am_highpass_hz,
+                enable_lowpass=self.cfg.enable_am_lowpass,
+                lowpass_hz=self.cfg.am_lowpass_hz,
+                agc_target_db=self.cfg.agc_target_db,
             )
 
             if audio is not None and audio.size > 0:
@@ -2997,6 +3081,19 @@ class CaptureManager:
             cfg.enable_am_lowpass = True  # Broadcast bandwidth
             cfg.am_lowpass_hz = 5_000
             cfg.enable_agc = True  # AM needs AGC
+            cfg.agc_target_db = -20.0
+            cfg.agc_attack_ms = 5.0
+            cfg.agc_release_ms = 50.0
+
+        elif mode == "sam":
+            # SAM (Synchronous AM) defaults - same filters as AM
+            cfg.enable_am_highpass = True  # Remove DC offset
+            cfg.am_highpass_hz = 100
+            cfg.enable_am_lowpass = True  # Broadcast bandwidth
+            cfg.am_lowpass_hz = 5_000
+            cfg.sam_sideband = "dsb"  # Double sideband (like normal AM)
+            cfg.sam_pll_bandwidth_hz = 50.0  # 50 Hz PLL bandwidth
+            cfg.enable_agc = True  # SAM needs AGC
             cfg.agc_target_db = -20.0
             cfg.agc_attack_ms = 5.0
             cfg.agc_release_ms = 50.0

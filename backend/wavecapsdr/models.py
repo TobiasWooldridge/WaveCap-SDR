@@ -7,7 +7,7 @@ import re
 from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 
 
-Mode = Literal["wbfm", "nbfm", "am", "ssb", "raw", "p25", "dmr"]
+Mode = Literal["wbfm", "nbfm", "am", "sam", "ssb", "raw", "p25", "dmr"]
 StreamFormat = Literal["iq16", "f32", "pcm16"]
 Transport = Literal["ws", "http"]
 
@@ -186,6 +186,10 @@ class CreateChannelRequest(BaseModel):
     ssbMode: Optional[Literal["usb", "lsb"]] = None
     ssbBfoOffsetHz: Optional[float] = Field(None, gt=0, le=5_000)  # BFO offset for centering voice
 
+    # SAM (Synchronous AM) settings
+    samSideband: Optional[Literal["dsb", "usb", "lsb"]] = None  # Sideband selection
+    samPllBandwidthHz: Optional[float] = Field(None, ge=10, le=200)  # PLL bandwidth (10-200 Hz)
+
     # AGC
     enableAgc: Optional[bool] = None
     agcTargetDb: Optional[float] = Field(None, ge=-60, le=0)
@@ -250,6 +254,10 @@ class UpdateChannelRequest(BaseModel):
     ssbBandpassHighHz: Optional[float] = Field(None, gt=0, le=10_000)
     ssbMode: Optional[Literal["usb", "lsb"]] = None
     ssbBfoOffsetHz: Optional[float] = Field(None, gt=0, le=5_000)  # BFO offset for centering voice
+
+    # SAM (Synchronous AM) settings
+    samSideband: Optional[Literal["dsb", "usb", "lsb"]] = None  # Sideband selection
+    samPllBandwidthHz: Optional[float] = Field(None, ge=10, le=200)  # PLL bandwidth (10-200 Hz)
 
     # AGC
     enableAgc: Optional[bool] = None
