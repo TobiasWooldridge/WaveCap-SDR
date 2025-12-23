@@ -194,6 +194,72 @@ class AMBEDecoder:
         except asyncio.TimeoutError:
             return None
 
+    # --- Sync methods for use from capture thread ---
+
+    def decode_sync(self, discriminator_audio: np.ndarray) -> None:
+        """
+        Queue discriminator audio for decoding (sync version).
+
+        Can be called from any thread - uses non-blocking queue put.
+        The async decoder task will process queued data.
+
+        Args:
+            discriminator_audio: Instantaneous frequency values from FM discriminator
+        """
+        if not self.running:
+            return
+
+        try:
+            self._input_queue.put_nowait(discriminator_audio)
+        except asyncio.QueueFull:
+            # Drop oldest to make room
+            self.frames_dropped += 1
+            try:
+                self._input_queue.get_nowait()
+                self._input_queue.put_nowait(discriminator_audio)
+            except (asyncio.QueueEmpty, asyncio.QueueFull):
+                pass
+
+    def get_audio_sync(self) -> Optional[np.ndarray]:
+        """
+        Get decoded audio if available (sync version).
+
+        Can be called from any thread - uses non-blocking queue get.
+
+        Returns:
+            PCM audio samples as float32 array normalized to [-1, 1],
+            or None if no audio available yet.
+        """
+        try:
+            return self._output_queue.get_nowait()
+        except asyncio.QueueEmpty:
+            return None
+
+    def start_in_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """
+        Start the decoder from a sync context.
+
+        Schedules the async start() method on the provided event loop.
+        The decoder subprocess will run in the event loop's thread.
+
+        Args:
+            loop: Event loop to run the decoder in
+        """
+        if self.running:
+            return
+
+        if not self.is_available():
+            logger.warning(
+                "DSD-FME not found - AMBE+2 voice decoding disabled. "
+                "Install from: https://github.com/lwvmobile/dsd-fme"
+            )
+            return
+
+        try:
+            asyncio.run_coroutine_threadsafe(self.start(), loop)
+        except Exception as e:
+            logger.error(f"Failed to start AMBE decoder: {e}")
+
     def _get_dsd_args(self) -> list[str]:
         """Get DSD-FME command line arguments for P25 Phase II."""
         args = [
@@ -328,6 +394,181 @@ def check_ambe_available() -> tuple[bool, str]:
     else:
         return False, (
             "DSD-FME not found. Install it for P25 Phase II voice decoding:\n"
+            "  git clone https://github.com/lwvmobile/dsd-fme\n"
+            "  cd dsd-fme && mkdir build && cd build\n"
+            "  cmake .. && make -j4 && sudo make install\n"
+            "\n"
+            "Note: mbelib is also required:\n"
+            "  git clone https://github.com/szechyjs/mbelib\n"
+            "  cd mbelib && mkdir build && cd build\n"
+            "  cmake .. && make -j4 && sudo make install"
+        )
+
+
+class DMRVoiceDecoder(AMBEDecoder):
+    """
+    Decodes DMR AMBE+2 voice to PCM audio using DSD-FME.
+
+    DMR uses 4-FSK modulation at 4800 baud with AMBE+2 codec.
+    This is a subclass of AMBEDecoder with DMR-specific DSD-FME flags.
+    """
+
+    def __init__(
+        self,
+        output_rate: int = 48000,
+        input_rate: int = 48000,
+        slot: int = 0,  # 0 = both, 1 or 2 = specific slot
+    ):
+        """
+        Initialize DMR voice decoder.
+
+        Args:
+            output_rate: Target audio output sample rate (default 48000)
+            input_rate: Input discriminator audio sample rate (default 48000)
+            slot: DMR timeslot to decode (0=both, 1 or 2 for specific)
+        """
+        super().__init__(output_rate, input_rate, timeslot=slot)
+
+    def _get_dsd_args(self) -> list[str]:
+        """Get DSD-FME command line arguments for DMR."""
+        args = [
+            "dsd-fme",
+            "-i", "-",           # Read from stdin
+            "-o", "-",           # Write to stdout
+            "-fd",               # DMR/DMR+ mode (4FSK)
+            "-N",                # No audio output to speaker
+            "-g", "0",           # No gain adjustment
+            "-u", "0",           # No upsampling (we handle it)
+            "-L",                # Low CPU mode (skip some features)
+        ]
+
+        # Specify timeslot if needed
+        if self.timeslot in (1, 2):
+            args.extend(["-s", str(self.timeslot)])
+
+        return args
+
+    def start_in_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """
+        Start the decoder from a sync context.
+
+        Schedules the async start() method on the provided event loop.
+        The decoder subprocess will run in the event loop's thread.
+
+        Args:
+            loop: Event loop to run the decoder in
+        """
+        if self.running:
+            return
+
+        if not self.is_available():
+            logger.warning(
+                "DSD-FME not found - DMR voice decoding disabled. "
+                "Install from: https://github.com/lwvmobile/dsd-fme"
+            )
+            return
+
+        try:
+            asyncio.run_coroutine_threadsafe(self.start(), loop)
+        except Exception as e:
+            logger.error(f"Failed to start DMR voice decoder: {e}")
+
+    async def start(self) -> None:
+        """Start the DSD-FME decoder subprocess for DMR."""
+        if self.running:
+            return
+
+        if not self.is_available():
+            raise AMBEDecoderError(
+                "DSD-FME not found in PATH. Install with: "
+                "git clone https://github.com/lwvmobile/dsd-fme && "
+                "cd dsd-fme && mkdir build && cd build && cmake .. && make && sudo make install"
+            )
+
+        self.running = True
+        self._decoder_task = asyncio.create_task(self._run_decoder())
+        logger.info(
+            f"DMR voice decoder started (input={self.input_rate}Hz, output={self.output_rate}Hz, "
+            f"slot={self.timeslot})"
+        )
+
+    async def stop(self) -> None:
+        """Stop the decoder subprocess."""
+        if not self.running:
+            return
+
+        self.running = False
+
+        # Cancel decoder task
+        if self._decoder_task:
+            self._decoder_task.cancel()
+            try:
+                await self._decoder_task
+            except asyncio.CancelledError:
+                pass
+
+        # Terminate process
+        if self.process:
+            try:
+                if self.process.stdin:
+                    try:
+                        self.process.stdin.close()
+                    except (BrokenPipeError, OSError):
+                        pass
+                self.process.terminate()
+                self.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+            except Exception as e:
+                logger.debug(f"Exception during DMR voice decoder cleanup: {e}")
+            finally:
+                self.process = None
+
+        logger.info(
+            f"DMR voice decoder stopped (decoded={self.frames_decoded}, dropped={self.frames_dropped})"
+        )
+
+    async def _write_input(self) -> None:
+        """Write discriminator audio to DSD-FME stdin."""
+        loop = asyncio.get_running_loop()
+
+        while self.running and self.process:
+            try:
+                # Get audio from queue
+                audio = await asyncio.wait_for(self._input_queue.get(), timeout=0.5)
+
+                if self.process and self.process.stdin:
+                    # Convert float discriminator values to int16
+                    # DMR uses ±1944 Hz deviation for 4FSK
+                    # Scale factor: 32767 / 1944 ≈ 17
+                    scaled = np.clip(audio * 17.0, -32767, 32767).astype(np.int16)
+                    audio_bytes = scaled.tobytes()
+
+                    await loop.run_in_executor(
+                        None, self.process.stdin.write, audio_bytes
+                    )
+                    await loop.run_in_executor(None, self.process.stdin.flush)
+
+            except asyncio.TimeoutError:
+                continue
+            except Exception as e:
+                logger.error(f"Error writing to DMR voice decoder: {e}")
+                break
+
+
+def check_dmr_voice_available() -> tuple[bool, str]:
+    """
+    Check if DMR voice decoding is available.
+
+    Returns:
+        (available, message) tuple
+    """
+    if DMRVoiceDecoder.is_available():
+        return True, "DSD-FME is available for DMR voice decoding"
+    else:
+        return False, (
+            "DSD-FME not found. Install it for DMR voice decoding:\n"
             "  git clone https://github.com/lwvmobile/dsd-fme\n"
             "  cd dsd-fme && mkdir build && cd build\n"
             "  cmake .. && make -j4 && sudo make install\n"

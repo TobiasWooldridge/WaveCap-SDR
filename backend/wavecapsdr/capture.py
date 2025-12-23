@@ -33,6 +33,7 @@ from .encoders import create_encoder, AudioEncoder
 from .decoders.p25 import P25Decoder
 from .decoders.dmr import DMRDecoder
 from .decoders.imbe import IMBEDecoder, check_imbe_available
+from .decoders.ambe import DMRVoiceDecoder
 
 
 F = TypeVar('F', bound=Callable[..., Any])
@@ -434,6 +435,9 @@ class Channel:
     # IMBE voice codec decoder for P25 (lazily initialized)
     _imbe_decoder: Optional[IMBEDecoder] = None
     _imbe_loop: Optional[asyncio.AbstractEventLoop] = None
+    # DMR voice codec decoder (lazily initialized)
+    _dmr_voice_decoder: Optional[DMRVoiceDecoder] = None
+    _dmr_voice_loop: Optional[asyncio.AbstractEventLoop] = None
     # RDS decoder for WBFM (lazily initialized)
     _rds_decoder: Optional[RDSDecoder] = None
     rds_data: Optional[RDSData] = None  # Current RDS data (exposed via API)
@@ -463,16 +467,31 @@ class Channel:
             if loop is not None and not loop.is_closed():
                 try:
                     asyncio.run_coroutine_threadsafe(self._imbe_decoder.stop(), loop)
-                    self._imbe_loop = None
-                    return
                 except Exception:
                     pass
-            try:
-                asyncio.run(self._imbe_decoder.stop())
-            except RuntimeError:
-                # No available loop; best-effort cleanup
-                pass
+            else:
+                try:
+                    asyncio.run(self._imbe_decoder.stop())
+                except RuntimeError:
+                    # No available loop; best-effort cleanup
+                    pass
             self._imbe_loop = None
+
+        # Clean up DMR voice decoder if running
+        if self._dmr_voice_decoder is not None:
+            loop = self._dmr_voice_loop
+            if loop is not None and not loop.is_closed():
+                try:
+                    asyncio.run_coroutine_threadsafe(self._dmr_voice_decoder.stop(), loop)
+                except Exception:
+                    pass
+            else:
+                try:
+                    asyncio.run(self._dmr_voice_decoder.stop())
+                except RuntimeError:
+                    # No available loop; best-effort cleanup
+                    pass
+            self._dmr_voice_loop = None
 
     def get_pocsag_messages(self, limit: int = 50, since_timestamp: Optional[float] = None) -> List[Dict[str, Any]]:
         """Get recent POCSAG messages.
@@ -2265,21 +2284,55 @@ class Capture:
 
         # DMR decoding (requires stateful decoder, processes IQ not audio)
         if ch.cfg.mode == "dmr":
-            if ch._dmr_decoder is None:
-                ch._dmr_decoder = DMRDecoder(self.cfg.sample_rate)
-                ch._dmr_decoder.on_voice_frame = lambda slot, tgid, voice_data: ch._handle_dmr_voice(slot, tgid, voice_data)
-                ch._dmr_decoder.on_csbk_message = lambda msg: ch._handle_dmr_csbk(msg)
-                logger.info(f"Channel {ch.cfg.id}: DMR decoder initialized")
+            decoded_audio: Optional[np.ndarray] = None
 
+            # Get frequency-shifted IQ for DMR decoding
             base = freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate) if ch.cfg.offset_hz != 0.0 else iq
+
             if base.size > 0:
+                # Initialize DMR frame decoder
+                if ch._dmr_decoder is None:
+                    ch._dmr_decoder = DMRDecoder(self.cfg.sample_rate)
+                    ch._dmr_decoder.on_voice_frame = lambda slot, tgid, voice_data: ch._handle_dmr_voice(slot, tgid, voice_data)
+                    ch._dmr_decoder.on_csbk_message = lambda msg: ch._handle_dmr_csbk(msg)
+                    logger.info(f"Channel {ch.cfg.id}: DMR decoder initialized")
+
+                # Initialize DMR voice decoder for AMBE+2 voice decoding via DSD-FME
+                if ch._dmr_voice_decoder is None and DMRVoiceDecoder.is_available():
+                    ch._dmr_voice_decoder = DMRVoiceDecoder(output_rate=ch.cfg.audio_rate, input_rate=self.cfg.sample_rate)
+                    ch._dmr_voice_loop = self._main_loop
+                    if self._main_loop is not None:
+                        ch._dmr_voice_decoder.start_in_loop(self._main_loop)
+                        logger.info(f"Channel {ch.cfg.id}: DMR voice decoder initialized (input={self.cfg.sample_rate}Hz, output={ch.cfg.audio_rate}Hz)")
+
+                # Process DMR frames for trunking/CSBK
                 try:
                     dmr_frames = ch._dmr_decoder.process_iq(base)
                     for dmr_frame in dmr_frames:
                         logger.debug(f"Channel {ch.cfg.id}: DMR frame type={dmr_frame.frame_type.value} slot={dmr_frame.slot.value} dst={dmr_frame.dst_id}")
                 except Exception as e:
                     logger.error(f"Channel {ch.cfg.id}: DMR decoding error: {e}")
-            return None  # DMR doesn't output audio yet
+
+                # DMR AMBE+2 voice decoding via DSD-FME discriminator approach
+                # Compute FM discriminator output (instantaneous frequency) and feed to DSD-FME
+                if ch._dmr_voice_decoder is not None and ch._dmr_voice_decoder.running and base.size > 0:
+                    try:
+                        # Compute FM discriminator (same as DMR 4FSK demodulation)
+                        iq_c64: np.ndarray = base.astype(np.complex64, copy=False)
+                        prod = iq_c64[1:] * np.conj(iq_c64[:-1])
+                        discriminator = np.angle(prod) * self.cfg.sample_rate / (2 * np.pi)
+
+                        # Queue discriminator audio for AMBE decoding (non-blocking)
+                        ch._dmr_voice_decoder.decode_sync(discriminator)
+
+                        # Get any decoded audio available from previous frames
+                        decoded_audio = ch._dmr_voice_decoder.get_audio_sync()
+                        if decoded_audio is not None and decoded_audio.size > 0:
+                            ch._update_audio_metrics(decoded_audio)
+                    except Exception as e:
+                        logger.error(f"Channel {ch.cfg.id}: DMR voice decoding error: {e}")
+
+            return decoded_audio
 
         if audio is None:
             return None
