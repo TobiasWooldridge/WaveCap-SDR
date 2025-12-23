@@ -153,6 +153,7 @@ def ssb_demod(
     noise_blanker_threshold_db: float = 10.0,
     agc_target_db: float = -20.0,
     notch_frequencies: list[float] | None = None,
+    bfo_offset_hz: float = 1500.0,
 ) -> np.ndarray:
     """Demodulate SSB (Single Sideband) signal.
 
@@ -172,12 +173,17 @@ def ssb_demod(
         noise_blanker_threshold_db: Noise blanker threshold in dB above median level (default 10 dB)
         agc_target_db: AGC target level in dB (default -20 dB)
         notch_frequencies: List of frequencies to notch out (Hz) for interference rejection (default None)
+        bfo_offset_hz: BFO (Beat Frequency Oscillator) offset in Hz (default 1500 Hz).
+            This centers the voice passband. Typical values:
+            - 1500 Hz: Standard for 300-3000 Hz passband
+            - 1400 Hz: For 300-2500 Hz narrow passband (marine)
+            - 1650 Hz: For 300-3300 Hz wide passband
 
     Returns:
         Demodulated audio samples (float32, mono, clipped to ±1.0)
 
     Pipeline:
-        1. Frequency shift (USB: +1500 Hz, LSB: -1500 Hz)
+        1. Frequency shift (USB: +bfo_offset, LSB: -bfo_offset)
         2. Take real component (demodulate)
         3. Optional noise blanker (impulse noise suppression)
         4. Bandpass filter (voice bandwidth 300-3000 Hz)
@@ -187,16 +193,16 @@ def ssb_demod(
         8. Clip to ±1.0
 
     Typical settings:
-        - Amateur radio SSB: bandpass 300-3000 Hz, enable_agc=True
-        - Marine SSB: bandpass 300-2500 Hz, enable_agc=True
+        - Amateur radio SSB: bandpass 300-3000 Hz, bfo_offset_hz=1500, enable_agc=True
+        - Marine SSB: bandpass 300-2500 Hz, bfo_offset_hz=1400, enable_agc=True
     """
     if iq.size == 0:
         return cast(np.ndarray, np.empty(0, dtype=np.float32))
 
     # 1. Frequency shift to center the audio in baseband
-    # USB: shift up by +1.5 kHz
-    # LSB: shift down by -1.5 kHz
-    shift_hz = 1500.0 if mode.lower() == "usb" else -1500.0
+    # USB: shift up by +bfo_offset
+    # LSB: shift down by -bfo_offset
+    shift_hz = bfo_offset_hz if mode.lower() == "usb" else -bfo_offset_hz
     iq_shifted = freq_shift(iq, shift_hz, sample_rate)
 
     # 2. Take real component to demodulate

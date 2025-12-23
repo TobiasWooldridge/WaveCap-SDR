@@ -181,6 +181,7 @@ class CreateChannelRequest(BaseModel):
     ssbBandpassLowHz: Optional[float] = Field(None, gt=0, le=10_000)
     ssbBandpassHighHz: Optional[float] = Field(None, gt=0, le=10_000)
     ssbMode: Optional[Literal["usb", "lsb"]] = None
+    ssbBfoOffsetHz: Optional[float] = Field(None, gt=0, le=5_000)  # BFO offset for centering voice
 
     # AGC
     enableAgc: Optional[bool] = None
@@ -245,6 +246,7 @@ class UpdateChannelRequest(BaseModel):
     ssbBandpassLowHz: Optional[float] = Field(None, gt=0, le=10_000)
     ssbBandpassHighHz: Optional[float] = Field(None, gt=0, le=10_000)
     ssbMode: Optional[Literal["usb", "lsb"]] = None
+    ssbBfoOffsetHz: Optional[float] = Field(None, gt=0, le=5_000)  # BFO offset for centering voice
 
     # AGC
     enableAgc: Optional[bool] = None
@@ -327,6 +329,7 @@ class ChannelModel(BaseModel):
     ssbBandpassLowHz: float
     ssbBandpassHighHz: float
     ssbMode: str
+    ssbBfoOffsetHz: float
 
     # AGC
     enableAgc: bool

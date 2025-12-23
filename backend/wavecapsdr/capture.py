@@ -324,6 +324,7 @@ def _process_channel_dsp_stateless(
             bandpass_high=cfg.ssb_bandpass_high_hz,
             agc_target_db=cfg.agc_target_db,
             notch_frequencies=cfg.notch_frequencies if cfg.notch_frequencies else None,
+            bfo_offset_hz=cfg.ssb_bfo_offset_hz,
         )
 
     elif cfg.mode == "raw":
@@ -381,6 +382,7 @@ class ChannelConfig:
     ssb_bandpass_low_hz: float = 300
     ssb_bandpass_high_hz: float = 3_000
     ssb_mode: str = "usb"  # "usb" or "lsb"
+    ssb_bfo_offset_hz: float = 1500.0  # BFO offset for centering voice passband
 
     # AGC (Automatic Gain Control)
     enable_agc: bool = False  # Default off for FM, enabled for AM/SSB
@@ -968,6 +970,7 @@ class Channel:
                 bandpass_high=self.cfg.ssb_bandpass_high_hz,
                 agc_target_db=self.cfg.agc_target_db,
                 notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+                bfo_offset_hz=self.cfg.ssb_bfo_offset_hz,
             )
 
             # Calculate signal power in dB (always, for metrics)
@@ -1261,6 +1264,7 @@ class Channel:
                 bandpass_high=self.cfg.ssb_bandpass_high_hz,
                 agc_target_db=self.cfg.agc_target_db,
                 notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+                bfo_offset_hz=self.cfg.ssb_bfo_offset_hz,
             )
 
             if audio is not None and audio.size > 0:

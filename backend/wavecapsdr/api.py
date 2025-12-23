@@ -526,6 +526,7 @@ def _to_channel_model(ch: Any) -> ChannelModel:
         ssbBandpassLowHz=ch.cfg.ssb_bandpass_low_hz,
         ssbBandpassHighHz=ch.cfg.ssb_bandpass_high_hz,
         ssbMode=ch.cfg.ssb_mode,
+        ssbBfoOffsetHz=ch.cfg.ssb_bfo_offset_hz,
         enableAgc=ch.cfg.enable_agc,
         agcTargetDb=ch.cfg.agc_target_db,
         agcAttackMs=ch.cfg.agc_attack_ms,
@@ -1573,6 +1574,18 @@ def create_channel(
     if req.notchFrequencies is not None:
         ch.cfg.notch_frequencies = req.notchFrequencies
 
+    # Apply SSB settings if provided
+    if req.ssbMode is not None:
+        ch.cfg.ssb_mode = req.ssbMode
+    if req.ssbBfoOffsetHz is not None:
+        ch.cfg.ssb_bfo_offset_hz = req.ssbBfoOffsetHz
+    if req.ssbBandpassLowHz is not None:
+        ch.cfg.ssb_bandpass_low_hz = req.ssbBandpassLowHz
+    if req.ssbBandpassHighHz is not None:
+        ch.cfg.ssb_bandpass_high_hz = req.ssbBandpassHighHz
+    if req.enableSsbBandpass is not None:
+        ch.cfg.enable_ssb_bandpass = req.enableSsbBandpass
+
     # Generate auto_name using frequency recognition
     cap = state.captures.get_capture(cid)
     if cap is not None:
@@ -1668,6 +1681,7 @@ def get_channel(
         ssbBandpassLowHz=ch.cfg.ssb_bandpass_low_hz,
         ssbBandpassHighHz=ch.cfg.ssb_bandpass_high_hz,
         ssbMode=ch.cfg.ssb_mode,
+        ssbBfoOffsetHz=ch.cfg.ssb_bfo_offset_hz,
         enableAgc=ch.cfg.enable_agc,
         agcTargetDb=ch.cfg.agc_target_db,
         agcAttackMs=ch.cfg.agc_attack_ms,
@@ -1739,6 +1753,8 @@ def update_channel(
         ch.cfg.ssb_bandpass_high_hz = req.ssbBandpassHighHz
     if req.ssbMode is not None:
         ch.cfg.ssb_mode = req.ssbMode
+    if req.ssbBfoOffsetHz is not None:
+        ch.cfg.ssb_bfo_offset_hz = req.ssbBfoOffsetHz
     if req.enableAgc is not None:
         ch.cfg.enable_agc = req.enableAgc
     if req.agcTargetDb is not None:
