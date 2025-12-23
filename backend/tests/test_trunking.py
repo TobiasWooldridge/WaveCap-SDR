@@ -218,7 +218,8 @@ class TestVoiceRecorder:
         assert recorder.state == "idle"
         assert recorder.is_available() is True
 
-    def test_assign_and_release(self):
+    @pytest.mark.anyio
+    async def test_assign_and_release(self):
         """Test assigning and releasing recorder."""
         recorder = VoiceRecorder(id="vr0", system_id="test")
 
@@ -227,6 +228,7 @@ class TestVoiceRecorder:
             call_id="call1",
             frequency_hz=851_000_000,
             talkgroup_id=1217,
+            talkgroup_name="Test TG 1217",
             center_hz=855_500_000,
         )
 
@@ -236,8 +238,8 @@ class TestVoiceRecorder:
         assert recorder.offset_hz == 851_000_000 - 855_500_000
         assert recorder.is_available() is False
 
-        # Release
-        recorder.release()
+        # Release (async)
+        await recorder.release()
         assert recorder.state == "idle"
         assert recorder.call_id is None
         assert recorder.is_available() is True

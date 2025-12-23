@@ -50,6 +50,7 @@ class CreateCaptureRequest(BaseModel):
     # FFT/Spectrum settings
     fftFps: Optional[int] = Field(None, ge=1, le=60)  # 1-60 FPS
     fftSize: Optional[int] = Field(None)  # 512, 1024, 2048, 4096
+    fftAccelerator: Optional[str] = Field(None, pattern=r'^(auto|scipy|fftw|mlx|cuda)$')  # FFT backend
 
     @field_validator('fftSize')
     @classmethod
@@ -94,6 +95,7 @@ class UpdateCaptureRequest(BaseModel):
     # FFT/Spectrum settings
     fftFps: Optional[int] = Field(None, ge=1, le=60)  # 1-60 FPS
     fftSize: Optional[int] = Field(None)  # 512, 1024, 2048, 4096
+    fftAccelerator: Optional[str] = Field(None, pattern=r'^(auto|scipy|fftw|mlx|cuda)$')  # FFT backend
 
     @field_validator('fftSize')
     @classmethod
@@ -142,6 +144,7 @@ class CaptureModel(BaseModel):
     # FFT/Spectrum settings
     fftFps: int = 15  # Target FFT frames per second
     fftSize: int = 2048  # FFT bin count
+    fftAccelerator: str = "auto"  # FFT backend: auto, scipy, fftw, mlx, cuda
     # Error indicators for UI
     iqOverflowCount: int = 0
     iqOverflowRate: float = 0.0  # Overflows per second

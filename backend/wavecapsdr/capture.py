@@ -12,12 +12,8 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar, cas
 
 import numpy as np
 
-# Import scipy.fft at module level (not inside hot loops)
-try:
-    from scipy.fft import fft, fftshift, fftfreq
-    SCIPY_FFT_AVAILABLE = True
-except ImportError:
-    SCIPY_FFT_AVAILABLE = False
+# Import FFT backend (pluggable: scipy, fftw, mlx, cuda)
+from .dsp.fft import get_backend as get_fft_backend, FFTBackend, available_backends as available_fft_backends
 
 logger = logging.getLogger(__name__)
 
@@ -449,6 +445,19 @@ class Channel:
     _pocsag_max_messages: int = 100  # Ring buffer size
     # TSBK callback for trunking integration (called when P25 TSBK is decoded)
     on_tsbk: Optional[Callable[[Dict[str, Any]], None]] = None
+    # Voice channel factory for automatic voice following (called on P25 grants)
+    # Signature: (tgid: int, freq_hz: float, source_id: Optional[int]) -> Optional[str]
+    # Returns: channel_id of created voice channel, or None if not created
+    _voice_channel_factory: Optional[Callable[[int, float, Optional[int]], Optional[str]]] = None
+    # Delete callback for cleaning up voice channels
+    # Signature: (channel_id: str) -> None
+    _voice_channel_delete_callback: Optional[Callable[[str], None]] = None
+    # Active voice channels created by this control channel (channel_id -> info)
+    _voice_channels: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    # Voice channel timeout (auto-delete after silence)
+    _voice_channel_timeout: float = 3.0  # seconds
+    # Parent control channel ID (set on voice channels created by following)
+    _parent_control_channel_id: Optional[str] = None
     # Drop tracking for rate-limited logging
     _drop_count: int = 0
     _last_drop_log_time: float = 0.0
@@ -1376,17 +1385,119 @@ class Channel:
         logger.debug(f"Channel {self.cfg.id}: DMR voice frame slot={slot} TGID={tgid} ({len(voice_data)} bytes)")
         # TODO: Implement AMBE decoder
 
-    def _handle_trunking_grant(self, tgid: int, freq_hz: float) -> None:
+    def _handle_trunking_grant(
+        self, tgid: int, freq_hz: float, source_id: Optional[int] = None
+    ) -> None:
         """Handle P25 trunking voice channel grant.
 
-        This is called when a control channel broadcasts a voice grant.
-        Future implementation will:
-        - Automatically create voice channel following the grant
-        - Track talkgroup activity
-        - Integrate with TrunkingManager for priority-based following
+        When a control channel broadcasts a voice grant, this method:
+        1. Checks if we already have a voice channel for this call
+        2. If not, uses the voice_channel_factory to create one
+        3. Tracks the voice channel for lifecycle management
+
+        Args:
+            tgid: Talkgroup ID receiving the grant
+            freq_hz: Voice channel frequency in Hz
+            source_id: Source radio ID (if known from grant message)
         """
-        logger.info(f"Channel {self.cfg.id}: P25 voice grant - TGID {tgid} on {freq_hz/1e6:.4f} MHz")
-        # TODO: Implement automatic voice channel following
+        import time
+
+        # Check if we already have a voice channel for this frequency
+        for chan_id, info in list(self._voice_channels.items()):
+            if info.get("freq_hz") == freq_hz:
+                # Update last grant time (call is continuing)
+                info["last_grant_time"] = time.time()
+                if source_id and info.get("source_id") != source_id:
+                    # Talker change on same frequency
+                    logger.info(
+                        f"Channel {self.cfg.id}: Talker change on TGID {tgid} - "
+                        f"new source {source_id}"
+                    )
+                    info["source_id"] = source_id
+                return
+
+        # No voice channel factory configured - just log
+        if self._voice_channel_factory is None:
+            logger.info(
+                f"Channel {self.cfg.id}: P25 voice grant - TGID {tgid} on "
+                f"{freq_hz/1e6:.4f} MHz (no voice following configured)"
+            )
+            return
+
+        # Create a new voice channel via factory
+        logger.info(
+            f"Channel {self.cfg.id}: Creating voice channel for TGID {tgid} on "
+            f"{freq_hz/1e6:.4f} MHz (source={source_id})"
+        )
+
+        try:
+            chan_id = self._voice_channel_factory(tgid, freq_hz, source_id)
+            if chan_id:
+                self._voice_channels[chan_id] = {
+                    "tgid": tgid,
+                    "freq_hz": freq_hz,
+                    "source_id": source_id,
+                    "created_time": time.time(),
+                    "last_grant_time": time.time(),
+                }
+                logger.info(
+                    f"Channel {self.cfg.id}: Voice channel {chan_id} created for "
+                    f"TGID {tgid}"
+                )
+        except Exception as e:
+            logger.error(
+                f"Channel {self.cfg.id}: Failed to create voice channel: {e}"
+            )
+
+    def cleanup_stale_voice_channels(
+        self, delete_callback: Optional[Callable[[str], None]] = None
+    ) -> List[str]:
+        """Clean up voice channels that haven't received grants recently.
+
+        Should be called periodically (e.g., every second) to detect
+        calls that have ended (no more grants being received).
+
+        Args:
+            delete_callback: Optional callback to delete the channel.
+                             If not provided, only removes from tracking.
+
+        Returns:
+            List of channel IDs that were cleaned up.
+        """
+        import time
+
+        stale_ids = []
+        now = time.time()
+
+        for chan_id, info in list(self._voice_channels.items()):
+            last_grant = info.get("last_grant_time", 0)
+            if now - last_grant > self._voice_channel_timeout:
+                stale_ids.append(chan_id)
+                tgid = info.get("tgid", "?")
+                logger.info(
+                    f"Channel {self.cfg.id}: Voice channel {chan_id} (TGID {tgid}) "
+                    f"ended - no grants for {self._voice_channel_timeout:.1f}s"
+                )
+                del self._voice_channels[chan_id]
+                if delete_callback:
+                    try:
+                        delete_callback(chan_id)
+                    except Exception as e:
+                        logger.error(
+                            f"Channel {self.cfg.id}: Failed to delete voice "
+                            f"channel {chan_id}: {e}"
+                        )
+
+        return stale_ids
+
+    def remove_voice_channel(self, chan_id: str) -> None:
+        """Remove a voice channel from tracking (called when channel is deleted)."""
+        if chan_id in self._voice_channels:
+            info = self._voice_channels.pop(chan_id)
+            logger.debug(
+                f"Channel {self.cfg.id}: Voice channel {chan_id} removed from "
+                f"tracking (TGID {info.get('tgid', '?')})"
+            )
 
     def _handle_dmr_csbk(self, msg: Dict[str, Any]) -> None:
         """Handle DMR Control Signaling Block messages.
@@ -1418,6 +1529,7 @@ class CaptureConfig:
     # FFT/Spectrum settings
     fft_fps: int = 15  # Target FFT frames per second (1-60)
     fft_size: int = 2048  # FFT bin count (512, 1024, 2048, 4096)
+    fft_accelerator: str = "auto"  # FFT backend: auto, scipy, fftw, mlx, cuda
 
 
 @dataclass
@@ -1463,9 +1575,10 @@ class Capture:
     _fft_power_list: Optional[List[float]] = None  # Cached Python list (avoids repeated .tolist())
     _fft_freqs_list: Optional[List[float]] = None  # Cached Python list (avoids repeated .tolist())
     _fft_counter: int = 0  # Frame counter for adaptive FFT throttling
-    _fft_window_cache: Dict[int, np.ndarray] = field(default_factory=dict)  # Cached FFT windows by size
+    _fft_window_cache: Dict[int, np.ndarray] = field(default_factory=dict)  # Cached FFT windows by size (legacy)
     _fft_last_time: float = 0.0  # Last FFT timestamp for FPS calculation
     _fft_actual_fps: float = 0.0  # Actual measured FFT FPS
+    _fft_backend: Optional[FFTBackend] = None  # Pluggable FFT backend (scipy/fftw/mlx/cuda)
     # Main event loop for scheduling audio processing when no subscribers
     _main_loop: Optional[asyncio.AbstractEventLoop] = None
     # IQ overflow tracking for error indicator UI
@@ -1949,46 +2062,48 @@ class Capture:
                 if item[0] is q:
                     self._fft_sinks.discard(item)
 
-    def _calculate_fft(self, samples: np.ndarray, sample_rate: int, fft_size: int = 2048) -> None:
-        """Calculate FFT for spectrum display. Only called when there are active subscribers.
+    def _get_fft_backend(self, fft_size: int = 2048) -> FFTBackend:
+        """Get or create FFT backend instance.
 
-        Performance: Uses scipy.fft which is 2-3x faster than numpy.fft.
+        Lazily initializes the FFT backend on first use.
+        Backend is selected automatically based on available hardware:
+        - macOS: MLX (Metal GPU) if available, else scipy
+        - Linux/Windows: CuPy (CUDA) if available, else scipy
+        - All platforms: pyFFTW (SIMD CPU) as intermediate option
+        """
+        if self._fft_backend is None or self._fft_backend.fft_size != fft_size:
+            # Get accelerator preference from config if available
+            accelerator = getattr(self.cfg, 'fft_accelerator', 'auto')
+            self._fft_backend = get_fft_backend(accelerator=accelerator, fft_size=fft_size)
+            logger.info(
+                f"Capture {self.cfg.id}: FFT backend initialized: {self._fft_backend.name} "
+                f"(fft_size={fft_size}, available={available_fft_backends()})"
+            )
+        return self._fft_backend
+
+    def _calculate_fft(self, samples: np.ndarray, sample_rate: int, fft_size: int = 2048) -> None:
+        """Calculate FFT for spectrum display using pluggable backend.
+
+        Uses hardware-accelerated FFT when available:
+        - MLX (Apple Metal): 5-10x faster on Apple Silicon
+        - CuPy (CUDA): 10-20x faster on NVIDIA GPUs
+        - pyFFTW: 2-3x faster with SIMD on any CPU
+        - scipy: Default fallback (always available)
         """
         if samples.size < fft_size:
             return
 
-        # Take a chunk of samples for FFT
-        chunk = samples[:fft_size]
+        # Get or create FFT backend
+        backend = self._get_fft_backend(fft_size)
 
-        # Get cached Hanning window or create and cache it
-        if fft_size not in self._fft_window_cache:
-            self._fft_window_cache[fft_size] = np.hanning(fft_size).astype(np.float32)
-        window = self._fft_window_cache[fft_size]
-
-        # Apply window to reduce spectral leakage
-        windowed = chunk * window
-
-        # Perform FFT using scipy.fft (faster than numpy.fft)
-        # Uses module-level import for performance (no import overhead in hot loop)
-        if SCIPY_FFT_AVAILABLE:
-            fft_result = fft(windowed)
-            fft_shifted = fftshift(fft_result)
-            freqs = fftshift(fftfreq(fft_size, 1.0 / sample_rate))
-        else:
-            # Fallback to numpy.fft
-            fft_result = np.fft.fft(windowed)
-            fft_shifted = np.fft.fftshift(fft_result)
-            freqs = np.fft.fftshift(np.fft.fftfreq(fft_size, 1.0 / sample_rate))
-
-        # Calculate power spectrum in dB
-        magnitude = np.abs(fft_shifted)
-        power_db = 20.0 * np.log10(magnitude + 1e-10)
+        # Execute FFT using backend
+        result = backend.execute(samples, sample_rate)
 
         # Store results and pre-convert to Python lists (avoids repeated .tolist())
-        self._fft_power = power_db
-        self._fft_freqs = freqs
-        self._fft_power_list = power_db.tolist()
-        self._fft_freqs_list = freqs.tolist()
+        self._fft_power = result.power_db
+        self._fft_freqs = result.freqs
+        self._fft_power_list = result.power_db.tolist()
+        self._fft_freqs_list = result.freqs.tolist()
 
     async def _broadcast_fft(self) -> None:
         """Broadcast FFT data to all subscribers."""
@@ -2728,6 +2843,21 @@ class Capture:
             # Checkpoint D: After DSP/channel processing
             if _verbose_debug:
                 logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint D - after DSP, dsp_time={dsp_time_ms:.1f}ms")
+
+            # Voice channel cleanup: Run every ~1 second (20 iterations at 20 Hz)
+            # This removes voice channels that haven't received grants recently
+            if _capture_loop_counter % 20 == 0:
+                for ch in chans:
+                    if ch.cfg.mode == "p25" and ch._voice_channel_factory is not None:
+                        stale = ch.cleanup_stale_voice_channels(
+                            ch._voice_channel_delete_callback
+                        )
+                        if stale:
+                            logger.debug(
+                                f"Capture {self.cfg.id}: Cleaned up {len(stale)} "
+                                f"stale voice channels"
+                            )
+
             # Record loop time and periodic logging
             loop_time_ms = (time_module.perf_counter() - loop_start) * 1000
             self._record_perf_time(self._perf_loop_times, loop_time_ms)
@@ -2889,6 +3019,7 @@ class CaptureManager:
         offset_hz: float = 0.0,
         audio_rate: Optional[int] = None,
         squelch_db: Optional[float] = None,
+        enable_voice_following: bool = True,
     ) -> Channel:
         cap = self.get_capture(cid)
         if cap is None:
@@ -2906,14 +3037,86 @@ class CaptureManager:
         # Apply mode-specific filter defaults
         self._apply_mode_defaults(mode, cfg)
         ch = Channel(cfg=cfg)
+
+        # For P25 control channels, set up voice channel following
+        if mode == "p25" and enable_voice_following:
+            ch._voice_channel_factory = self._create_voice_channel_factory(
+                cid, cap, chan_id
+            )
+            ch._voice_channel_delete_callback = self.delete_channel
+
         cap.create_channel(ch)
         self._channels[chan_id] = ch
         return ch
+
+    def _create_voice_channel_factory(
+        self, capture_id: str, capture: "Capture", control_channel_id: str
+    ) -> Callable[[int, float, Optional[int]], Optional[str]]:
+        """Create a factory function for voice channels.
+
+        The factory creates P25 voice channels on the same capture,
+        tuned to the granted frequency.
+
+        Args:
+            capture_id: ID of the capture to create channels on
+            capture: Capture instance for frequency calculations
+            control_channel_id: ID of the control channel creating voice channels
+
+        Returns:
+            Factory function: (tgid, freq_hz, source_id) -> channel_id
+        """
+
+        def factory(
+            tgid: int, freq_hz: float, source_id: Optional[int]
+        ) -> Optional[str]:
+            # Calculate offset from capture center frequency
+            offset_hz = freq_hz - capture.cfg.center_hz
+
+            # Check if frequency is within capture bandwidth
+            max_offset = capture.cfg.sample_rate / 2
+            if abs(offset_hz) > max_offset:
+                logger.warning(
+                    f"Voice channel at {freq_hz/1e6:.4f} MHz is outside capture "
+                    f"bandwidth (center={capture.cfg.center_hz/1e6:.4f} MHz, "
+                    f"BW={capture.cfg.sample_rate/1e6:.2f} MHz)"
+                )
+                return None
+
+            # Create voice channel with auto-generated name
+            name = f"TGID {tgid}"
+            if source_id:
+                name += f" (SRC {source_id})"
+
+            try:
+                voice_ch = self.create_channel(
+                    cid=capture_id,
+                    mode="p25",
+                    offset_hz=offset_hz,
+                    enable_voice_following=False,  # Don't nest voice following
+                )
+                voice_ch.cfg.name = name
+                voice_ch.cfg.auto_name = f"P25 Voice - {name}"
+                # Track parent control channel for cleanup on deletion
+                voice_ch._parent_control_channel_id = control_channel_id
+                voice_ch.start()
+                return voice_ch.cfg.id
+            except Exception as e:
+                logger.error(f"Failed to create voice channel: {e}")
+                return None
+
+        return factory
 
     def delete_channel(self, chan_id: str) -> None:
         ch = self._channels.pop(chan_id, None)
         if ch is None:
             return
+
+        # If this is a voice channel, notify the parent control channel
+        if ch._parent_control_channel_id:
+            parent_ch = self._channels.get(ch._parent_control_channel_id)
+            if parent_ch is not None:
+                parent_ch.remove_voice_channel(chan_id)
+
         cap = self.get_capture(ch.cfg.capture_id)
         if cap is not None:
             cap.remove_channel(chan_id)
