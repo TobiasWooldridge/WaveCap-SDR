@@ -467,6 +467,7 @@ def _to_capture_model(cap: Any, trunking_manager: Any = None) -> CaptureModel:
         autoName=cap.cfg.auto_name,
         # FFT/Spectrum settings
         fftFps=cap.cfg.fft_fps,
+        fftMaxFps=cap.cfg.fft_max_fps,
         fftSize=cap.cfg.fft_size,
         fftAccelerator=cap.cfg.fft_accelerator,
         # Error indicators
@@ -1084,6 +1085,8 @@ def create_capture(
     # Set FFT settings if provided
     if req.fftFps is not None:
         cap.cfg.fft_fps = req.fftFps
+    if req.fftMaxFps is not None:
+        cap.cfg.fft_max_fps = req.fftMaxFps
     if req.fftSize is not None:
         cap.cfg.fft_size = req.fftSize
     if req.fftAccelerator is not None:
@@ -1439,6 +1442,8 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
     # Update FFT settings if provided
     if req.fftFps is not None:
         cap.cfg.fft_fps = req.fftFps
+    if req.fftMaxFps is not None:
+        cap.cfg.fft_max_fps = req.fftMaxFps
     if req.fftSize is not None:
         cap.cfg.fft_size = req.fftSize
     if req.fftAccelerator is not None:

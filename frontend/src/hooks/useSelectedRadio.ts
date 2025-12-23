@@ -185,9 +185,11 @@ export function useSelectedRadio() {
     window.history.replaceState({}, "", url.toString());
     setUrlSelection({ type, id });
     setUserHasSelected(true);
+    // Dispatch custom event so other hook instances can sync
+    window.dispatchEvent(new CustomEvent("radioselectionchange", { detail: { type, id } }));
   }, []);
 
-  // Listen for browser back/forward navigation
+  // Listen for browser back/forward navigation and custom selection events
   useEffect(() => {
     const handlePopState = () => {
       const params = new URLSearchParams(window.location.search);
@@ -206,8 +208,22 @@ export function useSelectedRadio() {
       }
       setUrlSelection(null);
     };
+
+    // Listen for custom selection change events from other hook instances
+    const handleSelectionChange = (event: Event) => {
+      const { type, id } = (event as CustomEvent).detail;
+      if ((type === "capture" || type === "trunking") && id) {
+        setUrlSelection({ type, id });
+        setUserHasSelected(true);
+      }
+    };
+
     window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
+    window.addEventListener("radioselectionchange", handleSelectionChange);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("radioselectionchange", handleSelectionChange);
+    };
   }, []);
 
   return {

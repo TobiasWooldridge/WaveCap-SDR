@@ -2845,9 +2845,10 @@ class Capture:
                 else:
                     target_fps = 5  # Minimal FPS when no active viewers
 
-                # Calculate FFT rate using ACTUAL chunk size (not hardcoded 8192)
-                # chunk = max(8192, sample_rate // 20) from line 2123
-                current_fft_rate = self.cfg.sample_rate / chunk
+                # Calculate FFT rate using ACTUAL received samples (not requested chunk)
+                # The SDR may return fewer samples than requested
+                actual_samples = samples.size
+                current_fft_rate = self.cfg.sample_rate / max(1, actual_samples)
 
                 # Calculate skip interval to achieve target FPS
                 skip_interval = max(1, int(current_fft_rate / target_fps))

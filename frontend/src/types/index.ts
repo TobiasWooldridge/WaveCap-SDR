@@ -43,6 +43,7 @@ export interface Capture {
   autoName: string | null;  // Auto-generated contextual name
   // FFT/Spectrum settings
   fftFps: number;  // Target FFT frames per second
+  fftMaxFps: number;  // Maximum FFT frames per second (hard cap)
   fftSize: number;  // FFT bin count (512, 1024, 2048, 4096)
   // Error indicators
   iqOverflowCount: number;
@@ -158,7 +159,8 @@ export interface UpdateCaptureRequest {
   iqBalanceAuto?: boolean;
   name?: string | null;
   // FFT/Spectrum settings
-  fftFps?: number;  // 1-60 FPS
+  fftFps?: number;  // Target FPS (1-60)
+  fftMaxFps?: number;  // Max FPS cap (1-120)
   fftSize?: number;  // 512, 1024, 2048, 4096
 }
 
@@ -177,7 +179,8 @@ export interface CreateCaptureRequest {
   iqBalanceAuto?: boolean;
   createDefaultChannel?: boolean;
   // FFT/Spectrum settings
-  fftFps?: number;  // 1-60 FPS
+  fftFps?: number;  // Target FPS (1-60)
+  fftMaxFps?: number;  // Max FPS cap (1-120)
   fftSize?: number;  // 512, 1024, 2048, 4096
 }
 

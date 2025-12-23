@@ -1,11 +1,34 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { Settings } from "lucide-react";
 import type { Capture, Channel } from "../../types";
-// useUpdateCapture may be used in the future for tuning via spectrum click
+import { useUpdateCapture } from "../../hooks/useCaptures";
 import { useCreateChannel, useStartChannel } from "../../hooks/useChannels";
 import { useToast } from "../../hooks/useToast";
 import SpectrumAnalyzer from "../../components/primitives/SpectrumAnalyzer.react";
 import WaterfallDisplay from "../../components/primitives/WaterfallDisplay.react";
 import Flex from "../../components/primitives/Flex.react";
+
+const FPS_OPTIONS = [
+  { value: 5, label: "5 fps" },
+  { value: 10, label: "10 fps" },
+  { value: 15, label: "15 fps" },
+  { value: 20, label: "20 fps" },
+  { value: 30, label: "30 fps" },
+  { value: 60, label: "60 fps" },
+];
+
+const MAX_FPS_OPTIONS = [
+  { value: 15, label: "15 fps" },
+  { value: 30, label: "30 fps" },
+  { value: 60, label: "60 fps" },
+  { value: 120, label: "120 fps" },
+];
+const FFT_SIZE_OPTIONS = [
+  { value: 512, label: "512 bins" },
+  { value: 1024, label: "1024 bins" },
+  { value: 2048, label: "2048 bins" },
+  { value: 4096, label: "4096 bins" },
+];
 
 interface SpectrumPanelProps {
   capture: Capture;
@@ -18,9 +41,22 @@ export function SpectrumPanel({ capture, channels }: SpectrumPanelProps) {
     return saved ? parseInt(saved) : 200;
   });
 
+  const updateCapture = useUpdateCapture();
   const createChannel = useCreateChannel();
   const startChannel = useStartChannel(capture.id);
   const toast = useToast();
+
+  const handleFpsChange = (fps: number) => {
+    updateCapture.mutate({ captureId: capture.id, request: { fftFps: fps } });
+  };
+
+  const handleMaxFpsChange = (maxFps: number) => {
+    updateCapture.mutate({ captureId: capture.id, request: { fftMaxFps: maxFps } });
+  };
+
+  const handleFftSizeChange = (size: number) => {
+    updateCapture.mutate({ captureId: capture.id, request: { fftSize: size } });
+  };
 
   // Handle click on spectrum to tune or create channel
   const handleFrequencyClick = useCallback(
@@ -123,6 +159,68 @@ export function SpectrumPanel({ capture, channels }: SpectrumPanelProps) {
 
   return (
     <Flex direction="column" gap={0}>
+      {/* FFT Settings Bar */}
+      <div
+        className="bg-body-tertiary border rounded-top d-flex align-items-center gap-3 px-2 py-1"
+        style={{ fontSize: "11px" }}
+      >
+        <span className="fw-semibold text-muted d-flex align-items-center gap-1">
+          <Settings size={12} />
+          Display
+        </span>
+
+        <div className="d-flex align-items-center gap-1">
+          <label className="text-muted mb-0" title="Target update rate for spectrum/waterfall when not actively viewing.">Target:</label>
+          <select
+            className="form-select form-select-sm border-0 bg-transparent"
+            style={{ width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" }}
+            value={capture.fftFps}
+            onChange={(e) => handleFpsChange(parseInt(e.target.value, 10))}
+            title="Target FPS. Actual rate adapts based on viewer activity."
+          >
+            {FPS_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="d-flex align-items-center gap-1">
+          <label className="text-muted mb-0" title="Maximum FPS cap. Prevents excessive CPU/bandwidth usage.">Max:</label>
+          <select
+            className="form-select form-select-sm border-0 bg-transparent"
+            style={{ width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" }}
+            value={capture.fftMaxFps}
+            onChange={(e) => handleMaxFpsChange(parseInt(e.target.value, 10))}
+            title="Hard cap on FPS. Will never exceed this rate."
+          >
+            {MAX_FPS_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="d-flex align-items-center gap-1">
+          <label className="text-muted mb-0" title="FFT bin count. Higher = sharper frequency detail but more CPU.">FFT Size:</label>
+          <select
+            className="form-select form-select-sm border-0 bg-transparent"
+            style={{ width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" }}
+            value={capture.fftSize}
+            onChange={(e) => handleFftSizeChange(parseInt(e.target.value, 10))}
+            title="FFT bin count. Higher values show sharper frequency detail."
+          >
+            {FFT_SIZE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       {/* Spectrum Analyzer */}
       <div>
         <SpectrumAnalyzer

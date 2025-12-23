@@ -463,7 +463,9 @@ export default function WaterfallDisplay({
 
   // Determine badge status
   const getBadgeStatus = () => {
-    if (isIdle && capture.state === "running") {
+    if (isCollapsed) {
+      return { text: "PAUSED", className: "bg-secondary" };
+    } else if (isIdle && capture.state === "running") {
       return { text: "PAUSED (IDLE)", className: "bg-warning" };
     } else if (isConnected) {
       return { text: "LIVE", className: "bg-success" };

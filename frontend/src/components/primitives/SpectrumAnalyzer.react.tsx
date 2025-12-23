@@ -486,7 +486,9 @@ export default function SpectrumAnalyzer({
 
   // Determine badge status
   const getBadgeStatus = () => {
-    if (isIdle && capture.state === "running") {
+    if (isCollapsed) {
+      return { text: "PAUSED", className: "bg-secondary" };
+    } else if (isIdle && capture.state === "running") {
       return { text: "PAUSED (IDLE)", className: "bg-warning" };
     } else if (isConnected) {
       return { text: "LIVE", className: "bg-success" };
@@ -563,7 +565,13 @@ export default function SpectrumAnalyzer({
             {spectrumData?.actualFps !== undefined && isConnected && !isIdle && (
               <span
                 className="badge bg-info text-white"
-                style={{ fontSize: "8px", padding: "2px 6px" }}
+                style={{
+                  fontSize: "8px",
+                  padding: "2px 6px",
+                  minWidth: "42px",
+                  textAlign: "center",
+                  fontVariantNumeric: "tabular-nums",
+                }}
                 title={`FFT: ${spectrumData.fftSize || 'N/A'} bins`}
               >
                 {spectrumData.actualFps.toFixed(0)} FPS
