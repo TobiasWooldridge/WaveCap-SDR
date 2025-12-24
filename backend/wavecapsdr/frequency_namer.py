@@ -5,10 +5,11 @@ It uses a comprehensive frequency band database to recognize services and genera
 contextual names like "Marine Channel 16" or "FM 90.3".
 """
 
-import yaml
-from pathlib import Path
-from typing import Optional, Dict, Any
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Optional
+
+import yaml
 
 
 @dataclass
@@ -35,7 +36,7 @@ class FrequencyNamer:
         if config_path is None:
             config_path = Path(__file__).parent.parent / "config" / "frequency_bands.yaml"
 
-        with open(config_path, 'r') as f:
+        with open(config_path) as f:
             self.config = yaml.safe_load(f)
 
         self.bands = self.config.get('bands', {})
@@ -51,7 +52,7 @@ class FrequencyNamer:
             FrequencyInfo object if frequency is recognized, None otherwise
         """
         # Search through all bands
-        for band_id, band in self.bands.items():
+        for _band_id, band in self.bands.items():
             freq_min = band.get('freq_min')
             freq_max = band.get('freq_max')
 
@@ -77,7 +78,7 @@ class FrequencyNamer:
 
         return None
 
-    def _match_fixed_channel(self, frequency_hz: float, band: Dict[str, Any], tolerance_hz: float) -> Optional[FrequencyInfo]:
+    def _match_fixed_channel(self, frequency_hz: float, band: dict[str, Any], tolerance_hz: float) -> Optional[FrequencyInfo]:
         """Match against fixed channel definitions."""
         channels = band.get('channels', {})
 
@@ -116,7 +117,7 @@ class FrequencyNamer:
 
         return None
 
-    def _calculate_channel_number(self, frequency_hz: float, band: Dict[str, Any]) -> FrequencyInfo:
+    def _calculate_channel_number(self, frequency_hz: float, band: dict[str, Any]) -> FrequencyInfo:
         """Calculate channel number from frequency using spacing."""
         base_freq: float = band.get('channel_base_freq', 0.0)
         spacing: float = band.get('channel_spacing', 1.0)
@@ -125,7 +126,7 @@ class FrequencyNamer:
 
         # Calculate channel number
         channel_offset = (frequency_hz - base_freq) / spacing
-        channel_num = int(round(channel_start + channel_offset))
+        channel_num = round(channel_start + channel_offset)
 
         # Format the name
         suggested_name = template.format(channel=channel_num)
@@ -139,7 +140,7 @@ class FrequencyNamer:
             service_type=band.get('mode')
         )
 
-    def _format_frequency_mhz(self, frequency_hz: float, band: Dict[str, Any]) -> FrequencyInfo:
+    def _format_frequency_mhz(self, frequency_hz: float, band: dict[str, Any]) -> FrequencyInfo:
         """Format frequency in MHz with appropriate precision."""
         freq_mhz = frequency_hz / 1e6
         template = band.get('template', '{freq_mhz:.3f} MHz')
@@ -168,7 +169,7 @@ class FrequencyNamer:
             service_type=band.get('mode')
         )
 
-    def _format_frequency_khz(self, frequency_hz: float, band: Dict[str, Any]) -> FrequencyInfo:
+    def _format_frequency_khz(self, frequency_hz: float, band: dict[str, Any]) -> FrequencyInfo:
         """Format frequency in kHz."""
         freq_khz = int(frequency_hz / 1e3)
         template = band.get('template', '{freq_khz} kHz')

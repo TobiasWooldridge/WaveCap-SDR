@@ -22,7 +22,6 @@ Reference: TIA-102.BBAC (P25 Phase II)
 from __future__ import annotations
 
 import logging
-from typing import Optional, Tuple
 
 import numpy as np
 from scipy import signal
@@ -297,7 +296,7 @@ class CQPSKDemodulator:
         corrected = self._carrier_loop.process_block(filtered)
 
         # Timing recovery
-        symbols, decisions, _ = self._timing_recovery.process_block(corrected)
+        symbols, _decisions, _ = self._timing_recovery.process_block(corrected)
 
         if len(symbols) == 0:
             return np.array([], dtype=np.uint8)

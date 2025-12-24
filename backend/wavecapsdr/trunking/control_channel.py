@@ -19,24 +19,20 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable
 
 import numpy as np
 
-from wavecapsdr.trunking.config import TrunkingProtocol
 # Use demodulators from decoders/p25.py
 from wavecapsdr.decoders.p25 import C4FMDemodulator as P25C4FMDemodulator
 from wavecapsdr.decoders.p25 import CQPSKDemodulator as P25CQPSKDemodulator
 from wavecapsdr.decoders.p25_frames import (
     DUID,
-    NID,
-    TSDUFrame,
-    FRAME_SYNC_PATTERN,
-    FRAME_SYNC_DIBITS,
     decode_nid,
     decode_tsdu,
 )
 from wavecapsdr.decoders.p25_tsbk import TSBKParser
+from wavecapsdr.trunking.config import TrunkingProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -66,14 +62,14 @@ class ControlChannelMonitor:
     modulation: P25Modulation = P25Modulation.LSM  # Default to LSM for simulcast systems
 
     # Demodulator - either C4FM or CQPSK based on modulation
-    _demod: Optional[Any] = None  # P25C4FMDemodulator or P25CQPSKDemodulator
+    _demod: Any | None = None  # P25C4FMDemodulator or P25CQPSKDemodulator
 
     # TSBK parser
-    _tsbk_parser: Optional[TSBKParser] = None
+    _tsbk_parser: TSBKParser | None = None
 
     # Frame sync state
     sync_state: SyncState = SyncState.SEARCHING
-    _dibit_buffer: List[int] = field(default_factory=list)
+    _dibit_buffer: list[int] = field(default_factory=list)
     _sync_pattern_idx: int = 0
 
     # Statistics
@@ -83,9 +79,9 @@ class ControlChannelMonitor:
     _last_sync_time: float = 0.0
 
     # Callbacks
-    on_tsbk: Optional[Callable[[bytes], None]] = None
-    on_sync_acquired: Optional[Callable[[], None]] = None
-    on_sync_lost: Optional[Callable[[], None]] = None
+    on_tsbk: Callable[[bytes], None] | None = None
+    on_sync_acquired: Callable[[], None] | None = None
+    on_sync_lost: Callable[[], None] | None = None
 
     # Constants
     FRAME_SYNC_DIBITS: int = 24  # 48-bit sync word = 24 dibits
@@ -137,7 +133,7 @@ class ControlChannelMonitor:
         # P25C4FMDemodulator doesn't have a reset method; it maintains
         # minimal state that resets naturally with new IQ blocks
 
-    def process_iq(self, iq: np.ndarray) -> List[Dict[str, Any]]:
+    def process_iq(self, iq: np.ndarray) -> list[dict[str, Any]]:
         """Process IQ samples and extract TSBK messages.
 
         Args:
@@ -164,7 +160,7 @@ class ControlChannelMonitor:
         if self._demod:
             _start = _time_mod.perf_counter()
             if _verbose:
-                logger.info(f"ControlChannelMonitor.process_iq: calling demodulate")
+                logger.info("ControlChannelMonitor.process_iq: calling demodulate")
             # P25C4FMDemodulator.demodulate returns just dibits (no soft symbols)
             dibits = self._demod.demodulate(iq.astype(np.complex64))
             _elapsed = (_time_mod.perf_counter() - _start) * 1000
@@ -191,7 +187,7 @@ class ControlChannelMonitor:
         # Process dibits
         return self._process_dibits(dibits)
 
-    def _process_dibits(self, dibits: np.ndarray) -> List[Dict[str, Any]]:
+    def _process_dibits(self, dibits: np.ndarray) -> list[dict[str, Any]]:
         """Process demodulated dibits and extract TSBK messages.
 
         Args:
@@ -200,7 +196,7 @@ class ControlChannelMonitor:
         Returns:
             List of parsed TSBK results
         """
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
 
         # Add to buffer
         self._dibit_buffer.extend(dibits.tolist())
@@ -272,7 +268,7 @@ class ControlChannelMonitor:
 
             if self._frame_count <= 10:
                 # Log DUID position dibits specifically
-                duid_pos_in_frame = self.FRAME_SYNC_DIBITS + 6  # positions 30-31
+                self.FRAME_SYNC_DIBITS + 6  # positions 30-31
                 logger.info(
                     f"ControlChannelMonitor: Frame {self._frame_count}, "
                     f"frame_dibits[30:32]={list(frame_dibits[30:32])}, "
@@ -405,7 +401,7 @@ class ControlChannelMonitor:
         return np.array([1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1,
                          3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3], dtype=np.uint8)
 
-    def _parse_tsbk(self, opcode: int, mfid: int, data: bytes) -> Optional[Dict[str, Any]]:
+    def _parse_tsbk(self, opcode: int, mfid: int, data: bytes) -> dict[str, Any] | None:
         """Parse TSBK message.
 
         Args:
@@ -425,10 +421,11 @@ class ControlChannelMonitor:
             logger.error(f"ControlChannelMonitor: TSBK parse error (opcode=0x{opcode:02X}): {e}")
             return None
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get monitor statistics."""
         return {
             "sync_state": self.sync_state.value,
+            "modulation": self.modulation.value,
             "frames_decoded": self.frames_decoded,
             "tsbk_decoded": self.tsbk_decoded,
             "sync_losses": self.sync_losses,
@@ -439,7 +436,7 @@ class ControlChannelMonitor:
 def create_control_monitor(
     protocol: TrunkingProtocol,
     sample_rate: int = 48000,
-    modulation: Optional[P25Modulation] = None,
+    modulation: P25Modulation | None = None,
 ) -> ControlChannelMonitor:
     """Create a control channel monitor.
 

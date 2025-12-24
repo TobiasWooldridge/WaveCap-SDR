@@ -17,7 +17,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable
 
 from wavecapsdr.trunking.identifiers import (
     Identifier,
@@ -97,16 +97,16 @@ class P25CallEvent:
         return time.time() * 1000 - self.time_start
 
     @property
-    def talkgroup_id(self) -> Optional[int]:
+    def talkgroup_id(self) -> int | None:
         """Get talkgroup ID from identifiers."""
         return self.identifiers.get_talkgroup_id()
 
     @property
-    def source_id(self) -> Optional[int]:
+    def source_id(self) -> int | None:
         """Get source radio ID from identifiers."""
         return self.identifiers.get_radio_id()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "eventType": self.event_type.value,
@@ -307,21 +307,21 @@ class P25EventTrackerManager:
 
     def __init__(self) -> None:
         # frequency -> tracker
-        self._trackers: Dict[float, P25EventTracker] = {}
+        self._trackers: dict[float, P25EventTracker] = {}
 
         # Recent events for deduplication
         # (tgid, freq, timestamp_ms)
-        self._recent_grants: List[tuple] = []
+        self._recent_grants: list[tuple] = []
 
         # Callbacks
-        self.on_call_start: Optional[Callable[[P25CallEvent], None]] = None
-        self.on_call_end: Optional[Callable[[P25CallEvent], None]] = None
-        self.on_talker_change: Optional[Callable[[P25CallEvent, int], None]] = None
+        self.on_call_start: Callable[[P25CallEvent], None] | None = None
+        self.on_call_end: Callable[[P25CallEvent], None] | None = None
+        self.on_talker_change: Callable[[P25CallEvent, int], None] | None = None
 
     def process_voice_grant(self, frequency_hz: float, channel: int,
                            talkgroup_id: int, source_id: int,
                            encrypted: bool = False, emergency: bool = False,
-                           timeslot: int = 0) -> Optional[P25EventTracker]:
+                           timeslot: int = 0) -> P25EventTracker | None:
         """Process a voice channel grant from control channel.
 
         Creates a new tracker or updates existing one.
@@ -390,7 +390,7 @@ class P25EventTrackerManager:
         return tracker
 
     def process_traffic_update(self, frequency_hz: float,
-                              frame_count: int = 0) -> Optional[P25EventTracker]:
+                              frame_count: int = 0) -> P25EventTracker | None:
         """Process update from traffic channel.
 
         Called when audio frames are received on a traffic channel.
@@ -405,7 +405,7 @@ class P25EventTrackerManager:
 
         return tracker
 
-    def process_call_termination(self, frequency_hz: float) -> Optional[P25CallEvent]:
+    def process_call_termination(self, frequency_hz: float) -> P25CallEvent | None:
         """Process call termination from traffic channel.
 
         Returns the completed event if found.
@@ -421,18 +421,18 @@ class P25EventTrackerManager:
             return tracker.event
         return None
 
-    def get_tracker(self, frequency_hz: float) -> Optional[P25EventTracker]:
+    def get_tracker(self, frequency_hz: float) -> P25EventTracker | None:
         """Get tracker for frequency."""
         return self._trackers.get(frequency_hz)
 
-    def get_active_calls(self) -> List[P25CallEvent]:
+    def get_active_calls(self) -> list[P25CallEvent]:
         """Get all active (non-complete) calls."""
         return [
             t.event for t in self._trackers.values()
             if not t.is_complete
         ]
 
-    def cleanup_stale(self) -> List[P25CallEvent]:
+    def cleanup_stale(self) -> list[P25CallEvent]:
         """Clean up stale events.
 
         Call periodically to detect abandoned calls.
@@ -441,7 +441,7 @@ class P25EventTrackerManager:
         timestamp_ms = time.time() * 1000
         completed = []
 
-        for freq, tracker in list(self._trackers.items()):
+        for _freq, tracker in list(self._trackers.items()):
             if tracker.is_stale(timestamp_ms) and not tracker.is_complete:
                 tracker.complete(timestamp_ms)
                 completed.append(tracker.event)
@@ -480,7 +480,7 @@ class P25EventTrackerManager:
         mic.update(Identifier(source_id, IdentifierRole.FROM, IdentifierForm.RADIO))
         tracker.event.identifiers = mic.to_immutable()
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get tracker statistics."""
         active = sum(1 for t in self._trackers.values() if not t.is_complete)
         pending = sum(1 for t in self._trackers.values()

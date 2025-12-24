@@ -47,6 +47,38 @@ function getControlChannelIcon(state: string) {
   }
 }
 
+// Get the 1-based index of the current control channel in the scanner measurements
+function getChannelIndex(system: TrunkingSystem): number {
+  const scanner = system.stats.cc_scanner;
+  if (!scanner || !scanner.current_channel_hz || !scanner.measurements) {
+    return 1;
+  }
+
+  // Get sorted list of measured frequencies
+  const freqs = Object.keys(scanner.measurements)
+    .map(key => parseFloat(key.replace("_MHz", "")) * 1e6)
+    .sort((a, b) => a - b);
+
+  const currentHz = scanner.current_channel_hz;
+  const index = freqs.findIndex(f => Math.abs(f - currentHz) < 1000); // 1 kHz tolerance
+  return index >= 0 ? index + 1 : 1;
+}
+
+// Get SNR for current control channel
+function getChannelSnr(system: TrunkingSystem): number | null {
+  const scanner = system.stats.cc_scanner;
+  if (!scanner || !scanner.current_channel_hz || !scanner.measurements) {
+    return null;
+  }
+
+  // Find measurement matching current channel
+  const currentMHz = (scanner.current_channel_hz / 1e6).toFixed(4);
+  const key = `${currentMHz}_MHz`;
+  const measurement = scanner.measurements[key];
+
+  return measurement ? measurement.snr_db : null;
+}
+
 export function SystemStatusPanel({
   system,
   onStart,
@@ -123,13 +155,25 @@ export function SystemStatusPanel({
               <div className="d-flex align-items-center justify-content-center gap-1 mb-1">
                 {getControlChannelIcon(system.controlChannelState)}
                 <small className="text-muted">Control</small>
+                {system.stats.cc_scanner && system.stats.cc_scanner.channels_configured > 1 && (
+                  <small className="text-muted">
+                    ({getChannelIndex(system)} of {system.stats.cc_scanner.channels_configured})
+                  </small>
+                )}
               </div>
               <div className="fw-semibold" style={{ fontSize: "0.9rem" }}>
                 {formatFrequency(system.controlChannelFreqHz)}
               </div>
-              <small className="text-muted">
-                {system.controlChannelState.toUpperCase()}
-              </small>
+              <div className="d-flex align-items-center justify-content-center gap-1">
+                <small className="text-muted">
+                  {system.controlChannelState.toUpperCase()}
+                </small>
+                {system.stats.cc_scanner && getChannelSnr(system) !== null && (
+                  <small className="text-success">
+                    {getChannelSnr(system)!.toFixed(1)} dB
+                  </small>
+                )}
+              </div>
             </div>
           </div>
 
@@ -171,7 +215,7 @@ export function SystemStatusPanel({
         </div>
 
         {/* Stats Row */}
-        <div className="d-flex gap-3 mt-2 small text-muted">
+        <div className="d-flex gap-3 mt-2 small text-muted flex-wrap">
           <span>
             <strong>{system.stats.tsbk_count}</strong> TSBKs
           </span>
@@ -186,6 +230,12 @@ export function SystemStatusPanel({
             {system.stats.recorders_active + system.stats.recorders_idle}{" "}
             Recorders
           </span>
+          {system.stats.initial_scan_complete === false && (
+            <span className="text-warning">
+              <Activity size={12} className="me-1" style={{ animation: "pulse 1s infinite" }} />
+              Scanning channels...
+            </span>
+          )}
         </div>
 
         {/* Protocol Badge */}

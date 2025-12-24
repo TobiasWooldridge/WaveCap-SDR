@@ -23,21 +23,23 @@ WebSocket Endpoints:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Request
-from starlette.responses import StreamingResponse
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
+from starlette.responses import StreamingResponse
 
+from wavecapsdr.decoders.voice import VoiceDecoder
 from wavecapsdr.trunking import (
+    TalkgroupConfig,
     TrunkingManager,
+    TrunkingProtocol,
     TrunkingSystem,
     TrunkingSystemConfig,
-    TalkgroupConfig,
-    TrunkingProtocol,
 )
-from wavecapsdr.decoders.voice import VoiceDecoder
+from wavecapsdr.trunking.config import P25Modulation
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +54,8 @@ class TalkgroupRequest(BaseModel):
     """Request to create/update a talkgroup."""
     tgid: int = Field(..., description="Talkgroup ID (decimal)")
     name: str = Field(..., description="Human-readable name")
-    alpha_tag: Optional[str] = Field(None, description="Short identifier")
-    category: Optional[str] = Field(None, description="Category for grouping")
+    alpha_tag: str | None = Field(None, description="Short identifier")
+    category: str | None = Field(None, description="Category for grouping")
     priority: int = Field(5, ge=1, le=10, description="Priority (1=highest, 10=lowest)")
     record: bool = Field(True, description="Whether to record calls")
     monitor: bool = Field(True, description="Whether to stream audio live")
@@ -64,17 +66,18 @@ class CreateSystemRequest(BaseModel):
     id: str = Field(..., description="Unique system identifier")
     name: str = Field(..., description="Human-readable system name")
     protocol: str = Field("p25_phase1", description="Protocol: p25_phase1 or p25_phase2")
-    control_channels: List[float] = Field(..., description="Control channel frequencies (Hz)")
+    modulation: str | None = Field(None, description="Modulation: c4fm (standard) or lsm (simulcast)")
+    control_channels: list[float] = Field(..., description="Control channel frequencies (Hz)")
     center_hz: float = Field(..., description="SDR center frequency (Hz)")
     sample_rate: int = Field(8_000_000, description="SDR sample rate (Hz)")
-    device_id: Optional[str] = Field(None, description="SoapySDR device string")
-    gain: Optional[float] = Field(None, description="RF gain (None = auto)")
-    antenna: Optional[str] = Field(None, description="SDR antenna port")
+    device_id: str | None = Field(None, description="SoapySDR device string")
+    gain: float | None = Field(None, description="RF gain (None = auto)")
+    antenna: str | None = Field(None, description="SDR antenna port")
     max_voice_recorders: int = Field(4, ge=1, le=16, description="Maximum concurrent recordings")
-    recording_path: Optional[str] = Field(None, description="Path for audio file storage")
+    recording_path: str | None = Field(None, description="Path for audio file storage")
     record_unknown: bool = Field(False, description="Record unknown talkgroups")
     squelch_db: float = Field(-50.0, description="Squelch level for voice channels (dB)")
-    talkgroups: Optional[Dict[str, TalkgroupRequest]] = Field(
+    talkgroups: dict[str, TalkgroupRequest] | None = Field(
         None, description="Initial talkgroup configuration"
     )
 
@@ -84,17 +87,17 @@ class SystemResponse(BaseModel):
     id: str
     name: str
     protocol: str
-    deviceId: Optional[str]
+    deviceId: str | None
     state: str
     controlChannelState: str
-    controlChannelFreqHz: Optional[float]
-    nac: Optional[int]
-    systemId: Optional[int]
-    rfssId: Optional[int]
-    siteId: Optional[int]
+    controlChannelFreqHz: float | None
+    nac: int | None
+    systemId: int | None
+    rfssId: int | None
+    siteId: int | None
     decodeRate: float
     activeCalls: int
-    stats: Dict[str, Any]
+    stats: dict[str, Any]
 
 
 class ActiveCallResponse(BaseModel):
@@ -102,7 +105,7 @@ class ActiveCallResponse(BaseModel):
     id: str
     talkgroupId: int
     talkgroupName: str
-    sourceId: Optional[int]
+    sourceId: int | None
     frequencyHz: float
     channelId: int
     state: str
@@ -111,7 +114,7 @@ class ActiveCallResponse(BaseModel):
     encrypted: bool
     audioFrames: int
     durationSeconds: float
-    recorderId: Optional[str] = None
+    recorderId: str | None = None
 
 
 class TalkgroupResponse(BaseModel):
@@ -127,8 +130,8 @@ class TalkgroupResponse(BaseModel):
 
 class VocoderStatusResponse(BaseModel):
     """Response containing vocoder availability."""
-    imbe: Dict[str, Any]
-    ambe2: Dict[str, Any]
+    imbe: dict[str, Any]
+    ambe2: dict[str, Any]
     anyAvailable: bool
 
 
@@ -137,10 +140,10 @@ class LocationResponse(BaseModel):
     unitId: int
     latitude: float
     longitude: float
-    altitude: Optional[float] = None
-    speed: Optional[float] = None
-    heading: Optional[float] = None
-    accuracy: Optional[float] = None
+    altitude: float | None = None
+    speed: float | None = None
+    heading: float | None = None
+    accuracy: float | None = None
     timestamp: float
     ageSeconds: float
     source: str = "unknown"
@@ -155,7 +158,7 @@ class VoiceStreamResponse(BaseModel):
     state: str
     talkgroupId: int
     talkgroupName: str
-    sourceId: Optional[int] = None
+    sourceId: int | None = None
     encrypted: bool = False
     startTime: float
     durationSeconds: float
@@ -163,20 +166,20 @@ class VoiceStreamResponse(BaseModel):
     audioFrameCount: int
     audioBytesSent: int
     subscriberCount: int
-    sourceLocation: Optional[LocationResponse] = None
+    sourceLocation: LocationResponse | None = None
 
 
 class TrunkingRecipeResponse(BaseModel):
     """Response containing a trunking system recipe/template."""
     id: str
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     category: str = "P25 Trunking"
     protocol: str
-    controlChannels: List[float]
+    controlChannels: list[float]
     centerHz: float
     sampleRate: int
-    gain: Optional[float] = None
+    gain: float | None = None
     talkgroupCount: int = 0
 
 
@@ -222,8 +225,8 @@ def system_to_response(system: TrunkingSystem) -> SystemResponse:
 # REST Endpoints
 # ============================================================================
 
-@router.get("/systems", response_model=List[SystemResponse])
-async def list_systems(request: Request) -> List[SystemResponse]:
+@router.get("/systems", response_model=list[SystemResponse])
+async def list_systems(request: Request) -> list[SystemResponse]:
     """List all trunking systems."""
     manager = get_trunking_manager(request)
     systems = manager.list_systems()
@@ -244,8 +247,19 @@ async def create_system(request: Request, req: CreateSystemRequest) -> SystemRes
             detail=f"Invalid protocol: {req.protocol}. Use 'p25_phase1' or 'p25_phase2'"
         )
 
+    # Parse modulation
+    modulation: P25Modulation | None = None
+    if req.modulation:
+        try:
+            modulation = P25Modulation(req.modulation)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid modulation: {req.modulation}. Use 'c4fm' or 'lsm'"
+            )
+
     # Build talkgroups dict
-    talkgroups: Dict[int, TalkgroupConfig] = {}
+    talkgroups: dict[int, TalkgroupConfig] = {}
     if req.talkgroups:
         for tgid_str, tg_req in req.talkgroups.items():
             tgid = int(tgid_str) if tgid_str.isdigit() else tg_req.tgid
@@ -264,6 +278,7 @@ async def create_system(request: Request, req: CreateSystemRequest) -> SystemRes
         id=req.id,
         name=req.name,
         protocol=protocol,
+        modulation=modulation,
         control_channels=req.control_channels,
         center_hz=req.center_hz,
         sample_rate=req.sample_rate,
@@ -297,7 +312,7 @@ async def get_system(request: Request, system_id: str) -> SystemResponse:
 
 
 @router.delete("/systems/{system_id}")
-async def delete_system(request: Request, system_id: str) -> Dict[str, str]:
+async def delete_system(request: Request, system_id: str) -> dict[str, str]:
     """Remove a trunking system."""
     manager = get_trunking_manager(request)
 
@@ -309,7 +324,7 @@ async def delete_system(request: Request, system_id: str) -> Dict[str, str]:
 
 
 @router.post("/systems/{system_id}/start")
-async def start_system(request: Request, system_id: str) -> Dict[str, str]:
+async def start_system(request: Request, system_id: str) -> dict[str, str]:
     """Start a trunking system."""
     manager = get_trunking_manager(request)
 
@@ -321,7 +336,7 @@ async def start_system(request: Request, system_id: str) -> Dict[str, str]:
 
 
 @router.post("/systems/{system_id}/stop")
-async def stop_system(request: Request, system_id: str) -> Dict[str, str]:
+async def stop_system(request: Request, system_id: str) -> dict[str, str]:
     """Stop a trunking system."""
     manager = get_trunking_manager(request)
 
@@ -332,8 +347,8 @@ async def stop_system(request: Request, system_id: str) -> Dict[str, str]:
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.get("/systems/{system_id}/talkgroups", response_model=List[TalkgroupResponse])
-async def get_talkgroups(request: Request, system_id: str) -> List[TalkgroupResponse]:
+@router.get("/systems/{system_id}/talkgroups", response_model=list[TalkgroupResponse])
+async def get_talkgroups(request: Request, system_id: str) -> list[TalkgroupResponse]:
     """Get talkgroups for a system."""
     manager = get_trunking_manager(request)
     system = manager.get_system(system_id)
@@ -359,8 +374,8 @@ async def get_talkgroups(request: Request, system_id: str) -> List[TalkgroupResp
 async def add_talkgroups(
     request: Request,
     system_id: str,
-    talkgroups: List[TalkgroupRequest],
-) -> Dict[str, Any]:
+    talkgroups: list[TalkgroupRequest],
+) -> dict[str, Any]:
     """Add or update talkgroups for a system."""
     manager = get_trunking_manager(request)
     system = manager.get_system(system_id)
@@ -397,8 +412,8 @@ async def add_talkgroups(
     }
 
 
-@router.get("/systems/{system_id}/calls/active", response_model=List[ActiveCallResponse])
-async def get_system_active_calls(request: Request, system_id: str) -> List[ActiveCallResponse]:
+@router.get("/systems/{system_id}/calls/active", response_model=list[ActiveCallResponse])
+async def get_system_active_calls(request: Request, system_id: str) -> list[ActiveCallResponse]:
     """Get active calls for a specific system."""
     manager = get_trunking_manager(request)
     system = manager.get_system(system_id)
@@ -427,8 +442,8 @@ async def get_system_active_calls(request: Request, system_id: str) -> List[Acti
     ]
 
 
-@router.get("/calls", response_model=List[ActiveCallResponse])
-async def get_all_active_calls(request: Request) -> List[ActiveCallResponse]:
+@router.get("/calls", response_model=list[ActiveCallResponse])
+async def get_all_active_calls(request: Request) -> list[ActiveCallResponse]:
     """Get all active calls across all systems."""
     manager = get_trunking_manager(request)
     calls = manager.get_active_calls()
@@ -464,8 +479,8 @@ async def get_vocoder_status() -> VocoderStatusResponse:
     )
 
 
-@router.get("/systems/{system_id}/locations", response_model=List[LocationResponse])
-async def get_radio_locations(system_id: str, request: Request) -> List[LocationResponse]:
+@router.get("/systems/{system_id}/locations", response_model=list[LocationResponse])
+async def get_radio_locations(system_id: str, request: Request) -> list[LocationResponse]:
     """Get cached GPS locations for radio units in a trunking system.
 
     Returns all fresh (non-stale) radio locations from the LRRP cache.
@@ -496,8 +511,8 @@ async def get_radio_locations(system_id: str, request: Request) -> List[Location
     ]
 
 
-@router.get("/recipes", response_model=List[TrunkingRecipeResponse])
-async def list_trunking_recipes(request: Request) -> List[TrunkingRecipeResponse]:
+@router.get("/recipes", response_model=list[TrunkingRecipeResponse])
+async def list_trunking_recipes(request: Request) -> list[TrunkingRecipeResponse]:
     """List available trunking system recipes/templates from config.
 
     Returns pre-defined trunking system configurations that can be used
@@ -518,10 +533,7 @@ async def list_trunking_recipes(request: Request) -> List[TrunkingRecipeResponse
 
         # Parse protocol for category
         protocol = sys_data.get("protocol", "p25_phase1")
-        if protocol == "p25_phase2":
-            category = "P25 Phase II"
-        else:
-            category = "P25 Phase I"
+        category = "P25 Phase II" if protocol == "p25_phase2" else "P25 Phase I"
 
         # Count talkgroups
         talkgroups = sys_data.get("talkgroups", {})
@@ -637,8 +649,8 @@ async def trunking_stream_all(websocket: WebSocket) -> None:
 # Voice Stream Endpoints
 # ============================================================================
 
-@router.get("/systems/{system_id}/voice-streams", response_model=List[VoiceStreamResponse])
-async def list_voice_streams(system_id: str, request: Request) -> List[VoiceStreamResponse]:
+@router.get("/systems/{system_id}/voice-streams", response_model=list[VoiceStreamResponse])
+async def list_voice_streams(system_id: str, request: Request) -> list[VoiceStreamResponse]:
     """List active voice streams for a trunking system."""
     manager = get_trunking_manager(request)
     system = manager.get_system(system_id)
@@ -705,8 +717,8 @@ async def voice_stream_all(websocket: WebSocket, system_id: str) -> None:
         return
 
     # Subscribe to all voice channels
-    subscribed_queues: List[asyncio.Queue[bytes]] = []
-    subscribed_channels: List[str] = []
+    subscribed_queues: list[asyncio.Queue[bytes]] = []
+    subscribed_channels: list[str] = []
 
     async def subscribe_to_channel(voice_channel) -> None:
         """Subscribe to a voice channel's audio stream."""
@@ -774,14 +786,10 @@ async def voice_stream_all(websocket: WebSocket, system_id: str) -> None:
 
         poll_task.cancel()
         send_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await poll_task
-        except asyncio.CancelledError:
-            pass
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await send_task
-        except asyncio.CancelledError:
-            pass
 
     except WebSocketDisconnect:
         logger.info(f"Voice stream WebSocket disconnected for {system_id}")

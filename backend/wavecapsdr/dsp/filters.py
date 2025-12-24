@@ -13,10 +13,9 @@ Filter coefficients are cached for performance (10-15% faster).
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Optional, Tuple, cast
+from typing import cast
 
 import numpy as np
-
 
 # Cache filter coefficients - these are expensive to compute
 # Key: (filter_type, cutoff_or_band, order, sample_rate)
@@ -24,8 +23,8 @@ import numpy as np
 
 @lru_cache(maxsize=128)
 def _get_butter_coeffs(
-    btype: str, cutoff: Tuple[float, ...], order: int, sample_rate: int
-) -> Tuple[np.ndarray, np.ndarray]:
+    btype: str, cutoff: tuple[float, ...], order: int, sample_rate: int
+) -> tuple[np.ndarray, np.ndarray]:
     """Get cached Butterworth filter coefficients.
 
     Args:
@@ -50,7 +49,7 @@ def _get_butter_coeffs(
 @lru_cache(maxsize=64)
 def _get_notch_coeffs(
     normalized_freq: float, q: float, sample_rate: int
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Get cached IIR notch filter coefficients.
 
     Args:

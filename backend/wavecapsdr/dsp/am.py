@@ -15,7 +15,7 @@ from typing import cast
 import numpy as np
 
 from .agc import apply_agc, soft_clip
-from .filters import bandpass_filter, highpass_filter, lowpass_filter, notch_filter, noise_blanker
+from .filters import bandpass_filter, highpass_filter, lowpass_filter, noise_blanker, notch_filter
 from .fm import resample_poly
 
 

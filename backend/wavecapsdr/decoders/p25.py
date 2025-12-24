@@ -14,13 +14,15 @@ Implements:
 from __future__ import annotations
 
 import logging
-import numpy as np
-from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Callable, cast
+
+import numpy as np
 
 from wavecapsdr.decoders.p25_tsbk import TSBKParser
-from wavecapsdr.dsp.fec.trellis import TrellisDecoder, trellis_decode
+from wavecapsdr.dsp.fec.bch import bch_decode
+from wavecapsdr.dsp.fec.trellis import TrellisDecoder
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +85,7 @@ class DibitRingBuffer:
             self._tail = (self._tail + n) % self._capacity
             self._size -= n
 
-    def get_contiguous(self, max_len: Optional[int] = None) -> np.ndarray:
+    def get_contiguous(self, max_len: int | None = None) -> np.ndarray:
         """
         Get buffer contents as a contiguous array.
 
@@ -130,13 +132,13 @@ class P25Frame:
     frame_type: P25FrameType
     nac: int  # Network Access Code
     duid: int  # Data Unit ID
-    algid: Optional[int] = None  # Algorithm ID (encryption)
-    kid: Optional[int] = None  # Key ID
-    tgid: Optional[int] = None  # Talkgroup ID
-    source: Optional[int] = None  # Source radio ID
-    voice_data: Optional[bytes] = None  # IMBE voice frames
-    tsbk_opcode: Optional[int] = None  # TSBK opcode
-    tsbk_data: Optional[Dict[str, Any]] = None  # TSBK decoded data
+    algid: int | None = None  # Algorithm ID (encryption)
+    kid: int | None = None  # Key ID
+    tgid: int | None = None  # Talkgroup ID
+    source: int | None = None  # Source radio ID
+    voice_data: bytes | None = None  # IMBE voice frames
+    tsbk_opcode: int | None = None  # TSBK opcode
+    tsbk_data: dict[str, Any] | None = None  # TSBK decoded data
     errors: int = 0  # Error count
 
 
@@ -157,9 +159,17 @@ class CQPSKDemodulator:
     - Differential demodulation (phase transitions)
     - Gardner Timing Error Detector (TED) for symbol timing recovery
     - π/4-DQPSK slicing with rotated decision boundaries
+
+    Based on SDRTrunk's P25P1DecoderLSM.
     """
 
-    def __init__(self, sample_rate: int = 48000, symbol_rate: int = 4800):
+    # LSM baseband filter cutoff (Hz) - matches SDRTrunk (wider than C4FM)
+    BASEBAND_CUTOFF_HZ = 7250
+
+    # SDRTrunk equalizer gain for LSM (slightly different from C4FM)
+    EQUALIZER_GAIN = 1.0  # LSM uses adaptive gain, start at 1.0
+
+    def __init__(self, sample_rate: int = 19200, symbol_rate: int = 4800):
         self.sample_rate = sample_rate
         self.symbol_rate = symbol_rate
         self.samples_per_symbol = sample_rate / symbol_rate  # Float for fractional
@@ -171,9 +181,12 @@ class CQPSKDemodulator:
         self.half_pi = np.pi / 2
         self.three_quarter_pi = 3 * np.pi / 4
 
-        # Carrier frequency offset estimation
+        # Carrier frequency offset estimation (based on OP25 gardner_costas_cc)
+        # OP25 uses fmin=-0.025, fmax=0.025 radians/sample which is ±191 Hz at 48kHz
         self._freq_offset = 0.0  # Estimated frequency offset in radians/sample
-        self._freq_alpha = 0.001  # Frequency tracking loop gain
+        self._freq_alpha = 0.005  # Reduced loop gain for stability
+        self._freq_min = -0.025  # Minimum freq offset in radians/sample (~-191 Hz at 48kHz)
+        self._freq_max = 0.025   # Maximum freq offset in radians/sample (~+191 Hz at 48kHz)
         self._phase_acc = 0.0  # Phase accumulator for NCO
 
         # AGC state
@@ -187,8 +200,14 @@ class CQPSKDemodulator:
         self._prev_symbol = 0.0 + 0.0j
         self._prev_diff = 0.0 + 0.0j
 
+        # Baseband low-pass filter (7250 Hz for LSM, matches SDRTrunk)
+        self._baseband_taps = self._design_baseband_filter()
+
         # RRC filter for matched filtering
         self._rrc_taps = self._design_rrc_filter(alpha=0.2, num_taps=65)
+
+        # Equalizer gain (adaptive for LSM)
+        self._equalizer_gain = self.EQUALIZER_GAIN
 
         # Diagnostic tracking
         self._symbol_values: list[float] = []
@@ -196,9 +215,24 @@ class CQPSKDemodulator:
         self._diag_interval = 1000
         self._raw_phases: list[float] = []
 
+    def _design_baseband_filter(self, num_taps: int = 63) -> np.ndarray:
+        """
+        Design baseband low-pass filter for LSM/CQPSK.
+
+        SDRTrunk uses 7250 Hz cutoff for LSM (wider than 5200 Hz for C4FM).
+        """
+        from scipy import signal as scipy_signal
+
+        nyquist = self.sample_rate / 2
+        normalized_cutoff = self.BASEBAND_CUTOFF_HZ / nyquist
+        normalized_cutoff = min(0.99, max(0.01, normalized_cutoff))
+
+        taps = scipy_signal.firwin(num_taps, normalized_cutoff, window='hamming')
+        return taps.astype(np.float32)
+
     def _design_rrc_filter(self, alpha: float = 0.2, num_taps: int = 65) -> np.ndarray:
         """Design Root-Raised Cosine filter for P25."""
-        sps = int(round(self.samples_per_symbol))
+        sps = round(self.samples_per_symbol)
         t = np.arange(-(num_taps-1)//2, (num_taps-1)//2 + 1) / sps
 
         h = np.zeros(num_taps)
@@ -272,11 +306,17 @@ class CQPSKDemodulator:
             # Keep phase in [-π, π]
             self._phase_acc = np.angle(np.exp(1j * self._phase_acc))
 
-        # RRC matched filter (complex)
+        # Apply baseband low-pass filter (7250 Hz for LSM, matches SDRTrunk)
+        if len(x) >= len(self._baseband_taps):
+            x_i = np.convolve(x.real, self._baseband_taps, mode='same')
+            x_q = np.convolve(x.imag, self._baseband_taps, mode='same')
+            x = (x_i + 1j * x_q).astype(np.complex64)
+
+        # RRC pulse shaping filter (complex)
         if len(x) >= len(self._rrc_taps):
             x_i = np.convolve(x.real, self._rrc_taps, mode='same')
             x_q = np.convolve(x.imag, self._rrc_taps, mode='same')
-            x = x_i + 1j * x_q
+            x = (x_i + 1j * x_q).astype(np.complex64)
 
         # Symbol timing recovery with differential demodulation
         symbols = self._cqpsk_timing_recovery(x)
@@ -345,41 +385,52 @@ class CQPSKDemodulator:
             # Phase changes are at ±π/4 (±45°) and ±3π/4 (±135°)
             # Decision boundaries at 0, ±π/2, π
             #
-            # Mapping (TIA-102.BAAB):
-            # +π/4 (+45°)   → dibit 00 → value 0 (+1 symbol)
-            # +3π/4 (+135°) → dibit 01 → value 1 (+3 symbol)
-            # -3π/4 (-135°) → dibit 10 → value 2 (-3 symbol)
-            # -π/4 (-45°)   → dibit 11 → value 3 (-1 symbol)
+            # Mapping (TIA-102.BAAB, same as C4FM frequency deviations):
+            # +π/4 (+45°)   → dibit 00 → value 0 (+1 symbol / +0.6 kHz)
+            # +3π/4 (+135°) → dibit 01 → value 1 (+3 symbol / +1.8 kHz)
+            # -π/4 (-45°)   → dibit 10 → value 2 (-1 symbol / -0.6 kHz)
+            # -3π/4 (-135°) → dibit 11 → value 3 (-3 symbol / -1.8 kHz)
             if phase >= self.half_pi:
                 # +3π/4 quadrant: +90° to +180°
-                dibit = 1  # dibit 01 = +3
+                dibit = 1  # dibit 01 = +3 symbol
             elif phase >= 0:
                 # +π/4 quadrant: 0° to +90°
-                dibit = 0  # dibit 00 = +1
+                dibit = 0  # dibit 00 = +1 symbol
             elif phase >= -self.half_pi:
                 # -π/4 quadrant: -90° to 0°
-                dibit = 3  # dibit 11 = -1
+                dibit = 2  # dibit 10 = -1 symbol (FIXED: was 3)
             else:
                 # -3π/4 quadrant: -180° to -90°
-                dibit = 2  # dibit 10 = -3
+                dibit = 3  # dibit 11 = -3 symbol (FIXED: was 2)
 
             symbols.append(dibit)
 
-            # Frequency offset estimation from differential phase mean
-            # If phases are consistently offset, there's a frequency error
-            if len(self._raw_phases) >= 20 and self._symbol_count % 100 == 0:
-                phase_mean = np.mean(self._raw_phases)
-                # Map phase to nearest constellation point and compute error
-                if phase_mean >= self.half_pi:
-                    expected = self.three_quarter_pi
-                elif phase_mean >= 0:
-                    expected = self.quarter_pi
-                elif phase_mean >= -self.half_pi:
-                    expected = -self.quarter_pi
-                else:
-                    expected = -self.three_quarter_pi
-                freq_error = (phase_mean - expected) / sps  # radians per sample
-                self._freq_offset += self._freq_alpha * freq_error
+            # Frequency offset estimation using phase error from each symbol
+            # For differential QPSK, compute error relative to nearest constellation point
+            # and update frequency offset with limits (like OP25's fmin/fmax)
+            # NOTE: Same mapping as dibit slicing above
+            if phase >= self.half_pi:
+                expected = self.three_quarter_pi  # +135°
+            elif phase >= 0:
+                expected = self.quarter_pi  # +45°
+            elif phase >= -self.half_pi:
+                expected = -self.quarter_pi  # -45° (dibit 10)
+            else:
+                expected = -self.three_quarter_pi  # -135° (dibit 11)
+
+            # Phase error scaled by samples per symbol gives radians/sample error
+            phase_error = phase - expected
+            # Wrap to [-π, π]
+            if phase_error > np.pi:
+                phase_error -= 2 * np.pi
+            elif phase_error < -np.pi:
+                phase_error += 2 * np.pi
+
+            # Update frequency offset with limits (OP25 style)
+            freq_error = phase_error / sps
+            self._freq_offset += self._freq_alpha * freq_error
+            # Clamp to limits to prevent runaway
+            self._freq_offset = np.clip(self._freq_offset, self._freq_min, self._freq_max)
 
             # Gardner TED for symbol timing
             curr_diff = diff
@@ -405,14 +456,17 @@ class CQPSKDemodulator:
             if self._symbol_count % self._diag_interval == 0:
                 vals = np.array(self._symbol_values[-self._diag_interval:])
                 # Count symbols in each quadrant (decision regions)
-                q1 = np.sum(vals >= self.half_pi)  # dibit 1 (+3)
-                q0 = np.sum((vals >= 0) & (vals < self.half_pi))  # dibit 0 (+1)
-                q3 = np.sum((vals >= -self.half_pi) & (vals < 0))  # dibit 3 (-1)
-                q2 = np.sum(vals < -self.half_pi)  # dibit 2 (-3)
+                # Must match slicing at lines 391-402:
+                # [π/2, π)   → dibit 1   [-π/2, 0)  → dibit 2
+                # [0, π/2)   → dibit 0   [-π, -π/2) → dibit 3
+                q0 = np.sum((vals >= 0) & (vals < self.half_pi))  # dibit 0: +π/4 quadrant
+                q1 = np.sum(vals >= self.half_pi)  # dibit 1: +3π/4 quadrant
+                q2 = np.sum((vals >= -self.half_pi) & (vals < 0))  # dibit 2: -π/4 quadrant
+                q3 = np.sum(vals < -self.half_pi)  # dibit 3: -3π/4 quadrant
 
                 # Also track phase clustering
                 # For a good signal, phases should cluster near ±π/4, ±3π/4
-                phase_ranges = {
+                {
                     '+3π/4': np.sum((vals >= self.half_pi) & (vals < np.pi)),
                     '+π/4': np.sum((vals >= 0) & (vals < self.half_pi)),
                     '-π/4': np.sum((vals >= -self.half_pi) & (vals < 0)),
@@ -439,15 +493,24 @@ class C4FMDemodulator:
 
     Demodulates 4800 baud C4FM signal to dibits using:
     - FM discriminator for frequency demodulation
-    - Root-Raised Cosine (RRC) matched filter
+    - Baseband low-pass filter (5200 Hz cutoff, matching SDRTrunk)
+    - Root-Raised Cosine (RRC) pulse shaping filter
+    - 1.219x equalizer gain (from SDRTrunk, compensates for RRC imbalance)
     - MMSE (Minimum Mean Square Error) interpolation for symbol timing
     - Symbol spread tracking for automatic deviation adaptation
     - Fine frequency correction for DC offset removal
 
-    Based on OP25's fsk4_demod_ff implementation.
+    Based on OP25's fsk4_demod_ff and SDRTrunk's P25P1DecoderC4FM.
 
     NOTE: For simulcast/LSM systems (like SA-GRN), use CQPSKDemodulator instead.
     """
+
+    # SDRTrunk equalizer gain - compensates for RRC filter constellation compression
+    # Increased from 1.219 to 1.5 for SA-GRN which has lower deviation
+    EQUALIZER_GAIN = 2.0
+
+    # C4FM baseband filter cutoff (Hz) - matches SDRTrunk
+    BASEBAND_CUTOFF_HZ = 5200
 
     # MMSE interpolation taps from OP25 (8 taps, 128 fractional steps)
     # This provides much more accurate interpolation than linear
@@ -461,7 +524,7 @@ class C4FMDemodulator:
         [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0],  # 128/128 (1.0)
     ], dtype=np.float32)
 
-    def __init__(self, sample_rate: int = 48000, symbol_rate: int = 4800):
+    def __init__(self, sample_rate: int = 19200, symbol_rate: int = 4800):
         self.sample_rate = sample_rate
         self.symbol_rate = symbol_rate
         self.samples_per_symbol = sample_rate / symbol_rate  # Float for fractional
@@ -509,6 +572,9 @@ class C4FMDemodulator:
         # Generate full MMSE interpolation table
         self._mmse_taps = self._generate_mmse_taps()
 
+        # Baseband low-pass filter (5200 Hz cutoff, matches SDRTrunk)
+        self._baseband_taps = self._design_baseband_filter()
+
         # RRC filter coefficients (alpha=0.2 for P25)
         self._rrc_taps = self._design_rrc_filter(alpha=0.2, num_taps=65)
 
@@ -516,7 +582,12 @@ class C4FMDemodulator:
         self._dc_alpha = 0.05
         self._dc_estimate = 0.0
 
-        # Constellation gain normalization
+        # SDRTrunk-style equalizer: PLL + gain
+        # PLL tracks frequency offset, gain compensates RRC filter imbalance
+        self._equalizer_pll = 0.0  # Phase-locked loop correction
+        self._equalizer_gain = self.EQUALIZER_GAIN  # 1.219x gain from SDRTrunk
+
+        # Constellation gain normalization (legacy, kept for compatibility)
         self._constellation_gain = 1.0
         self._target_std = 2.5
 
@@ -558,9 +629,29 @@ class C4FMDemodulator:
 
         return taps
 
+    def _design_baseband_filter(self, num_taps: int = 63) -> np.ndarray:
+        """
+        Design baseband low-pass filter for C4FM.
+
+        SDRTrunk uses 5200 Hz cutoff for C4FM (vs 7250 Hz for LSM).
+        This filters the FM discriminator output before pulse shaping.
+        """
+        from scipy import signal as scipy_signal
+
+        # Normalized cutoff: cutoff_hz / (sample_rate / 2)
+        nyquist = self.sample_rate / 2
+        normalized_cutoff = self.BASEBAND_CUTOFF_HZ / nyquist
+
+        # Clamp to valid range
+        normalized_cutoff = min(0.99, max(0.01, normalized_cutoff))
+
+        # Design low-pass FIR filter with Hamming window
+        taps = scipy_signal.firwin(num_taps, normalized_cutoff, window='hamming')
+        return taps.astype(np.float32)
+
     def _design_rrc_filter(self, alpha: float = 0.2, num_taps: int = 65) -> np.ndarray:
         """Design Root-Raised Cosine filter for P25 C4FM."""
-        sps = int(round(self.samples_per_symbol))
+        sps = round(self.samples_per_symbol)
         t = np.arange(-(num_taps-1)//2, (num_taps-1)//2 + 1) / sps
 
         h = np.zeros(num_taps)
@@ -612,18 +703,36 @@ class C4FMDemodulator:
         if len(inst_freq) < len(self._rrc_taps):
             return cast(np.ndarray, np.array([], dtype=np.uint8))
 
+        # Debug: Log raw FM discriminator output
+        if self._symbol_count % 10000 == 0 and len(inst_freq) > 10:
+            logger.info(
+                f"C4FM FM disc raw: mean={np.mean(inst_freq):.2f}, std={np.std(inst_freq):.2f}, "
+                f"min={np.min(inst_freq):.2f}, max={np.max(inst_freq):.2f}"
+            )
+
         # DC removal (removes frequency offset)
         for i in range(len(inst_freq)):
             self._dc_estimate = self._dc_estimate * (1 - self._dc_alpha) + inst_freq[i] * self._dc_alpha
             inst_freq[i] = inst_freq[i] - self._dc_estimate
 
-        # Apply RRC matched filter
+        # Apply baseband low-pass filter (5200 Hz, matches SDRTrunk)
+        # This removes high-frequency noise before pulse shaping
         try:
-            filtered = np.convolve(inst_freq, self._rrc_taps, mode='same').astype(np.float32)
+            baseband = np.convolve(inst_freq, self._baseband_taps, mode='same').astype(np.float32)
         except Exception:
-            filtered = inst_freq
+            baseband = inst_freq
 
-        # Constellation gain normalization
+        # Apply RRC pulse shaping filter
+        try:
+            filtered = np.convolve(baseband, self._rrc_taps, mode='same').astype(np.float32)
+        except Exception:
+            filtered = baseband
+
+        # Apply SDRTrunk equalizer gain (1.219x)
+        # This compensates for RRC filter constellation compression
+        filtered = filtered * self._equalizer_gain
+
+        # Legacy constellation gain normalization (adaptive, kept for compatibility)
         if len(filtered) > 100:
             current_std = np.std(filtered)
             if current_std > 0.1:
@@ -649,7 +758,7 @@ class C4FMDemodulator:
             Interpolated sample value
         """
         # Select tap coefficients for this fractional offset
-        imu = int(round(mu * self.MMSE_NSTEPS))
+        imu = round(mu * self.MMSE_NSTEPS)
         if imu > self.MMSE_NSTEPS:
             imu = self.MMSE_NSTEPS
 
@@ -816,7 +925,7 @@ class P25TrellisDecoder:
     def __init__(self):
         self._decoder = TrellisDecoder()
 
-    def decode(self, dibits: np.ndarray) -> Tuple[Optional[np.ndarray], int]:
+    def decode(self, dibits: np.ndarray) -> tuple[np.ndarray | None, int]:
         """
         Decode trellis-encoded dibits using Viterbi algorithm.
 
@@ -846,7 +955,7 @@ class P25TrellisDecoder:
 
 
 class P25FrameSync:
-    """Frame synchronization for P25"""
+    """Frame synchronization for P25 with soft correlation (SDRTrunk-style)"""
 
     # P25 Frame Sync is 48 bits (24 dibits) representing the pattern:
     # +3 +3 +3 +3 +3 -3 +3 +3 -3 -3 +3 +3 +3 +3 -3 +3 -3 +3 -3 -3 -3 +3 -3 -3
@@ -877,6 +986,20 @@ class P25FrameSync:
     FRAME_SYNC_DIBITS = np.array([1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1,
                                    3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3], dtype=np.uint8)
 
+    # Sync pattern as soft symbols (for soft correlation)
+    # dibit 1 -> +3, dibit 3 -> -3
+    SYNC_PATTERN_SYMBOLS = np.array([+3, +3, +3, +3, +3, -3, +3, +3, -3, -3, +3, +3,
+                                      -3, -3, -3, -3, +3, -3, +3, -3, -3, -3, -3, -3], dtype=np.float32)
+
+    # Dibit to symbol conversion (for soft correlation)
+    # dibit 0 -> +1, dibit 1 -> +3, dibit 2 -> -1, dibit 3 -> -3
+    DIBIT_TO_SYMBOL = np.array([+1.0, +3.0, -1.0, -3.0], dtype=np.float32)
+
+    # SDRTrunk-style soft correlation thresholds
+    # Max score is 24 * 9 = 216 (all symbols at ±3 perfectly matched)
+    SOFT_SYNC_THRESHOLD = 60  # SDRTrunk uses 60 for coarse detection
+    SOFT_SYNC_THRESHOLD_OPTIMIZE = 80  # SDRTrunk uses 80 for optimization
+
     def __init__(self) -> None:
         self.duid_to_frame_type = {
             self.DUID_HDU: P25FrameType.HDU,
@@ -887,11 +1010,71 @@ class P25FrameSync:
             self.DUID_PDU: P25FrameType.PDU,
             self.DUID_TDULC: P25FrameType.TDU,
         }
-        self.sync_threshold = 4  # Allow 4 dibit errors (8 bit errors, ~17% BER)
+        # Hard sync threshold (allow 4 dibit errors)
+        self.sync_threshold = 4
+        # Soft correlation mode
+        self.use_soft_sync = True
+        # NAC tracking for BCH decode assistance
+        self._tracked_nac: int | None = None
 
-    def find_sync(self, dibits: np.ndarray) -> Tuple[Optional[int], Optional[P25FrameType]]:
+    def _decode_nid_with_bch(self, nid_dibits: np.ndarray) -> tuple[int, int, int]:
+        """
+        Decode NID (Network ID) using BCH(63,16,23) error correction.
+
+        Args:
+            nid_dibits: 32 dibits containing the NID (64 bits)
+
+        Returns:
+            Tuple of (nac, duid, errors) where:
+            - nac: 12-bit Network Access Code
+            - duid: 4-bit Data Unit ID
+            - errors: Number of errors corrected (-1 if BCH failed)
+        """
+        # Convert 32 dibits to 64 bits
+        bits = np.zeros(64, dtype=np.uint8)
+        for i, d in enumerate(nid_dibits):
+            bits[i * 2] = (int(d) >> 1) & 1
+            bits[i * 2 + 1] = int(d) & 1
+
+        # BCH(63,16,23) uses 63 bits - first 63 of 64
+        bch_codeword = bits[:63]
+
+        # BCH decode with tracked NAC for assistance
+        decoded_data, errors = bch_decode(bch_codeword, self._tracked_nac)
+
+        if errors < 0:
+            # BCH decode failed - fall back to simple extraction
+            nac = 0
+            for i in range(6):
+                nac = (nac << 2) | int(nid_dibits[i])
+            duid = int((nid_dibits[6] << 2) | nid_dibits[7])
+            return nac, duid, 99  # 99 = BCH failed
+
+        # Extract NAC (12 bits) and DUID (4 bits) from decoded data
+        nac = (decoded_data >> 4) & 0xFFF
+        duid = decoded_data & 0xF
+
+        return nac, duid, errors
+
+    def _soft_correlation(self, dibits: np.ndarray) -> float:
+        """
+        Compute soft correlation score between dibits and sync pattern.
+
+        SDRTrunk-style: dot product of received symbols with ideal sync symbols.
+        Max score is 24 * 9 = 216 when all symbols match perfectly at ±3.
+        """
+        # Convert dibits to symbols: 0->+1, 1->+3, 2->-1, 3->-3
+        symbols = self.DIBIT_TO_SYMBOL[np.clip(dibits[:24], 0, 3)]
+
+        # Dot product with ideal sync pattern
+        return float(np.dot(symbols, self.SYNC_PATTERN_SYMBOLS))
+
+    def find_sync(self, dibits: np.ndarray) -> tuple[int | None, P25FrameType | None]:
         """
         Search for P25 frame sync pattern in dibit stream.
+
+        Uses SDRTrunk-style soft correlation for more robust detection.
+        Falls back to hard matching if soft detection fails.
 
         The P25 frame structure is:
         - 48-bit frame sync (24 dibits)
@@ -913,48 +1096,81 @@ class P25FrameSync:
             logger.warning(f"P25 find_sync: dibits out of range (max={dibits.max()}), clipping")
             dibits = np.clip(dibits, 0, 3).astype(np.uint8)
 
-        # Search for frame sync pattern using correlation
         sync_len = len(self.FRAME_SYNC_DIBITS)
+        best_pos = None
+        best_score = 0.0
 
+        # Search for frame sync pattern
         for start_pos in range(len(dibits) - sync_len - 8):  # Need sync + some NID
-            # Count matching dibits
             window = dibits[start_pos:start_pos + sync_len]
-            errors = int(np.sum(window != self.FRAME_SYNC_DIBITS))
 
-            if errors <= self.sync_threshold:
-                # Found sync! Extract DUID from NID
-                # NID starts after sync: NAC is 6 dibits, DUID is 2 dibits
-                nid_start = start_pos + sync_len
-                if nid_start + 8 > len(dibits):
-                    continue
+            if self.use_soft_sync:
+                # SDRTrunk-style soft correlation
+                score = self._soft_correlation(window)
 
-                # Extract NAC (first 6 dibits = 12 bits)
-                nac_dibits = dibits[nid_start:nid_start + 6]
-                nac = 0
-                for d in nac_dibits:
-                    nac = (nac << 2) | int(d)
+                if score > best_score:
+                    best_score = score
+                    best_pos = start_pos
 
-                # Extract DUID (2 dibits after NAC)
-                duid_dibits = dibits[nid_start + 6:nid_start + 8]
-                duid = int((duid_dibits[0] << 2) | duid_dibits[1])
+                # Early exit if we find a strong match
+                if score >= self.SOFT_SYNC_THRESHOLD_OPTIMIZE:
+                    break
+            else:
+                # Hard dibit matching (legacy)
+                errors = int(np.sum(window != self.FRAME_SYNC_DIBITS))
+                if errors <= self.sync_threshold:
+                    best_pos = start_pos
+                    best_score = 216 - errors * 9  # Convert to pseudo-score
+                    break
 
-                frame_type = self.duid_to_frame_type.get(duid, P25FrameType.UNKNOWN)
+        # Check if we found sync above threshold
+        if best_pos is None:
+            return None, None
 
-                # Debug: log NAC and DUID for first few syncs
-                if not hasattr(self, '_sync_debug_count'):
-                    self._sync_debug_count = 0
-                self._sync_debug_count += 1
-                if self._sync_debug_count <= 10:
-                    logger.info(
-                        f"P25FrameSync: pos={start_pos}, NAC={nac:03x}, "
-                        f"NID dibits={list(dibits[nid_start:nid_start+8])}, "
-                        f"DUID={duid:x} -> {frame_type}"
-                    )
+        if self.use_soft_sync and best_score < self.SOFT_SYNC_THRESHOLD:
+            # Log near-misses for debugging
+            if best_score > 30:
+                logger.debug(f"P25 soft sync near-miss: score={best_score:.1f} < threshold={self.SOFT_SYNC_THRESHOLD}")
+            return None, None
 
-                logger.debug(f"P25 sync found at {start_pos}, errors={errors}, DUID={duid:x} -> {frame_type}")
-                return start_pos, frame_type
+        # Extract NID with BCH error correction
+        nid_start = best_pos + sync_len
+        if nid_start + 32 > len(dibits):  # Need full 32 dibits for BCH
+            # Fallback to simple extraction if not enough data
+            if nid_start + 8 > len(dibits):
+                return None, None
+            # Simple extraction without BCH
+            nac_dibits = dibits[nid_start:nid_start + 6]
+            nac = 0
+            for d in nac_dibits:
+                nac = (nac << 2) | int(d)
+            duid_dibits = dibits[nid_start + 6:nid_start + 8]
+            duid = int((duid_dibits[0] << 2) | duid_dibits[1])
+            bch_errors = 99  # Mark as uncorrected
+        else:
+            # BCH decode the full 64-bit NID
+            nid_dibits = dibits[nid_start:nid_start + 32]
+            nac, duid, bch_errors = self._decode_nid_with_bch(nid_dibits)
 
-        return None, None
+        frame_type = self.duid_to_frame_type.get(duid, P25FrameType.UNKNOWN)
+
+        # Track NAC for future decodes
+        if hasattr(self, '_tracked_nac') and 0x001 <= nac <= 0xFFE and bch_errors < 10:
+            self._tracked_nac = nac
+
+        # Debug: log NAC and DUID for first few syncs
+        if not hasattr(self, '_sync_debug_count'):
+            self._sync_debug_count = 0
+        self._sync_debug_count += 1
+        if self._sync_debug_count <= 20:
+            sync_method = "soft" if self.use_soft_sync else "hard"
+            logger.info(
+                f"P25FrameSync ({sync_method}): pos={best_pos}, score={best_score:.1f}, "
+                f"NAC={nac:03x}, DUID={duid:x} -> {frame_type}, BCH_err={bch_errors}"
+            )
+
+        logger.debug(f"P25 sync found at {best_pos}, score={best_score:.1f}, DUID={duid:x} -> {frame_type}")
+        return best_pos, frame_type
 
 
 class P25Modulation(str, Enum):
@@ -1001,13 +1217,13 @@ class P25Decoder:
 
         # Trunking state
         self.control_channel = True  # Are we on control channel?
-        self.current_tgid: Optional[int] = None
-        self.voice_channel_freq: Optional[float] = None
+        self.current_tgid: int | None = None
+        self.voice_channel_freq: float | None = None
 
         # Callbacks
-        self.on_voice_frame: Optional[Callable[[bytes], None]] = None
-        self.on_tsbk_message: Optional[Callable[[Dict[str, Any]], None]] = None
-        self.on_grant: Optional[Callable[[int, float], None]] = None  # (tgid, freq)
+        self.on_voice_frame: Callable[[bytes], None] | None = None
+        self.on_tsbk_message: Callable[[dict[str, Any]], None] | None = None
+        self.on_grant: Callable[[int, float], None] | None = None  # (tgid, freq)
 
         # Debug counters
         self._process_count = 0
@@ -1078,8 +1294,6 @@ class P25Decoder:
         # - Position 70: Status 2 (in data, but position 71 after skipping first status)
         # - Position 105: Status 3 (= 106 raw)
         # - etc.
-        SYNC_DIBITS = 24
-        FULL_NID_DIBITS = 32  # Full NID (NAC + DUID + BCH parity)
         # We use 8 for minimal extraction, but for proper framing need to account for status
 
         # For TSDU, we need to extract starting at position 57 (after sync + NID + 1 status)
@@ -1093,7 +1307,7 @@ class P25Decoder:
 
         # Minimum raw frame data dibits required per frame type
         # For TSDU: 98 clean dibits requires ~101 raw dibits (with status symbols)
-        MIN_FRAME_DATA: Dict[P25FrameType, int] = {
+        MIN_FRAME_DATA: dict[P25FrameType, int] = {
             P25FrameType.HDU: 100,    # Header data unit
             P25FrameType.LDU1: 900,   # Voice frame 1
             P25FrameType.LDU2: 900,   # Voice frame 2
@@ -1162,7 +1376,7 @@ class P25Decoder:
 
         return frames
 
-    def _decode_hdu(self, dibits: np.ndarray) -> Optional[P25Frame]:
+    def _decode_hdu(self, dibits: np.ndarray) -> P25Frame | None:
         """Decode Header Data Unit"""
         # HDU contains:
         # - NAC (12 bits)
@@ -1202,7 +1416,7 @@ class P25Decoder:
             kid=kid
         )
 
-    def _decode_ldu1(self, dibits: np.ndarray) -> Optional[P25Frame]:
+    def _decode_ldu1(self, dibits: np.ndarray) -> P25Frame | None:
         """Decode Logical Link Data Unit 1 (voice frame)"""
         if len(dibits) < 900:  # LDU1 is ~1800 bits
             return None
@@ -1223,7 +1437,7 @@ class P25Decoder:
             voice_data=voice_data
         )
 
-    def _decode_ldu2(self, dibits: np.ndarray) -> Optional[P25Frame]:
+    def _decode_ldu2(self, dibits: np.ndarray) -> P25Frame | None:
         """Decode Logical Link Data Unit 2 (voice frame)"""
         if len(dibits) < 900:
             return None
@@ -1241,86 +1455,61 @@ class P25Decoder:
             voice_data=voice_data
         )
 
-    def _decode_tdu(self, dibits: np.ndarray) -> Optional[P25Frame]:
+    def _decode_tdu(self, dibits: np.ndarray) -> P25Frame | None:
         """Decode Terminator Data Unit (end of transmission)"""
         logger.info("TDU: End of transmission")
         return P25Frame(frame_type=P25FrameType.TDU, nac=0, duid=3)
 
-    # P25 Data Deinterleave pattern (196 bits)
-    # From TIA-102.BAAA / SDRTrunk P25P1Interleave.java
+    # P25 Data Deinterleave pattern (98 dibits)
+    # From p25.rs DeinterleaveRedirector - operates on dibit positions directly
+    # deinterleaved_dibits[i] = input_dibits[DEINTERLEAVE[i]]
     DATA_DEINTERLEAVE = np.array([
-        0, 1, 2, 3, 16, 17, 18, 19, 32, 33, 34, 35, 48, 49, 50, 51,
-        64, 65, 66, 67, 80, 81, 82, 83, 96, 97, 98, 99, 112, 113, 114, 115,
-        128, 129, 130, 131, 144, 145, 146, 147, 160, 161, 162, 163, 176, 177, 178, 179,
-        192, 193, 194, 195, 4, 5, 6, 7, 20, 21, 22, 23, 36, 37, 38, 39,
-        52, 53, 54, 55, 68, 69, 70, 71, 84, 85, 86, 87, 100, 101, 102, 103,
-        116, 117, 118, 119, 132, 133, 134, 135, 148, 149, 150, 151, 164, 165, 166, 167,
-        180, 181, 182, 183, 8, 9, 10, 11, 24, 25, 26, 27, 40, 41, 42, 43,
-        56, 57, 58, 59, 72, 73, 74, 75, 88, 89, 90, 91, 104, 105, 106, 107,
-        120, 121, 122, 123, 136, 137, 138, 139, 152, 153, 154, 155, 168, 169, 170, 171,
-        184, 185, 186, 187, 12, 13, 14, 15, 28, 29, 30, 31, 44, 45, 46, 47,
-        60, 61, 62, 63, 76, 77, 78, 79, 92, 93, 94, 95, 108, 109, 110, 111,
-        124, 125, 126, 127, 140, 141, 142, 143, 156, 157, 158, 159, 172, 173, 174, 175,
-        188, 189, 190, 191
+        0, 1, 26, 27, 50, 51, 74, 75, 2, 3, 28, 29, 52, 53, 76, 77,
+        4, 5, 30, 31, 54, 55, 78, 79, 6, 7, 32, 33, 56, 57, 80, 81,
+        8, 9, 34, 35, 58, 59, 82, 83, 10, 11, 36, 37, 60, 61, 84, 85,
+        12, 13, 38, 39, 62, 63, 86, 87, 14, 15, 40, 41, 64, 65, 88, 89,
+        16, 17, 42, 43, 66, 67, 90, 91, 18, 19, 44, 45, 68, 69, 92, 93,
+        20, 21, 46, 47, 70, 71, 94, 95, 22, 23, 48, 49, 72, 73, 96, 97, 24, 25
+    ], dtype=np.int16)
+
+    # P25 Data Interleave pattern (98 dibits) - inverse of deinterleave
+    DATA_INTERLEAVE = np.array([
+        0, 1, 8, 9, 16, 17, 24, 25, 32, 33, 40, 41, 48, 49, 56, 57,
+        64, 65, 72, 73, 80, 81, 88, 89, 96, 97, 2, 3, 10, 11, 18, 19,
+        26, 27, 34, 35, 42, 43, 50, 51, 58, 59, 66, 67, 74, 75, 82, 83,
+        90, 91, 4, 5, 12, 13, 20, 21, 28, 29, 36, 37, 44, 45, 52, 53,
+        60, 61, 68, 69, 76, 77, 84, 85, 92, 93, 6, 7, 14, 15, 22, 23,
+        30, 31, 38, 39, 46, 47, 54, 55, 62, 63, 70, 71, 78, 79, 86, 87, 94, 95
     ], dtype=np.int16)
 
     def _deinterleave_data(self, dibits: np.ndarray) -> np.ndarray:
         """
         Deinterleave P25 data block (TSBK).
 
-        Converts 98 dibits to 196 bits, applies deinterleave, converts back to dibits.
-        Vectorized implementation using numpy advanced indexing.
+        Uses 98-dibit deinterleave pattern directly on dibit positions.
+        deinterleaved_dibits[i] = input_dibits[DEINTERLEAVE[i]]
         """
         if len(dibits) < 98:
             return dibits
 
-        # Vectorized conversion: 98 dibits -> 196 bits
-        # Extract high and low bits, then interleave them
-        d = (dibits[:98] & 0x3).astype(np.uint8)
-        high_bits = (d >> 1) & 1
-        low_bits = d & 1
-        bits = np.empty(196, dtype=np.uint8)
-        bits[0::2] = high_bits
-        bits[1::2] = low_bits
-
-        # Apply deinterleave pattern using advanced indexing (scatter)
-        # deinterleaved[pattern[i]] = bits[i] for all i
-        deinterleaved = np.zeros(196, dtype=np.uint8)
-        deinterleaved[self.DATA_DEINTERLEAVE] = bits
-
-        # Vectorized conversion: 196 bits -> 98 dibits
-        result = ((deinterleaved[0::2] & 1) << 1) | (deinterleaved[1::2] & 1)
-        return result.astype(np.uint8)
+        # Apply deinterleave pattern using advanced indexing (gather)
+        return dibits[self.DATA_DEINTERLEAVE].astype(np.uint8)
 
     def _interleave_data(self, dibits: np.ndarray) -> np.ndarray:
         """
         Interleave P25 data block (reverse of deinterleave).
         Used for testing if data is already deinterleaved.
-        Vectorized implementation using numpy advanced indexing.
         """
         if len(dibits) < 98:
             return dibits
 
-        # Vectorized conversion: 98 dibits -> 196 bits
-        d = (dibits[:98] & 0x3).astype(np.uint8)
-        high_bits = (d >> 1) & 1
-        low_bits = d & 1
-        bits = np.empty(196, dtype=np.uint8)
-        bits[0::2] = high_bits
-        bits[1::2] = low_bits
-
-        # Apply interleave (gather from deinterleave positions)
-        # interleaved[i] = bits[pattern[i]]
-        interleaved = bits[self.DATA_DEINTERLEAVE]
-
-        # Vectorized conversion: 196 bits -> 98 dibits
-        result = ((interleaved[0::2] & 1) << 1) | (interleaved[1::2] & 1)
-        return result.astype(np.uint8)
+        # Apply interleave pattern using advanced indexing (gather)
+        return dibits[self.DATA_INTERLEAVE].astype(np.uint8)
 
     # Pre-computed status symbol positions for common initial counters
     # Status symbols occur every 36 dibits; first skip is at (35 - initial_counter)
     # These arrays contain indices to KEEP (non-status positions) for up to 120 raw dibits
-    _STATUS_KEEP_INDICES: Dict[int, np.ndarray] = {}
+    _STATUS_KEEP_INDICES: dict[int, np.ndarray] = {}
 
     @classmethod
     def _get_status_keep_indices(cls, initial_counter: int, max_len: int = 120) -> np.ndarray:
@@ -1368,7 +1557,7 @@ class P25Decoder:
 
         return dibits[valid_indices].astype(np.uint8)
 
-    def _decode_tsdu(self, dibits: np.ndarray) -> Optional[P25Frame]:
+    def _decode_tsdu(self, dibits: np.ndarray) -> P25Frame | None:
         """
         Decode Trunking Signaling Data Unit (TSBK messages).
 
@@ -1386,9 +1575,10 @@ class P25Decoder:
 
         TSDU structure allows up to 3 TSBKs.
         """
-        # One TSBK block = 98 encoded dibits (49 4-bit symbols)
+        # One TSBK block = 98 encoded dibits (196 bits including trellis flush)
+        # After trellis 1/2 rate decode: 49 dibits, but only first 48 are data
         TSBK_ENCODED_DIBITS = 98
-        TSBK_DECODED_DIBITS = 48  # After 1/2 rate trellis decode (96 bits)
+        TSBK_DECODED_DIBITS = 48  # After 1/2 rate trellis decode (use first 48, discard flush)
 
         logger.debug(f"TSDU decode: received {len(dibits)} raw dibits")
 
@@ -1405,10 +1595,7 @@ class P25Decoder:
         clean_dibits = None
         if len(dibits) >= 101:
             clean_dibits = self._strip_status_symbols(dibits, initial_counter=21)
-            if len(clean_dibits) >= 98:
-                clean_dibits = clean_dibits[:TSBK_ENCODED_DIBITS]
-            else:
-                clean_dibits = None
+            clean_dibits = clean_dibits[:TSBK_ENCODED_DIBITS] if len(clean_dibits) >= 98 else None
 
         # Approach 3: Strip status with counter=0 (in case our counter is wrong)
         clean_dibits_c0 = None
@@ -1421,6 +1608,11 @@ class P25Decoder:
 
         # Collect all approaches with deinterleave variations
         results = []
+
+        # Debug: dump first 20 dibits of raw data
+        if raw_dibits is not None:
+            dibit_str = ' '.join(str(d) for d in raw_dibits[:20])
+            logger.debug(f"TSBK raw dibits[0:20]: {dibit_str}")
 
         for name, data in [("raw", raw_dibits), ("strip21", clean_dibits), ("strip0", clean_dibits_c0)]:
             if data is None:
@@ -1487,7 +1679,14 @@ class P25Decoder:
         crc_valid = (crc == received_crc)
 
         # Log all decode attempts for debugging
-        logger.info(f"TSBK CRC check: errors={errors}, crc_valid={crc_valid}, calc_crc=0x{crc:04x}, recv_crc=0x{received_crc:04x}")
+        # Show first 12 decoded dibits (24 bits = 3 bytes: LB + opcode + MFID start)
+        decoded_hex = ''.join(f'{d}' for d in decoded[:12])
+        first_bytes = bytes([
+            (decoded[0] << 6) | (decoded[1] << 4) | (decoded[2] << 2) | decoded[3],
+            (decoded[4] << 6) | (decoded[5] << 4) | (decoded[6] << 2) | decoded[7],
+            (decoded[8] << 6) | (decoded[9] << 4) | (decoded[10] << 2) | decoded[11]
+        ])
+        logger.info(f"TSBK CRC check: errors={errors}, crc_valid={crc_valid}, calc_crc=0x{crc:04x}, recv_crc=0x{received_crc:04x}, first_dibits={decoded_hex}, first_bytes={first_bytes.hex()}")
 
         # Check error threshold - temporarily relaxed for debugging
         if errors > 30 or (errors > 8 and not crc_valid):
@@ -1549,12 +1748,12 @@ class P25Decoder:
             tsbk_data=tsbk_data
         )
 
-    def _decode_tsbk_opcode(self, opcode: int, dibits: np.ndarray) -> Dict[str, Any]:
+    def _decode_tsbk_opcode(self, opcode: int, dibits: np.ndarray) -> dict[str, Any]:
         """Decode TSBK opcode and extract trunking information.
 
         Uses correct P25 TIA-102.AABB opcode values matching SDRTrunk.
         """
-        data: Dict[str, Any] = {}
+        data: dict[str, Any] = {}
 
         # Voice grants (OSP) - 0x00-0x06
         if opcode == 0x00:  # Group Voice Channel Grant
@@ -1678,7 +1877,7 @@ class P25Decoder:
 
         return data
 
-    def _extract_imbe_frames(self, dibits: np.ndarray) -> Optional[bytes]:
+    def _extract_imbe_frames(self, dibits: np.ndarray) -> bytes | None:
         """Extract IMBE voice frames from LDU"""
         # IMBE codec: 88 bits per 20ms frame, 9 frames per LDU
         # This is simplified - real decoder needs to extract and de-interleave

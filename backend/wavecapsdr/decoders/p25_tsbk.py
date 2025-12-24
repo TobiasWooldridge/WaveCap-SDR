@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -157,14 +157,14 @@ class TSBKParser:
 
     def __init__(self) -> None:
         # Channel identifier table (from IDEN_UP messages)
-        self._channel_ids: Dict[int, ChannelIdentifier] = {}
+        self._channel_ids: dict[int, ChannelIdentifier] = {}
 
         # System status
         self.system_status = SystemStatus()
 
         # Callbacks
-        self.on_voice_grant: Optional[Callable[[VoiceGrant], None]] = None
-        self.on_system_update: Optional[Callable[[SystemStatus], None]] = None
+        self.on_voice_grant: Callable[[VoiceGrant], None] | None = None
+        self.on_system_update: Callable[[SystemStatus], None] | None = None
 
     def add_channel_id(self, ident: ChannelIdentifier) -> None:
         """Add or update channel identifier."""
@@ -189,7 +189,7 @@ class TSBKParser:
 
         return ident.get_frequency(channel_num)
 
-    def parse(self, opcode: int, mfid: int, data: bytes) -> Dict[str, Any]:
+    def parse(self, opcode: int, mfid: int, data: bytes) -> dict[str, Any]:
         """Parse TSBK message.
 
         Args:
@@ -200,7 +200,7 @@ class TSBKParser:
         Returns:
             Dict with parsed message fields
         """
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             'opcode': opcode,
             'opcode_name': self._opcode_name(opcode),
             'mfid': mfid,
@@ -275,7 +275,7 @@ class TSBKParser:
         except ValueError:
             return f"UNKNOWN_0x{opcode:02X}"
 
-    def _parse_grp_v_ch_grant(self, data: bytes, result: Dict[str, Any]) -> None:
+    def _parse_grp_v_ch_grant(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Group Voice Channel Grant.
 
         Data format (64 bits per TIA-102.AABB-A, SDRTrunk bit positions):
@@ -337,7 +337,7 @@ class TSBKParser:
             )
             self.on_voice_grant(grant)
 
-    def _parse_grp_v_ch_grant_updt_exp(self, data: bytes, result: Dict[str, Any]) -> None:
+    def _parse_grp_v_ch_grant_updt_exp(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Group Voice Channel Grant Update Explicit.
 
         Contains explicit downlink/uplink frequencies instead of channel identifiers.
@@ -395,7 +395,7 @@ class TSBKParser:
                    f"DL_BAND={dl_freq_band} DL_CH={dl_channel_num} "
                    f"UL_BAND={ul_freq_band} UL_CH={ul_channel_num}")
 
-    def _parse_grp_v_ch_grant_updt(self, data: bytes, result: Dict[str, Any]) -> None:
+    def _parse_grp_v_ch_grant_updt(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Group Voice Channel Grant Update.
 
         Contains two channel/group pairs for active calls.
@@ -444,7 +444,7 @@ class TSBKParser:
                 'frequency_hz': self.get_frequency(channel_b)
             }
 
-    def _parse_uu_v_ch_grant(self, data: bytes, result: Dict[str, Any]) -> None:
+    def _parse_uu_v_ch_grant(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Unit to Unit Voice Channel Grant.
 
         Data format per SDRTrunk (NO service options):
@@ -480,7 +480,7 @@ class TSBKParser:
         logger.info(f"Unit-to-Unit Grant: TARGET={target} SRC={source} CH={channel} "
                    f"FREQ={result['frequency_hz']/1e6:.4f} MHz")
 
-    def _parse_uu_v_ch_grant_updt(self, data: bytes, result: Dict[str, Any]) -> None:
+    def _parse_uu_v_ch_grant_updt(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Unit to Unit Voice Channel Grant Update.
 
         Data format per SDRTrunk:
@@ -524,7 +524,7 @@ class TSBKParser:
                     'frequency_hz': self.get_frequency(channel_b)
                 }
 
-    def _parse_rfss_sts_bcast(self, data: bytes, result: Dict[str, Any]) -> None:
+    def _parse_rfss_sts_bcast(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse RFSS Status Broadcast.
 
         Contains RFSS and site identification.
@@ -591,7 +591,7 @@ class TSBKParser:
         if self.on_system_update:
             self.on_system_update(self.system_status)
 
-    def _parse_net_sts_bcast(self, data: bytes, result: Dict[str, Any]) -> None:
+    def _parse_net_sts_bcast(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Network Status Broadcast.
 
         Data format per SDRTrunk:
@@ -636,7 +636,7 @@ class TSBKParser:
         self.system_status.system_id = sys_id
         self.system_status.services = svc_class
 
-    def _parse_adj_sts_bcast(self, data: bytes, result: Dict[str, Any]) -> None:
+    def _parse_adj_sts_bcast(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Adjacent Status Broadcast.
 
         Information about neighboring sites for roaming.
@@ -688,7 +688,7 @@ class TSBKParser:
         result['channel_number'] = channel_num
         result['service_class'] = svc_class
 
-    def _parse_iden_up_vu(self, data: bytes, result: Dict[str, Any]) -> None:
+    def _parse_iden_up_vu(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Identifier Update for VHF/UHF.
 
         Defines channel numbering for a frequency band.
@@ -761,7 +761,7 @@ class TSBKParser:
                    f"spacing={spacing * 0.125} kHz, bw={bw_khz} kHz, "
                    f"tx_offset={tx_offset_hz/1e6:.4f} MHz")
 
-    def _parse_iden_up_tdma(self, data: bytes, result: Dict[str, Any]) -> None:
+    def _parse_iden_up_tdma(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Identifier Update for TDMA (Phase II).
 
         Data format per SDRTrunk:
@@ -839,7 +839,7 @@ class TSBKParser:
         logger.info(f"Channel ID {ident} ({access_type} {slot_count}-slot): base={base_freq:.4f} MHz, "
                    f"spacing={spacing * 0.125} kHz, tx_offset={tx_offset_hz/1e6:.4f} MHz")
 
-    def _parse_sys_srv_bcast(self, data: bytes, result: Dict[str, Any]) -> None:
+    def _parse_sys_srv_bcast(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse System Service Broadcast.
 
         Available services bitmap.
@@ -861,7 +861,7 @@ class TSBKParser:
 
         self.system_status.services = svc_available
 
-    def _parse_grp_aff_rsp(self, data: bytes, result: Dict[str, Any]) -> None:
+    def _parse_grp_aff_rsp(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Group Affiliation Response."""
         result['type'] = 'GROUP_AFFILIATION_RESPONSE'
 
@@ -877,7 +877,7 @@ class TSBKParser:
         result['announcement_group'] = announcement_group
         result['target_id'] = target
 
-    def _parse_deny_rsp(self, data: bytes, result: Dict[str, Any]) -> None:
+    def _parse_deny_rsp(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Deny Response."""
         result['type'] = 'DENY_RESPONSE'
 

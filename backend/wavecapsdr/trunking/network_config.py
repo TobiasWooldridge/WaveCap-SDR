@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class FrequencyBand:
         """Calculate uplink (transmit) frequency for channel number."""
         return self.get_downlink_frequency(channel_number) + self.transmit_offset_hz
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "identifier": self.identifier,
             "baseFrequencyMhz": self.base_frequency_hz / 1e6,
@@ -77,7 +77,7 @@ class SiteStatus:
         """Unique key for this site."""
         return f"{self.system_id:03X}-{self.rfss_id}-{self.site_id}"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "rfssId": self.rfss_id,
             "siteId": self.site_id,
@@ -103,7 +103,7 @@ class NetworkStatus:
         if self.last_update == 0.0:
             self.last_update = time.time()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "wacn": self.wacn,
             "systemId": self.system_id,
@@ -132,7 +132,7 @@ class AdjacentSite:
     def site_key(self) -> str:
         return f"{self.system_id:03X}-{self.rfss_id}-{self.site_id}"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "systemId": self.system_id,
             "rfssId": self.rfss_id,
@@ -183,7 +183,7 @@ class SystemServices:
     def has_authentication(self) -> bool:
         return bool(self.services_available & self.AUTHENTICATION)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "servicesAvailable": self.services_available,
             "servicesSupported": self.services_supported,
@@ -221,30 +221,30 @@ class P25NetworkConfigurationMonitor:
 
     def __init__(self) -> None:
         # Frequency bands (up to 16)
-        self._frequency_bands: Dict[int, FrequencyBand] = {}
+        self._frequency_bands: dict[int, FrequencyBand] = {}
 
         # Current site status
-        self._site_status: Optional[SiteStatus] = None
+        self._site_status: SiteStatus | None = None
 
         # Network status
-        self._network_status: Optional[NetworkStatus] = None
+        self._network_status: NetworkStatus | None = None
 
         # Adjacent sites
-        self._adjacent_sites: Dict[str, AdjacentSite] = {}
+        self._adjacent_sites: dict[str, AdjacentSite] = {}
 
         # System services
-        self._system_services: Optional[SystemServices] = None
+        self._system_services: SystemServices | None = None
 
         # Secondary control channels
-        self._secondary_control_channels: Dict[int, int] = {}  # channel -> freq_hz
+        self._secondary_control_channels: dict[int, int] = {}  # channel -> freq_hz
 
         # NAC (Network Access Code) - 12 bits
         self._nac: int = 0
 
         # Callbacks
-        self.on_site_update: Optional[Callable[[SiteStatus], None]] = None
-        self.on_adjacent_site: Optional[Callable[[AdjacentSite], None]] = None
-        self.on_frequency_band: Optional[Callable[[FrequencyBand], None]] = None
+        self.on_site_update: Callable[[SiteStatus], None] | None = None
+        self.on_adjacent_site: Callable[[AdjacentSite], None] | None = None
+        self.on_frequency_band: Callable[[FrequencyBand], None] | None = None
 
     @property
     def nac(self) -> int:
@@ -257,7 +257,7 @@ class P25NetworkConfigurationMonitor:
         self._nac = value & 0xFFF
 
     @property
-    def system_id(self) -> Optional[int]:
+    def system_id(self) -> int | None:
         """Get system ID from current site or network status."""
         if self._site_status:
             return self._site_status.system_id
@@ -266,7 +266,7 @@ class P25NetworkConfigurationMonitor:
         return None
 
     @property
-    def site_key(self) -> Optional[str]:
+    def site_key(self) -> str | None:
         """Get current site key."""
         if self._site_status:
             return self._site_status.site_key
@@ -380,7 +380,7 @@ class P25NetworkConfigurationMonitor:
 
         return services
 
-    def get_frequency(self, channel: int) -> Optional[int]:
+    def get_frequency(self, channel: int) -> int | None:
         """Get frequency in Hz for a channel number.
 
         Channel format: IIII CCCC CCCC CCCC
@@ -404,19 +404,19 @@ class P25NetworkConfigurationMonitor:
         freq_hz = self.get_frequency(channel)
         return freq_hz / 1e6 if freq_hz else 0.0
 
-    def get_frequency_band(self, identifier: int) -> Optional[FrequencyBand]:
+    def get_frequency_band(self, identifier: int) -> FrequencyBand | None:
         """Get frequency band by identifier."""
         return self._frequency_bands.get(identifier & 0xF)
 
-    def get_all_frequency_bands(self) -> List[FrequencyBand]:
+    def get_all_frequency_bands(self) -> list[FrequencyBand]:
         """Get all known frequency bands."""
         return list(self._frequency_bands.values())
 
-    def get_adjacent_sites(self) -> List[AdjacentSite]:
+    def get_adjacent_sites(self) -> list[AdjacentSite]:
         """Get all known adjacent sites."""
         return list(self._adjacent_sites.values())
 
-    def get_system_info(self) -> Dict[str, Any]:
+    def get_system_info(self) -> dict[str, Any]:
         """Get comprehensive system information."""
         return {
             "nac": self._nac,

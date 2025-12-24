@@ -17,7 +17,6 @@ Reference: TIA-102.BAAA-A Network ID specification
 from __future__ import annotations
 
 import logging
-from typing import Optional, Tuple
 
 import numpy as np
 
@@ -147,7 +146,7 @@ class BCH_63_16_23:
 
         return syndromes
 
-    def _find_error_locator_poly(self, syndromes: np.ndarray) -> Tuple[np.ndarray, int]:
+    def _find_error_locator_poly(self, syndromes: np.ndarray) -> tuple[np.ndarray, int]:
         """Find error locator polynomial using Berlekamp-Massey algorithm.
 
         Args:
@@ -183,7 +182,7 @@ class BCH_63_16_23:
                     if B[i] != 0:
                         C[i + m] ^= self._gf_mul(db, B[i])
 
-                if 2 * L <= n:
+                if n >= 2 * L:
                     L = n + 1 - L
                     B = T_poly
                     b = d
@@ -224,7 +223,7 @@ class BCH_63_16_23:
 
         return np.array(roots, dtype=np.int32)
 
-    def decode(self, codeword: np.ndarray, tracked_nac: Optional[int] = None) -> Tuple[int, int]:
+    def decode(self, codeword: np.ndarray, tracked_nac: int | None = None) -> tuple[int, int]:
         """Decode BCH codeword with error correction.
 
         This implements a two-pass decoding strategy:
@@ -266,7 +265,7 @@ class BCH_63_16_23:
 
         return data, errors
 
-    def _decode_internal(self, codeword: np.ndarray) -> Tuple[int, int]:
+    def _decode_internal(self, codeword: np.ndarray) -> tuple[int, int]:
         """Internal decode implementation.
 
         Args:
@@ -327,10 +326,10 @@ class BCH_63_16_23:
 
 
 # Global decoder instance (reused for efficiency)
-_bch_decoder: Optional[BCH_63_16_23] = None
+_bch_decoder: BCH_63_16_23 | None = None
 
 
-def bch_decode(codeword: np.ndarray, tracked_nac: Optional[int] = None) -> Tuple[int, int]:
+def bch_decode(codeword: np.ndarray, tracked_nac: int | None = None) -> tuple[int, int]:
     """Decode P25 NID using BCH(63,16,23) error correction.
 
     Args:

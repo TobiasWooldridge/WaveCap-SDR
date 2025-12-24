@@ -6,18 +6,18 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
-from .config import AppConfig
 from .api import router as api_router
-from .trunking.api import router as trunking_router
+from .config import AppConfig
+from .device_namer import generate_capture_name, get_device_nickname
 from .state import AppState
-from .device_namer import get_device_nickname, generate_capture_name
+from .trunking.api import router as trunking_router
 
 
 def cleanup_orphan_sdrplay_workers() -> None:
@@ -27,8 +27,8 @@ def cleanup_orphan_sdrplay_workers() -> None:
     process crashed or was forcefully terminated. They show up as high-CPU
     processes with PPID=1 (inherited by init).
     """
-    import subprocess
     import os
+    import subprocess
 
     try:
         # Find Python multiprocessing workers that are orphaned (PPID=1)
@@ -213,7 +213,7 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
                     )
 
                 # Create channels for each offset
-                for i, offset_hz in enumerate(preset.offsets):
+                for _i, offset_hz in enumerate(preset.offsets):
                     ch = app_state.captures.create_channel(
                         cid=cap.cfg.id,
                         mode="wbfm",

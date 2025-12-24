@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import contextlib
 import os
 import signal
 import sys
 from pathlib import Path
-from typing import Optional
 
 import uvicorn
 
 from .app import create_app
-from .config import load_config, ServerConfig
+from .config import load_config
 
 
 def _get_lock_file_path(port: int) -> Path:
@@ -58,10 +58,8 @@ def _acquire_lock(port: int) -> bool:
         except (ValueError, OSError) as e:
             # Corrupt lock file - remove it
             print(f"Removing invalid lock file: {e}")
-            try:
+            with contextlib.suppress(OSError):
                 lock_path.unlink()
-            except OSError:
-                pass
 
     # Create new lock file with our PID
     try:
@@ -96,7 +94,7 @@ def _default_config_path() -> str:
     return "config/wavecapsdr.yaml"
 
 
-def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="WaveCap-SDR server")
     parser.add_argument(
         "--config",
@@ -120,7 +118,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def main(argv: Optional[list[str]] = None) -> None:
+def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     cfg = load_config(args.config)
     if args.bind is not None:

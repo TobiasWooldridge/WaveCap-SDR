@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Tuple
 
 import numpy as np
 
@@ -33,7 +32,7 @@ class TimingLoopConfig:
 
 def calculate_loop_coefficients(
     samples_per_symbol: float, loop_bw: float = 0.01, damping: float = 1.0
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """Calculate PI loop filter coefficients.
 
     Uses standard 2nd-order loop design equations.
@@ -157,7 +156,7 @@ class GardnerTED:
 
         return c0 + mu * (c1 + mu * (c2 + mu * c3))
 
-    def process_block(self, samples: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def process_block(self, samples: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Process a block of samples.
 
         Args:
@@ -329,7 +328,7 @@ class MuellerMullerTED:
 
     def process_block(
         self, samples: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Process a block of complex samples.
 
         Args:

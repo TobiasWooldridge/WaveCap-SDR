@@ -8,9 +8,10 @@ Supports multiple scan modes:
 """
 import asyncio
 import time
-from enum import Enum
-from typing import Awaitable, Callable, Optional, Union
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
+from enum import Enum
+from typing import Callable, Optional, Union
 
 
 class ScanMode(str, Enum):

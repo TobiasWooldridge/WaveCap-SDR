@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
 
 import numpy as np
 
@@ -83,7 +82,7 @@ class TrellisPath:
 
     state: int
     metric: float
-    decoded_bits: List[int]
+    decoded_bits: list[int]
 
 
 class TrellisDecoder:
@@ -120,7 +119,7 @@ class TrellisDecoder:
         self._symbol_count = 0
 
     def _branch_metric(
-        self, received: Tuple[int, int], expected: Tuple[int, int], soft: Optional[Tuple[float, float]] = None
+        self, received: tuple[int, int], expected: tuple[int, int], soft: tuple[float, float] | None = None
     ) -> float:
         """Calculate branch metric between received and expected symbol pair.
 
@@ -148,9 +147,9 @@ class TrellisDecoder:
 
     def decode_step(
         self,
-        received: Tuple[int, int],
-        soft: Optional[Tuple[float, float]] = None,
-    ) -> Optional[int]:
+        received: tuple[int, int],
+        soft: tuple[float, float] | None = None,
+    ) -> int | None:
         """Process one trellis step (2 dibits in, 1 dibit out).
 
         Args:
@@ -190,7 +189,7 @@ class TrellisDecoder:
 
             # Create new path for this state
             prev_path = self._paths[best_prev_state]
-            new_bits = prev_path.decoded_bits + [best_input]
+            new_bits = [*prev_path.decoded_bits, best_input]
             new_paths.append(
                 TrellisPath(state=next_state, metric=best_metric, decoded_bits=new_bits)
             )
@@ -211,8 +210,8 @@ class TrellisDecoder:
     def decode(
         self,
         dibits: np.ndarray,
-        soft_values: Optional[np.ndarray] = None,
-    ) -> Tuple[np.ndarray, int]:
+        soft_values: np.ndarray | None = None,
+    ) -> tuple[np.ndarray, int]:
         """Decode a block of trellis-encoded dibits.
 
         Args:
@@ -254,7 +253,7 @@ class TrellisDecoder:
 
         return np.array(decoded, dtype=np.uint8), error_metric
 
-    def _flush(self) -> List[int]:
+    def _flush(self) -> list[int]:
         """Flush remaining decoded bits from traceback buffer.
 
         Returns:
@@ -264,7 +263,10 @@ class TrellisDecoder:
             return []
 
         best_path = min(self._paths, key=lambda p: p.metric)
-        output_start = max(0, len(best_path.decoded_bits) - self.TRACEBACK_DEPTH)
+        # During decode_step, we already output up to index (len - TRACEBACK_DEPTH)
+        # So remaining starts at (len - TRACEBACK_DEPTH + 1)
+        already_output = len(best_path.decoded_bits) - self.TRACEBACK_DEPTH
+        output_start = max(0, already_output + 1)
         return best_path.decoded_bits[output_start:]
 
 
@@ -291,8 +293,8 @@ def trellis_encode(dibits: np.ndarray) -> np.ndarray:
 
 def trellis_decode(
     dibits: np.ndarray,
-    soft_values: Optional[np.ndarray] = None,
-) -> Tuple[np.ndarray, int]:
+    soft_values: np.ndarray | None = None,
+) -> tuple[np.ndarray, int]:
     """Decode trellis-encoded dibits (convenience function).
 
     Args:

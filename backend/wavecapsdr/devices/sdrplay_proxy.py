@@ -19,33 +19,30 @@ Architecture:
 
 from __future__ import annotations
 
+import contextlib
 import logging
-import struct
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
-from multiprocessing import Process, Pipe
+from dataclasses import dataclass
+from multiprocessing import Pipe, Process
 from multiprocessing.connection import Connection
 from multiprocessing.shared_memory import SharedMemory
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
 from .base import Device, DeviceInfo, StreamHandle
-from .soapy import increment_sdrplay_active_captures, decrement_sdrplay_active_captures
 from .sdrplay_worker import (
-    sdrplay_worker_main,
-    HEADER_SIZE,
-    HEADER_FORMAT,
     BUFFER_SAMPLES,
-    SHM_SIZE,
-    FLAG_OVERFLOW,
-    FLAG_ERROR,
-    FLAG_RUNNING,
     FLAG_DATA_READY,
+    FLAG_OVERFLOW,
+    HEADER_SIZE,
+    SHM_SIZE,
     _read_header,
+    sdrplay_worker_main,
 )
+from .soapy import decrement_sdrplay_active_captures, increment_sdrplay_active_captures
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +138,7 @@ class SDRplayProxyStream(StreamHandle):
             logger.error(f"is_ready() exception: {e}")
         return False
 
-    def read(self, num_samples: int) -> Tuple[np.ndarray, bool]:
+    def read(self, num_samples: int) -> tuple[np.ndarray, bool]:
         """Read IQ samples from shared memory ring buffer.
 
         Args:
@@ -163,7 +160,7 @@ class SDRplayProxyStream(StreamHandle):
 
         # Read header to get current write position
         try:
-            write_idx, _, sample_count, overflow_count, sample_rate, flags, timestamp = _read_header(self.shm)
+            write_idx, _, sample_count, _overflow_count, sample_rate, flags, _timestamp = _read_header(self.shm)
         except Exception as e:
             logger.error(f"SDRplayProxyStream.read()[{self._debug_counter}]: header read error: {e}")
             return np.empty(0, dtype=np.complex64), False
@@ -235,7 +232,7 @@ class SDRplayProxyStream(StreamHandle):
                         logger.info(f"SDRplayProxyStream: Re-attached to {shm_name}")
                         # DON'T reset empty_reads here - we only reset when we get data
                         # Try reading again with fresh attachment
-                        write_idx, _, sample_count, overflow_count, sample_rate, flags, timestamp = _read_header(self.shm)
+                        write_idx, _, sample_count, _overflow_count, sample_rate, flags, _timestamp = _read_header(self.shm)
                         available = write_idx - self._last_read_idx
                         if available > 0:
                             logger.info(f"SDRplayProxyStream: Re-attach successful! Now have {available} samples available")
@@ -342,18 +339,18 @@ class SDRplayProxyDevice(Device):
     device_args: str
     operation_cooldown: float = 1.0  # Minimum seconds between operations (SDRplay API needs time to stabilize)
     # Reduced from 2.0s to 1.0s for faster multi-device startup (~3s vs ~6s for 3 devices)
-    _worker_process: Optional[Process] = None
-    _shm: Optional[SharedMemory] = None
-    _cmd_pipe: Optional[Connection] = None
-    _status_pipe: Optional[Connection] = None
-    _worker_cmd_pipe: Optional[Connection] = None
-    _worker_status_pipe: Optional[Connection] = None
-    _antenna: Optional[str] = None
-    _stream_format: Optional[str] = None
+    _worker_process: Process | None = None
+    _shm: SharedMemory | None = None
+    _cmd_pipe: Connection | None = None
+    _status_pipe: Connection | None = None
+    _worker_cmd_pipe: Connection | None = None
+    _worker_status_pipe: Connection | None = None
+    _antenna: str | None = None
+    _stream_format: str | None = None
     _started: bool = False
     _configured: bool = False
 
-    def _handle_worker_message(self, msg: Dict[str, Any]) -> None:
+    def _handle_worker_message(self, msg: dict[str, Any]) -> None:
         """Handle a message from the worker subprocess.
 
         Args:
@@ -389,7 +386,7 @@ class SDRplayProxyDevice(Device):
             logger.info(f"Starting worker subprocess for {self.device_args}")
 
             # Create shared memory for IQ buffer
-            shm_name = _generate_shm_name()
+            _generate_shm_name()
             self._shm = SharedMemory(create=True, size=SHM_SIZE)
             logger.debug(f"Created shared memory: {self._shm.name}, size={SHM_SIZE}")
 
@@ -466,10 +463,8 @@ class SDRplayProxyDevice(Device):
         logger.debug("Cleaning up worker subprocess and resources")
 
         if self._cmd_pipe is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._cmd_pipe.send({"type": "shutdown"})
-            except Exception:
-                pass
 
         if self._worker_process is not None:
             pid = self._worker_process.pid
@@ -496,17 +491,13 @@ class SDRplayProxyDevice(Device):
             self._shm = None
 
         if self._cmd_pipe is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._cmd_pipe.close()
-            except Exception:
-                pass
             self._cmd_pipe = None
 
         if self._status_pipe is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._status_pipe.close()
-            except Exception:
-                pass
             self._status_pipe = None
 
         logger.debug("Worker cleanup complete")
@@ -515,13 +506,13 @@ class SDRplayProxyDevice(Device):
         self,
         center_hz: float,
         sample_rate: int,
-        gain: Optional[float] = None,
-        bandwidth: Optional[float] = None,
-        ppm: Optional[float] = None,
-        antenna: Optional[str] = None,
-        device_settings: Optional[Dict[str, Any]] = None,
-        element_gains: Optional[Dict[str, float]] = None,
-        stream_format: Optional[str] = None,
+        gain: float | None = None,
+        bandwidth: float | None = None,
+        ppm: float | None = None,
+        antenna: str | None = None,
+        device_settings: dict[str, Any] | None = None,
+        element_gains: dict[str, float] | None = None,
+        stream_format: str | None = None,
         dc_offset_auto: bool = True,
         iq_balance_auto: bool = True,
     ) -> None:
@@ -644,13 +635,13 @@ class SDRplayProxyDevice(Device):
         self,
         center_hz: float,
         sample_rate: int,
-        gain: Optional[float] = None,
-        bandwidth: Optional[float] = None,
-        ppm: Optional[float] = None,
-        antenna: Optional[str] = None,
-        device_settings: Optional[Dict[str, Any]] = None,
-        element_gains: Optional[Dict[str, float]] = None,
-        stream_format: Optional[str] = None,
+        gain: float | None = None,
+        bandwidth: float | None = None,
+        ppm: float | None = None,
+        antenna: str | None = None,
+        device_settings: dict[str, Any] | None = None,
+        element_gains: dict[str, float] | None = None,
+        stream_format: str | None = None,
         dc_offset_auto: bool = True,
         iq_balance_auto: bool = True,
     ) -> StreamHandle:
@@ -714,11 +705,11 @@ class SDRplayProxyDevice(Device):
             # Always release lock when done (success or failure)
             _release_sdrplay_lock()
 
-    def get_antenna(self) -> Optional[str]:
+    def get_antenna(self) -> str | None:
         """Return the currently configured antenna."""
         return self._antenna
 
-    def get_capabilities(self) -> Dict[str, Any]:
+    def get_capabilities(self) -> dict[str, Any]:
         """Query device capabilities (basic info only for proxy)."""
         return {
             "proxy": True,
@@ -727,16 +718,16 @@ class SDRplayProxyDevice(Device):
             "antennas": list(self.info.antennas) if self.info.antennas else [],
         }
 
-    def read_sensors(self) -> Dict[str, Any]:
+    def read_sensors(self) -> dict[str, Any]:
         """Read sensors (not implemented for proxy)."""
         return {"proxy": True, "message": "Sensor reading not available via proxy"}
 
     def reconfigure_running(
         self,
-        center_hz: Optional[float] = None,
-        gain: Optional[float] = None,
-        bandwidth: Optional[float] = None,
-        ppm: Optional[float] = None,
+        center_hz: float | None = None,
+        gain: float | None = None,
+        bandwidth: float | None = None,
+        ppm: float | None = None,
     ) -> None:
         """Hot reconfigure while streaming."""
         if not self._started:
@@ -746,7 +737,7 @@ class SDRplayProxyDevice(Device):
             raise RuntimeError("Worker not initialized")
 
         # Send configure command (worker handles running reconfiguration)
-        cmd: Dict[str, Any] = {"type": "configure"}
+        cmd: dict[str, Any] = {"type": "configure"}
         if center_hz is not None:
             cmd["center_hz"] = center_hz
         if gain is not None:

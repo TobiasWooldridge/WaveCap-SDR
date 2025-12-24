@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
-import numpy as np
-from typing import Any, Callable, Dict, List, Optional, cast
 from dataclasses import dataclass
 from enum import Enum
+from typing import Any, Callable, cast
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +32,11 @@ class DMRFrame:
     frame_type: DMRFrameType
     slot: DMRSlot
     color_code: int  # 0-15
-    src_id: Optional[int] = None  # Source radio ID
-    dst_id: Optional[int] = None  # Destination (talkgroup) ID
-    voice_data: Optional[bytes] = None  # AMBE voice frames
-    csbk_opcode: Optional[int] = None
-    csbk_data: Optional[Dict[str, Any]] = None
+    src_id: int | None = None  # Source radio ID
+    dst_id: int | None = None  # Destination (talkgroup) ID
+    voice_data: bytes | None = None  # AMBE voice frames
+    csbk_opcode: int | None = None
+    csbk_data: dict[str, Any] | None = None
 
 
 class DMR4FSKDemodulator:
@@ -85,8 +86,8 @@ class DMRDecoder:
         self.demodulator = DMR4FSKDemodulator(sample_rate)
 
         # Callbacks
-        self.on_voice_frame: Optional[Callable[[int, int, bytes], None]] = None  # (slot, tgid, voice)
-        self.on_csbk_message: Optional[Callable[[Dict[str, Any]], None]] = None
+        self.on_voice_frame: Callable[[int, int, bytes], None] | None = None  # (slot, tgid, voice)
+        self.on_csbk_message: Callable[[dict[str, Any]], None] | None = None
 
         logger.info(f"DMR decoder initialized (sample_rate={sample_rate})")
 
@@ -106,7 +107,7 @@ class DMRDecoder:
         frame_dibits = dibits[sync_pos:]
         return self._decode_frame(frame_dibits)
 
-    def _find_sync(self, dibits: np.ndarray) -> Optional[int]:
+    def _find_sync(self, dibits: np.ndarray) -> int | None:
         """Find DMR sync pattern"""
         # Simplified sync search
         if len(dibits) < 24:  # 48 bits sync

@@ -8,15 +8,16 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 import numpy as np
 
-from wavecapsdr.decoders.voice import VoiceDecoder, VocoderType, VoiceDecoderError
+from wavecapsdr.decoders.voice import VocoderType, VoiceDecoder, VoiceDecoderError
 
 logger = logging.getLogger(__name__)
 
@@ -33,10 +34,10 @@ class RadioLocation:
     unit_id: int
     latitude: float
     longitude: float
-    altitude_m: Optional[float] = None
-    speed_kmh: Optional[float] = None
-    heading_deg: Optional[float] = None
-    accuracy_m: Optional[float] = None
+    altitude_m: float | None = None
+    speed_kmh: float | None = None
+    heading_deg: float | None = None
+    accuracy_m: float | None = None
     timestamp: float = 0.0
     source: str = "unknown"  # "lrrp", "elc", "gps_tsbk"
 
@@ -52,7 +53,7 @@ class RadioLocation:
         """Get age of location report."""
         return time.time() - self.timestamp
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "unitId": self.unit_id,
@@ -106,11 +107,11 @@ class VoiceChannel:
     # Call metadata
     talkgroup_id: int = 0
     talkgroup_name: str = ""
-    source_id: Optional[int] = None
+    source_id: int | None = None
     encrypted: bool = False
 
     # Location from LRRP cache
-    source_location: Optional[RadioLocation] = None
+    source_location: RadioLocation | None = None
 
     # Timing
     start_time: float = field(default_factory=time.time)
@@ -122,15 +123,15 @@ class VoiceChannel:
     audio_bytes_sent: int = 0
 
     # Vocoder
-    _voice_decoder: Optional[VoiceDecoder] = field(default=None, repr=False)
+    _voice_decoder: VoiceDecoder | None = field(default=None, repr=False)
 
     # Audio subscribers: (queue, event_loop, format)
-    _audio_sinks: Set[Tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop, str]] = field(
+    _audio_sinks: set[tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop, str]] = field(
         default_factory=set, repr=False
     )
 
     # Decoder output reader task
-    _decoder_reader_task: Optional[asyncio.Task[None]] = field(default=None, repr=False)
+    _decoder_reader_task: asyncio.Task[None] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         """Initialize timing."""
@@ -200,10 +201,8 @@ class VoiceChannel:
         # Cancel decoder reader
         if self._decoder_reader_task:
             self._decoder_reader_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._decoder_reader_task
-            except asyncio.CancelledError:
-                pass
             self._decoder_reader_task = None
 
         # Stop vocoder
@@ -320,7 +319,7 @@ class VoiceChannel:
             except Exception as e:
                 logger.error(f"VoiceChannel {self.id}: Broadcast error: {e}")
 
-    def _build_metadata(self) -> Dict[str, Any]:
+    def _build_metadata(self) -> dict[str, Any]:
         """Build metadata dictionary for audio message."""
         return {
             "streamId": self.cfg.id,
@@ -337,7 +336,7 @@ class VoiceChannel:
             "frameNumber": self.audio_frame_count,
         }
 
-    def _pack_json_message(self, pcm16_data: bytes, metadata: Dict[str, Any]) -> bytes:
+    def _pack_json_message(self, pcm16_data: bytes, metadata: dict[str, Any]) -> bytes:
         """Pack audio and metadata into JSON message."""
         message = {
             "type": "audio",
@@ -352,7 +351,7 @@ class VoiceChannel:
         q: asyncio.Queue[bytes],
         loop: asyncio.AbstractEventLoop,
         payload: bytes,
-        current_loop: Optional[asyncio.AbstractEventLoop],
+        current_loop: asyncio.AbstractEventLoop | None,
     ) -> None:
         """Put payload on queue, handling cross-loop delivery."""
         if current_loop is loop:
@@ -383,7 +382,7 @@ class VoiceChannel:
                 # Loop closed, remove subscriber
                 self._audio_sinks.discard((q, loop, ""))
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get channel statistics."""
         return {
             "id": self.cfg.id,
@@ -404,7 +403,7 @@ class VoiceChannel:
             "sourceLocation": self.source_location.to_dict() if self.source_location else None,
         }
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API response."""
         return self.get_stats()
 
@@ -421,14 +420,14 @@ class VoiceChannelPool:
     max_channels: int = 10
     silence_timeout: float = 60.0
 
-    _channels: Dict[str, VoiceChannel] = field(default_factory=dict, repr=False)
-    _available_ids: List[str] = field(default_factory=list, repr=False)
+    _channels: dict[str, VoiceChannel] = field(default_factory=dict, repr=False)
+    _available_ids: list[str] = field(default_factory=list, repr=False)
 
     def __post_init__(self) -> None:
         """Initialize available channel IDs."""
         self._available_ids = [f"{self.system_id}_vc{i}" for i in range(self.max_channels)]
 
-    def get_available_channel_id(self) -> Optional[str]:
+    def get_available_channel_id(self) -> str | None:
         """Get an available channel ID from the pool."""
         if self._available_ids:
             return self._available_ids.pop(0)
@@ -439,7 +438,7 @@ class VoiceChannelPool:
         if channel_id not in self._available_ids:
             self._available_ids.append(channel_id)
 
-    def get_channel(self, channel_id: str) -> Optional[VoiceChannel]:
+    def get_channel(self, channel_id: str) -> VoiceChannel | None:
         """Get a channel by ID."""
         return self._channels.get(channel_id)
 
@@ -447,22 +446,22 @@ class VoiceChannelPool:
         """Add a channel to the pool."""
         self._channels[channel.id] = channel
 
-    def remove_channel(self, channel_id: str) -> Optional[VoiceChannel]:
+    def remove_channel(self, channel_id: str) -> VoiceChannel | None:
         """Remove a channel from the pool."""
         channel = self._channels.pop(channel_id, None)
         if channel:
             self.return_channel_id(channel_id)
         return channel
 
-    def list_channels(self) -> List[VoiceChannel]:
+    def list_channels(self) -> list[VoiceChannel]:
         """List all active channels."""
         return list(self._channels.values())
 
-    def list_active_channels(self) -> List[VoiceChannel]:
+    def list_active_channels(self) -> list[VoiceChannel]:
         """List channels that are actively streaming."""
         return [c for c in self._channels.values() if c.state == "active"]
 
-    def list_silent_channels(self) -> List[VoiceChannel]:
+    def list_silent_channels(self) -> list[VoiceChannel]:
         """List channels that have exceeded silence timeout."""
         return [c for c in self._channels.values() if c.is_silent]
 
@@ -474,7 +473,7 @@ class VoiceChannelPool:
             self.remove_channel(channel.id)
         return len(silent)
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get pool statistics."""
         return {
             "systemId": self.system_id,

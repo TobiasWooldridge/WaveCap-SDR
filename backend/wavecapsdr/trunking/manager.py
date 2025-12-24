@@ -17,16 +17,17 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any
 
 from wavecapsdr.config import update_trunking_system_state
 from wavecapsdr.trunking.config import TrunkingSystemConfig, load_talkgroups_csv
 from wavecapsdr.trunking.system import (
+    ActiveCall,
     TrunkingSystem,
     TrunkingSystemState,
-    ActiveCall,
 )
 
 if TYPE_CHECKING:
@@ -47,21 +48,21 @@ class TrunkingManager:
     """
 
     # Systems keyed by ID
-    _systems: Dict[str, TrunkingSystem] = field(default_factory=dict)
+    _systems: dict[str, TrunkingSystem] = field(default_factory=dict)
 
     # Event subscribers
-    _event_queues: Set[asyncio.Queue[Dict[str, Any]]] = field(default_factory=set)
+    _event_queues: set[asyncio.Queue[dict[str, Any]]] = field(default_factory=set)
 
     # Background tasks
-    _maintenance_task: Optional[asyncio.Task[None]] = None
+    _maintenance_task: asyncio.Task[None] | None = None
     _running: bool = False
-    _event_loop: Optional[asyncio.AbstractEventLoop] = None
+    _event_loop: asyncio.AbstractEventLoop | None = None
 
     # Reference to CaptureManager for SDR access
-    _capture_manager: Optional["CaptureManager"] = None
+    _capture_manager: CaptureManager | None = None
 
     # Pending configs to load on start()
-    _pending_configs: List[TrunkingSystemConfig] = field(default_factory=list)
+    _pending_configs: list[TrunkingSystemConfig] = field(default_factory=list)
 
     # Config file path for state persistence
     _config_path: str = DEFAULT_CONFIG_PATH
@@ -80,7 +81,7 @@ class TrunkingManager:
         self._config_path = config_path
         logger.debug(f"TrunkingManager: Config path set to {config_path}")
 
-    def set_capture_manager(self, capture_manager: "CaptureManager") -> None:
+    def set_capture_manager(self, capture_manager: CaptureManager) -> None:
         """Set the CaptureManager reference for SDR access.
 
         Must be called before starting any trunking systems.
@@ -150,10 +151,8 @@ class TrunkingManager:
         # Cancel maintenance task
         if self._maintenance_task:
             self._maintenance_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._maintenance_task
-            except asyncio.CancelledError:
-                pass
             self._maintenance_task = None
 
         logger.info("TrunkingManager stopped")
@@ -161,7 +160,7 @@ class TrunkingManager:
     async def add_system(
         self,
         config: TrunkingSystemConfig,
-        talkgroups_csv: Optional[str] = None,
+        talkgroups_csv: str | None = None,
     ) -> TrunkingSystem:
         """Add a trunking system.
 
@@ -290,7 +289,7 @@ class TrunkingManager:
             except Exception as e:
                 logger.warning(f"Failed to persist state for '{system_id}': {e}")
 
-    def get_system(self, system_id: str) -> Optional[TrunkingSystem]:
+    def get_system(self, system_id: str) -> TrunkingSystem | None:
         """Get a trunking system by ID.
 
         Args:
@@ -301,7 +300,7 @@ class TrunkingManager:
         """
         return self._systems.get(system_id)
 
-    def get_system_for_capture(self, capture_id: str) -> Optional[str]:
+    def get_system_for_capture(self, capture_id: str) -> str | None:
         """Get the trunking system ID that owns a capture.
 
         Args:
@@ -316,7 +315,7 @@ class TrunkingManager:
                 return system.cfg.id
         return None
 
-    def list_systems(self) -> List[TrunkingSystem]:
+    def list_systems(self) -> list[TrunkingSystem]:
         """Get all trunking systems.
 
         Returns:
@@ -324,7 +323,7 @@ class TrunkingManager:
         """
         return list(self._systems.values())
 
-    def get_active_calls(self, system_id: Optional[str] = None) -> List[ActiveCall]:
+    def get_active_calls(self, system_id: str | None = None) -> list[ActiveCall]:
         """Get active calls across all systems or a specific system.
 
         Args:
@@ -333,7 +332,7 @@ class TrunkingManager:
         Returns:
             List of ActiveCall instances
         """
-        calls: List[ActiveCall] = []
+        calls: list[ActiveCall] = []
 
         if system_id:
             system = self._systems.get(system_id)
@@ -345,13 +344,13 @@ class TrunkingManager:
 
         return calls
 
-    async def subscribe_events(self) -> asyncio.Queue[Dict[str, Any]]:
+    async def subscribe_events(self) -> asyncio.Queue[dict[str, Any]]:
         """Subscribe to trunking events.
 
         Returns:
             Queue that will receive event dictionaries
         """
-        queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=100)
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
         self._event_queues.add(queue)
 
         # Send initial snapshot
@@ -360,14 +359,12 @@ class TrunkingManager:
             "systems": [s.to_dict() for s in self._systems.values()],
             "activeCalls": [c.to_dict() for c in self.get_active_calls()],
         }
-        try:
+        with contextlib.suppress(asyncio.QueueFull):
             queue.put_nowait(snapshot)
-        except asyncio.QueueFull:
-            pass
 
         return queue
 
-    async def unsubscribe_events(self, queue: asyncio.Queue[Dict[str, Any]]) -> None:
+    async def unsubscribe_events(self, queue: asyncio.Queue[dict[str, Any]]) -> None:
         """Unsubscribe from trunking events.
 
         Args:
@@ -375,9 +372,9 @@ class TrunkingManager:
         """
         self._event_queues.discard(queue)
 
-    async def _broadcast_event(self, event: Dict[str, Any]) -> None:
+    async def _broadcast_event(self, event: dict[str, Any]) -> None:
         """Broadcast an event to all subscribers."""
-        dead_queues: List[asyncio.Queue[Dict[str, Any]]] = []
+        dead_queues: list[asyncio.Queue[dict[str, Any]]] = []
 
         for queue in self._event_queues:
             try:
@@ -396,7 +393,7 @@ class TrunkingManager:
         for queue in dead_queues:
             self._event_queues.discard(queue)
 
-    def _schedule_broadcast(self, event: Dict[str, Any]) -> None:
+    def _schedule_broadcast(self, event: dict[str, Any]) -> None:
         """Schedule an event broadcast on the manager event loop."""
         loop = self._event_loop
         if loop is not None and loop.is_running():
@@ -468,7 +465,7 @@ class TrunkingManager:
                 logger.error(f"TrunkingManager maintenance error: {e}")
                 await asyncio.sleep(1.0)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert manager state to dictionary for API serialization."""
         total_calls = 0
         for system in self._systems.values():

@@ -7,10 +7,9 @@ Handles automatic voice channel following for P25, DMR, and other trunked system
 from __future__ import annotations
 
 import logging
-import asyncio
-from typing import Optional, Dict, Set, Callable
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +30,8 @@ class VoiceGrant:
     talkgroup_id: int
     frequency_hz: float
     timestamp: float
-    source_id: Optional[int] = None
-    expires_at: Optional[float] = None  # For time-slot systems
+    source_id: int | None = None
+    expires_at: float | None = None  # For time-slot systems
 
 
 @dataclass
@@ -52,7 +51,7 @@ class TrunkingSystem:
     name: str
     protocol: TrunkingProtocol
     control_channels: list[float]  # Control channel frequencies in Hz
-    talkgroups: Dict[int, TalkgroupConfig] = field(default_factory=dict)
+    talkgroups: dict[int, TalkgroupConfig] = field(default_factory=dict)
 
     # Voice channel following
     max_voice_channels: int = 4  # Maximum simultaneous voice channels to follow
@@ -70,13 +69,13 @@ class TrunkingManager:
 
     def __init__(self, system: TrunkingSystem):
         self.system = system
-        self.active_grants: Dict[int, VoiceGrant] = {}  # tgid -> grant
-        self.monitored_talkgroups: Set[int] = set()
+        self.active_grants: dict[int, VoiceGrant] = {}  # tgid -> grant
+        self.monitored_talkgroups: set[int] = set()
 
         # Voice channel callbacks
-        self.on_grant: Optional[Callable[[VoiceGrant], None]] = None
-        self.on_release: Optional[Callable[[int], None]] = None  # tgid
-        self.on_voice_data: Optional[Callable[[int, bytes], None]] = None  # (tgid, audio)
+        self.on_grant: Callable[[VoiceGrant], None] | None = None
+        self.on_release: Callable[[int], None] | None = None  # tgid
+        self.on_voice_data: Callable[[int, bytes], None] | None = None  # (tgid, audio)
 
         logger.info(f"Trunking manager initialized: {system.name} ({system.protocol.value})")
 
@@ -96,7 +95,7 @@ class TrunkingManager:
         self.monitored_talkgroups.discard(tgid)
         logger.info(f"Stopped monitoring talkgroup {tgid}")
 
-    def handle_voice_grant(self, tgid: int, frequency_hz: float, source_id: Optional[int] = None) -> None:
+    def handle_voice_grant(self, tgid: int, frequency_hz: float, source_id: int | None = None) -> None:
         """
         Handle a voice channel grant from control channel.
 
@@ -132,7 +131,7 @@ class TrunkingManager:
     def handle_voice_end(self, tgid: int) -> None:
         """Handle end of voice transmission"""
         if tgid in self.active_grants:
-            grant = self.active_grants.pop(tgid)
+            self.active_grants.pop(tgid)
             logger.info(f"Voice ended: TG {tgid}")
 
             if self.on_release:
@@ -163,7 +162,7 @@ class TrunkingManager:
         """Get list of frequencies currently in use for voice channels"""
         return [grant.frequency_hz for grant in self.active_grants.values()]
 
-    def get_talkgroup_status(self, tgid: int) -> Optional[VoiceGrant]:
+    def get_talkgroup_status(self, tgid: int) -> VoiceGrant | None:
         """Check if a talkgroup is currently active"""
         return self.active_grants.get(tgid)
 
@@ -173,7 +172,7 @@ class TrunkingManager:
 
 
 # Example usage helper
-def create_p25_system(name: str, control_freq: float, talkgroups: Dict[int, str]) -> TrunkingSystem:
+def create_p25_system(name: str, control_freq: float, talkgroups: dict[int, str]) -> TrunkingSystem:
     """Create a P25 trunking system configuration"""
     system = TrunkingSystem(
         system_id=name.lower().replace(" ", "_"),
@@ -194,7 +193,7 @@ def create_p25_system(name: str, control_freq: float, talkgroups: Dict[int, str]
     return system
 
 
-def create_dmr_system(name: str, control_freq: float, color_code: int, talkgroups: Dict[int, str]) -> TrunkingSystem:
+def create_dmr_system(name: str, control_freq: float, color_code: int, talkgroups: dict[int, str]) -> TrunkingSystem:
     """Create a DMR trunking system configuration"""
     system = TrunkingSystem(
         system_id=name.lower().replace(" ", "_"),

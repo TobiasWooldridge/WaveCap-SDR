@@ -9,13 +9,13 @@ These FEC codes protect critical control information and voice data
 from channel errors in the P25 standard.
 """
 
-from wavecapsdr.dsp.fec.golay import golay_encode, golay_decode, golay_syndrome
+from wavecapsdr.dsp.fec.golay import golay_decode, golay_encode, golay_syndrome
 from wavecapsdr.dsp.fec.trellis import TrellisDecoder, trellis_decode
 
 __all__ = [
-    "golay_encode",
-    "golay_decode",
-    "golay_syndrome",
     "TrellisDecoder",
+    "golay_decode",
+    "golay_encode",
+    "golay_syndrome",
     "trellis_decode",
 ]

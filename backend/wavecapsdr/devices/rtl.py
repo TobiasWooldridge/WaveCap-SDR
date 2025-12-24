@@ -1,18 +1,20 @@
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional, Type, cast
+from typing import Any, cast
 
 import numpy as np
 
 from .base import Device, DeviceDriver, DeviceInfo, StreamHandle
 
 
-def _import_pyrtlsdr() -> Type[Any]:
+def _import_pyrtlsdr() -> type[Any]:
     try:
         from rtlsdr import RtlSdr  # type: ignore
 
-        return cast(Type[Any], RtlSdr)
+        return cast(type[Any], RtlSdr)
     except Exception as exc:  # pragma: no cover
         raise RuntimeError("pyrtlsdr not available; install with pip install pyrtlsdr") from exc
 
@@ -40,13 +42,13 @@ class _RtlDevice(Device):
         self,
         center_hz: float,
         sample_rate: int,
-        gain: Optional[float] = None,
-        bandwidth: Optional[float] = None,
-        ppm: Optional[float] = None,
-        antenna: Optional[str] = None,
-        device_settings: Optional[dict[str, Any]] = None,
-        element_gains: Optional[dict[str, float]] = None,
-        stream_format: Optional[str] = None,
+        gain: float | None = None,
+        bandwidth: float | None = None,
+        ppm: float | None = None,
+        antenna: str | None = None,
+        device_settings: dict[str, Any] | None = None,
+        element_gains: dict[str, float] | None = None,
+        stream_format: str | None = None,
         dc_offset_auto: bool = True,
         iq_balance_auto: bool = True,
     ) -> None:
@@ -56,31 +58,27 @@ class _RtlDevice(Device):
             self.sdr.freq_correction = int(ppm)
         if gain is not None:
             # Manual gain
-            try:
+            with contextlib.suppress(Exception):
                 self.sdr.set_gain_mode(True)
-            except Exception:
-                pass
             self.sdr.gain = gain
         else:
             # Prefer automatic gain if available
-            try:
+            with contextlib.suppress(Exception):
                 self.sdr.set_gain_mode(False)
-            except Exception:
-                pass
 
     def start_stream(self) -> StreamHandle:
         return _RtlStream(self.sdr)
 
-    def get_antenna(self) -> Optional[str]:
+    def get_antenna(self) -> str | None:
         """RTL-SDR has no antenna selection."""
         return None
 
     def reconfigure_running(
         self,
-        center_hz: Optional[float] = None,
-        gain: Optional[float] = None,
-        bandwidth: Optional[float] = None,
-        ppm: Optional[float] = None,
+        center_hz: float | None = None,
+        gain: float | None = None,
+        bandwidth: float | None = None,
+        ppm: float | None = None,
     ) -> None:
         """Reconfigure device while running."""
         if center_hz is not None:
@@ -91,10 +89,8 @@ class _RtlDevice(Device):
             self.sdr.freq_correction = int(ppm)
 
     def close(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.sdr.close()
-        except Exception:
-            pass
 
 
 class RtlDriver(DeviceDriver):
@@ -129,7 +125,7 @@ class RtlDriver(DeviceDriver):
             )
         return infos
 
-    def open(self, id_or_args: Optional[str] = None) -> Device:
+    def open(self, id_or_args: str | None = None) -> Device:
         RtlSdr = self._RtlSdr
         index = 0
         try:

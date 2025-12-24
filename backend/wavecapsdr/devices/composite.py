@@ -6,7 +6,7 @@ hidden when real devices are available, unless explicitly enabled via config.
 """
 from __future__ import annotations
 
-from typing import Iterable, Optional
+from collections.abc import Iterable
 
 from ..config import DeviceConfig
 from .base import Device, DeviceDriver, DeviceInfo
@@ -40,14 +40,12 @@ class CompositeDriver(DeviceDriver):
 
         if include_fake:
             # Include fake device(s)
-            for fake_info in self._fake.enumerate():
-                yield fake_info
+            yield from self._fake.enumerate()
 
         # Yield all real devices
-        for info in real_devices:
-            yield info
+        yield from real_devices
 
-    def open(self, id_or_args: Optional[str] = None) -> Device:
+    def open(self, id_or_args: str | None = None) -> Device:
         """Open a device by ID, routing to the appropriate driver."""
         # Check if this is a fake device ID
         if id_or_args is not None and id_or_args.startswith("fake"):

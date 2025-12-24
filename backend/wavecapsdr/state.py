@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING
 
 from .config import AppConfig
 
 if TYPE_CHECKING:
     from .scanner import ScannerService
 from .devices.base import DeviceDriver
+from .devices.composite import CompositeDriver
 from .devices.fake import FakeDriver
 from .devices.rtl import RtlDriver
-from .devices.composite import CompositeDriver
 from .trunking import TrunkingManager
 from .trunking.config import TrunkingSystemConfig
 
@@ -29,14 +29,14 @@ class AppState:
     driver: DeviceDriver
     captures: CaptureManager
     trunking_manager: TrunkingManager
-    config_path: Optional[str] = None
+    config_path: str | None = None
     # Map capture_id -> preset_name for persistence
-    capture_presets: Dict[str, str] = field(default_factory=dict)
+    capture_presets: dict[str, str] = field(default_factory=dict)
     # Map scanner_id -> ScannerService for active scanners
-    scanners: Dict[str, ScannerService] = field(default_factory=dict)
+    scanners: dict[str, ScannerService] = field(default_factory=dict)
 
     @classmethod
-    def from_config(cls, cfg: AppConfig, config_path: Optional[str] = None) -> "AppState":
+    def from_config(cls, cfg: AppConfig, config_path: str | None = None) -> AppState:
         driver: DeviceDriver
         if cfg.device.driver == "fake":
             # Explicit fake driver mode - only show fake device

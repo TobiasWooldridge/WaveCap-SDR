@@ -14,9 +14,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any, Dict, Optional, Tuple, cast
-import numpy as np
+from typing import Any
 
+import numpy as np
 
 # RDS Constants
 RDS_SUBCARRIER_HZ = 57000  # 57 kHz subcarrier (3x 19 kHz pilot)
@@ -77,7 +77,7 @@ PTY_CODES = {
 class RDSData:
     """Decoded RDS data for a station."""
 
-    pi_code: Optional[str] = None  # Program Identification (hex string like "A1B2")
+    pi_code: str | None = None  # Program Identification (hex string like "A1B2")
     ps_name: str = "        "  # Program Service name (8 chars)
     radio_text: str = ""  # Radio Text (up to 64 chars)
     pty: int = 0  # Program Type code
@@ -87,11 +87,11 @@ class RDSData:
     ms: bool = True  # Music/Speech switch (True = Music)
 
     # Internal state for building strings
-    _ps_segments: Dict[int, str] = field(default_factory=lambda: {0: "  ", 1: "  ", 2: "  ", 3: "  "})
-    _rt_segments: Dict[int, str] = field(default_factory=dict)
+    _ps_segments: dict[int, str] = field(default_factory=lambda: {0: "  ", 1: "  ", 2: "  ", 3: "  "})
+    _rt_segments: dict[int, str] = field(default_factory=dict)
     _rt_ab_flag: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dict."""
         return {
             "piCode": self.pi_code,
@@ -108,7 +108,7 @@ class RDSData:
 @lru_cache(maxsize=8)
 def _get_bpf_coeffs(
     sample_rate: int, center_freq: int, bandwidth: int
-) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+) -> tuple[np.ndarray, np.ndarray] | None:
     """Get bandpass filter coefficients for RDS subcarrier extraction."""
     from scipy import signal
 
@@ -127,7 +127,7 @@ def _get_bpf_coeffs(
     return b, a
 
 
-def _crc_check(block: int) -> Tuple[bool, str]:
+def _crc_check(block: int) -> tuple[bool, str]:
     """Check CRC and identify block type.
 
     Args:
@@ -186,7 +186,7 @@ class RDSDecoder:
         # Downsampled buffer for processing
         self._resample_buffer = np.array([], dtype=np.float32)
 
-    def process(self, fm_baseband: np.ndarray) -> Optional[RDSData]:
+    def process(self, fm_baseband: np.ndarray) -> RDSData | None:
         """Process FM baseband and extract RDS data.
 
         Args:

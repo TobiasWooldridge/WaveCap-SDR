@@ -2,40 +2,39 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import contextlib
 import json
-import os
-import signal
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, cast
 
 import numpy as np
 
 try:
     import httpx
-except Exception as e:  # pragma: no cover
+except Exception:  # pragma: no cover
     print("Missing dependency httpx. Install with: pip install httpx", file=sys.stderr)
     raise
 
 try:
     import websockets
-except Exception as e:  # pragma: no cover
+except Exception:  # pragma: no cover
     print("Missing dependency websockets. Install with: pip install websockets", file=sys.stderr)
     raise
+
+import contextlib
 
 import uvicorn
 
 from .app import create_app
-from .config import AppConfig, DeviceConfig, ServerConfig, StreamConfig, LimitsConfig
+from .config import AppConfig, DeviceConfig, LimitsConfig, ServerConfig, StreamConfig
 
 
 @dataclass
 class HarnessReport:
     capture_id: str
-    channel_reports: List[Dict[str, Any]]
+    channel_reports: list[dict[str, Any]]
 
     def to_json(self) -> str:
         return json.dumps({
@@ -44,7 +43,7 @@ class HarnessReport:
         }, indent=2)
 
 
-def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="WaveCap-SDR test harness")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8087)
@@ -93,7 +92,7 @@ def _default_config_path() -> Path:
     return Path(__file__).resolve().parents[1] / "config" / "wavecapsdr.yaml"
 
 
-def preset_channels(preset: str, cfg_path: Optional[str]) -> Tuple[float, int, List[float]]:
+def preset_channels(preset: str, cfg_path: str | None) -> tuple[float, int, list[float]]:
     # Try config-defined presets first
     path = Path(cfg_path) if cfg_path else _default_config_path()
     if path.exists():
@@ -133,7 +132,7 @@ def preset_channels(preset: str, cfg_path: Optional[str]) -> Tuple[float, int, L
     return center, sr, offsets
 
 
-async def ensure_server_running(args: argparse.Namespace) -> Optional[asyncio.AbstractServer]:
+async def ensure_server_running(args: argparse.Namespace) -> asyncio.AbstractServer | None:
     if not args.start_server:
         return None
     cfg = build_config_for_server(args)
@@ -142,17 +141,17 @@ async def ensure_server_running(args: argparse.Namespace) -> Optional[asyncio.Ab
     server = uvicorn.Server(config)
 
     loop = asyncio.get_running_loop()
-    task = loop.create_task(server.serve())
+    loop.create_task(server.serve())
     # Give it a moment to bind
     await asyncio.sleep(0.3)
     return None
 
 
-async def http_post_json(client: httpx.AsyncClient, path: str, body: Dict[str, Any], token: Optional[str]) -> Dict[str, Any]:
+async def http_post_json(client: httpx.AsyncClient, path: str, body: dict[str, Any], token: str | None) -> dict[str, Any]:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     r = await client.post(path, json=body, headers=headers)
     r.raise_for_status()
-    return cast(Dict[str, Any], r.json())
+    return cast(dict[str, Any], r.json())
 
 
 async def run_harness(args: argparse.Namespace) -> int:
@@ -171,7 +170,7 @@ async def run_harness(args: argparse.Namespace) -> int:
         center, sr, offsets = preset_channels(args.preset, args.config)
 
     # Decide which devices to use
-    device_args_list: List[Optional[str]] = []
+    device_args_list: list[str | None] = []
     if args.device_args:
         # Already a list due to action='append'
         device_args_list = list(args.device_args)
@@ -187,14 +186,14 @@ async def run_harness(args: argparse.Namespace) -> int:
     else:
         device_args_list = [None]
 
-    chan_ids: List[str] = []
-    capture_ids: List[str] = []
-    device_best_gain: Dict[Optional[str], Optional[float]] = {}
+    chan_ids: list[str] = []
+    capture_ids: list[str] = []
+    device_best_gain: dict[str | None, float | None] = {}
 
     async with httpx.AsyncClient(base_url=base, timeout=10.0) as client:
         # Auto-gain sweep per device (if requested)
         if args.auto_gain:
-            candidates: List[Optional[float]]
+            candidates: list[float | None]
             if args.gain is not None:
                 candidates = [args.gain]
             else:
@@ -247,7 +246,7 @@ async def run_harness(args: argparse.Namespace) -> int:
                 await http_post_json(client, f"/channels/{ch['id']}/start", {}, args.token)
 
     # Collect audio for each channel
-    async def collect_channel(chan_id: str) -> Dict[str, Any]:
+    async def collect_channel(chan_id: str) -> dict[str, Any]:
         url = f"ws://{args.host}:{args.port}/api/v1/stream/channels/{chan_id}"
         if args.token:
             url += f"?token={args.token}"
@@ -283,17 +282,15 @@ async def run_harness(args: argparse.Namespace) -> int:
             pass
         return {"channelId": chan_id, "rms": rms, "peak": peak, "wav": str(wav_path), "ok": ok}
 
-    reports: List[Dict[str, Any]] = []
+    reports: list[dict[str, Any]] = []
     for chan_id in chan_ids:
         reports.append(await collect_channel(chan_id))
 
     # Cleanup
     async with httpx.AsyncClient(base_url=base, timeout=10.0) as client:
         for cid in capture_ids:
-            try:
+            with contextlib.suppress(Exception):
                 await http_post_json(client, f"/captures/{cid}/stop", {}, args.token)
-            except Exception:
-                pass
 
     # Backwards compatibility: if multiple captures were used, show the first id; include all channels
     print(HarnessReport(capture_id=capture_ids[0] if capture_ids else "c0", channel_reports=reports).to_json())
@@ -304,26 +301,26 @@ async def run_harness(args: argparse.Namespace) -> int:
 async def _probe_best_gain(
     *,
     client: httpx.AsyncClient,
-    token: Optional[str],
-    device_id: Optional[str],
+    token: str | None,
+    device_id: str | None,
     center: float,
     sample_rate: int,
     offset: float,
     audio_rate: int,
-    candidates: List[Optional[float]],
+    candidates: list[float | None],
     seconds: float,
     host: str,
     port: int,
-) -> Optional[float]:
+) -> float | None:
     """Quickly tests several gains and returns the one with strong audio without clipping.
 
     Heuristic:
       - score = rms if peak < 0.98 else rms * 0.1 (penalize clipping)
       - choose highest score; if all are very low (rms < 0.002), return None to let device AGC decide.
     """
-    results: List[Tuple[Optional[float], float, float]] = []  # (gain, rms, peak)
+    results: list[tuple[float | None, float, float]] = []  # (gain, rms, peak)
 
-    async def one(g: Optional[float]) -> Tuple[Optional[float], float, float]:
+    async def one(g: float | None) -> tuple[float | None, float, float]:
         cap = await http_post_json(
             client,
             "/captures",
@@ -355,10 +352,8 @@ async def _probe_best_gain(
                     if isinstance(msg, (bytes, bytearray)):
                         total.extend(msg)
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 await http_post_json(client, f"/captures/{cid}/stop", {}, token)
-            except Exception:
-                pass
 
         if total:
             audio = np.frombuffer(total, dtype=np.int16).astype(np.float32) / 32768.0
@@ -380,7 +375,7 @@ async def _probe_best_gain(
         return None
 
     # Select best by heuristic
-    best_gain: Optional[float] = None
+    best_gain: float | None = None
     best_score = -1.0
     for g, rms, peak in results:
         score = rms if peak < 0.98 else (rms * 0.1)
@@ -393,12 +388,10 @@ async def _probe_best_gain(
     return best_gain
 
 
-def main(argv: Optional[List[str]] = None) -> None:
+def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(run_harness(args))
-    except KeyboardInterrupt:
-        pass
 
 
 if __name__ == "__main__":  # pragma: no cover - manual invocation path

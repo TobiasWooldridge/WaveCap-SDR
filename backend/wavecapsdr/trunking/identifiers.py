@@ -9,9 +9,9 @@ Reference: https://github.com/DSheirer/sdrtrunk
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 
 class IdentifierRole(Enum):
@@ -77,24 +77,24 @@ class IdentifierCollection:
         tg = ic.get_to_identifier()        # Talkgroup 1001
     """
 
-    def __init__(self, identifiers: Optional[List[Identifier]] = None,
+    def __init__(self, identifiers: list[Identifier] | None = None,
                  timeslot: int = 0) -> None:
-        self._identifiers: List[Identifier] = list(identifiers or [])
+        self._identifiers: list[Identifier] = list(identifiers or [])
         self.timeslot = timeslot
 
-    def get_identifiers(self) -> List[Identifier]:
+    def get_identifiers(self) -> list[Identifier]:
         """Get all identifiers (copy)."""
         return list(self._identifiers)
 
-    def get_identifiers_by_role(self, role: IdentifierRole) -> List[Identifier]:
+    def get_identifiers_by_role(self, role: IdentifierRole) -> list[Identifier]:
         """Get identifiers with specific role."""
         return [i for i in self._identifiers if i.role == role]
 
-    def get_identifiers_by_form(self, form: IdentifierForm) -> List[Identifier]:
+    def get_identifiers_by_form(self, form: IdentifierForm) -> list[Identifier]:
         """Get identifiers with specific form."""
         return [i for i in self._identifiers if i.form == form]
 
-    def get_from_identifier(self) -> Optional[Identifier]:
+    def get_from_identifier(self) -> Identifier | None:
         """Get the FROM (source) identifier."""
         from_ids = self.get_identifiers_by_role(IdentifierRole.FROM)
         # Prefer RADIO over ALIAS
@@ -103,7 +103,7 @@ class IdentifierCollection:
                 return ident
         return from_ids[0] if from_ids else None
 
-    def get_to_identifier(self) -> Optional[Identifier]:
+    def get_to_identifier(self) -> Identifier | None:
         """Get the TO (destination) identifier."""
         to_ids = self.get_identifiers_by_role(IdentifierRole.TO)
         # Prefer TALKGROUP over RADIO for group calls
@@ -112,21 +112,21 @@ class IdentifierCollection:
                 return ident
         return to_ids[0] if to_ids else None
 
-    def get_radio_id(self) -> Optional[int]:
+    def get_radio_id(self) -> int | None:
         """Get the source radio ID if present."""
         from_id = self.get_from_identifier()
         if from_id and from_id.form == IdentifierForm.RADIO:
             return int(from_id.value)
         return None
 
-    def get_talkgroup_id(self) -> Optional[int]:
+    def get_talkgroup_id(self) -> int | None:
         """Get the talkgroup ID if present."""
         to_id = self.get_to_identifier()
         if to_id and to_id.form == IdentifierForm.TALKGROUP:
             return int(to_id.value)
         return None
 
-    def get_alias(self, role: IdentifierRole = IdentifierRole.FROM) -> Optional[str]:
+    def get_alias(self, role: IdentifierRole = IdentifierRole.FROM) -> str | None:
         """Get alias for specified role."""
         for ident in self._identifiers:
             if ident.role == role and ident.form == IdentifierForm.ALIAS:
@@ -145,7 +145,7 @@ class IdentifierCollection:
         """Create new collection with different timeslot."""
         return IdentifierCollection(self._identifiers, timeslot)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "timeslot": self.timeslot,
@@ -157,7 +157,7 @@ class IdentifierCollection:
             "identifierCount": len(self._identifiers),
         }
 
-    def _identifier_to_dict(self, ident: Optional[Identifier]) -> Optional[Dict[str, Any]]:
+    def _identifier_to_dict(self, ident: Identifier | None) -> dict[str, Any] | None:
         if ident is None:
             return None
         return {
@@ -234,9 +234,9 @@ class TalkerAliasManager:
 
     def __init__(self) -> None:
         # radio_id -> alias_name
-        self._radio_aliases: Dict[int, str] = {}
+        self._radio_aliases: dict[int, str] = {}
         # talkgroup_id -> alias_name
-        self._talkgroup_aliases: Dict[int, str] = {}
+        self._talkgroup_aliases: dict[int, str] = {}
         # Last update time for staleness
         self._last_update: float = 0.0
 
@@ -250,16 +250,16 @@ class TalkerAliasManager:
         self._talkgroup_aliases[tgid] = alias
         self._last_update = time.time()
 
-    def get_alias(self, radio_id: int) -> Optional[str]:
+    def get_alias(self, radio_id: int) -> str | None:
         """Get alias for radio ID."""
         return self._radio_aliases.get(radio_id)
 
-    def get_talkgroup_alias(self, tgid: int) -> Optional[str]:
+    def get_talkgroup_alias(self, tgid: int) -> str | None:
         """Get alias for talkgroup."""
         return self._talkgroup_aliases.get(tgid)
 
-    def load_from_config(self, radio_aliases: Dict[int, str],
-                         talkgroup_aliases: Dict[int, str]) -> None:
+    def load_from_config(self, radio_aliases: dict[int, str],
+                         talkgroup_aliases: dict[int, str]) -> None:
         """Bulk load aliases from configuration."""
         self._radio_aliases.update(radio_aliases)
         self._talkgroup_aliases.update(talkgroup_aliases)
@@ -301,7 +301,7 @@ class TalkerAliasManager:
 
         return mic.to_immutable()
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get alias cache statistics."""
         return {
             "radioAliasCount": len(self._radio_aliases),

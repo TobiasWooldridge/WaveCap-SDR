@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional, Protocol
+from typing import Any, Protocol
+
 import numpy as np
 
 
@@ -14,12 +16,12 @@ class DeviceInfo:
     freq_max_hz: float
     sample_rates: tuple[int, ...]
     gains: tuple[str, ...]
-    gain_min: Optional[float] = None
-    gain_max: Optional[float] = None
-    bandwidth_min: Optional[float] = None
-    bandwidth_max: Optional[float] = None
-    ppm_min: Optional[float] = None
-    ppm_max: Optional[float] = None
+    gain_min: float | None = None
+    gain_max: float | None = None
+    bandwidth_min: float | None = None
+    bandwidth_max: float | None = None
+    ppm_min: float | None = None
+    ppm_max: float | None = None
     antennas: tuple[str, ...] = ()
 
 
@@ -38,13 +40,13 @@ class Device(Protocol):
         self,
         center_hz: float,
         sample_rate: int,
-        gain: Optional[float] = None,
-        bandwidth: Optional[float] = None,
-        ppm: Optional[float] = None,
-        antenna: Optional[str] = None,
-        device_settings: Optional[dict[str, Any]] = None,
-        element_gains: Optional[dict[str, float]] = None,
-        stream_format: Optional[str] = None,
+        gain: float | None = None,
+        bandwidth: float | None = None,
+        ppm: float | None = None,
+        antenna: str | None = None,
+        device_settings: dict[str, Any] | None = None,
+        element_gains: dict[str, float] | None = None,
+        stream_format: str | None = None,
         dc_offset_auto: bool = True,
         iq_balance_auto: bool = True,
     ) -> None:
@@ -53,16 +55,16 @@ class Device(Protocol):
     def start_stream(self) -> StreamHandle:
         ...
 
-    def get_antenna(self) -> Optional[str]:
+    def get_antenna(self) -> str | None:
         """Return the currently configured antenna, if any."""
         ...
 
     def reconfigure_running(
         self,
-        center_hz: Optional[float] = None,
-        gain: Optional[float] = None,
-        bandwidth: Optional[float] = None,
-        ppm: Optional[float] = None,
+        center_hz: float | None = None,
+        gain: float | None = None,
+        bandwidth: float | None = None,
+        ppm: float | None = None,
     ) -> None:
         """Reconfigure device while stream is running (hot reconfiguration).
 
@@ -88,5 +90,5 @@ class DeviceDriver(Protocol):
     def enumerate(self) -> Iterable[DeviceInfo]:
         ...
 
-    def open(self, id_or_args: Optional[str] = None) -> Device:
+    def open(self, id_or_args: str | None = None) -> Device:
         ...

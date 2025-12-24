@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +32,7 @@ class NACTracker:
 
     def __init__(self):
         """Initialize NAC tracker."""
-        self._trackers: Dict[int, _NACObservation] = {}
+        self._trackers: dict[int, _NACObservation] = {}
 
     def reset(self):
         """Remove all tracked NAC values.
@@ -91,7 +90,7 @@ class NACTracker:
 
         return 0
 
-    def get_statistics(self) -> List[Dict[str, any]]:
+    def get_statistics(self) -> list[dict[str, any]]:
         """Get statistics for all tracked NACs.
 
         Returns:

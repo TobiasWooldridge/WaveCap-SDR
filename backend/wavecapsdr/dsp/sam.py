@@ -12,12 +12,12 @@ Essential for HF/shortwave AM reception with fading signals.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, cast
+from typing import cast
 
 import numpy as np
 
 from .agc import apply_agc, soft_clip
-from .filters import highpass_filter, lowpass_filter, bandpass_filter, noise_blanker, notch_filter
+from .filters import highpass_filter, lowpass_filter, noise_blanker, notch_filter
 from .fm import resample_poly
 
 
@@ -146,9 +146,9 @@ def sam_demod(
     enable_noise_blanker: bool = False,
     noise_blanker_threshold_db: float = 10.0,
     agc_target_db: float = -20.0,
-    notch_frequencies: Optional[list[float]] = None,
-    pll_state: Optional[CarrierRecoveryPLL] = None,
-) -> tuple[np.ndarray, float, Optional[CarrierRecoveryPLL]]:
+    notch_frequencies: list[float] | None = None,
+    pll_state: CarrierRecoveryPLL | None = None,
+) -> tuple[np.ndarray, float, CarrierRecoveryPLL | None]:
     """Demodulate AM using Synchronous AM (SAM) with carrier recovery PLL.
 
     SAM provides superior performance over envelope detection by:

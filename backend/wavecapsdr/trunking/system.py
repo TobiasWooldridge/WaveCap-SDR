@@ -20,25 +20,28 @@ import asyncio
 import logging
 import time
 import uuid
+from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, Dict, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
-
 from scipy import signal as scipy_signal
 
-from wavecapsdr.trunking.config import TrunkingSystemConfig, TrunkingProtocol, P25Modulation
-from wavecapsdr.trunking.control_channel import ControlChannelMonitor, create_control_monitor
-from wavecapsdr.trunking.voice_channel import VoiceChannel, VoiceChannelConfig, RadioLocation
-from wavecapsdr.decoders.p25_tsbk import TSBKParser, VoiceGrant, ChannelIdentifier
-from wavecapsdr.decoders.voice import VocoderType
 from wavecapsdr.decoders.lrrp import LocationCache
+from wavecapsdr.decoders.p25_tsbk import ChannelIdentifier, TSBKParser
+from wavecapsdr.decoders.voice import VocoderType
+from wavecapsdr.trunking.cc_scanner import ControlChannelScanner
+from wavecapsdr.trunking.config import TrunkingProtocol, TrunkingSystemConfig
+from wavecapsdr.trunking.control_channel import ControlChannelMonitor, create_control_monitor
+from wavecapsdr.trunking.voice_channel import RadioLocation, VoiceChannel, VoiceChannelConfig
 
 if TYPE_CHECKING:
-    from wavecapsdr.capture import Capture, Channel, CaptureManager
+    from wavecapsdr.capture import Capture, CaptureManager, Channel
 
 # Import freq_shift from capture module
+import contextlib
+
 from wavecapsdr.capture import freq_shift
 
 logger = logging.getLogger(__name__)
@@ -78,20 +81,20 @@ class ActiveCall:
     id: str
     talkgroup_id: int
     talkgroup_name: str
-    source_id: Optional[int]
+    source_id: int | None
     frequency_hz: float
     channel_id: int
     state: CallState
     start_time: float
     last_activity_time: float
     encrypted: bool = False
-    recorder_id: Optional[str] = None
+    recorder_id: str | None = None
 
     # Audio stats
     audio_frames: int = 0
     duration_seconds: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API serialization."""
         return {
             "id": self.id,
@@ -122,11 +125,11 @@ class VoiceRecorder:
     state: str = "idle"  # idle, tuning, recording, hold
 
     # Current assignment
-    call_id: Optional[str] = None
+    call_id: str | None = None
     frequency_hz: float = 0.0
     talkgroup_id: int = 0
     talkgroup_name: str = ""
-    source_id: Optional[int] = None
+    source_id: int | None = None
     encrypted: bool = False
 
     # Frequency shift from capture center
@@ -137,23 +140,23 @@ class VoiceRecorder:
     hold_timeout: float = 2.0  # Seconds to hold after voice ends
 
     # Voice channel for audio streaming
-    _voice_channel: Optional[VoiceChannel] = field(default=None, repr=False)
+    _voice_channel: VoiceChannel | None = field(default=None, repr=False)
 
     # Protocol for vocoder selection
     _protocol: TrunkingProtocol = TrunkingProtocol.P25_PHASE1
 
     # Decimation filter state for IQ processing
-    _decim_filter_taps: Optional[np.ndarray] = field(default=None, repr=False)
-    _decim_filter_zi: Optional[np.ndarray] = field(default=None, repr=False)
+    _decim_filter_taps: np.ndarray | None = field(default=None, repr=False)
+    _decim_filter_zi: np.ndarray | None = field(default=None, repr=False)
     _decim_factor: int = 1
 
     # FM demodulator state
     _last_phase: float = 0.0
 
     # Event loop for thread-safe audio scheduling
-    _event_loop: Optional[asyncio.AbstractEventLoop] = field(default=None, repr=False)
+    _event_loop: asyncio.AbstractEventLoop | None = field(default=None, repr=False)
 
-    def set_event_loop(self, loop: Optional[asyncio.AbstractEventLoop]) -> None:
+    def set_event_loop(self, loop: asyncio.AbstractEventLoop | None) -> None:
         """Set the event loop used for scheduling audio decoding."""
         self._event_loop = loop
 
@@ -165,7 +168,7 @@ class VoiceRecorder:
         talkgroup_name: str,
         center_hz: float,
         protocol: TrunkingProtocol = TrunkingProtocol.P25_PHASE1,
-        source_id: Optional[int] = None,
+        source_id: int | None = None,
         encrypted: bool = False,
     ) -> None:
         """Assign recorder to a call (sync part - sets up state)."""
@@ -315,7 +318,7 @@ class VoiceRecorder:
             return time.time() - self.last_activity > self.hold_timeout
         return False
 
-    def get_voice_channel(self) -> Optional[VoiceChannel]:
+    def get_voice_channel(self) -> VoiceChannel | None:
         """Get the voice channel if active."""
         return self._voice_channel
 
@@ -332,70 +335,93 @@ class TrunkingSystem:
 
     # Control channel state
     control_channel_state: ControlChannelState = ControlChannelState.UNLOCKED
-    control_channel_freq_hz: Optional[float] = None
+    control_channel_freq_hz: float | None = None
     control_channel_index: int = 0  # Index into cfg.control_channels
 
     # System info from RFSS/NET status broadcasts
-    nac: Optional[int] = None  # Network Access Code (12-bit)
-    system_id: Optional[int] = None
-    rfss_id: Optional[int] = None
-    site_id: Optional[int] = None
+    nac: int | None = None  # Network Access Code (12-bit)
+    system_id: int | None = None
+    rfss_id: int | None = None
+    site_id: int | None = None
 
     # TSBK parser
-    _tsbk_parser: Optional[TSBKParser] = None
+    _tsbk_parser: TSBKParser | None = None
 
     # Channel identifiers from IDEN_UP messages
-    _channel_identifiers: Dict[int, ChannelIdentifier] = field(default_factory=dict)
+    _channel_identifiers: dict[int, ChannelIdentifier] = field(default_factory=dict)
 
     # SDR capture and channel references (created on start)
-    _capture_manager: Optional["CaptureManager"] = None
-    _capture: Optional["Capture"] = None
-    _control_channel: Optional["Channel"] = None
+    _capture_manager: CaptureManager | None = None
+    _capture: Capture | None = None
+    _control_channel: Channel | None = None
 
     # Control channel monitor (uses correct Phase I/II demodulator)
-    _control_monitor: Optional[ControlChannelMonitor] = None
+    _control_monitor: ControlChannelMonitor | None = None
 
     # Event loop for thread-safe async scheduling
-    _event_loop: Optional[asyncio.AbstractEventLoop] = field(default=None, repr=False)
+    _event_loop: asyncio.AbstractEventLoop | None = field(default=None, repr=False)
 
     # Voice recorders
-    _voice_recorders: List[VoiceRecorder] = field(default_factory=list)
+    _voice_recorders: list[VoiceRecorder] = field(default_factory=list)
 
     # Active calls
-    _active_calls: Dict[str, ActiveCall] = field(default_factory=dict)
-    _calls_by_talkgroup: Dict[int, str] = field(default_factory=dict)
+    _active_calls: dict[str, ActiveCall] = field(default_factory=dict)
+    _calls_by_talkgroup: dict[int, str] = field(default_factory=dict)
 
     # Stats
     _tsbk_count: int = 0
     _grant_count: int = 0
+    _calls_total: int = 0  # Total calls started (cumulative)
     _last_tsbk_time: float = 0.0
     decode_rate: float = 0.0  # TSBK per second
 
     # Radio location cache (LRRP GPS data)
-    _location_cache: Optional[LocationCache] = None
+    _location_cache: LocationCache | None = None
     _location_max_age: float = 300.0  # 5 minutes
 
     # Event callbacks
-    on_call_start: Optional[Callable[[ActiveCall], None]] = None
-    on_call_update: Optional[Callable[[ActiveCall], None]] = None
-    on_call_end: Optional[Callable[[ActiveCall], None]] = None
-    on_system_update: Optional[Callable[[TrunkingSystem], None]] = None
+    on_call_start: Callable[[ActiveCall], None] | None = None
+    on_call_update: Callable[[ActiveCall], None] | None = None
+    on_call_end: Callable[[ActiveCall], None] | None = None
+    on_system_update: Callable[[TrunkingSystem], None] | None = None
 
     # Timing
     _state_change_time: float = field(default_factory=time.time)
     _control_channel_timeout: float = 10.0  # Seconds before trying next CC
-    _hunt_check_task: Optional[asyncio.Task[None]] = None
+    _hunt_check_task: asyncio.Task[None] | None = None
+
+    # Control channel scanner for signal strength measurement
+    _cc_scanner: ControlChannelScanner | None = None
+    _roam_check_interval: float = 30.0  # Check for better channel every 30 seconds (from config)
+    _last_roam_check: float = 0.0
+    _roam_threshold_db: float = 6.0  # SNR improvement required to roam (from config)
+    _scan_iq_buffer: list[np.ndarray] = field(default_factory=list)
+    _scan_buffer_samples: int = 0
+    _initial_scan_complete: bool = False
+    _initial_scan_enabled: bool = True  # Whether to do initial scan (from config)
 
     def __post_init__(self) -> None:
         """Initialize after dataclass creation."""
         # Use config timeout if specified
         self._control_channel_timeout = self.cfg.control_channel_timeout
 
+        # Use scanner config values
+        self._roam_check_interval = self.cfg.roam_check_interval
+        self._roam_threshold_db = self.cfg.roam_threshold_db
+        self._initial_scan_enabled = self.cfg.initial_scan_enabled
+
         # Create TSBK parser
         self._tsbk_parser = TSBKParser()
 
         # Create location cache for radio GPS data
         self._location_cache = LocationCache(max_age_seconds=self._location_max_age)
+
+        # Create control channel scanner
+        self._cc_scanner = ControlChannelScanner(
+            center_hz=self.cfg.center_hz,
+            sample_rate=self.cfg.sample_rate,
+            control_channels=self.cfg.control_channels,
+        )
 
         # Create voice recorder pool
         for i in range(self.cfg.max_voice_recorders):
@@ -413,7 +439,7 @@ class TrunkingSystem:
             f"voice_recorders={len(self._voice_recorders)}"
         )
 
-    async def start(self, capture_manager: "CaptureManager") -> None:
+    async def start(self, capture_manager: CaptureManager) -> None:
         """Start the trunking system.
 
         This creates an SDR capture, sets up the control channel decoder,
@@ -446,9 +472,13 @@ class TrunkingSystem:
             self._set_state(TrunkingSystemState.FAILED)
             return
 
-        # Start with first control channel
+        # Initialize control channel (will be updated after initial scan if enabled)
         self.control_channel_index = 0
         self.control_channel_freq_hz = self.cfg.control_channels[0]
+        # If initial scan is disabled, mark as complete so we start immediately
+        self._initial_scan_complete = not self._initial_scan_enabled
+        if not self._initial_scan_enabled:
+            logger.info(f"TrunkingSystem {self.cfg.id}: Initial scan disabled, starting on first channel")
 
         try:
             # Create wideband capture for this trunking system
@@ -545,9 +575,6 @@ class TrunkingSystem:
             f"for {self.cfg.protocol.value} (modulation: {mod_str})"
         )
 
-        # Store original process_iq_chunk_sync method
-        original_process_sync = self._control_channel.process_iq_chunk_sync
-
         # Store reference to self for dynamic offset access in closure
         system = self
 
@@ -579,11 +606,17 @@ class TrunkingSystem:
         # Debug counter for IQ flow monitoring
         iq_debug_state = {"samples": 0, "calls": 0}
 
-        def wrapped_process_sync(iq: np.ndarray, sample_rate: int) -> Optional[np.ndarray]:
-            """Wrapped IQ processor that uses ControlChannelMonitor.
+        # Initial scan state - collect samples for 2 seconds then scan
+        # Use capture sample rate from config
+        capture_sample_rate = self.cfg.sample_rate
+        INITIAL_SCAN_SAMPLES = capture_sample_rate * 2  # 2 seconds of samples
+        ROAM_SCAN_SAMPLES = capture_sample_rate  # 1 second of samples for roaming check
 
-            This intercepts IQ samples, does frequency shift to center on control channel,
-            decimates to 48kHz with proper anti-aliasing, and feeds to our ControlChannelMonitor.
+        def on_raw_iq_callback(iq: np.ndarray, sample_rate: int) -> None:
+            """IQ callback for trunking system processing.
+
+            This receives raw wideband IQ samples, handles initial scanning,
+            periodic roaming checks, and feeds decimated IQ to ControlChannelMonitor.
             """
             # Debug: Track IQ flow
             iq_debug_state["samples"] += len(iq)
@@ -598,6 +631,116 @@ class TrunkingSystem:
                     f"samples={len(iq)}, raw_mean={np.mean(raw_mag):.4f}, raw_max={np.max(raw_mag):.4f}",
                     flush=True
                 )
+
+            # ============================================================
+            # INITIAL SCAN: Collect samples and scan all control channels
+            # ============================================================
+            if not system._initial_scan_complete and system._initial_scan_enabled:
+                system._scan_iq_buffer.append(iq.copy())
+                system._scan_buffer_samples += len(iq)
+
+                if system._scan_buffer_samples >= INITIAL_SCAN_SAMPLES:
+                    # Concatenate all collected samples
+                    all_iq = np.concatenate(system._scan_iq_buffer)
+                    system._scan_iq_buffer.clear()
+                    system._scan_buffer_samples = 0
+
+                    # Run the scanner
+                    if system._cc_scanner is not None:
+                        logger.info(
+                            f"TrunkingSystem {self.cfg.id}: Running initial control channel scan..."
+                        )
+                        system._cc_scanner.scan_all(all_iq)
+                        system._cc_scanner.log_scan_results()
+
+                        # Get the best channel
+                        best = system._cc_scanner.get_best_channel()
+                        if best is not None:
+                            best_freq, best_measurement = best
+
+                            # Update scanner's current channel tracking
+                            system._cc_scanner._current_channel_hz = best_freq
+
+                            # Update to best channel
+                            system.control_channel_freq_hz = best_freq
+                            system.control_channel_index = (
+                                system.cfg.control_channels.index(best_freq)
+                                if best_freq in system.cfg.control_channels
+                                else 0
+                            )
+
+                            # Update control channel offset
+                            if system._control_channel is not None:
+                                new_offset = best_freq - system.cfg.center_hz
+                                system._control_channel.cfg.offset_hz = new_offset
+                                logger.info(
+                                    f"TrunkingSystem {self.cfg.id}: Selected best control channel: "
+                                    f"{best_freq/1e6:.4f} MHz (SNR={best_measurement.snr_db:.1f} dB, "
+                                    f"sync={'YES' if best_measurement.sync_detected else 'NO'})"
+                                )
+                        else:
+                            logger.warning(
+                                f"TrunkingSystem {self.cfg.id}: No control channels detected, "
+                                f"staying on {system.control_channel_freq_hz/1e6:.4f} MHz"
+                            )
+
+                    system._initial_scan_complete = True
+                    system._last_roam_check = time.time()
+
+                # During initial scan, just collect samples - don't process yet
+                # The channel's P25 decoder will still run, but we won't decode with ControlChannelMonitor
+                return
+
+            # ============================================================
+            # PERIODIC ROAMING CHECK: Check if a better channel is available
+            # ============================================================
+            now = time.time()
+            if now - system._last_roam_check >= system._roam_check_interval:
+                # Collect samples for roaming check
+                system._scan_iq_buffer.append(iq.copy())
+                system._scan_buffer_samples += len(iq)
+
+                if system._scan_buffer_samples >= ROAM_SCAN_SAMPLES:
+                    all_iq = np.concatenate(system._scan_iq_buffer)
+                    system._scan_iq_buffer.clear()
+                    system._scan_buffer_samples = 0
+
+                    if system._cc_scanner is not None:
+                        # Scan all channels
+                        system._cc_scanner.scan_all(all_iq)
+
+                        # Check if we should roam
+                        current_freq = system.control_channel_freq_hz
+                        roam_to = system._cc_scanner.should_roam(
+                            current_freq,
+                            roam_threshold_db=system._roam_threshold_db,
+                        )
+
+                        if roam_to is not None:
+                            logger.info(
+                                f"TrunkingSystem {self.cfg.id}: Roaming from "
+                                f"{current_freq/1e6:.4f} MHz to {roam_to/1e6:.4f} MHz"
+                            )
+                            # Update scanner's current channel tracking
+                            system._cc_scanner._current_channel_hz = roam_to
+
+                            system.control_channel_freq_hz = roam_to
+                            system.control_channel_index = (
+                                system.cfg.control_channels.index(roam_to)
+                                if roam_to in system.cfg.control_channels
+                                else 0
+                            )
+
+                            # Update control channel offset
+                            if system._control_channel is not None:
+                                new_offset = roam_to - system.cfg.center_hz
+                                system._control_channel.cfg.offset_hz = new_offset
+
+                            # Reset control monitor for new channel
+                            if system._control_monitor is not None:
+                                system._control_monitor.reset()
+
+                    system._last_roam_check = now
 
             # Shift frequency to center on control channel (dynamic offset for hunting)
             cc_offset_hz = system._control_channel.cfg.offset_hz if system._control_channel else 0
@@ -661,11 +804,9 @@ class TrunkingSystem:
                             f"TrunkingSystem {self.cfg.id}: Voice recorder {recorder.id} error: {e}"
                         )
 
-            # Call original processing for signal metrics
-            return original_process_sync(iq, sample_rate)
-
-        # Replace the sync processing method
-        self._control_channel.process_iq_chunk_sync = wrapped_process_sync  # type: ignore[method-assign]
+        # Register the IQ callback on the control channel
+        self._control_channel.on_raw_iq = on_raw_iq_callback
+        logger.info(f"TrunkingSystem {self.cfg.id}: Registered on_raw_iq callback for scanning and decoding")
 
     def _schedule_coroutine(self, coro: Coroutine[Any, Any, Any], context: str) -> None:
         """Schedule a coroutine on the system event loop."""
@@ -684,7 +825,7 @@ class TrunkingSystem:
                 context,
             )
 
-    def _handle_tsbk_callback(self, tsbk_data: Dict[str, Any]) -> None:
+    def _handle_tsbk_callback(self, tsbk_data: dict[str, Any]) -> None:
         """Handle TSBK message from P25 decoder.
 
         This is called by the P25 decoder when a TSBK is decoded.
@@ -695,7 +836,7 @@ class TrunkingSystem:
         # For now, let's handle the parsed data directly
         self._handle_parsed_tsbk(tsbk_data)
 
-    def _handle_parsed_tsbk(self, tsbk_data: Dict[str, Any]) -> None:
+    def _handle_parsed_tsbk(self, tsbk_data: dict[str, Any]) -> None:
         """Handle parsed TSBK data from P25 decoder."""
         # Update stats
         self._tsbk_count += 1
@@ -754,10 +895,8 @@ class TrunkingSystem:
         # Cancel hunt check loop
         if self._hunt_check_task is not None:
             self._hunt_check_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._hunt_check_task
-            except asyncio.CancelledError:
-                pass
             self._hunt_check_task = None
 
         # End all active calls
@@ -846,7 +985,7 @@ class TrunkingSystem:
         except Exception as e:
             logger.error(f"TrunkingSystem {self.cfg.id}: Error processing TSBK: {e}")
 
-    def _handle_voice_grant(self, result: Dict[str, Any]) -> None:
+    def _handle_voice_grant(self, result: dict[str, Any]) -> None:
         """Handle a voice channel grant TSBK.
 
         Parser result contains:
@@ -1002,6 +1141,7 @@ class TrunkingSystem:
 
         self._active_calls[call.id] = call
         self._calls_by_talkgroup[tgid] = call.id
+        self._calls_total += 1
 
         if self.on_call_start:
             self.on_call_start(call)
@@ -1010,7 +1150,7 @@ class TrunkingSystem:
         if self.state == TrunkingSystemState.SYNCED:
             self._set_state(TrunkingSystemState.RUNNING)
 
-    def _handle_channel_identifier(self, result: Dict[str, Any]) -> None:
+    def _handle_channel_identifier(self, result: dict[str, Any]) -> None:
         """Handle a channel identifier TSBK (IDEN_UP, IDEN_UP_VU, IDEN_UP_TDMA).
 
         Parser result contains:
@@ -1078,7 +1218,6 @@ class TrunkingSystem:
             return
 
         # Advance to next control channel
-        old_index = self.control_channel_index
         self.control_channel_index = (self.control_channel_index + 1) % num_channels
         self.control_channel_freq_hz = self.cfg.control_channels[self.control_channel_index]
 
@@ -1124,7 +1263,7 @@ class TrunkingSystem:
         except Exception as e:
             logger.error(f"TrunkingSystem {self.cfg.id}: Hunt check loop error: {e}")
 
-    def _handle_rfss_status(self, result: Dict[str, Any]) -> None:
+    def _handle_rfss_status(self, result: dict[str, Any]) -> None:
         """Handle RFSS Status Broadcast TSBK."""
         if "nac" in result:
             self.nac = result["nac"]
@@ -1141,7 +1280,7 @@ class TrunkingSystem:
             f"RFSS={self.rfss_id}, Site={self.site_id}"
         )
 
-    def _handle_net_status(self, result: Dict[str, Any]) -> None:
+    def _handle_net_status(self, result: dict[str, Any]) -> None:
         """Handle Network Status Broadcast TSBK."""
         if "nac" in result:
             self.nac = result["nac"]
@@ -1153,7 +1292,7 @@ class TrunkingSystem:
             f"NAC={self.nac}, SysID={self.system_id}"
         )
 
-    def _calculate_frequency(self, channel_id: int) -> Optional[float]:
+    def _calculate_frequency(self, channel_id: int) -> float | None:
         """Calculate frequency from channel ID.
 
         The channel ID format is: IDEN (4 bits) | CHANNEL (12 bits)
@@ -1178,7 +1317,7 @@ class TrunkingSystem:
         freq_hz = base_freq_hz + (channel * channel_spacing_hz)
         return freq_hz
 
-    def _get_available_recorder(self, talkgroup_id: int) -> Optional[VoiceRecorder]:
+    def _get_available_recorder(self, talkgroup_id: int) -> VoiceRecorder | None:
         """Get an available voice recorder for a call.
 
         Prioritizes:
@@ -1283,23 +1422,33 @@ class TrunkingSystem:
                         f"TrunkingSystem {self.cfg.id}: Call {call_id} entering hold state"
                     )
 
-    def get_active_calls(self) -> List[ActiveCall]:
+    def get_active_calls(self) -> list[ActiveCall]:
         """Get list of active calls."""
         return list(self._active_calls.values())
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get system statistics."""
-        return {
-            "tsbk_count": self._tsbk_count,
-            "grant_count": self._grant_count,
-            "decode_rate": round(self.decode_rate, 2),
+        stats = {
+            "tsbk_count": int(self._tsbk_count),
+            "grant_count": int(self._grant_count),
+            "calls_total": int(self._calls_total),
+            "decode_rate": float(round(self.decode_rate, 2)),
             "active_calls": len(self._active_calls),
             "recorders_idle": sum(1 for r in self._voice_recorders if r.state == "idle"),
             "recorders_active": sum(1 for r in self._voice_recorders if r.state == "recording"),
             "channel_identifiers": len(self._channel_identifiers),
+            "initial_scan_complete": bool(self._initial_scan_complete),
         }
+        # Add control channel scanner stats if available
+        if self._cc_scanner:
+            stats["cc_scanner"] = self._cc_scanner.get_stats()
+        # Add control monitor stats if available
+        if self._control_monitor:
+            cm_stats = self._control_monitor.get_stats()
+            stats["control_monitor"] = cm_stats
+        return stats
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert system state to dictionary for API serialization."""
         return {
             "id": self.cfg.id,
@@ -1318,7 +1467,7 @@ class TrunkingSystem:
             "stats": self.get_stats(),
         }
 
-    def get_voice_channels(self) -> List[VoiceChannel]:
+    def get_voice_channels(self) -> list[VoiceChannel]:
         """Get all active voice channels."""
         channels = []
         for recorder in self._voice_recorders:
@@ -1326,14 +1475,14 @@ class TrunkingSystem:
                 channels.append(recorder._voice_channel)
         return channels
 
-    def get_voice_channel(self, channel_id: str) -> Optional[VoiceChannel]:
+    def get_voice_channel(self, channel_id: str) -> VoiceChannel | None:
         """Get a specific voice channel by ID."""
         for recorder in self._voice_recorders:
             if recorder._voice_channel and recorder._voice_channel.id == channel_id:
                 return recorder._voice_channel
         return None
 
-    def get_voice_recorder(self, recorder_id: str) -> Optional[VoiceRecorder]:
+    def get_voice_recorder(self, recorder_id: str) -> VoiceRecorder | None:
         """Get a voice recorder by ID."""
         for recorder in self._voice_recorders:
             if recorder.id == recorder_id:
@@ -1369,7 +1518,7 @@ class TrunkingSystem:
                         f"unit={location.unit_id} recorder={recorder.id}"
                     )
 
-    def get_radio_location(self, unit_id: int) -> Optional[RadioLocation]:
+    def get_radio_location(self, unit_id: int) -> RadioLocation | None:
         """Get cached location for a radio unit.
 
         Returns None if no location is cached or location is stale.
@@ -1384,13 +1533,13 @@ class TrunkingSystem:
             return None
         return self._location_cache.get(unit_id)
 
-    def get_all_locations(self) -> List[RadioLocation]:
+    def get_all_locations(self) -> list[RadioLocation]:
         """Get all fresh cached locations."""
         if self._location_cache is None:
             return []
         return self._location_cache.get_fresh()
 
-    def get_location_cache_stats(self) -> Dict[str, Any]:
+    def get_location_cache_stats(self) -> dict[str, Any]:
         """Get location cache statistics."""
         if self._location_cache is None:
             return {"enabled": False}

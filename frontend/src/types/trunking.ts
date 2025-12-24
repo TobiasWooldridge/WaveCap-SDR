@@ -31,12 +31,28 @@ export interface TrunkingSystem {
   stats: TrunkingStats;
 }
 
+export interface ControlChannelMeasurement {
+  power_db: number;
+  snr_db: number;
+  sync_detected: boolean;
+}
+
+export interface ControlChannelScannerStats {
+  channels_configured: number;
+  channels_measured: number;
+  last_scan_time: number;
+  current_channel_hz: number | null;
+  measurements: Record<string, ControlChannelMeasurement>;
+}
+
 export interface TrunkingStats {
   tsbk_count: number;
   grant_count: number;
   calls_total: number;
   recorders_idle: number;
   recorders_active: number;
+  initial_scan_complete?: boolean;
+  cc_scanner?: ControlChannelScannerStats;
 }
 
 export interface Talkgroup {

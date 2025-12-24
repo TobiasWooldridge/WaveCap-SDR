@@ -12,12 +12,12 @@ Key data types decoded:
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any, Dict, Optional, List
-import numpy as np
-import time
+from typing import Any
 
+import numpy as np
 
 # POCSAG Constants
 POCSAG_SYNC_CODEWORD = 0x7CD215D8  # Sync pattern
@@ -49,7 +49,7 @@ class POCSAGMessage:
     timestamp: float = field(default_factory=time.time)
     baud_rate: int = 1200
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dict."""
         return {
             "address": self.address,
@@ -79,9 +79,9 @@ def _bch_check(codeword: int) -> bool:
     return syndrome == 0 and parity == 0
 
 
-def _decode_numeric(data_bits: List[int]) -> str:
+def _decode_numeric(data_bits: list[int]) -> str:
     """Decode BCD numeric message."""
-    result: List[str] = []
+    result: list[str] = []
     # Process 4 bits at a time (BCD)
     for i in range(0, len(data_bits) - 3, 4):
         value = (data_bits[i] << 3) | (data_bits[i+1] << 2) | (data_bits[i+2] << 1) | data_bits[i+3]
@@ -93,7 +93,7 @@ def _decode_numeric(data_bits: List[int]) -> str:
     return ''.join(result).strip()
 
 
-def _decode_alpha(data_bits: List[int]) -> str:
+def _decode_alpha(data_bits: list[int]) -> str:
     """Decode 7-bit ASCII alphanumeric message."""
     result = []
     # Process 7 bits at a time
@@ -130,7 +130,7 @@ class POCSAGDecoder:
         self.samples_per_bit = sample_rate / baud_rate
 
         # Bit recovery state
-        self._bit_buffer: List[int] = []
+        self._bit_buffer: list[int] = []
         self._sample_buffer = np.array([], dtype=np.float32)
         self._last_zero_crossing = 0
         self._phase = 0.0
@@ -138,18 +138,18 @@ class POCSAGDecoder:
         # Frame sync state
         self._synced = False
         self._sync_word_buffer = 0
-        self._codeword_buffer: List[int] = []
+        self._codeword_buffer: list[int] = []
 
         # Current message state
-        self._current_address: Optional[int] = None
+        self._current_address: int | None = None
         self._current_function: int = 0
-        self._data_bits: List[int] = []
+        self._data_bits: list[int] = []
 
         # Decoded messages queue
-        self.messages: List[POCSAGMessage] = []
+        self.messages: list[POCSAGMessage] = []
         self._max_messages = 100
 
-    def process(self, audio: np.ndarray) -> List[POCSAGMessage]:
+    def process(self, audio: np.ndarray) -> list[POCSAGMessage]:
         """Process audio samples and extract POCSAG messages.
 
         Args:
@@ -161,7 +161,7 @@ class POCSAGDecoder:
         if audio.size == 0:
             return []
 
-        new_messages: List[POCSAGMessage] = []
+        new_messages: list[POCSAGMessage] = []
 
         # Append to sample buffer
         self._sample_buffer = np.concatenate([self._sample_buffer, audio.astype(np.float32)])
@@ -200,9 +200,9 @@ class POCSAGDecoder:
 
         return new_messages
 
-    def _try_sync_and_decode(self) -> List[POCSAGMessage]:
+    def _try_sync_and_decode(self) -> list[POCSAGMessage]:
         """Try to sync to POCSAG stream and decode codewords."""
-        messages: List[POCSAGMessage] = []
+        messages: list[POCSAGMessage] = []
 
         # Build 32-bit word from buffer
         if len(self._bit_buffer) < 32:
@@ -283,7 +283,7 @@ class POCSAGDecoder:
 
         return messages
 
-    def _flush_message(self) -> Optional[POCSAGMessage]:
+    def _flush_message(self) -> POCSAGMessage | None:
         """Flush the current message buffer and create a message object."""
         if self._current_address is None:
             return None
@@ -324,7 +324,7 @@ class POCSAGDecoder:
         self._current_function = 0
         self._data_bits = []
 
-    def get_messages(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_messages(self, limit: int = 10) -> list[dict[str, Any]]:
         """Get recent decoded messages as dicts.
 
         Args:

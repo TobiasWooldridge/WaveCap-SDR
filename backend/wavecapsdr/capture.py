@@ -1,37 +1,43 @@
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import Future, ThreadPoolExecutor
-from enum import Enum
 import functools
 import logging
 import threading
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, TypeVar, cast
+from enum import Enum
+from typing import Any, Callable, TypeVar, cast
 
 import numpy as np
 
+from .dsp.fft import FFTBackend
+from .dsp.fft import available_backends as available_fft_backends
+
 # Import FFT backend (pluggable: scipy, fftw, mlx, cuda)
-from .dsp.fft import get_backend as get_fft_backend, FFTBackend, available_backends as available_fft_backends
+from .dsp.fft import get_backend as get_fft_backend
 
 logger = logging.getLogger(__name__)
 
+import contextlib
+
 from .config import AppConfig
+from .decoders.ambe import DMRVoiceDecoder
+from .decoders.dmr import DMRDecoder
+from .decoders.imbe import IMBEDecoder
+from .decoders.p25 import P25Decoder
 from .devices.base import Device, DeviceDriver, StreamHandle
+from .dsp.am import am_demod, ssb_demod
+
 # Disabled: automatic recovery tends to cause thrashing
 # from .sdrplay_recovery import attempt_recovery
-from .dsp.fm import wbfm_demod, nbfm_demod, quadrature_demod
-from .dsp.am import am_demod, ssb_demod
-from .dsp.sam import sam_demod_simple
-from .dsp.rds import RDSDecoder, RDSData
+from .dsp.fm import nbfm_demod, quadrature_demod, wbfm_demod
 from .dsp.pocsag import POCSAGDecoder, POCSAGMessage
-from .encoders import create_encoder, AudioEncoder
-from .decoders.p25 import P25Decoder
-from .decoders.dmr import DMRDecoder
-from .decoders.imbe import IMBEDecoder, check_imbe_available
-from .decoders.ambe import DMRVoiceDecoder
-
+from .dsp.rds import RDSData, RDSDecoder
+from .dsp.sam import sam_demod_simple
+from .encoders import AudioEncoder, create_encoder
+from .trunking.config import P25Modulation
 
 F = TypeVar('F', bound=Callable[..., Any])
 
@@ -160,15 +166,20 @@ def freq_shift(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray
 
 
 # P25 processing constants
-P25_TARGET_SAMPLE_RATE = 48000  # P25 decoder expects 48 kHz
+# SDRTrunk targets ~19.2 kHz (4 samples per symbol at 4800 baud)
+# Using power-of-2 decimation to get close to 19.2 kHz
+P25_TARGET_SAMPLE_RATE = 19200  # 4 samples per symbol (matches SDRTrunk)
 P25_CHANNEL_BANDWIDTH = 12500  # P25 uses 12.5 kHz channel bandwidth
 
 
-def decimate_iq_for_p25(iq: np.ndarray, sample_rate: int) -> Tuple[np.ndarray, int]:
+def decimate_iq_for_p25(iq: np.ndarray, sample_rate: int) -> tuple[np.ndarray, int]:
     """Decimate complex IQ samples for P25 processing.
 
     P25 uses 12.5 kHz channel bandwidth with 4800 baud C4FM.
-    Target sample rate is 48 kHz (10 samples per symbol).
+    Target sample rate is ~48 kHz (10 samples per symbol) for good timing recovery.
+
+    Uses scipy.signal.resample_poly for high-quality rational resampling that
+    preserves signal magnitude.
 
     Args:
         iq: Complex IQ samples (already frequency-shifted to channel)
@@ -177,58 +188,91 @@ def decimate_iq_for_p25(iq: np.ndarray, sample_rate: int) -> Tuple[np.ndarray, i
     Returns:
         Tuple of (decimated IQ, effective sample rate)
     """
-    if sample_rate <= P25_TARGET_SAMPLE_RATE:
-        # Already at or below target rate, no decimation needed
+    # Target 48 kHz for P25 (10 samples per symbol at 4800 baud)
+    TARGET_RATE = 48000
+
+    if sample_rate <= TARGET_RATE:
         return iq, sample_rate
 
     if iq.size == 0:
         return iq, sample_rate
 
     try:
-        from scipy import signal
+        import math
 
-        # Calculate decimation factor
-        # We want to get close to 48 kHz but must be an integer factor
-        decim_factor = sample_rate // P25_TARGET_SAMPLE_RATE
+        from scipy import signal as scipy_signal
 
-        if decim_factor <= 1:
-            return iq, sample_rate
+        # Debug: log before/after magnitudes periodically
+        if not hasattr(decimate_iq_for_p25, '_debug_count'):
+            decimate_iq_for_p25._debug_count = 0
+        decimate_iq_for_p25._debug_count += 1
+        _debug = decimate_iq_for_p25._debug_count <= 10 or decimate_iq_for_p25._debug_count % 100 == 0
 
-        # Design lowpass filter for P25 bandwidth (12.5 kHz)
-        # Cutoff at 6.25 kHz (half the channel bandwidth) with some margin
-        nyquist = sample_rate / 2.0
-        cutoff = min(P25_CHANNEL_BANDWIDTH / 2.0, nyquist * 0.9)  # 6.25 kHz
-        normalized_cutoff = cutoff / nyquist
+        before_mean = np.mean(np.abs(iq)) if _debug else 0
 
-        # Use a relatively short FIR filter for efficiency
-        numtaps = min(65, sample_rate // 2000 + 1)
-        if numtaps % 2 == 0:
-            numtaps += 1  # Ensure odd number of taps
+        # Find rational approximation for resampling ratio
+        # up/down where output_rate = sample_rate * up / down
+        gcd = math.gcd(sample_rate, TARGET_RATE)
+        up = TARGET_RATE // gcd
+        down = sample_rate // gcd
 
-        # Design lowpass filter
-        b = signal.firwin(numtaps, normalized_cutoff, window='hamming')
+        # For P25 with high decimation ratios, simple subsampling works because:
+        # 1. The channel has already been frequency-shifted to baseband
+        # 2. The P25 signal (12.5 kHz BW) is narrow compared to output rate (48 kHz)
+        # 3. Any aliasing from out-of-band signals is filtered by the demodulator
+        # Using simple subsample avoids filter-induced signal loss.
+        if down > 50:
+            # Simple integer decimation for very high ratios
+            decim_factor = sample_rate // TARGET_RATE
+            output_rate = sample_rate // decim_factor
 
-        # Apply filter and decimate
-        # Filter I and Q components separately
-        iq_filtered = signal.lfilter(b, 1.0, iq)
+            # Just subsample - the channel shift already filtered to P25 bandwidth
+            result = iq[::decim_factor].astype(np.complex64)
 
-        # Decimate
-        iq_decimated = iq_filtered[::decim_factor]
+            if _debug:
+                after_mean = np.mean(np.abs(result))
+                ratio = before_mean / after_mean if after_mean > 1e-10 else 0
+                print(
+                    f"[DECIM] #{decimate_iq_for_p25._debug_count}: "
+                    f"before={before_mean:.4f}, after={after_mean:.4f}, "
+                    f"ratio={ratio:.1f}x, decim={decim_factor}x (simple), "
+                    f"output_rate={output_rate}",
+                    flush=True
+                )
+            return result, output_rate
 
-        effective_rate = sample_rate // decim_factor
-        return iq_decimated.astype(np.complex64), effective_rate
+        # Use resample_poly for proper anti-aliasing resampling
+        # Process I and Q separately
+        result_i = scipy_signal.resample_poly(iq.real, up, down)
+        result_q = scipy_signal.resample_poly(iq.imag, up, down)
+        result = (result_i + 1j * result_q).astype(np.complex64)
+
+        output_rate = (sample_rate * up) // down
+
+        if _debug:
+            after_mean = np.mean(np.abs(result))
+            ratio = before_mean / after_mean if after_mean > 1e-10 else 0
+            print(
+                f"[DECIM] #{decimate_iq_for_p25._debug_count}: "
+                f"before={before_mean:.4f}, after={after_mean:.4f}, "
+                f"ratio={ratio:.1f}x, resample={up}/{down}, "
+                f"output_rate={output_rate}",
+                flush=True
+            )
+
+        return result, output_rate
 
     except ImportError:
-        # Fallback: simple decimation without filtering (not ideal but works)
-        decim_factor = max(1, sample_rate // P25_TARGET_SAMPLE_RATE)
+        # Fallback: simple decimation without filtering
+        decim_factor = max(1, sample_rate // TARGET_RATE)
         return iq[::decim_factor].astype(np.complex64), sample_rate // decim_factor
 
 
 def _process_channel_dsp_stateless(
     samples: np.ndarray,
     sample_rate: int,
-    cfg: "ChannelConfig",
-) -> Tuple[Optional[np.ndarray], Dict[str, Any]]:
+    cfg: ChannelConfig,
+) -> tuple[np.ndarray | None, dict[str, Any]]:
     """Stateless DSP processing for a single channel.
 
     Thread-safe: operates only on input arrays and immutable config.
@@ -246,13 +290,10 @@ def _process_channel_dsp_stateless(
     Returns:
         Tuple of (audio_samples or None, metrics_dict)
     """
-    metrics: Dict[str, Any] = {}
+    metrics: dict[str, Any] = {}
 
     # Frequency shift to channel offset
-    if cfg.offset_hz == 0.0:
-        base = samples
-    else:
-        base = freq_shift(samples, cfg.offset_hz, sample_rate)
+    base = samples if cfg.offset_hz == 0.0 else freq_shift(samples, cfg.offset_hz, sample_rate)
 
     # Calculate RSSI from shifted IQ
     if base.size > 0:
@@ -260,7 +301,7 @@ def _process_channel_dsp_stateless(
         power = np.mean(magnitudes ** 2)
         metrics['rssi_db'] = float(10.0 * np.log10(power + 1e-10))
 
-    audio: Optional[np.ndarray] = None
+    audio: np.ndarray | None = None
 
     # Mode-specific demodulation (stateless operations only)
     if cfg.mode == "wbfm":
@@ -371,9 +412,9 @@ class ChannelConfig:
     mode: str  # "wbfm" | "nbfm" | "am" | "ssb"
     offset_hz: float = 0.0
     audio_rate: int = 48_000
-    squelch_db: Optional[float] = None
-    name: Optional[str] = None  # User-provided name
-    auto_name: Optional[str] = None  # Auto-generated contextual name
+    squelch_db: float | None = None
+    name: str | None = None  # User-provided name
+    auto_name: str | None = None  # Auto-generated contextual name
 
     # Filter configuration (mode-specific defaults applied at creation)
     # FM filters
@@ -431,54 +472,57 @@ class Channel:
     cfg: ChannelConfig
     state: str = "created"
     # Store (queue, loop, format) to support cross-event-loop broadcasting safely
-    _audio_sinks: Set[Tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop, str]] = field(
+    _audio_sinks: set[tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop, str]] = field(
         default_factory=set
     )
     # Encoders for compressed formats (mp3, opus, aac) - created on demand
-    _encoders: Dict[str, AudioEncoder] = field(default_factory=dict)
+    _encoders: dict[str, AudioEncoder] = field(default_factory=dict)
     # Subscriber counts for encoded formats
-    _encoder_subscribers: Dict[str, int] = field(default_factory=dict)
+    _encoder_subscribers: dict[str, int] = field(default_factory=dict)
     # Signal strength metrics (calculated server-side)
-    signal_power_db: Optional[float] = None  # Current signal power in dB
-    rssi_db: Optional[float] = None  # Received Signal Strength Indicator from IQ
-    snr_db: Optional[float] = None  # Signal-to-Noise Ratio estimate
+    signal_power_db: float | None = None  # Current signal power in dB
+    rssi_db: float | None = None  # Received Signal Strength Indicator from IQ
+    snr_db: float | None = None  # Signal-to-Noise Ratio estimate
     # Audio output level metering
-    audio_rms_db: Optional[float] = None  # Output audio RMS level in dB
-    audio_peak_db: Optional[float] = None  # Output audio peak level in dB
+    audio_rms_db: float | None = None  # Output audio RMS level in dB
+    audio_peak_db: float | None = None  # Output audio peak level in dB
     audio_clipping_count: int = 0  # Number of samples that would have clipped
     # Digital voice decoders (lazily initialized)
-    _p25_decoder: Optional[P25Decoder] = None
-    _dmr_decoder: Optional[DMRDecoder] = None
+    _p25_decoder: P25Decoder | None = None
+    _dmr_decoder: DMRDecoder | None = None
     # P25 modulation type (set by TrunkingSystem for control channels)
-    p25_modulation: Optional["P25Modulation"] = None  # from trunking.config
+    p25_modulation: P25Modulation | None = None  # from trunking.config
     # IMBE voice codec decoder for P25 (lazily initialized)
-    _imbe_decoder: Optional[IMBEDecoder] = None
-    _imbe_loop: Optional[asyncio.AbstractEventLoop] = None
+    _imbe_decoder: IMBEDecoder | None = None
+    _imbe_loop: asyncio.AbstractEventLoop | None = None
     # DMR voice codec decoder (lazily initialized)
-    _dmr_voice_decoder: Optional[DMRVoiceDecoder] = None
-    _dmr_voice_loop: Optional[asyncio.AbstractEventLoop] = None
+    _dmr_voice_decoder: DMRVoiceDecoder | None = None
+    _dmr_voice_loop: asyncio.AbstractEventLoop | None = None
     # RDS decoder for WBFM (lazily initialized)
-    _rds_decoder: Optional[RDSDecoder] = None
-    rds_data: Optional[RDSData] = None  # Current RDS data (exposed via API)
+    _rds_decoder: RDSDecoder | None = None
+    rds_data: RDSData | None = None  # Current RDS data (exposed via API)
     # POCSAG decoder for NBFM pager feeds (lazily initialized)
-    _pocsag_decoder: Optional[POCSAGDecoder] = None
+    _pocsag_decoder: POCSAGDecoder | None = None
     _pocsag_messages: list[POCSAGMessage] = field(default_factory=list)
     _pocsag_max_messages: int = 100  # Ring buffer size
     # TSBK callback for trunking integration (called when P25 TSBK is decoded)
-    on_tsbk: Optional[Callable[[Dict[str, Any]], None]] = None
+    on_tsbk: Callable[[dict[str, Any]], None] | None = None
+    # Raw IQ callback for trunking/scanning (called with wideband IQ before P25 processing)
+    # Signature: (iq: np.ndarray, sample_rate: int) -> None
+    on_raw_iq: Callable[[np.ndarray, int], None] | None = None
     # Voice channel factory for automatic voice following (called on P25 grants)
     # Signature: (tgid: int, freq_hz: float, source_id: Optional[int]) -> Optional[str]
     # Returns: channel_id of created voice channel, or None if not created
-    _voice_channel_factory: Optional[Callable[[int, float, Optional[int]], Optional[str]]] = None
+    _voice_channel_factory: Callable[[int, float, int | None], str | None] | None = None
     # Delete callback for cleaning up voice channels
     # Signature: (channel_id: str) -> None
-    _voice_channel_delete_callback: Optional[Callable[[str], None]] = None
+    _voice_channel_delete_callback: Callable[[str], None] | None = None
     # Active voice channels created by this control channel (channel_id -> info)
-    _voice_channels: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    _voice_channels: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Voice channel timeout (auto-delete after silence)
     _voice_channel_timeout: float = 3.0  # seconds
     # Parent control channel ID (set on voice channels created by following)
-    _parent_control_channel_id: Optional[str] = None
+    _parent_control_channel_id: str | None = None
     # Drop tracking for rate-limited logging
     _drop_count: int = 0
     _last_drop_log_time: float = 0.0
@@ -497,10 +541,8 @@ class Channel:
         if self._imbe_decoder is not None:
             loop = self._imbe_loop
             if loop is not None and not loop.is_closed():
-                try:
+                with contextlib.suppress(Exception):
                     asyncio.run_coroutine_threadsafe(self._imbe_decoder.stop(), loop)
-                except Exception:
-                    pass
             else:
                 try:
                     asyncio.run(self._imbe_decoder.stop())
@@ -513,10 +555,8 @@ class Channel:
         if self._dmr_voice_decoder is not None:
             loop = self._dmr_voice_loop
             if loop is not None and not loop.is_closed():
-                try:
+                with contextlib.suppress(Exception):
                     asyncio.run_coroutine_threadsafe(self._dmr_voice_decoder.stop(), loop)
-                except Exception:
-                    pass
             else:
                 try:
                     asyncio.run(self._dmr_voice_decoder.stop())
@@ -525,7 +565,7 @@ class Channel:
                     pass
             self._dmr_voice_loop = None
 
-    def get_pocsag_messages(self, limit: int = 50, since_timestamp: Optional[float] = None) -> List[Dict[str, Any]]:
+    def get_pocsag_messages(self, limit: int = 50, since_timestamp: float | None = None) -> list[dict[str, Any]]:
         """Get recent POCSAG messages.
 
         Args:
@@ -578,7 +618,7 @@ class Channel:
 
         # Report to error tracker (once per second)
         if now - self._last_drop_log_time >= 1.0:
-            from .error_tracker import get_error_tracker, ErrorEvent
+            from .error_tracker import ErrorEvent, get_error_tracker
             get_error_tracker().record(ErrorEvent(
                 type="audio_drop",
                 capture_id=self.cfg.capture_id,
@@ -605,7 +645,7 @@ class Channel:
         """
         zombies = []
         for item in list(self._audio_sinks):
-            q, loop, fmt = item
+            _q, loop, fmt = item
             try:
                 # Check if loop is closed or not running
                 if loop.is_closed():
@@ -630,15 +670,15 @@ class Channel:
 
         return len(zombies)
 
-    def get_queue_stats(self) -> Dict[str, Any]:
+    def get_queue_stats(self) -> dict[str, Any]:
         """Get queue statistics for monitoring and health checks.
 
         Returns:
             Dictionary with subscriber counts, queue depths, and format breakdown
         """
-        format_stats: Dict[str, Dict[str, int]] = {}
+        format_stats: dict[str, dict[str, int]] = {}
 
-        for q, loop, fmt in list(self._audio_sinks):
+        for q, _loop, fmt in list(self._audio_sinks):
             if fmt not in format_stats:
                 format_stats[fmt] = {"subscribers": 0, "total_queue_depth": 0}
             format_stats[fmt]["subscribers"] += 1
@@ -791,7 +831,7 @@ class Channel:
 
         # Feed PCM audio to active encoders
         pcm_data = pack_pcm16(audio)
-        for format, encoder in self._encoders.items():
+        for _format, encoder in self._encoders.items():
             await encoder.encode(pcm_data)
 
         for (q, loop, fmt) in list(self._audio_sinks):
@@ -810,10 +850,8 @@ class Channel:
                     q.put_nowait(payload)
                 except asyncio.QueueFull:
                     # Queue full - try to drop oldest and retry
-                    try:
+                    with contextlib.suppress(asyncio.QueueEmpty):
                         _ = q.get_nowait()
-                    except asyncio.QueueEmpty:
-                        pass
                     try:
                         q.put_nowait(payload)
                     except asyncio.QueueFull:
@@ -829,10 +867,8 @@ class Channel:
                         q.put_nowait(payload)
                     except asyncio.QueueFull:
                         # Queue full - try to drop oldest and retry
-                        try:
+                        with contextlib.suppress(asyncio.QueueEmpty):
                             _ = q.get_nowait()
-                        except asyncio.QueueEmpty:
-                            pass
                         try:
                             q.put_nowait(payload)
                         except asyncio.QueueFull:
@@ -844,10 +880,8 @@ class Channel:
                 except Exception as e:
                     # If loop is closed or unavailable, drop sink
                     logger.warning(f"Channel {self.cfg.id}: Removing audio sink for format={fmt} due to loop error: {type(e).__name__}: {e}")
-                    try:
+                    with contextlib.suppress(Exception):
                         self._audio_sinks.discard((q, loop, fmt))
-                    except Exception:
-                        pass
 
     async def process_iq_chunk(self, iq: np.ndarray, sample_rate: int) -> None:
         if self.state != "running":
@@ -1188,7 +1222,7 @@ class Channel:
             # Unknown mode: ignore
             return
 
-    def process_iq_chunk_sync(self, iq: np.ndarray, sample_rate: int) -> Optional[np.ndarray]:
+    def process_iq_chunk_sync(self, iq: np.ndarray, sample_rate: int) -> np.ndarray | None:
         """Synchronous DSP processing - returns audio/IQ data for broadcast.
 
         This method performs all CPU-intensive DSP work (demodulation, filtering, etc.)
@@ -1201,7 +1235,7 @@ class Channel:
         if self.state != "running":
             return None
 
-        audio: Optional[np.ndarray] = None
+        audio: np.ndarray | None = None
 
         if self.cfg.mode in ("wbfm", "nbfm"):
             # FM demodulation (wide or narrow band)
@@ -1470,7 +1504,7 @@ class Channel:
         # TODO: Implement AMBE decoder
 
     def _handle_trunking_grant(
-        self, tgid: int, freq_hz: float, source_id: Optional[int] = None
+        self, tgid: int, freq_hz: float, source_id: int | None = None
     ) -> None:
         """Handle P25 trunking voice channel grant.
 
@@ -1534,8 +1568,8 @@ class Channel:
             )
 
     def cleanup_stale_voice_channels(
-        self, delete_callback: Optional[Callable[[str], None]] = None
-    ) -> List[str]:
+        self, delete_callback: Callable[[str], None] | None = None
+    ) -> list[str]:
         """Clean up voice channels that haven't received grants recently.
 
         Should be called periodically (e.g., every second) to detect
@@ -1583,7 +1617,7 @@ class Channel:
                 f"tracking (TGID {info.get('tgid', '?')})"
             )
 
-    def _handle_dmr_csbk(self, msg: Dict[str, Any]) -> None:
+    def _handle_dmr_csbk(self, msg: dict[str, Any]) -> None:
         """Handle DMR Control Signaling Block messages.
 
         CSBK messages contain control information similar to P25 TSBK.
@@ -1598,16 +1632,16 @@ class CaptureConfig:
     device_id: str
     center_hz: float
     sample_rate: int
-    gain: Optional[float] = None
-    bandwidth: Optional[float] = None
-    ppm: Optional[float] = None
-    antenna: Optional[str] = None
-    name: Optional[str] = None  # User-provided name (optional)
-    auto_name: Optional[str] = None  # Auto-generated name (e.g., "FM 90.3 - RTL-SDR")
+    gain: float | None = None
+    bandwidth: float | None = None
+    ppm: float | None = None
+    antenna: str | None = None
+    name: str | None = None  # User-provided name (optional)
+    auto_name: str | None = None  # Auto-generated name (e.g., "FM 90.3 - RTL-SDR")
     # SoapySDR advanced features
-    device_settings: Dict[str, Any] = field(default_factory=dict)
-    element_gains: Dict[str, float] = field(default_factory=dict)
-    stream_format: Optional[str] = None
+    device_settings: dict[str, Any] = field(default_factory=dict)
+    element_gains: dict[str, float] = field(default_factory=dict)
+    stream_format: str | None = None
     dc_offset_auto: bool = True
     iq_balance_auto: bool = True
     # FFT/Spectrum settings
@@ -1621,29 +1655,29 @@ class CaptureConfig:
 class Capture:
     cfg: CaptureConfig
     driver: DeviceDriver
-    requested_device_id: Optional[str] = None
+    requested_device_id: str | None = None
     state: str = "stopped"  # Use string for backwards compatibility with API
-    device: Optional[Device] = None
-    antenna: Optional[str] = None  # Actual antenna in use
-    error_message: Optional[str] = None  # Error message if state is "failed"
-    _stream: Optional[StreamHandle] = None
-    _thread: Optional[threading.Thread] = None
-    _health_monitor: Optional[threading.Thread] = None
-    _iq_sinks: Set[Tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop]] = field(
+    device: Device | None = None
+    antenna: str | None = None  # Actual antenna in use
+    error_message: str | None = None  # Error message if state is "failed"
+    _stream: StreamHandle | None = None
+    _thread: threading.Thread | None = None
+    _health_monitor: threading.Thread | None = None
+    _iq_sinks: set[tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop]] = field(
         default_factory=set
     )
-    _fft_sinks: Set[Tuple[asyncio.Queue[Dict[str, Any]], asyncio.AbstractEventLoop]] = field(
+    _fft_sinks: set[tuple[asyncio.Queue[dict[str, Any]], asyncio.AbstractEventLoop]] = field(
         default_factory=set
     )  # Spectrum/FFT subscribers (only calculated when needed for efficiency)
     _iq_sinks_lock: threading.Lock = field(default_factory=threading.Lock)
     _fft_sinks_lock: threading.Lock = field(default_factory=threading.Lock)
     _stop_event: threading.Event = field(default_factory=threading.Event)
-    _channels: Dict[str, Channel] = field(default_factory=dict)
+    _channels: dict[str, Channel] = field(default_factory=dict)
     # Retry tracking (inspired by OpenWebRX)
     _retry_count: int = 0
     _max_retries: int = 10  # OpenWebRX uses 10
     _retry_delay: float = 15.0  # OpenWebRX uses 15 seconds
-    _retry_timer: Optional[threading.Timer] = None
+    _retry_timer: threading.Timer | None = None
     _auto_restart_enabled: bool = False  # Disabled: auto-restart tends to cause thrashing
     _last_run_time: float = 0.0  # Track when the thread was last running
     # IQ watchdog - detect stuck devices (no samples being received)
@@ -1655,36 +1689,36 @@ class Capture:
     _startup_timeout: float = 45.0  # Max time allowed in "starting" state (fallback)
     _startup_watchdog_enabled: bool = True
     # FFT data (server-side spectrum analyzer)
-    _fft_power: Optional[np.ndarray] = None  # Power spectrum in dB
-    _fft_freqs: Optional[np.ndarray] = None  # Frequency bins in Hz
-    _fft_power_list: Optional[List[float]] = None  # Cached Python list (avoids repeated .tolist())
-    _fft_freqs_list: Optional[List[float]] = None  # Cached Python list (avoids repeated .tolist())
+    _fft_power: np.ndarray | None = None  # Power spectrum in dB
+    _fft_freqs: np.ndarray | None = None  # Frequency bins in Hz
+    _fft_power_list: list[float] | None = None  # Cached Python list (avoids repeated .tolist())
+    _fft_freqs_list: list[float] | None = None  # Cached Python list (avoids repeated .tolist())
     _fft_counter: int = 0  # Frame counter for adaptive FFT throttling
-    _fft_window_cache: Dict[int, np.ndarray] = field(default_factory=dict)  # Cached FFT windows by size (legacy)
+    _fft_window_cache: dict[int, np.ndarray] = field(default_factory=dict)  # Cached FFT windows by size (legacy)
     _fft_last_time: float = 0.0  # Last FFT timestamp for FPS calculation
     _fft_actual_fps: float = 0.0  # Actual measured FFT FPS
-    _fft_backend: Optional[FFTBackend] = None  # Pluggable FFT backend (scipy/fftw/mlx/cuda)
+    _fft_backend: FFTBackend | None = None  # Pluggable FFT backend (scipy/fftw/mlx/cuda)
     # Main event loop for scheduling audio processing when no subscribers
-    _main_loop: Optional[asyncio.AbstractEventLoop] = None
+    _main_loop: asyncio.AbstractEventLoop | None = None
     # IQ overflow tracking for error indicator UI
     _iq_overflow_count: int = 0
     _iq_overflow_batch: int = 0  # Batched count for rate-limited reporting
     _iq_overflow_last_report: float = 0.0
     # Performance timing metrics
-    _perf_loop_times: List[float] = field(default_factory=list)  # Recent loop times in ms
-    _perf_dsp_times: List[float] = field(default_factory=list)   # Recent DSP times in ms
-    _perf_fft_times: List[float] = field(default_factory=list)   # Recent FFT times in ms
+    _perf_loop_times: list[float] = field(default_factory=list)  # Recent loop times in ms
+    _perf_dsp_times: list[float] = field(default_factory=list)   # Recent DSP times in ms
+    _perf_fft_times: list[float] = field(default_factory=list)   # Recent FFT times in ms
     _perf_max_samples: int = 100  # Keep last 100 samples for rolling average
     _perf_loop_counter: int = 0   # Counter for periodic logging
     _dsp_inflight: int = 0
     _dsp_inflight_lock: threading.Lock = field(default_factory=threading.Lock)
     _dsp_drop_last_log: float = 0.0
     # Per-capture DSP executor for CPU isolation between captures
-    _dsp_executor: Optional[ThreadPoolExecutor] = None
+    _dsp_executor: ThreadPoolExecutor | None = None
 
-    def get_perf_stats(self) -> Dict[str, Any]:
+    def get_perf_stats(self) -> dict[str, Any]:
         """Get performance statistics for this capture."""
-        def _stats(times: List[float]) -> Dict[str, Any]:
+        def _stats(times: list[float]) -> dict[str, Any]:
             if not times:
                 return {"mean_ms": 0.0, "max_ms": 0.0, "samples": 0}
             return {
@@ -1700,7 +1734,7 @@ class Capture:
             "channel_count": len([ch for ch in self._channels.values() if ch.state == "running"]),
         }
 
-    def _record_perf_time(self, times_list: List[float], time_ms: float) -> None:
+    def _record_perf_time(self, times_list: list[float], time_ms: float) -> None:
         """Record a timing sample, maintaining rolling window."""
         times_list.append(time_ms)
         if len(times_list) > self._perf_max_samples:
@@ -1740,7 +1774,7 @@ class Capture:
         """Rate-limited overflow reporting (max once per second)."""
         now = time.time()
         if now - self._iq_overflow_last_report >= 1.0 and self._iq_overflow_batch > 0:
-            from .error_tracker import get_error_tracker, ErrorEvent
+            from .error_tracker import ErrorEvent, get_error_tracker
             get_error_tracker().record(ErrorEvent(
                 type="iq_overflow",
                 capture_id=self.cfg.id,
@@ -1757,10 +1791,8 @@ class Capture:
             dev = self.driver.open(self.requested_device_id)
             self.device = dev
             # Update config with the concrete device id so the UI shows it
-            try:
+            with contextlib.suppress(Exception):
                 self.cfg.device_id = dev.info.id
-            except Exception:
-                pass
         return self.device
 
     def release_device(self) -> None:
@@ -1934,10 +1966,8 @@ class Capture:
                     self._last_iq_time = now  # Reset to avoid log spam
                     self._stop_event.set()
                     if self._stream is not None:
-                        try:
+                        with contextlib.suppress(Exception):
                             self._stream.close()
-                        except Exception:
-                            pass
                         self._stream = None
                     # Don't auto-restart - let it stay in error state
 
@@ -1992,10 +2022,8 @@ class Capture:
         if self._stream is not None:
             stream = self._stream
             self._stream = None
-            try:
+            with contextlib.suppress(Exception):
                 stream.close()
-            except Exception:
-                pass
 
         # Wait for threads to finish gracefully
         if self._thread is not None:
@@ -2021,17 +2049,17 @@ class Capture:
 
     async def reconfigure(
         self,
-        center_hz: Optional[float] = None,
-        sample_rate: Optional[int] = None,
-        gain: Optional[float] = None,
-        bandwidth: Optional[float] = None,
-        ppm: Optional[float] = None,
-        antenna: Optional[str] = None,
-        device_settings: Optional[Dict[str, Any]] = None,
-        element_gains: Optional[Dict[str, float]] = None,
-        stream_format: Optional[str] = None,
-        dc_offset_auto: Optional[bool] = None,
-        iq_balance_auto: Optional[bool] = None,
+        center_hz: float | None = None,
+        sample_rate: int | None = None,
+        gain: float | None = None,
+        bandwidth: float | None = None,
+        ppm: float | None = None,
+        antenna: str | None = None,
+        device_settings: dict[str, Any] | None = None,
+        element_gains: dict[str, float] | None = None,
+        stream_format: str | None = None,
+        dc_offset_auto: bool | None = None,
+        iq_balance_auto: bool | None = None,
     ) -> list[str]:
         """Reconfigure capture, using hot reconfiguration when possible.
 
@@ -2131,16 +2159,16 @@ class Capture:
                 if item[0] is q:
                     self._iq_sinks.discard(item)
 
-    async def subscribe_fft(self) -> asyncio.Queue[Dict[str, Any]]:
+    async def subscribe_fft(self) -> asyncio.Queue[dict[str, Any]]:
         """Subscribe to FFT/spectrum data. Only calculated when there are active subscribers."""
-        q: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=4)
+        q: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=4)
         loop = asyncio.get_running_loop()
         with self._fft_sinks_lock:
             self._fft_sinks.add((q, loop))
         logger.info(f"FFT subscriber added for capture {self.cfg.id}, total subs: {len(self._fft_sinks)}")
         return q
 
-    def unsubscribe_fft(self, q: asyncio.Queue[Dict[str, Any]]) -> None:
+    def unsubscribe_fft(self, q: asyncio.Queue[dict[str, Any]]) -> None:
         """Unsubscribe from FFT/spectrum data."""
         with self._fft_sinks_lock:
             for item in list(self._fft_sinks):
@@ -2216,36 +2244,25 @@ class Capture:
                 try:
                     q.put_nowait(payload)
                 except asyncio.QueueFull:
-                    try:
+                    with contextlib.suppress(asyncio.QueueEmpty):
                         _ = q.get_nowait()
-                    except asyncio.QueueEmpty:
-                        pass
-                    try:
+                    with contextlib.suppress(asyncio.QueueFull):
                         q.put_nowait(payload)
-                    except asyncio.QueueFull:
-                        pass
             else:
                 def _try_put() -> None:
                     try:
                         q.put_nowait(payload)
                     except asyncio.QueueFull:
-                        try:
+                        with contextlib.suppress(asyncio.QueueEmpty):
                             _ = q.get_nowait()
-                        except asyncio.QueueEmpty:
-                            pass
-                        try:
+                        with contextlib.suppress(asyncio.QueueFull):
                             q.put_nowait(payload)
-                        except asyncio.QueueFull:
-                            pass
 
                 try:
                     loop.call_soon_threadsafe(_try_put)
                 except Exception:
-                    with self._fft_sinks_lock:
-                        try:
-                            self._fft_sinks.discard((q, loop))
-                        except Exception:
-                            pass
+                    with self._fft_sinks_lock, contextlib.suppress(Exception):
+                        self._fft_sinks.discard((q, loop))
 
     async def _broadcast_iq(self, payload: bytes) -> None:
         with self._iq_sinks_lock:
@@ -2262,42 +2279,31 @@ class Capture:
                 try:
                     q.put_nowait(payload)
                 except asyncio.QueueFull:
-                    try:
+                    with contextlib.suppress(asyncio.QueueEmpty):
                         _ = q.get_nowait()
-                    except asyncio.QueueEmpty:
-                        pass
-                    try:
+                    with contextlib.suppress(asyncio.QueueFull):
                         q.put_nowait(payload)
-                    except asyncio.QueueFull:
-                        pass
             else:
                 def _try_put() -> None:
                     try:
                         q.put_nowait(payload)
                     except asyncio.QueueFull:
-                        try:
+                        with contextlib.suppress(asyncio.QueueEmpty):
                             _ = q.get_nowait()
-                        except asyncio.QueueEmpty:
-                            pass
-                        try:
+                        with contextlib.suppress(asyncio.QueueFull):
                             q.put_nowait(payload)
-                        except asyncio.QueueFull:
-                            pass
 
                 try:
                     loop.call_soon_threadsafe(_try_put)
                 except Exception:
-                    with self._iq_sinks_lock:
-                        try:
-                            self._iq_sinks.discard((q, loop))
-                        except Exception:
-                            pass
+                    with self._iq_sinks_lock, contextlib.suppress(Exception):
+                        self._iq_sinks.discard((q, loop))
 
     def _process_channels_parallel(
         self,
         samples: np.ndarray,
         executor: ThreadPoolExecutor,
-    ) -> List[Tuple["Channel", Optional[np.ndarray]]]:
+    ) -> list[tuple[Channel, np.ndarray | None]]:
         """Process all running channels using ThreadPoolExecutor.
 
         NumPy/SciPy release the GIL during heavy computation, enabling true
@@ -2337,7 +2343,7 @@ class Capture:
                 self._dsp_drop_last_log = now
             return []
 
-        futures: Dict[Future[Tuple[Optional[np.ndarray], Dict[str, Any]]], "Channel"] = {}
+        futures: dict[Future[tuple[np.ndarray | None, dict[str, Any]]], Channel] = {}
         for ch in channels:
             with self._dsp_inflight_lock:
                 if self._dsp_inflight >= max_inflight:
@@ -2356,7 +2362,7 @@ class Capture:
             futures[future] = ch
 
         # Collect results and apply stateful processing
-        results: List[Tuple["Channel", Optional[np.ndarray]]] = []
+        results: list[tuple[Channel, np.ndarray | None]] = []
         for future, ch in futures.items():
             try:
                 audio, metrics = future.result(timeout=2.0)
@@ -2388,10 +2394,10 @@ class Capture:
 
     def _apply_stateful_processing(
         self,
-        ch: "Channel",
-        audio: Optional[np.ndarray],
+        ch: Channel,
+        audio: np.ndarray | None,
         iq: np.ndarray,
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         """Apply stateful processing that must run in capture thread.
 
         Handles: RDS, POCSAG, P25, DMR, squelch. These require state that cannot be
@@ -2407,9 +2413,17 @@ class Capture:
         """
         # P25 decoding (requires stateful decoder, processes IQ not audio)
         if ch.cfg.mode == "p25":
+            # Call raw IQ callback for trunking/scanning integration
+            # This is called with wideband IQ samples BEFORE frequency shifting
+            if ch.on_raw_iq is not None:
+                try:
+                    ch.on_raw_iq(iq, self.cfg.sample_rate)
+                except Exception as e:
+                    logger.error(f"Channel {ch.cfg.id}: on_raw_iq callback error: {e}")
+
             # Get frequency-shifted IQ for P25 decoding
             base = freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate) if ch.cfg.offset_hz != 0.0 else iq
-            decoded_audio: Optional[np.ndarray] = None
+            decoded_audio: np.ndarray | None = None
 
             if base.size > 0:
                 # Diagnostic: Log raw and frequency-shifted IQ magnitude
@@ -2488,7 +2502,7 @@ class Capture:
 
         # DMR decoding (requires stateful decoder, processes IQ not audio)
         if ch.cfg.mode == "dmr":
-            decoded_audio: Optional[np.ndarray] = None
+            decoded_audio: np.ndarray | None = None
 
             # Get frequency-shifted IQ for DMR decoding
             base = freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate) if ch.cfg.offset_hz != 0.0 else iq
@@ -2671,7 +2685,8 @@ class Capture:
             self._iq_overflow_batch = 0
         except Exception as e:
             # Import SDRplay-specific exceptions for special handling
-            from .devices.soapy import SDRplayServiceError, TimeoutError as SoapyTimeoutError, invalidate_sdrplay_caches
+            from .devices.soapy import SDRplayServiceError, invalidate_sdrplay_caches
+            from .devices.soapy import TimeoutError as SoapyTimeoutError
 
             # Handle SDRplay service errors specially - don't auto-retry, need manual intervention
             if isinstance(e, SDRplayServiceError):
@@ -2698,10 +2713,10 @@ class Capture:
                 return
 
             # Generic error - schedule automatic restart
-            self.error_message = f"Failed to start capture: {str(e)}"
+            self.error_message = f"Failed to start capture: {e!s}"
             print(f"[ERROR] Capture {self.cfg.id} failed to start: {e}", flush=True)
             # Report device retry event
-            from .error_tracker import get_error_tracker, ErrorEvent
+            from .error_tracker import ErrorEvent, get_error_tracker
             get_error_tracker().record(ErrorEvent(
                 type="device_retry",
                 capture_id=self.cfg.id,
@@ -2748,10 +2763,8 @@ class Capture:
                 break
             if samples.size == 0:
                 # Light backoff to avoid busy-spin
-                try:
+                with contextlib.suppress(Exception):
                     threading.Event().wait(0.001)
-                except Exception:
-                    pass
                 continue
             # Update IQ watchdog - we received samples
             self._last_iq_time = time.time()
@@ -2765,12 +2778,6 @@ class Capture:
             if _verbose_debug:
                 logger.info(f"Capture {self.cfg.id}: iter={_capture_loop_counter} GOT DATA: {samples.size} IQ samples, chunk={chunk}")
             # Broadcast IQ to subscribers (schedule on their loops)
-            # Use asyncio.run() is not allowed here; rely on _broadcast_iq scheduling
-            try:
-                # Schedule broadcast onto any event loop via call_soon_threadsafe
-                asyncio.get_event_loop
-            except Exception:
-                pass
             # Reuse asyncio to schedule coroutine execution in a thread-safe manner
             # by using the same logic inside _broadcast_iq (which uses call_soon_threadsafe)
             # Invoke it in a synchronous context using asyncio.run in a dedicated loop is heavy.
@@ -2786,22 +2793,15 @@ class Capture:
                     try:
                         q.put_nowait(payload)
                     except asyncio.QueueFull:
-                        try:
+                        with contextlib.suppress(asyncio.QueueEmpty):
                             _ = q.get_nowait()
-                        except asyncio.QueueEmpty:
-                            pass
-                        try:
+                        with contextlib.suppress(asyncio.QueueFull):
                             q.put_nowait(payload)
-                        except asyncio.QueueFull:
-                            pass
                 try:
                     loop.call_soon_threadsafe(_try_put)
                 except Exception:
-                    with self._iq_sinks_lock:
-                        try:
-                            self._iq_sinks.discard((q, loop))
-                        except Exception:
-                            pass
+                    with self._iq_sinks_lock, contextlib.suppress(Exception):
+                        self._iq_sinks.discard((q, loop))
             # Checkpoint A: After IQ broadcast
             if _verbose_debug:
                 logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint A - after IQ broadcast")
@@ -2887,26 +2887,20 @@ class Capture:
                         }
                         for (fft_q, fft_loop) in fft_sinks:
                             # Use default args to capture loop variables (avoids closure issues)
-                            def _try_put_fft(q: asyncio.Queue[Dict[str, Any]] = fft_q, payload: Dict[str, Any] = payload_fft) -> None:
+                            def _try_put_fft(q: asyncio.Queue[dict[str, Any]] = fft_q, payload: dict[str, Any] = payload_fft) -> None:
                                 try:
                                     q.put_nowait(payload)
                                 except asyncio.QueueFull:
-                                    try:
+                                    with contextlib.suppress(asyncio.QueueEmpty):
                                         _ = q.get_nowait()
-                                    except asyncio.QueueEmpty:
-                                        pass
-                                    try:
+                                    with contextlib.suppress(asyncio.QueueFull):
                                         q.put_nowait(payload)
-                                    except asyncio.QueueFull:
-                                        pass
                             try:
                                 fft_loop.call_soon_threadsafe(_try_put_fft)
                             except Exception:
                                 with self._fft_sinks_lock:
-                                    try:
+                                    with contextlib.suppress(Exception):
                                         self._fft_sinks.discard((fft_q, fft_loop))
-                                    except Exception:
-                                        pass
 
             # Checkpoint C: After FFT processing
             if _verbose_debug:
@@ -2996,10 +2990,8 @@ class Capture:
 
         # Ensure stream is closed when the capture thread exits
         if self._stream is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._stream.close()
-            except Exception:
-                pass
             self._stream = None
 
 
@@ -3007,32 +2999,32 @@ class CaptureManager:
     def __init__(self, cfg: AppConfig, driver: DeviceDriver):
         self._cfg = cfg
         self._driver = driver
-        self._captures: Dict[str, Capture] = {}
-        self._channels: Dict[str, Channel] = {}
+        self._captures: dict[str, Capture] = {}
+        self._channels: dict[str, Channel] = {}
         self._next_cap_id = 1
         self._next_chan_id = 1
 
-    def list_devices(self) -> List[Dict[str, Any]]:
+    def list_devices(self) -> list[dict[str, Any]]:
         return [d.__dict__ for d in self._driver.enumerate()]
 
     def list_captures(self) -> list[Capture]:
         return list(self._captures.values())
 
-    def get_capture(self, cid: str) -> Optional[Capture]:
+    def get_capture(self, cid: str) -> Capture | None:
         return self._captures.get(cid)
 
     def create_capture(
         self,
-        device_id: Optional[str],
+        device_id: str | None,
         center_hz: float,
         sample_rate: int,
-        gain: Optional[float] = None,
-        bandwidth: Optional[float] = None,
-        ppm: Optional[float] = None,
-        antenna: Optional[str] = None,
-        device_settings: Optional[Dict[str, Any]] = None,
-        element_gains: Optional[Dict[str, float]] = None,
-        stream_format: Optional[str] = None,
+        gain: float | None = None,
+        bandwidth: float | None = None,
+        ppm: float | None = None,
+        antenna: str | None = None,
+        device_settings: dict[str, Any] | None = None,
+        element_gains: dict[str, float] | None = None,
+        stream_format: str | None = None,
         dc_offset_auto: bool = True,
         iq_balance_auto: bool = True,
     ) -> Capture:
@@ -3072,12 +3064,12 @@ class CaptureManager:
             if self._channels[k].cfg.capture_id == cid:
                 self._channels.pop(k, None)
 
-    def list_channels(self, cid: Optional[str] = None) -> list[Channel]:
+    def list_channels(self, cid: str | None = None) -> list[Channel]:
         if cid is None:
             return list(self._channels.values())
         return [ch for ch in self._channels.values() if ch.cfg.capture_id == cid]
 
-    def get_channel(self, chan_id: str) -> Optional[Channel]:
+    def get_channel(self, chan_id: str) -> Channel | None:
         return self._channels.get(chan_id)
 
     def _apply_mode_defaults(self, mode: str, cfg: ChannelConfig) -> None:
@@ -3158,8 +3150,8 @@ class CaptureManager:
         cid: str,
         mode: str,
         offset_hz: float = 0.0,
-        audio_rate: Optional[int] = None,
-        squelch_db: Optional[float] = None,
+        audio_rate: int | None = None,
+        squelch_db: float | None = None,
         enable_voice_following: bool = True,
     ) -> Channel:
         cap = self.get_capture(cid)
@@ -3191,8 +3183,8 @@ class CaptureManager:
         return ch
 
     def _create_voice_channel_factory(
-        self, capture_id: str, capture: "Capture", control_channel_id: str
-    ) -> Callable[[int, float, Optional[int]], Optional[str]]:
+        self, capture_id: str, capture: Capture, control_channel_id: str
+    ) -> Callable[[int, float, int | None], str | None]:
         """Create a factory function for voice channels.
 
         The factory creates P25 voice channels on the same capture,
@@ -3208,8 +3200,8 @@ class CaptureManager:
         """
 
         def factory(
-            tgid: int, freq_hz: float, source_id: Optional[int]
-        ) -> Optional[str]:
+            tgid: int, freq_hz: float, source_id: int | None
+        ) -> str | None:
             # Calculate offset from capture center frequency
             offset_hz = freq_hz - capture.cfg.center_hz
 

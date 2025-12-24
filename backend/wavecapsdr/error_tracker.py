@@ -10,7 +10,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import asdict, dataclass, field
-from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
+from typing import Any, Callable
 
 
 @dataclass
@@ -19,12 +19,12 @@ class ErrorEvent:
 
     type: str  # "iq_overflow", "audio_drop", "device_retry"
     capture_id: str
-    channel_id: Optional[str]
+    channel_id: str | None
     timestamp: float
     count: int = 1  # For batched events (e.g., multiple overflows in one report)
-    details: Dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
@@ -38,7 +38,7 @@ class ErrorStats:
     rate_per_second: float = 0.0
     last_event_time: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "total": self.total_count,
@@ -56,7 +56,7 @@ class ErrorTracker:
     - Subscriber notification for real-time updates
     """
 
-    _instance: Optional[ErrorTracker] = None
+    _instance: ErrorTracker | None = None
     _lock = threading.Lock()
 
     def __new__(cls) -> ErrorTracker:
@@ -69,13 +69,13 @@ class ErrorTracker:
     def _init(self) -> None:
         """Initialize the tracker (called only once)."""
         self._events: deque[ErrorEvent] = deque(maxlen=1000)
-        self._stats: Dict[str, ErrorStats] = {}
-        self._subscribers: List[Callable[[ErrorEvent], None]] = []
+        self._stats: dict[str, ErrorStats] = {}
+        self._subscribers: list[Callable[[ErrorEvent], None]] = []
         self._events_lock = threading.Lock()
         self._subscribers_lock = threading.Lock()
 
         # Rate calculation window
-        self._rate_window: Dict[str, Deque[Tuple[float, int]]] = {}  # type -> deque of (timestamp, count)
+        self._rate_window: dict[str, deque[tuple[float, int]]] = {}  # type -> deque of (timestamp, count)
         self._rate_window_seconds = 10.0  # Calculate rate over 10 seconds
 
     def record(self, event: ErrorEvent) -> None:
@@ -155,7 +155,7 @@ class ErrorTracker:
 
         return unsubscribe
 
-    def get_stats(self, capture_id: Optional[str] = None) -> Dict[str, ErrorStats]:
+    def get_stats(self, capture_id: str | None = None) -> dict[str, ErrorStats]:
         """Get current error statistics.
 
         Args:
@@ -168,7 +168,7 @@ class ErrorTracker:
         """
         with self._events_lock:
             # Update rates before returning
-            now = time.time()
+            time.time()
             for error_type in list(self._stats.keys()):
                 self._update_rate(error_type)
 
@@ -176,8 +176,8 @@ class ErrorTracker:
             return {k: ErrorStats(**asdict(v)) for k, v in self._stats.items()}
 
     def get_recent_events(
-        self, since: Optional[float] = None, limit: int = 50
-    ) -> List[ErrorEvent]:
+        self, since: float | None = None, limit: int = 50
+    ) -> list[ErrorEvent]:
         """Get recent error events.
 
         Args:

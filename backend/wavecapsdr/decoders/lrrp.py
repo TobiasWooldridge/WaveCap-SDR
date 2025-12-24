@@ -10,13 +10,10 @@ Reference: TIA-102.BAHA (LRRP) specification
 from __future__ import annotations
 
 import logging
-import struct
 import time
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Any, Dict, List, Optional, Tuple
-
-import numpy as np
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +64,10 @@ class RadioLocation:
     unit_id: int
     latitude: float
     longitude: float
-    altitude_m: Optional[float] = None
-    speed_kmh: Optional[float] = None
-    heading_deg: Optional[float] = None
-    accuracy_m: Optional[float] = None
+    altitude_m: float | None = None
+    speed_kmh: float | None = None
+    heading_deg: float | None = None
+    accuracy_m: float | None = None
     timestamp: float = 0.0
     source: str = "unknown"
 
@@ -90,7 +87,7 @@ class RadioLocation:
         """Get age of location report in seconds."""
         return time.time() - self.timestamp
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
             "unitId": self.unit_id,
@@ -106,7 +103,7 @@ class RadioLocation:
         }
 
 
-def decode_lrrp_coordinates(data: bytes) -> Tuple[float, float]:
+def decode_lrrp_coordinates(data: bytes) -> tuple[float, float]:
     """Decode LRRP latitude/longitude from binary format.
 
     LRRP uses a 24-bit signed representation for coordinates:
@@ -156,7 +153,7 @@ def decode_lrrp_altitude(data: bytes) -> float:
     return float(alt_raw) - 500.0
 
 
-def decode_lrrp_velocity(data: bytes) -> Tuple[float, float]:
+def decode_lrrp_velocity(data: bytes) -> tuple[float, float]:
     """Decode LRRP velocity (speed and heading) from binary format.
 
     Args:
@@ -198,7 +195,7 @@ def decode_lrrp_accuracy(data: bytes) -> float:
     return float(2 ** (accuracy_class - 1))
 
 
-def decode_elc_gps(lcf: int, data: bytes, unit_id: int) -> Optional[RadioLocation]:
+def decode_elc_gps(lcf: int, data: bytes, unit_id: int) -> RadioLocation | None:
     """Decode GPS from P25 Extended Link Control.
 
     Extended Link Control (ELC) can carry GPS data in voice LDU frames.
@@ -266,7 +263,7 @@ def decode_elc_gps(lcf: int, data: bytes, unit_id: int) -> Optional[RadioLocatio
     return None
 
 
-def decode_lrrp_packet(data: bytes, unit_id: int = 0) -> Optional[RadioLocation]:
+def decode_lrrp_packet(data: bytes, unit_id: int = 0) -> RadioLocation | None:
     """Decode a full LRRP packet from PDU data.
 
     LRRP packets are carried in P25 PDU frames over SNDCP/IP.
@@ -283,7 +280,7 @@ def decode_lrrp_packet(data: bytes, unit_id: int = 0) -> Optional[RadioLocation]
 
     try:
         # LRRP header
-        version = (data[0] >> 6) & 0x03
+        (data[0] >> 6) & 0x03
         opcode = data[0] & 0x3F
 
         if opcode not in (LRRPOpcode.IMMEDIATE_LOC_RESPONSE, LRRPOpcode.TRIGGERED_LOC_RESPONSE):
@@ -334,9 +331,8 @@ def decode_lrrp_packet(data: bytes, unit_id: int = 0) -> Optional[RadioLocation]
                 if len(ie_data) >= 3:
                     speed, heading = decode_lrrp_velocity(ie_data[:3])
 
-            elif ie_type == LocInfoType.ACCURACY:
-                if len(ie_data) >= 1:
-                    accuracy = decode_lrrp_accuracy(ie_data[:1])
+            elif ie_type == LocInfoType.ACCURACY and len(ie_data) >= 1:
+                accuracy = decode_lrrp_accuracy(ie_data[:1])
 
         if lat == 0.0 and lon == 0.0:
             return None
@@ -366,7 +362,7 @@ class LocationCache:
     Used to attach location metadata to voice calls.
     """
 
-    _locations: Dict[int, RadioLocation] = None
+    _locations: dict[int, RadioLocation] = None
     max_age_seconds: float = 300.0  # 5 minutes default
 
     def __post_init__(self) -> None:
@@ -384,7 +380,7 @@ class LocationCache:
             f"source={location.source}"
         )
 
-    def get(self, unit_id: int) -> Optional[RadioLocation]:
+    def get(self, unit_id: int) -> RadioLocation | None:
         """Get location for a unit if fresh enough."""
         location = self._locations.get(unit_id)
         if location is None:
@@ -396,11 +392,11 @@ class LocationCache:
 
         return location
 
-    def get_all(self) -> List[RadioLocation]:
+    def get_all(self) -> list[RadioLocation]:
         """Get all locations (including stale)."""
         return list(self._locations.values())
 
-    def get_fresh(self) -> List[RadioLocation]:
+    def get_fresh(self) -> list[RadioLocation]:
         """Get all fresh locations."""
         return [
             loc for loc in self._locations.values()
@@ -421,7 +417,7 @@ class LocationCache:
         """Clear all cached locations."""
         self._locations.clear()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Export cache as dictionary."""
         return {
             "totalLocations": len(self._locations),

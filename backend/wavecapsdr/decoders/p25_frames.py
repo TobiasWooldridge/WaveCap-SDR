@@ -15,14 +15,13 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import List, Optional, Tuple
 
 import numpy as np
 
+from wavecapsdr.decoders.nac_tracker import NACTracker
+from wavecapsdr.dsp.fec.bch import bch_decode
 from wavecapsdr.dsp.fec.golay import golay_decode
 from wavecapsdr.dsp.fec.trellis import trellis_decode
-from wavecapsdr.dsp.fec.bch import bch_decode
-from wavecapsdr.decoders.nac_tracker import NACTracker
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +58,12 @@ def _generate_ccitt_checksums(num_bits: int = 80) -> list:
     for bit_pos in range(num_bits):
         # Start with 1 in the current bit position
         crc = 0
-        bit_in_byte = 7 - (bit_pos % 8)
-        byte_pos = bit_pos // 8
+        7 - (bit_pos % 8)
+        bit_pos // 8
 
         # Process as if only this bit is set
         # Shift through 16 iterations to get CRC contribution
-        value = 0x8000 >> (bit_pos % 16) if bit_pos < 16 else 0
+        0x8000 >> (bit_pos % 16) if bit_pos < 16 else 0
 
         # For simplicity, compute directly
         # Each bit contributes: shift the CRC and XOR if MSB was set
@@ -154,9 +153,9 @@ class LinkControl:
     has_gps: bool = False
     gps_latitude: float = 0.0
     gps_longitude: float = 0.0
-    gps_altitude_m: Optional[float] = None
-    gps_speed_kmh: Optional[float] = None
-    gps_heading_deg: Optional[float] = None
+    gps_altitude_m: float | None = None
+    gps_speed_kmh: float | None = None
+    gps_heading_deg: float | None = None
 
 
 @dataclass
@@ -199,9 +198,9 @@ class LDUFrame:
     plus link control (LDU1) or encryption sync (LDU2).
     """
     nid: NID
-    imbe_frames: List[bytes]  # 9 IMBE frames, 88 bits each
-    link_control: Optional[LinkControl] = None  # LDU1 only
-    encryption_sync: Optional[EncryptionSync] = None  # LDU2 only
+    imbe_frames: list[bytes]  # 9 IMBE frames, 88 bits each
+    link_control: LinkControl | None = None  # LDU1 only
+    encryption_sync: EncryptionSync | None = None  # LDU2 only
     errors: int = 0
 
 
@@ -209,7 +208,7 @@ class LDUFrame:
 class TDUFrame:
     """Terminator Data Unit - marks end of transmission."""
     nid: NID
-    link_control: Optional[LinkControl] = None  # TDULC only
+    link_control: LinkControl | None = None  # TDULC only
 
 
 @dataclass
@@ -219,7 +218,7 @@ class TSDUFrame:
     Contains one or more TSBK (Trunking Signaling Block) messages.
     """
     nid: NID
-    tsbk_blocks: List['TSBKBlock']
+    tsbk_blocks: list[TSBKBlock]
     errors: int = 0
 
 
@@ -279,7 +278,7 @@ def deinterleave_data(bits: np.ndarray) -> np.ndarray:
     return deinterleaved
 
 
-def crc16_ccitt_p25(bits: np.ndarray) -> Tuple[bool, int]:
+def crc16_ccitt_p25(bits: np.ndarray) -> tuple[bool, int]:
     """Validate CRC-16 CCITT for P25 TSBK message.
 
     P25 TSBK uses 96-bit messages: 80 bits data + 16 CRC bits.
@@ -351,8 +350,8 @@ def remove_status_symbols(dibits: np.ndarray) -> np.ndarray:
 def decode_nid(
     dibits: np.ndarray,
     skip_status_at_11: bool = True,
-    nac_tracker: Optional[NACTracker] = None,
-) -> Optional[NID]:
+    nac_tracker: NACTracker | None = None,
+) -> NID | None:
     """Decode Network ID from NID dibits with BCH error correction.
 
     NID structure (64 bits = 32 dibits of data):
@@ -466,7 +465,7 @@ def decode_nid(
     return NID(nac=nac, duid=duid, errors=errors)
 
 
-def decode_hdu(dibits: np.ndarray) -> Optional[HDUFrame]:
+def decode_hdu(dibits: np.ndarray) -> HDUFrame | None:
     """Decode Header Data Unit.
 
     HDU structure (total 792 bits = 396 dibits):
@@ -500,7 +499,7 @@ def decode_hdu(dibits: np.ndarray) -> Optional[HDUFrame]:
         # Each byte is Golay(24,12) encoded
         if (i + 1) * 24 <= len(bits):
             codeword = bits_to_int(bits, i * 24, 24)
-            decoded, errors = golay_decode(codeword)
+            decoded, _errors = golay_decode(codeword)
             if decoded >= 0:
                 mi_bytes[i] = decoded & 0xFF
 
@@ -524,7 +523,7 @@ def decode_hdu(dibits: np.ndarray) -> Optional[HDUFrame]:
     )
 
 
-def decode_ldu1(dibits: np.ndarray) -> Optional[LDUFrame]:
+def decode_ldu1(dibits: np.ndarray) -> LDUFrame | None:
     """Decode Logical Data Unit 1 (voice + link control).
 
     LDU1 structure (1800 bits = 900 dibits):
@@ -557,7 +556,7 @@ def decode_ldu1(dibits: np.ndarray) -> Optional[LDUFrame]:
     )
 
 
-def decode_ldu2(dibits: np.ndarray) -> Optional[LDUFrame]:
+def decode_ldu2(dibits: np.ndarray) -> LDUFrame | None:
     """Decode Logical Data Unit 2 (voice + encryption sync).
 
     LDU2 structure similar to LDU1 but contains encryption
@@ -585,7 +584,7 @@ def decode_ldu2(dibits: np.ndarray) -> Optional[LDUFrame]:
     )
 
 
-def decode_tdu(dibits: np.ndarray) -> Optional[TDUFrame]:
+def decode_tdu(dibits: np.ndarray) -> TDUFrame | None:
     """Decode Terminator Data Unit."""
     if len(dibits) < 32:
         return None
@@ -632,7 +631,7 @@ def remove_status_symbols_with_offset(dibits: np.ndarray, frame_offset: int) -> 
     return np.array(result, dtype=np.uint8)
 
 
-def decode_tsdu(dibits: np.ndarray) -> Optional[TSDUFrame]:
+def decode_tsdu(dibits: np.ndarray) -> TSDUFrame | None:
     """Decode Trunking Signaling Data Unit.
 
     TSDU structure (360 dibits typical):
@@ -693,7 +692,7 @@ def decode_tsdu(dibits: np.ndarray) -> Optional[TSDUFrame]:
     )
 
 
-def extract_imbe_frames(dibits: np.ndarray) -> List[bytes]:
+def extract_imbe_frames(dibits: np.ndarray) -> list[bytes]:
     """Extract 9 IMBE voice frames from LDU.
 
     Each IMBE frame is 88 bits (44 dibits), protected by
@@ -754,9 +753,9 @@ def extract_link_control(dibits: np.ndarray) -> LinkControl:
     has_gps = False
     gps_lat = 0.0
     gps_lon = 0.0
-    gps_alt: Optional[float] = None
-    gps_speed: Optional[float] = None
-    gps_heading: Optional[float] = None
+    gps_alt: float | None = None
+    gps_speed: float | None = None
+    gps_heading: float | None = None
 
     # Field interpretation depends on LCF
     if lcf == 0x00:  # Group Voice Channel User
@@ -804,7 +803,7 @@ def extract_link_control(dibits: np.ndarray) -> LinkControl:
     )
 
 
-def _decode_lc_gps_coords(bits: np.ndarray, offset: int) -> Tuple[float, float]:
+def _decode_lc_gps_coords(bits: np.ndarray, offset: int) -> tuple[float, float]:
     """Decode GPS coordinates from Link Control bits.
 
     GPS in Extended LC uses 24-bit signed values:
@@ -864,7 +863,7 @@ def extract_encryption_sync(dibits: np.ndarray) -> EncryptionSync:
     )
 
 
-def extract_tsbk_blocks(dibits: np.ndarray) -> List[TSBKBlock]:
+def extract_tsbk_blocks(dibits: np.ndarray) -> list[TSBKBlock]:
     """Extract TSBK blocks from TSDU.
 
     CRITICAL: Each TSBK block in a TSDU is:
@@ -942,7 +941,7 @@ def extract_tsbk_blocks(dibits: np.ndarray) -> List[TSBKBlock]:
         # Step 4: Parse TSBK structure
         # Bit layout: LB(1) + Protect(1) + Opcode(6) + MFID(8) + Data(64) + CRC(16)
         last_block = bool(decoded_bits[0])
-        protect = bool(decoded_bits[1])
+        bool(decoded_bits[1])
         opcode = bits_to_int(decoded_bits, 2, 6)
         mfid = bits_to_int(decoded_bits, 8, 8)
 

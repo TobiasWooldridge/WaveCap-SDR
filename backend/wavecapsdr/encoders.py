@@ -5,13 +5,11 @@ Encoders lazily spawn when clients subscribe and terminate when no subscribers r
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
-
-import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +28,11 @@ class AudioEncoder(ABC):
 
     def __init__(self, config: EncoderConfig):
         self.config = config
-        self.process: Optional[subprocess.Popen[bytes]] = None
+        self.process: subprocess.Popen[bytes] | None = None
         self.running = False
         self._input_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=32)
         self._output_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=32)
-        self._encoder_task: Optional[asyncio.Task[None]] = None
+        self._encoder_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
         """Start the encoder process."""
@@ -55,10 +53,8 @@ class AudioEncoder(ABC):
         # Cancel encoder task
         if self._encoder_task:
             self._encoder_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._encoder_task
-            except asyncio.CancelledError:
-                pass
 
         # Terminate process
         if self.process:
@@ -126,10 +122,8 @@ class AudioEncoder(ABC):
             logger.error(f"Encoder error for {self.config.format}: {e}", exc_info=True)
         finally:
             if self.process:
-                try:
+                with contextlib.suppress(Exception):
                     self.process.terminate()
-                except Exception:
-                    pass
 
     async def _write_input(self) -> None:
         """Write PCM data to encoder stdin."""

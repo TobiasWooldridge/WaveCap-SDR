@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Literal, Optional
 import re
+from typing import Literal
 
-from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
-
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Mode = Literal["wbfm", "nbfm", "am", "sam", "ssb", "raw", "p25", "dmr", "nxdn", "dstar", "ysf"]
 StreamFormat = Literal["iq16", "f32", "pcm16"]
@@ -20,49 +18,49 @@ class DeviceModel(BaseModel):
     freqMaxHz: float = Field(..., alias="freq_max_hz")
     sampleRates: list[int] = Field(..., alias="sample_rates")
     gains: list[str]
-    gainMin: Optional[float] = Field(None, alias="gain_min")
-    gainMax: Optional[float] = Field(None, alias="gain_max")
-    bandwidthMin: Optional[float] = Field(None, alias="bandwidth_min")
-    bandwidthMax: Optional[float] = Field(None, alias="bandwidth_max")
-    ppmMin: Optional[float] = Field(None, alias="ppm_min")
-    ppmMax: Optional[float] = Field(None, alias="ppm_max")
+    gainMin: float | None = Field(None, alias="gain_min")
+    gainMax: float | None = Field(None, alias="gain_max")
+    bandwidthMin: float | None = Field(None, alias="bandwidth_min")
+    bandwidthMax: float | None = Field(None, alias="bandwidth_max")
+    ppmMin: float | None = Field(None, alias="ppm_min")
+    ppmMax: float | None = Field(None, alias="ppm_max")
     antennas: list[str]
-    nickname: Optional[str] = None  # Custom user-provided nickname
-    shorthand: Optional[str] = None  # Auto-generated shorthand name (e.g., "RTL-SDR", "SDRplay RSPdx")
+    nickname: str | None = None  # Custom user-provided nickname
+    shorthand: str | None = None  # Auto-generated shorthand name (e.g., "RTL-SDR", "SDRplay RSPdx")
     model_config = ConfigDict(populate_by_name=True)
 
 
 class CreateCaptureRequest(BaseModel):
-    deviceId: Optional[str] = Field(None, max_length=500)  # Device IDs can be long SoapySDR strings
+    deviceId: str | None = Field(None, max_length=500)  # Device IDs can be long SoapySDR strings
     centerHz: float = Field(..., gt=0, lt=10e9)  # 0 to 10 GHz
     sampleRate: int = Field(..., gt=0, le=100_000_000)  # Max 100 MHz
-    gain: Optional[float] = Field(None, ge=-100, le=100)  # -100 to 100 dB
-    bandwidth: Optional[float] = Field(None, gt=0, le=100_000_000)  # Max 100 MHz
-    ppm: Optional[float] = Field(None, ge=-1000, le=1000)  # -1000 to 1000 PPM
-    antenna: Optional[str] = Field(None, max_length=100)
-    deviceSettings: Optional[dict[str, str]] = None
-    elementGains: Optional[dict[str, float]] = None
-    streamFormat: Optional[str] = Field(None, max_length=20)
+    gain: float | None = Field(None, ge=-100, le=100)  # -100 to 100 dB
+    bandwidth: float | None = Field(None, gt=0, le=100_000_000)  # Max 100 MHz
+    ppm: float | None = Field(None, ge=-1000, le=1000)  # -1000 to 1000 PPM
+    antenna: str | None = Field(None, max_length=100)
+    deviceSettings: dict[str, str] | None = None
+    elementGains: dict[str, float] | None = None
+    streamFormat: str | None = Field(None, max_length=20)
     dcOffsetAuto: bool = True
     iqBalanceAuto: bool = True
     createDefaultChannel: bool = True
-    name: Optional[str] = Field(None, max_length=200)  # User-provided name (optional)
+    name: str | None = Field(None, max_length=200)  # User-provided name (optional)
     # FFT/Spectrum settings
-    fftFps: Optional[int] = Field(None, ge=1, le=60)  # Target FPS (1-60)
-    fftMaxFps: Optional[int] = Field(None, ge=1, le=120)  # Max FPS cap (1-120)
-    fftSize: Optional[int] = Field(None)  # 512, 1024, 2048, 4096
-    fftAccelerator: Optional[str] = Field(None, pattern=r'^(auto|scipy|fftw|mlx|cuda)$')  # FFT backend
+    fftFps: int | None = Field(None, ge=1, le=60)  # Target FPS (1-60)
+    fftMaxFps: int | None = Field(None, ge=1, le=120)  # Max FPS cap (1-120)
+    fftSize: int | None = Field(None)  # 512, 1024, 2048, 4096
+    fftAccelerator: str | None = Field(None, pattern=r'^(auto|scipy|fftw|mlx|cuda)$')  # FFT backend
 
     @field_validator('fftSize')
     @classmethod
-    def validate_fft_size(cls, v: Optional[int]) -> Optional[int]:
+    def validate_fft_size(cls, v: int | None) -> int | None:
         if v is not None and v not in [512, 1024, 2048, 4096]:
             raise ValueError('fftSize must be 512, 1024, 2048, or 4096')
         return v
 
     @field_validator('name', 'antenna', 'deviceId', 'streamFormat')
     @classmethod
-    def sanitize_string(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_string(cls, v: str | None) -> str | None:
         if v is None:
             return None
         # Remove control characters and trim whitespace
@@ -72,7 +70,7 @@ class CreateCaptureRequest(BaseModel):
         return v if v else None
 
     @model_validator(mode='after')
-    def validate_bandwidth_with_sample_rate(self) -> "CreateCaptureRequest":
+    def validate_bandwidth_with_sample_rate(self) -> CreateCaptureRequest:
         if self.bandwidth is not None and self.sampleRate is not None:
             if self.bandwidth > self.sampleRate:
                 raise ValueError('Bandwidth cannot exceed sample rate')
@@ -80,35 +78,35 @@ class CreateCaptureRequest(BaseModel):
 
 
 class UpdateCaptureRequest(BaseModel):
-    deviceId: Optional[str] = Field(None, max_length=500)  # Device IDs can be long SoapySDR strings
-    centerHz: Optional[float] = Field(None, gt=0, lt=10e9)  # 0 to 10 GHz
-    sampleRate: Optional[int] = Field(None, gt=0, le=100_000_000)  # Max 100 MHz
-    gain: Optional[float] = Field(None, ge=-100, le=100)  # -100 to 100 dB
-    bandwidth: Optional[float] = Field(None, gt=0, le=100_000_000)  # Max 100 MHz
-    ppm: Optional[float] = Field(None, ge=-1000, le=1000)  # -1000 to 1000 PPM
-    antenna: Optional[str] = Field(None, max_length=100)
-    deviceSettings: Optional[dict[str, str]] = None
-    elementGains: Optional[dict[str, float]] = None
-    streamFormat: Optional[str] = Field(None, max_length=20)
-    dcOffsetAuto: Optional[bool] = None
-    iqBalanceAuto: Optional[bool] = None
-    name: Optional[str] = Field(None, max_length=200)  # User-provided name (optional)
+    deviceId: str | None = Field(None, max_length=500)  # Device IDs can be long SoapySDR strings
+    centerHz: float | None = Field(None, gt=0, lt=10e9)  # 0 to 10 GHz
+    sampleRate: int | None = Field(None, gt=0, le=100_000_000)  # Max 100 MHz
+    gain: float | None = Field(None, ge=-100, le=100)  # -100 to 100 dB
+    bandwidth: float | None = Field(None, gt=0, le=100_000_000)  # Max 100 MHz
+    ppm: float | None = Field(None, ge=-1000, le=1000)  # -1000 to 1000 PPM
+    antenna: str | None = Field(None, max_length=100)
+    deviceSettings: dict[str, str] | None = None
+    elementGains: dict[str, float] | None = None
+    streamFormat: str | None = Field(None, max_length=20)
+    dcOffsetAuto: bool | None = None
+    iqBalanceAuto: bool | None = None
+    name: str | None = Field(None, max_length=200)  # User-provided name (optional)
     # FFT/Spectrum settings
-    fftFps: Optional[int] = Field(None, ge=1, le=60)  # Target FPS (1-60)
-    fftMaxFps: Optional[int] = Field(None, ge=1, le=120)  # Max FPS cap (1-120)
-    fftSize: Optional[int] = Field(None)  # 512, 1024, 2048, 4096
-    fftAccelerator: Optional[str] = Field(None, pattern=r'^(auto|scipy|fftw|mlx|cuda)$')  # FFT backend
+    fftFps: int | None = Field(None, ge=1, le=60)  # Target FPS (1-60)
+    fftMaxFps: int | None = Field(None, ge=1, le=120)  # Max FPS cap (1-120)
+    fftSize: int | None = Field(None)  # 512, 1024, 2048, 4096
+    fftAccelerator: str | None = Field(None, pattern=r'^(auto|scipy|fftw|mlx|cuda)$')  # FFT backend
 
     @field_validator('fftSize')
     @classmethod
-    def validate_fft_size(cls, v: Optional[int]) -> Optional[int]:
+    def validate_fft_size(cls, v: int | None) -> int | None:
         if v is not None and v not in [512, 1024, 2048, 4096]:
             raise ValueError('fftSize must be 512, 1024, 2048, or 4096')
         return v
 
     @field_validator('name', 'antenna', 'deviceId', 'streamFormat')
     @classmethod
-    def sanitize_string(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_string(cls, v: str | None) -> str | None:
         if v is None:
             return None
         # Remove control characters and trim whitespace
@@ -131,18 +129,18 @@ class CaptureModel(BaseModel):
     state: Literal["created", "starting", "running", "stopping", "stopped", "failed"]
     centerHz: float
     sampleRate: int
-    gain: Optional[float] = None
-    bandwidth: Optional[float] = None
-    ppm: Optional[float] = None
-    antenna: Optional[str] = None
-    deviceSettings: Optional[dict[str, str]] = None
-    elementGains: Optional[dict[str, float]] = None
-    streamFormat: Optional[str] = None
-    dcOffsetAuto: Optional[bool] = None
-    iqBalanceAuto: Optional[bool] = None
-    errorMessage: Optional[str] = None
-    name: Optional[str] = None  # User-provided name (optional)
-    autoName: Optional[str] = None  # Auto-generated name (e.g., "FM 90.3 - RTL-SDR")
+    gain: float | None = None
+    bandwidth: float | None = None
+    ppm: float | None = None
+    antenna: str | None = None
+    deviceSettings: dict[str, str] | None = None
+    elementGains: dict[str, float] | None = None
+    streamFormat: str | None = None
+    dcOffsetAuto: bool | None = None
+    iqBalanceAuto: bool | None = None
+    errorMessage: str | None = None
+    name: str | None = None  # User-provided name (optional)
+    autoName: str | None = None  # Auto-generated name (e.g., "FM 90.3 - RTL-SDR")
     # FFT/Spectrum settings
     fftFps: int = 15  # Target FFT frames per second
     fftMaxFps: int = 60  # Maximum FFT frames per second (hard cap)
@@ -151,64 +149,64 @@ class CaptureModel(BaseModel):
     # Error indicators for UI
     iqOverflowCount: int = 0
     iqOverflowRate: float = 0.0  # Overflows per second
-    retryAttempt: Optional[int] = None  # Current retry attempt (null if not retrying)
-    retryMaxAttempts: Optional[int] = None
-    retryDelay: Optional[float] = None  # Delay in seconds before next retry
+    retryAttempt: int | None = None  # Current retry attempt (null if not retrying)
+    retryMaxAttempts: int | None = None
+    retryDelay: float | None = None  # Delay in seconds before next retry
     # Configuration warnings
     configWarnings: list[ConfigWarning] = []  # Lint warnings about configuration
     # Trunking system ownership
-    trunkingSystemId: Optional[str] = None  # Set if this capture is managed by a trunking system
+    trunkingSystemId: str | None = None  # Set if this capture is managed by a trunking system
 
 
 class CreateChannelRequest(BaseModel):
     mode: Mode = "wbfm"
-    offsetHz: Optional[float] = Field(0.0, ge=-50_000_000, le=50_000_000)  # +/- 50 MHz offset
-    audioRate: Optional[int] = Field(None, ge=8000, le=192_000)  # 8 kHz to 192 kHz
-    squelchDb: Optional[float] = Field(None, ge=-120, le=0)  # -120 to 0 dB
-    name: Optional[str] = Field(None, max_length=200)  # User-provided name (optional)
+    offsetHz: float | None = Field(0.0, ge=-50_000_000, le=50_000_000)  # +/- 50 MHz offset
+    audioRate: int | None = Field(None, ge=8000, le=192_000)  # 8 kHz to 192 kHz
+    squelchDb: float | None = Field(None, ge=-120, le=0)  # -120 to 0 dB
+    name: str | None = Field(None, max_length=200)  # User-provided name (optional)
 
     # Filter configuration (optional, mode-specific defaults applied if None)
     # FM filters
-    enableDeemphasis: Optional[bool] = None
-    deemphasisTauUs: Optional[float] = Field(None, ge=1, le=200)  # 1-200 µs
-    enableMpxFilter: Optional[bool] = None
-    mpxCutoffHz: Optional[float] = Field(None, gt=0, le=20_000)
-    enableFmHighpass: Optional[bool] = None
-    fmHighpassHz: Optional[float] = Field(None, gt=0, le=1_000)
-    enableFmLowpass: Optional[bool] = None
-    fmLowpassHz: Optional[float] = Field(None, gt=0, le=20_000)
+    enableDeemphasis: bool | None = None
+    deemphasisTauUs: float | None = Field(None, ge=1, le=200)  # 1-200 µs
+    enableMpxFilter: bool | None = None
+    mpxCutoffHz: float | None = Field(None, gt=0, le=20_000)
+    enableFmHighpass: bool | None = None
+    fmHighpassHz: float | None = Field(None, gt=0, le=1_000)
+    enableFmLowpass: bool | None = None
+    fmLowpassHz: float | None = Field(None, gt=0, le=20_000)
 
     # AM/SSB filters
-    enableAmHighpass: Optional[bool] = None
-    amHighpassHz: Optional[float] = Field(None, gt=0, le=1_000)
-    enableAmLowpass: Optional[bool] = None
-    amLowpassHz: Optional[float] = Field(None, gt=0, le=20_000)
-    enableSsbBandpass: Optional[bool] = None
-    ssbBandpassLowHz: Optional[float] = Field(None, gt=0, le=10_000)
-    ssbBandpassHighHz: Optional[float] = Field(None, gt=0, le=10_000)
-    ssbMode: Optional[Literal["usb", "lsb"]] = None
-    ssbBfoOffsetHz: Optional[float] = Field(None, gt=0, le=5_000)  # BFO offset for centering voice
+    enableAmHighpass: bool | None = None
+    amHighpassHz: float | None = Field(None, gt=0, le=1_000)
+    enableAmLowpass: bool | None = None
+    amLowpassHz: float | None = Field(None, gt=0, le=20_000)
+    enableSsbBandpass: bool | None = None
+    ssbBandpassLowHz: float | None = Field(None, gt=0, le=10_000)
+    ssbBandpassHighHz: float | None = Field(None, gt=0, le=10_000)
+    ssbMode: Literal["usb", "lsb"] | None = None
+    ssbBfoOffsetHz: float | None = Field(None, gt=0, le=5_000)  # BFO offset for centering voice
 
     # SAM (Synchronous AM) settings
-    samSideband: Optional[Literal["dsb", "usb", "lsb"]] = None  # Sideband selection
-    samPllBandwidthHz: Optional[float] = Field(None, ge=10, le=200)  # PLL bandwidth (10-200 Hz)
+    samSideband: Literal["dsb", "usb", "lsb"] | None = None  # Sideband selection
+    samPllBandwidthHz: float | None = Field(None, ge=10, le=200)  # PLL bandwidth (10-200 Hz)
 
     # AGC
-    enableAgc: Optional[bool] = None
-    agcTargetDb: Optional[float] = Field(None, ge=-60, le=0)
-    agcAttackMs: Optional[float] = Field(None, gt=0, le=1000)
-    agcReleaseMs: Optional[float] = Field(None, gt=0, le=5000)
+    enableAgc: bool | None = None
+    agcTargetDb: float | None = Field(None, ge=-60, le=0)
+    agcAttackMs: float | None = Field(None, gt=0, le=1000)
+    agcReleaseMs: float | None = Field(None, gt=0, le=5000)
 
     # Notch filters (interference rejection)
-    notchFrequencies: Optional[list[float]] = Field(None, max_length=10)  # Max 10 notches
+    notchFrequencies: list[float] | None = Field(None, max_length=10)  # Max 10 notches
 
     # Spectral noise reduction (hiss/static suppression)
-    enableNoiseReduction: Optional[bool] = None
-    noiseReductionDb: Optional[float] = Field(None, ge=3, le=30)  # 3-30 dB reduction
+    enableNoiseReduction: bool | None = None
+    noiseReductionDb: float | None = Field(None, ge=3, le=30)  # 3-30 dB reduction
 
     @field_validator('name')
     @classmethod
-    def sanitize_name(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_name(cls, v: str | None) -> str | None:
         if v is None:
             return None
         # Remove control characters and trim whitespace
@@ -219,7 +217,7 @@ class CreateChannelRequest(BaseModel):
 
     @field_validator('notchFrequencies')
     @classmethod
-    def validate_notch_frequencies(cls, v: Optional[list[float]]) -> Optional[list[float]]:
+    def validate_notch_frequencies(cls, v: list[float] | None) -> list[float] | None:
         if v is None:
             return None
         # Validate each frequency is positive and reasonable (0-20kHz for audio)
@@ -230,58 +228,58 @@ class CreateChannelRequest(BaseModel):
 
 
 class UpdateChannelRequest(BaseModel):
-    mode: Optional[Mode] = None
-    offsetHz: Optional[float] = Field(None, ge=-50_000_000, le=50_000_000)  # +/- 50 MHz offset
-    audioRate: Optional[int] = Field(None, ge=8000, le=192_000)  # 8 kHz to 192 kHz
-    squelchDb: Optional[float] = Field(None, ge=-120, le=0)  # -120 to 0 dB
-    name: Optional[str] = Field(None, max_length=200)  # User-provided name (optional)
+    mode: Mode | None = None
+    offsetHz: float | None = Field(None, ge=-50_000_000, le=50_000_000)  # +/- 50 MHz offset
+    audioRate: int | None = Field(None, ge=8000, le=192_000)  # 8 kHz to 192 kHz
+    squelchDb: float | None = Field(None, ge=-120, le=0)  # -120 to 0 dB
+    name: str | None = Field(None, max_length=200)  # User-provided name (optional)
 
     # Filter configuration (optional)
     # FM filters
-    enableDeemphasis: Optional[bool] = None
-    deemphasisTauUs: Optional[float] = Field(None, ge=1, le=200)  # 1-200 µs
-    enableMpxFilter: Optional[bool] = None
-    mpxCutoffHz: Optional[float] = Field(None, gt=0, le=20_000)
-    enableFmHighpass: Optional[bool] = None
-    fmHighpassHz: Optional[float] = Field(None, gt=0, le=1_000)
-    enableFmLowpass: Optional[bool] = None
-    fmLowpassHz: Optional[float] = Field(None, gt=0, le=20_000)
+    enableDeemphasis: bool | None = None
+    deemphasisTauUs: float | None = Field(None, ge=1, le=200)  # 1-200 µs
+    enableMpxFilter: bool | None = None
+    mpxCutoffHz: float | None = Field(None, gt=0, le=20_000)
+    enableFmHighpass: bool | None = None
+    fmHighpassHz: float | None = Field(None, gt=0, le=1_000)
+    enableFmLowpass: bool | None = None
+    fmLowpassHz: float | None = Field(None, gt=0, le=20_000)
 
     # AM/SSB filters
-    enableAmHighpass: Optional[bool] = None
-    amHighpassHz: Optional[float] = Field(None, gt=0, le=1_000)
-    enableAmLowpass: Optional[bool] = None
-    amLowpassHz: Optional[float] = Field(None, gt=0, le=20_000)
-    enableSsbBandpass: Optional[bool] = None
-    ssbBandpassLowHz: Optional[float] = Field(None, gt=0, le=10_000)
-    ssbBandpassHighHz: Optional[float] = Field(None, gt=0, le=10_000)
-    ssbMode: Optional[Literal["usb", "lsb"]] = None
-    ssbBfoOffsetHz: Optional[float] = Field(None, gt=0, le=5_000)  # BFO offset for centering voice
+    enableAmHighpass: bool | None = None
+    amHighpassHz: float | None = Field(None, gt=0, le=1_000)
+    enableAmLowpass: bool | None = None
+    amLowpassHz: float | None = Field(None, gt=0, le=20_000)
+    enableSsbBandpass: bool | None = None
+    ssbBandpassLowHz: float | None = Field(None, gt=0, le=10_000)
+    ssbBandpassHighHz: float | None = Field(None, gt=0, le=10_000)
+    ssbMode: Literal["usb", "lsb"] | None = None
+    ssbBfoOffsetHz: float | None = Field(None, gt=0, le=5_000)  # BFO offset for centering voice
 
     # SAM (Synchronous AM) settings
-    samSideband: Optional[Literal["dsb", "usb", "lsb"]] = None  # Sideband selection
-    samPllBandwidthHz: Optional[float] = Field(None, ge=10, le=200)  # PLL bandwidth (10-200 Hz)
+    samSideband: Literal["dsb", "usb", "lsb"] | None = None  # Sideband selection
+    samPllBandwidthHz: float | None = Field(None, ge=10, le=200)  # PLL bandwidth (10-200 Hz)
 
     # AGC
-    enableAgc: Optional[bool] = None
-    agcTargetDb: Optional[float] = Field(None, ge=-60, le=0)
-    agcAttackMs: Optional[float] = Field(None, gt=0, le=1000)
-    agcReleaseMs: Optional[float] = Field(None, gt=0, le=5000)
+    enableAgc: bool | None = None
+    agcTargetDb: float | None = Field(None, ge=-60, le=0)
+    agcAttackMs: float | None = Field(None, gt=0, le=1000)
+    agcReleaseMs: float | None = Field(None, gt=0, le=5000)
 
     # Noise blanker (impulse noise suppression)
-    enableNoiseBlanker: Optional[bool] = None
-    noiseBlankerThresholdDb: Optional[float] = Field(None, ge=3, le=30)  # 3-30 dB above median
+    enableNoiseBlanker: bool | None = None
+    noiseBlankerThresholdDb: float | None = Field(None, ge=3, le=30)  # 3-30 dB above median
 
     # Notch filters (interference rejection)
-    notchFrequencies: Optional[list[float]] = Field(None, max_length=10)  # Max 10 notches
+    notchFrequencies: list[float] | None = Field(None, max_length=10)  # Max 10 notches
 
     # Spectral noise reduction (hiss/static suppression)
-    enableNoiseReduction: Optional[bool] = None
-    noiseReductionDb: Optional[float] = Field(None, ge=3, le=30)  # 3-30 dB reduction
+    enableNoiseReduction: bool | None = None
+    noiseReductionDb: float | None = Field(None, ge=3, le=30)  # 3-30 dB reduction
 
     @field_validator('name')
     @classmethod
-    def sanitize_name(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_name(cls, v: str | None) -> str | None:
         if v is None:
             return None
         # Remove control characters and trim whitespace
@@ -292,7 +290,7 @@ class UpdateChannelRequest(BaseModel):
 
     @field_validator('notchFrequencies')
     @classmethod
-    def validate_notch_frequencies(cls, v: Optional[list[float]]) -> Optional[list[float]]:
+    def validate_notch_frequencies(cls, v: list[float] | None) -> list[float] | None:
         if v is None:
             return None
         # Validate each frequency is positive and reasonable (0-20kHz for audio)
@@ -309,15 +307,15 @@ class ChannelModel(BaseModel):
     state: Literal["created", "running", "stopped"]
     offsetHz: float
     audioRate: int
-    squelchDb: Optional[float] = None
-    name: Optional[str] = None  # User-provided name
-    autoName: Optional[str] = None  # Auto-generated contextual name (e.g., "Marine Ch 16")
-    signalPowerDb: Optional[float] = None
-    rssiDb: Optional[float] = None  # Server-side RSSI from IQ samples
-    snrDb: Optional[float] = None  # Server-side SNR estimate
+    squelchDb: float | None = None
+    name: str | None = None  # User-provided name
+    autoName: str | None = None  # Auto-generated contextual name (e.g., "Marine Ch 16")
+    signalPowerDb: float | None = None
+    rssiDb: float | None = None  # Server-side RSSI from IQ samples
+    snrDb: float | None = None  # Server-side SNR estimate
     # Audio output level metering
-    audioRmsDb: Optional[float] = None  # Output audio RMS level in dB
-    audioPeakDb: Optional[float] = None  # Output audio peak level in dB
+    audioRmsDb: float | None = None  # Output audio RMS level in dB
+    audioPeakDb: float | None = None  # Output audio peak level in dB
     audioClippingCount: int = 0  # Number of samples near clipping
     # Error indicators for UI
     audioDropCount: int = 0  # Total dropped audio packets
@@ -363,7 +361,7 @@ class ChannelModel(BaseModel):
     noiseReductionDb: float
 
     # RDS data (WBFM only)
-    rdsData: Optional["RDSDataModel"] = None
+    rdsData: RDSDataModel | None = None
 
 
 class RecipeChannelModel(BaseModel):
@@ -383,11 +381,11 @@ class RecipeModel(BaseModel):
     category: str
     centerHz: float
     sampleRate: int
-    gain: Optional[float] = None
-    bandwidth: Optional[float] = None
+    gain: float | None = None
+    bandwidth: float | None = None
     channels: list[RecipeChannelModel] = []
     allowFrequencyInput: bool = False
-    frequencyLabel: Optional[str] = None
+    frequencyLabel: str | None = None
 
 # Scanner models
 class ScanMode(str):
@@ -416,14 +414,14 @@ class CreateScannerRequest(BaseModel):
 
 
 class UpdateScannerRequest(BaseModel):
-    scanList: Optional[list[float]] = None
-    mode: Optional[Literal["sequential", "priority", "activity"]] = None
-    dwellTimeMs: Optional[int] = Field(None, ge=100, le=10000)
-    priorityFrequencies: Optional[list[float]] = None
-    priorityIntervalS: Optional[int] = Field(None, ge=1, le=60)
-    squelchThresholdDb: Optional[float] = Field(None, ge=-120.0, le=0.0)
-    lockoutFrequencies: Optional[list[float]] = None
-    pauseDurationMs: Optional[int] = Field(None, ge=500, le=30000)
+    scanList: list[float] | None = None
+    mode: Literal["sequential", "priority", "activity"] | None = None
+    dwellTimeMs: int | None = Field(None, ge=100, le=10000)
+    priorityFrequencies: list[float] | None = None
+    priorityIntervalS: int | None = Field(None, ge=1, le=60)
+    squelchThresholdDb: float | None = Field(None, ge=-120.0, le=0.0)
+    lockoutFrequencies: list[float] | None = None
+    pauseDurationMs: int | None = Field(None, ge=500, le=30000)
 
 
 class ScanHitModel(BaseModel):
@@ -451,9 +449,9 @@ class ScannerModel(BaseModel):
 # RDS (Radio Data System) data for FM broadcast
 class RDSDataModel(BaseModel):
     """RDS data decoded from FM broadcast."""
-    piCode: Optional[str] = None  # Program Identification (hex string like "A1B2")
-    psName: Optional[str] = None  # Program Service name (8 chars, station name)
-    radioText: Optional[str] = None  # Radio Text (up to 64 chars)
+    piCode: str | None = None  # Program Identification (hex string like "A1B2")
+    psName: str | None = None  # Program Service name (8 chars, station name)
+    radioText: str | None = None  # Radio Text (up to 64 chars)
     pty: int = 0  # Program Type code
     ptyName: str = "None"  # Program Type name (e.g., "Rock", "News")
     ta: bool = False  # Traffic Announcement flag
@@ -486,11 +484,11 @@ class ExtendedMetricsModel(BaseModel):
     """Extended signal metrics for tuning and monitoring."""
     channelId: str
     # Core signal metrics
-    rssiDb: Optional[float] = None  # Received signal strength (dB)
-    snrDb: Optional[float] = None  # Signal-to-noise ratio (dB)
-    signalPowerDb: Optional[float] = None  # Audio signal power (dB)
+    rssiDb: float | None = None  # Received signal strength (dB)
+    snrDb: float | None = None  # Signal-to-noise ratio (dB)
+    signalPowerDb: float | None = None  # Audio signal power (dB)
     # Derived metrics
-    sUnits: Optional[str] = None  # S-meter reading (S0-S9, S9+10, etc.)
+    sUnits: str | None = None  # S-meter reading (S0-S9, S9+10, etc.)
     squelchOpen: bool = False  # Whether squelch is currently open
     # Stream health
     streamSubscribers: int = 0
@@ -503,9 +501,9 @@ class ExtendedMetricsModel(BaseModel):
 class MetricsHistoryPoint(BaseModel):
     """Single point in metrics history."""
     timestamp: float
-    rssiDb: Optional[float] = None
-    snrDb: Optional[float] = None
-    signalPowerDb: Optional[float] = None
+    rssiDb: float | None = None
+    snrDb: float | None = None
+    signalPowerDb: float | None = None
 
 
 class MetricsHistoryModel(BaseModel):

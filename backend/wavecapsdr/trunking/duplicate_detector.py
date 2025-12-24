@@ -16,7 +16,7 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from threading import Lock
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class CallEventSignature:
     """Unique signature for a call event."""
     talkgroup_id: int
-    source_id: Optional[int]
+    source_id: int | None
     frequency_hz: float
     event_type: str  # "voice", "data", etc.
 
@@ -88,9 +88,9 @@ class DuplicateCallDetector:
         self._total_checked = 0
         self._duplicates_detected = 0
 
-    def is_duplicate(self, talkgroup_id: int, source_id: Optional[int],
+    def is_duplicate(self, talkgroup_id: int, source_id: int | None,
                     frequency_hz: float, event_type: str = "voice",
-                    timestamp_ms: Optional[float] = None) -> bool:
+                    timestamp_ms: float | None = None) -> bool:
         """Check if event is a duplicate.
 
         Args:
@@ -135,7 +135,7 @@ class DuplicateCallDetector:
 
             return False
 
-    def check_duplicate_event(self, event: Dict[str, Any]) -> bool:
+    def check_duplicate_event(self, event: dict[str, Any]) -> bool:
         """Check if event dict is a duplicate.
 
         Convenience method that extracts fields from event dict.
@@ -167,7 +167,7 @@ class DuplicateCallDetector:
         with self._lock:
             self._recent_events.clear()
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get detector statistics."""
         with self._lock:
             return {
@@ -214,7 +214,7 @@ class FrequencyBasedDuplicateDetector:
         self.allocation_timeout_ms = allocation_timeout_ms
 
         # frequency -> (tgid, source_id, timestamp_ms)
-        self._allocations: Dict[float, Tuple[int, Optional[int], float]] = {}
+        self._allocations: dict[float, tuple[int, int | None, float]] = {}
         self._lock = Lock()
 
     def is_allocated(self, frequency_hz: float) -> bool:
@@ -224,7 +224,7 @@ class FrequencyBasedDuplicateDetector:
             return frequency_hz in self._allocations
 
     def allocate(self, frequency_hz: float, talkgroup_id: int,
-                source_id: Optional[int] = None) -> bool:
+                source_id: int | None = None) -> bool:
         """Allocate frequency to a call.
 
         Returns True if allocation succeeded, False if already allocated.
@@ -236,7 +236,7 @@ class FrequencyBasedDuplicateDetector:
 
             if frequency_hz in self._allocations:
                 # Already allocated - check if same call
-                existing_tgid, existing_src, _ = self._allocations[frequency_hz]
+                existing_tgid, _existing_src, _ = self._allocations[frequency_hz]
                 if existing_tgid == talkgroup_id:
                     # Same call - update timestamp
                     self._allocations[frequency_hz] = (talkgroup_id, source_id,
@@ -258,7 +258,7 @@ class FrequencyBasedDuplicateDetector:
                 return True
             return False
 
-    def get_allocation(self, frequency_hz: float) -> Optional[Tuple[int, Optional[int]]]:
+    def get_allocation(self, frequency_hz: float) -> tuple[int, int | None] | None:
         """Get allocation info for frequency.
 
         Returns (talkgroup_id, source_id) or None if not allocated.
@@ -301,7 +301,7 @@ class FrequencyBasedDuplicateDetector:
         with self._lock:
             self._allocations.clear()
 
-    def get_active_allocations(self) -> List[Dict[str, Any]]:
+    def get_active_allocations(self) -> list[dict[str, Any]]:
         """Get list of active allocations."""
         with self._lock:
             self._cleanup_stale()
@@ -316,7 +316,7 @@ class FrequencyBasedDuplicateDetector:
                 for freq, (tgid, src, ts) in self._allocations.items()
             ]
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get detector statistics."""
         with self._lock:
             self._cleanup_stale()

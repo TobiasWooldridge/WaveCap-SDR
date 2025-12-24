@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import math
-import time
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from typing import Any
 
 import numpy as np
 
@@ -38,13 +37,13 @@ class _FakeDevice(Device):
         self,
         center_hz: float,
         sample_rate: int,
-        gain: Optional[float] = None,
-        bandwidth: Optional[float] = None,
-        ppm: Optional[float] = None,
-        antenna: Optional[str] = None,
-        device_settings: Optional[dict[str, Any]] = None,
-        element_gains: Optional[dict[str, float]] = None,
-        stream_format: Optional[str] = None,
+        gain: float | None = None,
+        bandwidth: float | None = None,
+        ppm: float | None = None,
+        antenna: str | None = None,
+        device_settings: dict[str, Any] | None = None,
+        element_gains: dict[str, float] | None = None,
+        stream_format: str | None = None,
         dc_offset_auto: bool = True,
         iq_balance_auto: bool = True,
     ) -> None:
@@ -58,15 +57,15 @@ class _FakeDevice(Device):
         pass
 
     # Optional interfaces for parity with real drivers
-    def get_antenna(self) -> Optional[str]:
+    def get_antenna(self) -> str | None:
         return None
 
     def reconfigure_running(
         self,
-        center_hz: Optional[float] = None,
-        gain: Optional[float] = None,
-        bandwidth: Optional[float] = None,
-        ppm: Optional[float] = None,
+        center_hz: float | None = None,
+        gain: float | None = None,
+        bandwidth: float | None = None,
+        ppm: float | None = None,
     ) -> None:
         if center_hz is not None:
             self.center_hz = center_hz
@@ -88,7 +87,7 @@ class FakeDriver(DeviceDriver):
             )
         ]
 
-    def open(self, id_or_args: Optional[str] = None) -> Device:
+    def open(self, id_or_args: str | None = None) -> Device:
         return _FakeDevice(
             info=DeviceInfo(
                 id=id_or_args or "fake0",

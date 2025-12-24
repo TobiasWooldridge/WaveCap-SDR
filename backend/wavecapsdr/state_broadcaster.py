@@ -10,7 +10,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +21,10 @@ class StateChange:
     type: str  # "capture" | "channel" | "scanner" | "device"
     action: str  # "created" | "updated" | "deleted" | "started" | "stopped"
     id: str  # Entity ID
-    data: Optional[Dict[str, Any]] = None  # Full entity data (for created/updated)
+    data: dict[str, Any] | None = None  # Full entity data (for created/updated)
     timestamp: float = field(default_factory=time.time)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": self.type,
             "action": self.action,
@@ -37,11 +37,11 @@ class StateChange:
 class StateBroadcaster:
     """Singleton broadcaster for state change events."""
 
-    _instance: Optional["StateBroadcaster"] = None
+    _instance: StateBroadcaster | None = None
     _lock = threading.Lock()
     _initialized: bool = False
 
-    def __new__(cls) -> "StateBroadcaster":
+    def __new__(cls) -> StateBroadcaster:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -53,9 +53,9 @@ class StateBroadcaster:
         if self._initialized:
             return
         self._initialized = True
-        self._subscribers: Set[Callable[[StateChange], None]] = set()
+        self._subscribers: set[Callable[[StateChange], None]] = set()
         self._lock = threading.Lock()
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         logger.info("[STATE] StateBroadcaster initialized")
 
     def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
@@ -110,7 +110,7 @@ class StateBroadcaster:
         self,
         action: str,
         capture_id: str,
-        data: Optional[Dict[str, Any]] = None,
+        data: dict[str, Any] | None = None,
     ) -> None:
         """Emit a capture state change."""
         self.broadcast(StateChange(
@@ -124,7 +124,7 @@ class StateBroadcaster:
         self,
         action: str,
         channel_id: str,
-        data: Optional[Dict[str, Any]] = None,
+        data: dict[str, Any] | None = None,
     ) -> None:
         """Emit a channel state change."""
         self.broadcast(StateChange(
@@ -138,7 +138,7 @@ class StateBroadcaster:
         self,
         action: str,
         scanner_id: str,
-        data: Optional[Dict[str, Any]] = None,
+        data: dict[str, Any] | None = None,
     ) -> None:
         """Emit a scanner state change."""
         self.broadcast(StateChange(
@@ -152,7 +152,7 @@ class StateBroadcaster:
         self,
         action: str,
         device_id: str,
-        data: Optional[Dict[str, Any]] = None,
+        data: dict[str, Any] | None = None,
     ) -> None:
         """Emit a device state change."""
         self.broadcast(StateChange(

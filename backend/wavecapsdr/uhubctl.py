@@ -11,7 +11,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class USBDevice:
     vendor_id: str
     product_id: str
     description: str
-    serial: Optional[str] = None
+    serial: str | None = None
 
 
 @dataclass
@@ -31,7 +31,7 @@ class USBPort:
     port_number: int
     powered: bool
     connected: bool
-    device: Optional[USBDevice] = None
+    device: USBDevice | None = None
 
 
 @dataclass
@@ -79,7 +79,7 @@ def get_hub_status() -> list[USBHub]:
 def _parse_uhubctl_output(output: str) -> list[USBHub]:
     """Parse uhubctl output into structured data."""
     hubs: list[USBHub] = []
-    current_hub: Optional[USBHub] = None
+    current_hub: USBHub | None = None
 
     # Pattern for hub line: "Current status for hub 0-1.4 [0bda:5411 Generic USB2.1 Hub, USB 2.10, 4 ports, ppps]"
     hub_pattern = re.compile(
@@ -144,7 +144,7 @@ def _parse_uhubctl_output(output: str) -> list[USBHub]:
     return hubs
 
 
-def find_device_port(device_id: str) -> Optional[tuple[str, int]]:
+def find_device_port(device_id: str) -> tuple[str, int] | None:
     """Find the hub location and port number for a device.
 
     Args:
@@ -236,7 +236,7 @@ def power_cycle_device(device_id: str, delay: float = 2.0) -> tuple[bool, str]:
 
     port_info = find_device_port(device_id)
     if not port_info:
-        return False, f"Device not found on any controllable USB hub"
+        return False, "Device not found on any controllable USB hub"
 
     hub_location, port_number = port_info
     success = power_cycle_port(hub_location, port_number, delay)
@@ -284,7 +284,7 @@ def power_cycle_all_ports(delay: float = 2.0) -> tuple[bool, str, int]:
     return True, f"Power cycled {ports_cycled} USB port(s)", ports_cycled
 
 
-def get_hub_status_dict() -> Dict[str, Any]:
+def get_hub_status_dict() -> dict[str, Any]:
     """Get hub status as a dictionary for API response."""
     hubs = get_hub_status()
     return {

@@ -10,16 +10,15 @@ a unified interface for the trunking system.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable
 
 import numpy as np
 
-from wavecapsdr.decoders.imbe import IMBEDecoder, IMBEDecoderError, check_imbe_available
 from wavecapsdr.decoders.ambe import AMBEDecoder, AMBEDecoderError, check_ambe_available
+from wavecapsdr.decoders.imbe import IMBEDecoder, IMBEDecoderError, check_imbe_available
 
 logger = logging.getLogger(__name__)
 
@@ -70,16 +69,16 @@ class VoiceDecoder:
     timeslot: int = 0  # For Phase II TDMA: 0=both, 1 or 2 for specific slot
 
     # Internal decoders
-    _imbe_decoder: Optional[IMBEDecoder] = field(default=None, repr=False)
-    _ambe_decoder: Optional[AMBEDecoder] = field(default=None, repr=False)
+    _imbe_decoder: IMBEDecoder | None = field(default=None, repr=False)
+    _ambe_decoder: AMBEDecoder | None = field(default=None, repr=False)
 
     # State
     running: bool = False
     _stats: VoiceDecoderStats = field(default_factory=VoiceDecoderStats)
 
     # Callbacks
-    on_audio: Optional[Callable[[np.ndarray], None]] = None
-    on_error: Optional[Callable[[str], None]] = None
+    on_audio: Callable[[np.ndarray], None] | None = None
+    on_error: Callable[[str], None] | None = None
 
     def __post_init__(self) -> None:
         """Initialize internal state."""
@@ -95,7 +94,7 @@ class VoiceDecoder:
         return False
 
     @staticmethod
-    def check_availability() -> Dict[str, Any]:
+    def check_availability() -> dict[str, Any]:
         """Check availability of all vocoders.
 
         Returns:
@@ -129,7 +128,7 @@ class VoiceDecoder:
                     input_rate=self.input_rate,
                 )
                 await self._imbe_decoder.start()
-                logger.info(f"VoiceDecoder: Started IMBE decoder")
+                logger.info("VoiceDecoder: Started IMBE decoder")
 
             elif self.vocoder_type == VocoderType.AMBE2:
                 self._ambe_decoder = AMBEDecoder(
@@ -185,7 +184,7 @@ class VoiceDecoder:
         elif self._ambe_decoder:
             await self._ambe_decoder.decode(discriminator_audio)
 
-    async def get_audio(self) -> Optional[np.ndarray]:
+    async def get_audio(self) -> np.ndarray | None:
         """
         Get decoded audio if available.
 
@@ -211,7 +210,7 @@ class VoiceDecoder:
 
         return audio
 
-    async def get_audio_blocking(self, timeout: float = 0.5) -> Optional[np.ndarray]:
+    async def get_audio_blocking(self, timeout: float = 0.5) -> np.ndarray | None:
         """
         Get decoded audio, waiting up to timeout seconds.
 
@@ -237,7 +236,7 @@ class VoiceDecoder:
 
         return audio
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get decoder statistics."""
         # Update stats from active decoder
         if self._imbe_decoder:

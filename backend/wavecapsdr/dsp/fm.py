@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Optional, Tuple, cast
+from typing import cast
 
 import numpy as np
 
-from .filters import highpass_filter, lowpass_filter, notch_filter, noise_blanker, spectral_noise_reduction
-
+from .filters import (
+    highpass_filter,
+    lowpass_filter,
+    noise_blanker,
+    notch_filter,
+    spectral_noise_reduction,
+)
 
 # Pre-allocated zero for quadrature demod (avoids allocation per call)
 _ZERO_F32 = np.zeros(1, dtype=np.float32)
@@ -93,7 +98,7 @@ def quadrature_demod(iq: np.ndarray, sample_rate: int) -> np.ndarray:
 
 # Cache for deemphasis filter coefficients
 @lru_cache(maxsize=32)
-def _get_deemphasis_coeffs(sample_rate: int, tau_us: int) -> Tuple[np.ndarray, np.ndarray]:
+def _get_deemphasis_coeffs(sample_rate: int, tau_us: int) -> tuple[np.ndarray, np.ndarray]:
     """Get cached deemphasis filter coefficients."""
     tau = tau_us * 1e-6  # Convert from microseconds
     alpha = 1.0 / (1.0 + (1.0 / (2.0 * np.pi * tau * sample_rate)))
@@ -124,7 +129,7 @@ def deemphasis_filter(x: np.ndarray, sample_rate: int, tau: float = 75e-6) -> np
 @lru_cache(maxsize=32)
 def _get_lpf_coeffs(
     sample_rate: int, cutoff: int, order: int = 5
-) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+) -> tuple[np.ndarray, np.ndarray] | None:
     """Get cached lowpass filter coefficients for MPX filtering."""
     from scipy import signal
 
@@ -193,8 +198,9 @@ def resample_poly(x: np.ndarray, in_rate: int, out_rate: int) -> np.ndarray:
         return x.astype(np.float32, copy=False)
 
     try:
-        from scipy.signal import resample_poly as scipy_resample_poly
         from math import gcd
+
+        from scipy.signal import resample_poly as scipy_resample_poly
 
         # Find GCD to minimize up/down factors
         g = gcd(int(in_rate), int(out_rate))
@@ -208,7 +214,7 @@ def resample_poly(x: np.ndarray, in_rate: int, out_rate: int) -> np.ndarray:
         # Fallback to linear interpolation if scipy not available
         t_in = np.arange(x.shape[0], dtype=np.float64) / float(in_rate)
         duration = float(t_in[-1]) if x.shape[0] > 0 else 0.0
-        n_out = max(1, int(round(duration * out_rate)))
+        n_out = max(1, round(duration * out_rate))
         t_out = np.arange(n_out, dtype=np.float64) / float(out_rate)
         y = np.interp(t_out, t_in, x.astype(np.float64))
         return cast(np.ndarray, y).astype(np.float32)

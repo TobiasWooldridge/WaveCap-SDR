@@ -3,12 +3,12 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
 
 if TYPE_CHECKING:
-    from .trunking.config import TrunkingSystemConfig
+    pass
 
 DriverName = Literal["soapy", "fake", "rtl"]
 
@@ -17,7 +17,7 @@ DriverName = Literal["soapy", "fake", "rtl"]
 class ServerConfig:
     bind_address: str = "127.0.0.1"
     port: int = 8087
-    auth_token: Optional[str] = None
+    auth_token: str | None = None
 
 
 @dataclass
@@ -32,14 +32,14 @@ class StreamConfig:
 class LimitsConfig:
     max_concurrent_captures: int = 2
     max_channels_per_capture: int = 8
-    max_sample_rate: Optional[int] = None
+    max_sample_rate: int | None = None
 
 
 @dataclass
 class DeviceConfig:
     driver: DriverName = "soapy"
     # Optional SoapySDR device args string, e.g., "driver=rtlsdr" or specific serial.
-    device_args: Optional[str] = None
+    device_args: str | None = None
     # Show fake/test device even when real devices are available (for development)
     show_fake_device: bool = False
 
@@ -83,14 +83,14 @@ class RecipeConfig:
     # Template values
     center_hz: float
     sample_rate: int
-    gain: Optional[float] = None
-    bandwidth: Optional[float] = None
+    gain: float | None = None
+    bandwidth: float | None = None
     # Channels to create
-    channels: List[RecipeChannel] = field(default_factory=list)
+    channels: list[RecipeChannel] = field(default_factory=list)
     # Whether user can customize frequency
     allow_frequency_input: bool = False
     # Frequency input label (e.g., "Station Frequency")
-    frequency_label: Optional[str] = None
+    frequency_label: str | None = None
 
 
 @dataclass
@@ -98,18 +98,18 @@ class PresetConfig:
     """A preset configuration for a capture."""
     center_hz: float
     sample_rate: int
-    offsets: List[float] = field(default_factory=list)
-    gain: Optional[float] = None
-    bandwidth: Optional[float] = None
-    ppm: Optional[float] = None
-    antenna: Optional[str] = None
-    squelch_db: Optional[float] = None
+    offsets: list[float] = field(default_factory=list)
+    gain: float | None = None
+    bandwidth: float | None = None
+    ppm: float | None = None
+    antenna: str | None = None
+    squelch_db: float | None = None
     # SoapySDR device settings (key-value pairs passed to writeSetting)
-    device_settings: Dict[str, Any] = field(default_factory=dict)
+    device_settings: dict[str, Any] = field(default_factory=dict)
     # Per-element gains (e.g., {"LNA": 20, "VGA": 15})
-    element_gains: Dict[str, float] = field(default_factory=dict)
+    element_gains: dict[str, float] = field(default_factory=dict)
     # Stream format preference ("CF32", "CS16", "CS8")
-    stream_format: Optional[str] = None
+    stream_format: str | None = None
     # Enable automatic DC offset correction
     dc_offset_auto: bool = True
     # Enable automatic IQ balance correction
@@ -120,7 +120,7 @@ class PresetConfig:
 class CaptureStartConfig:
     """Configuration for a capture to auto-start."""
     preset: str  # Name of preset to use
-    device_id: Optional[str] = None  # If None, use any available device
+    device_id: str | None = None  # If None, use any available device
 
 
 @dataclass
@@ -130,15 +130,15 @@ class AppConfig:
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     device: DeviceConfig = field(default_factory=DeviceConfig)
     recovery: RecoveryConfig = field(default_factory=RecoveryConfig)
-    presets: Dict[str, PresetConfig] = field(default_factory=dict)
-    recipes: Dict[str, RecipeConfig] = field(default_factory=dict)
-    captures: List[CaptureStartConfig] = field(default_factory=list)
-    device_names: Dict[str, str] = field(default_factory=dict)  # device_id -> custom name
+    presets: dict[str, PresetConfig] = field(default_factory=dict)
+    recipes: dict[str, RecipeConfig] = field(default_factory=dict)
+    captures: list[CaptureStartConfig] = field(default_factory=list)
+    device_names: dict[str, str] = field(default_factory=dict)  # device_id -> custom name
     # Raw trunking system configs (parsed into TrunkingSystemConfig objects in state.py)
-    trunking_systems: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    trunking_systems: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
-def _read_yaml(path: Path) -> Dict[str, Any]:
+def _read_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
     with path.open("r", encoding="utf-8") as f:
@@ -148,7 +148,7 @@ def _read_yaml(path: Path) -> Dict[str, Any]:
         return data
 
 
-def _overlay(dst: Dict[str, Any], src: Dict[str, Any]) -> Dict[str, Any]:
+def _overlay(dst: dict[str, Any], src: dict[str, Any]) -> dict[str, Any]:
     for k, v in src.items():
         if isinstance(v, dict) and isinstance(dst.get(k), dict):
             _overlay(dst[k], v)
@@ -159,7 +159,7 @@ def _overlay(dst: Dict[str, Any], src: Dict[str, Any]) -> Dict[str, Any]:
 
 def load_config(path_str: str) -> AppConfig:
     path = Path(path_str)
-    raw: Dict[str, Any] = _read_yaml(path)
+    raw: dict[str, Any] = _read_yaml(path)
 
     # Environment overrides (prefix WAVECAPSDR__SECTION__KEY)
     # Example: WAVECAPSDR__SERVER__PORT=8089
@@ -185,7 +185,7 @@ def load_config(path_str: str) -> AppConfig:
     recovery = RecoveryConfig(**raw.get("recovery", {}))
 
     # Parse presets
-    presets: Dict[str, PresetConfig] = {}
+    presets: dict[str, PresetConfig] = {}
     presets_raw = raw.get("presets", {})
     if isinstance(presets_raw, dict):
         for name, preset_data in presets_raw.items():
@@ -193,7 +193,7 @@ def load_config(path_str: str) -> AppConfig:
                 presets[name] = PresetConfig(**preset_data)
 
     # Parse recipes
-    recipes: Dict[str, RecipeConfig] = {}
+    recipes: dict[str, RecipeConfig] = {}
     recipes_raw = raw.get("recipes", {})
     if isinstance(recipes_raw, dict):
         for name, recipe_data in recipes_raw.items():
@@ -212,7 +212,7 @@ def load_config(path_str: str) -> AppConfig:
                 recipes[name] = RecipeConfig(**recipe_dict)
 
     # Parse captures list
-    captures: List[CaptureStartConfig] = []
+    captures: list[CaptureStartConfig] = []
     captures_raw = raw.get("captures", [])
     if isinstance(captures_raw, list):
         for cap_data in captures_raw:
@@ -220,13 +220,13 @@ def load_config(path_str: str) -> AppConfig:
                 captures.append(CaptureStartConfig(**cap_data))
 
     # Parse device_names mapping
-    device_names: Dict[str, str] = {}
+    device_names: dict[str, str] = {}
     device_names_raw = raw.get("device_names", {})
     if isinstance(device_names_raw, dict):
         device_names = {k: str(v) for k, v in device_names_raw.items()}
 
     # Parse trunking systems (raw dicts, converted to TrunkingSystemConfig in state.py)
-    trunking_systems: Dict[str, Dict[str, Any]] = {}
+    trunking_systems: dict[str, dict[str, Any]] = {}
     trunking_raw = raw.get("trunking", {})
     if isinstance(trunking_raw, dict):
         systems_raw = trunking_raw.get("systems", {})
@@ -272,7 +272,7 @@ def save_config(config: AppConfig, path_str: str) -> None:
     path = Path(path_str)
 
     # Read existing file to preserve comments and structure
-    existing_data: Dict[str, Any] = _read_yaml(path) if path.exists() else {}
+    existing_data: dict[str, Any] = _read_yaml(path) if path.exists() else {}
     if path.exists():
         backup_path = path.with_suffix(path.suffix + ".bak")
         try:

@@ -21,7 +21,6 @@ Reference: TIA-102.BAAA-A Annex A
 from __future__ import annotations
 
 import logging
-from typing import Optional, Tuple
 
 import numpy as np
 
@@ -118,7 +117,7 @@ def _rotate_right_12(x: int) -> int:
     return ((x >> 1) | ((x & 1) << 11)) & 0xFFF
 
 
-def golay_decode(codeword: int) -> Tuple[int, int]:
+def golay_decode(codeword: int) -> tuple[int, int]:
     """Decode Golay(24,12) codeword with error correction.
 
     Uses the standard Golay decoding algorithm that can correct up to
@@ -225,8 +224,8 @@ def golay_decode(codeword: int) -> Tuple[int, int]:
 
 
 def golay_decode_soft(
-    codeword: int, soft_bits: Optional[np.ndarray] = None
-) -> Tuple[int, int, float]:
+    codeword: int, soft_bits: np.ndarray | None = None
+) -> tuple[int, int, float]:
     """Decode Golay(24,12) with soft decision information.
 
     When soft bit reliabilities are available, uses them to improve

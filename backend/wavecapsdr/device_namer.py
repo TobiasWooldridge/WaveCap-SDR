@@ -5,14 +5,13 @@ and labels, making it easier to identify devices in the UI.
 """
 
 import re
-from typing import Callable, List, Optional, Tuple, Union
-
+from typing import Callable, Optional, Union
 
 # Type for replacement: either a string or a callable that takes a Match and returns a string
 PatternReplacement = Union[str, Callable[[re.Match[str]], str]]
 
 # Common SDR device patterns and their shorthand names
-DEVICE_PATTERNS: List[Tuple[str, PatternReplacement]] = [
+DEVICE_PATTERNS: list[tuple[str, PatternReplacement]] = [
     # RTL-SDR variants
     (r'rtl[-_]?sdr', 'RTL-SDR'),
     (r'rtl2832', 'RTL-SDR'),

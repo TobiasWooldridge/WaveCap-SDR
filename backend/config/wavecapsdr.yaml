@@ -18,12 +18,12 @@ antennas:
     uhf_amateur: Ant A
 presets:
   kexp:
-    center_hz: 92700000
+    center_hz: 91900000
     sample_rate: 1024000
     offsets:
     - 0.0
     gain: 21.1
-    bandwidth: 200000.0
+    bandwidth: 300000.0
     ppm: 0.0
     antenna: Antenna B
   seattle_aircraft:
@@ -590,16 +590,30 @@ trunking:
       id: sa_grn
       name: SA GRN (South Australia Government Radio Network)
       protocol: p25_phase1
-      modulation: c4fm
+      # LSM (CQPSK) modulation - SA-GRN is a 240+ site simulcast system
+      # References:
+      #   - https://www.radioreference.com/db/sid/8145
+      #   - https://www.sascan.net.au/?page=infPages/GRN_GenInfo
+      #   - https://www.taitcommunications.com/en/about-us/news/2018/01/31/what-is-the-difference-between-c4fm-and-lsm-modulation-for-p25
+      #   - https://github.com/DSheirer/sdrtrunk/wiki/APCO25 (Use LSM for simulcast systems)
+      modulation: lsm
       system_id: 988
       wacn: 781056
       control_channels:
+      # Adelaide Main control channel - verified from RadioReference
       - 413.3125 MHz
+      - 413.075 MHz
+      - 413.45 MHz
+      - 414.6875 MHz
+      - 414.7625 MHz
+      - 415.325 MHz
+      - 415.95 MHz
+      - 417.7625 MHz
       center_hz: 415.5 MHz
       sample_rate: 6000000
-      device_id: driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240305E670,serial=240305E670
-      gain: 30
-      antenna: Antenna A
+      device_id: driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070
+      gain: 5
+      antenna: Antenna B
       device_settings:
         rfnotch_ctrl: 'false'
         dabnotch_ctrl: 'false'

@@ -18,12 +18,12 @@ antennas:
     uhf_amateur: Ant A
 presets:
   kexp:
-    center_hz: 90300000
-    sample_rate: 1000000
+    center_hz: 91900000
+    sample_rate: 1024000
     offsets:
     - 0.0
     gain: 21.1
-    bandwidth: 200000.0
+    bandwidth: 300000.0
     ppm: 0.0
     antenna: Antenna B
   seattle_aircraft:
@@ -36,6 +36,17 @@ presets:
     - 700000
     gain: 30.0
     bandwidth: 1800000.0
+    ppm: 0.0
+    antenna: Antenna A
+  sa_grn:
+    center_hz: 415000000
+    sample_rate: 6000000
+    offsets:
+    - -1737500
+    - -237500
+    - 2762500
+    gain: 40.0
+    bandwidth: 5000000.0
     ppm: 0.0
     antenna: Antenna A
 recipes:
@@ -312,22 +323,38 @@ recipes:
     gain: 40
     bandwidth: 800000
   sa_grn_p25:
-    name: SA GRN P25 Trunking
-    description: South Australia Government Radio Network P25 Phase 1 trunking (400
-      MHz band). Monitors control channel for voice grants and decodes TSBK messages.
-      P25 uses C4FM modulation with 12.5 kHz channel spacing.
+    name: SA GRN P25 Emergency Scanner
+    description: South Australia Government Radio Network P25 Phase 1 trunking (400-422
+      MHz UHF). System ID 0x3DC, WACN 0xBEE00. Monitors Adelaide Metro control channels.
+      IMPORTANT - Police/Ambulance dispatch are encrypted. CFS/SES/Utilities may have
+      unencrypted channels. Requires DSD-FME for voice decoding.
     category: Public Safety
-    center_hz: 406000000
-    sample_rate: 500000
+    center_hz: 415500000
+    sample_rate: 6000000
     channels:
-    - offset_hz: 0
-      name: Control Channel
+    - offset_hz: -2237500
+      name: CC1 - 413.2625
       mode: p25
       squelch_db: -65
-    allow_frequency_input: true
+    - offset_hz: -737500
+      name: CC2 - 414.7625
+      mode: p25
+      squelch_db: -65
+    - offset_hz: 2262500
+      name: CC3 - 417.7625
+      mode: p25
+      squelch_db: -65
+    - offset_hz: -2187500
+      name: CC4 - 413.3125
+      mode: p25
+      squelch_db: -65
+    - offset_hz: -812500
+      name: CC5 - 414.6875
+      mode: p25
+      squelch_db: -65
+    allow_frequency_input: false
     gain: 40
-    bandwidth: 400000
-    frequency_label: Control Channel Frequency (MHz)
+    bandwidth: 5500000
   wa_state_patrol_p25:
     name: WA State Patrol P25
     description: Washington State Patrol P25 trunked system on 700 MHz band. Monitors
@@ -557,14 +584,133 @@ recipes:
     gain: 40
     bandwidth: 25000
     frequency_label: Pager Frequency (MHz)
-captures:
-- preset: kexp
-  device_id: 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
-    V4,serial=00000001,tuner=Rafael Micro R828D'
-- preset: kexp
-  device_id: driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070
-- preset: kexp
-  device_id: driver=sdrplay,label=SDRplay Dev1 RSPdx-R2 240305E670,serial=240305E670
+trunking:
+  systems:
+    sa_grn:
+      id: sa_grn
+      name: SA GRN (South Australia Government Radio Network)
+      protocol: p25_phase1
+      modulation: c4fm
+      system_id: 988
+      wacn: 781056
+      control_channels:
+      - 413.3125 MHz
+      center_hz: 415.5 MHz
+      sample_rate: 6000000
+      device_id: driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240305E670,serial=240305E670
+      gain: 30
+      antenna: Antenna A
+      device_settings:
+        rfnotch_ctrl: 'false'
+        dabnotch_ctrl: 'false'
+      max_voice_recorders: 4
+      recording_path: ./recordings/sa_grn
+      record_unknown: true
+      min_call_duration: 1.0
+      squelch_db: -60
+      control_channel_timeout: 30
+      talkgroups:
+        100:
+          name: CFS State Dispatch
+          category: Fire
+          priority: 1
+        101:
+          name: CFS Adelaide Metro
+          category: Fire
+          priority: 1
+        102:
+          name: CFS Barossa
+          category: Fire
+          priority: 2
+        103:
+          name: CFS Hills
+          category: Fire
+          priority: 2
+        104:
+          name: CFS Murraylands
+          category: Fire
+          priority: 2
+        105:
+          name: CFS South East
+          category: Fire
+          priority: 2
+        106:
+          name: CFS Yorke Peninsula
+          category: Fire
+          priority: 2
+        107:
+          name: CFS Eyre Peninsula
+          category: Fire
+          priority: 2
+        108:
+          name: CFS Flinders
+          category: Fire
+          priority: 2
+        110:
+          name: CFS Ops 1
+          category: Fire
+          priority: 2
+        111:
+          name: CFS Ops 2
+          category: Fire
+          priority: 2
+        112:
+          name: CFS Ops 3
+          category: Fire
+          priority: 2
+        200:
+          name: MFS Dispatch
+          category: Fire
+          priority: 1
+        201:
+          name: MFS Fireground 1
+          category: Fire
+          priority: 2
+        202:
+          name: MFS Fireground 2
+          category: Fire
+          priority: 2
+        203:
+          name: MFS Fireground 3
+          category: Fire
+          priority: 2
+        300:
+          name: SES State Ops
+          category: Emergency
+          priority: 1
+        301:
+          name: SES Metro
+          category: Emergency
+          priority: 2
+        302:
+          name: SES Country
+          category: Emergency
+          priority: 2
+        303:
+          name: SES Rescue
+          category: Emergency
+          priority: 2
+        400:
+          name: SA Water Ops
+          category: Utilities
+          priority: 3
+        401:
+          name: SA Power Networks
+          category: Utilities
+          priority: 3
+        500:
+          name: DEW Operations
+          category: Government
+          priority: 3
+        501:
+          name: Forestry SA
+          category: Government
+          priority: 3
+        502:
+          name: Parks SA
+          category: Government
+          priority: 3
+      auto_start: true
 device_names:
   ? 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
     V4,serial=00000001,tuner=Rafael Micro R828D'
@@ -577,3 +723,4 @@ device_names:
     Blog V4
   driver=sdrplay,label=SDRplay Dev1 RSPdx-R2 240305E670,serial=240305E670: RSPdx-R2
     E670
+captures: []

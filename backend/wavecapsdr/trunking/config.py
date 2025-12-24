@@ -11,10 +11,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Union
 
 
-def parse_frequency(value: Union[str, int, float]) -> float:
+def parse_frequency(value: str | int | float) -> float:
     """Parse a frequency value with optional unit suffix.
 
     Supports formats like:
@@ -116,16 +115,16 @@ class TrunkingSystemConfig:
     id: str
     name: str
     protocol: TrunkingProtocol = TrunkingProtocol.P25_PHASE1
-    modulation: Optional[P25Modulation] = None  # None = auto-detect based on protocol
-    control_channels: List[float] = field(default_factory=list)
+    modulation: P25Modulation | None = None  # None = auto-detect based on protocol
+    control_channels: list[float] = field(default_factory=list)
     center_hz: float = 851_000_000
     sample_rate: int = 8_000_000
     device_id: str = ""
-    gain: Optional[float] = None  # RF gain (None = auto)
-    antenna: Optional[str] = None  # SDR antenna port
-    device_settings: Dict[str, str] = field(default_factory=dict)  # Device-specific settings (e.g., rfnotch_ctrl, dabnotch_ctrl)
+    gain: float | None = None  # RF gain (None = auto)
+    antenna: str | None = None  # SDR antenna port
+    device_settings: dict[str, str] = field(default_factory=dict)  # Device-specific settings (e.g., rfnotch_ctrl, dabnotch_ctrl)
     max_voice_recorders: int = 4
-    talkgroups: Dict[int, TalkgroupConfig] = field(default_factory=dict)
+    talkgroups: dict[int, TalkgroupConfig] = field(default_factory=dict)
     recording_path: str = "./recordings"
     record_unknown: bool = False
     min_call_duration: float = 1.0
@@ -139,7 +138,12 @@ class TrunkingSystemConfig:
     voice_hold_time: float = 2.0  # Seconds to hold voice channel after last audio
     audio_gain: float = 1.0  # Audio output gain multiplier
 
-    def get_talkgroup(self, tgid: int) -> Optional[TalkgroupConfig]:
+    # Control channel scanning and roaming
+    roam_check_interval: float = 30.0  # Seconds between roaming checks
+    roam_threshold_db: float = 6.0  # SNR improvement required to trigger roaming
+    initial_scan_enabled: bool = True  # Whether to scan all channels at startup
+
+    def get_talkgroup(self, tgid: int) -> TalkgroupConfig | None:
         """Get talkgroup config by ID."""
         return self.talkgroups.get(tgid)
 
@@ -165,7 +169,7 @@ class TrunkingSystemConfig:
         return 10  # Lowest priority for unknown
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "TrunkingSystemConfig":
+    def from_dict(cls, data: dict) -> TrunkingSystemConfig:
         """Create config from dictionary (e.g., from YAML)."""
         # Parse talkgroups
         talkgroups = {}
@@ -218,6 +222,7 @@ class TrunkingSystemConfig:
             device_id=data.get("device_id", ""),
             gain=gain,
             antenna=data.get("antenna"),
+            device_settings=data.get("device_settings", {}),
             max_voice_recorders=int(data.get("max_voice_recorders", 4)),
             talkgroups=talkgroups,
             recording_path=data.get("recording_path", "./recordings"),
@@ -226,9 +231,12 @@ class TrunkingSystemConfig:
             squelch_db=float(data.get("squelch_db", -50.0)),
             auto_start=data.get("auto_start", True),
             control_channel_timeout=float(data.get("control_channel_timeout", 10.0)),
+            roam_check_interval=float(data.get("roam_check_interval", 30.0)),
+            roam_threshold_db=float(data.get("roam_threshold_db", 6.0)),
+            initial_scan_enabled=data.get("initial_scan_enabled", True),
         )
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert config to dictionary for serialization."""
         return {
             "id": self.id,
@@ -259,7 +267,7 @@ class TrunkingSystemConfig:
         }
 
 
-def load_talkgroups_csv(csv_path: str) -> Dict[int, TalkgroupConfig]:
+def load_talkgroups_csv(csv_path: str) -> dict[int, TalkgroupConfig]:
     """Load talkgroups from CSV file (trunk-recorder format).
 
     Expected CSV format:
@@ -276,7 +284,7 @@ def load_talkgroups_csv(csv_path: str) -> Dict[int, TalkgroupConfig]:
     talkgroups = {}
 
     try:
-        with open(csv_path, "r", newline="", encoding="utf-8") as f:
+        with open(csv_path, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 try:
@@ -293,7 +301,7 @@ def load_talkgroups_csv(csv_path: str) -> Dict[int, TalkgroupConfig]:
                         record=True,
                         monitor=True,
                     )
-                except (ValueError, KeyError) as e:
+                except (ValueError, KeyError):
                     continue  # Skip invalid rows
 
     except FileNotFoundError:

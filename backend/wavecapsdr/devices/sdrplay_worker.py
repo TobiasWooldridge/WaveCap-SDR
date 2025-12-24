@@ -15,9 +15,9 @@ The main process reads from shared memory via SDRplayProxyStream.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import logging.handlers
-import multiprocessing
 import os
 import signal
 import struct
@@ -25,16 +25,15 @@ import sys
 import time
 import traceback
 from dataclasses import dataclass
-from multiprocessing import Process, Pipe
 from multiprocessing.connection import Connection
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
 # Module-level logger (configured per-process)
-logger: Optional[logging.Logger] = None
+logger: logging.Logger | None = None
 
 
 def _setup_subprocess_logging(device_serial: str) -> logging.Logger:
@@ -135,15 +134,15 @@ class WorkerConfig:
     shm_name: str
     center_hz: float = 100e6
     sample_rate: int = 2_000_000
-    gain: Optional[float] = None
-    bandwidth: Optional[float] = None
-    ppm: Optional[float] = None
-    antenna: Optional[str] = None
+    gain: float | None = None
+    bandwidth: float | None = None
+    ppm: float | None = None
+    antenna: str | None = None
     dc_offset_auto: bool = True
     iq_balance_auto: bool = True
-    device_settings: Optional[Dict[str, Any]] = None
-    element_gains: Optional[Dict[str, float]] = None
-    stream_format: Optional[str] = None
+    device_settings: dict[str, Any] | None = None
+    element_gains: dict[str, float] | None = None
+    stream_format: str | None = None
 
 
 def _write_header(
@@ -157,7 +156,7 @@ def _write_header(
     timestamp: float = 0.0,
 ) -> None:
     """Write header to shared memory."""
-    header = struct.pack(
+    struct.pack(
         HEADER_FORMAT,
         write_idx,
         read_idx,
@@ -182,7 +181,7 @@ def _write_header(
     )
 
 
-def _read_header(shm: SharedMemory) -> Tuple[int, int, int, int, int, int, float]:
+def _read_header(shm: SharedMemory) -> tuple[int, int, int, int, int, int, float]:
     """Read header from shared memory.
 
     Returns: (write_idx, read_idx, sample_count, overflow_count, sample_rate, flags, timestamp)
@@ -236,10 +235,8 @@ def sdrplay_worker_main(
         error_msg = f"Worker crashed: {e}\n{traceback.format_exc()}"
         logger.error(error_msg)
         _log_to_pipe(status_pipe, "error", error_msg)
-        try:
+        with contextlib.suppress(Exception):
             status_pipe.send({"type": "error", "message": str(e)})
-        except Exception:
-            pass
     finally:
         logger.info("Worker shutting down, cleaning up...")
         worker.cleanup()
@@ -264,9 +261,9 @@ class SDRplayWorker:
         self.cmd_pipe = cmd_pipe
         self.status_pipe = status_pipe
 
-        self.sdr: Optional[Any] = None
-        self.stream: Optional[Any] = None
-        self.shm: Optional[SharedMemory] = None
+        self.sdr: Any | None = None
+        self.stream: Any | None = None
+        self.shm: SharedMemory | None = None
         self.running = False
         self.streaming = False
 
@@ -324,7 +321,7 @@ class SDRplayWorker:
                     self.status_pipe.send({"type": "stream_error", "message": str(e)})
                     self.streaming = False
 
-    def _handle_command(self, cmd: Dict[str, Any]) -> None:
+    def _handle_command(self, cmd: dict[str, Any]) -> None:
         """Process a command from the main process."""
         cmd_type = cmd.get("type", "")
 
@@ -356,7 +353,7 @@ class SDRplayWorker:
             # Query device info
             driver = str(sdr.getDriverKey())
             hardware = str(sdr.getHardwareKey())
-            antennas: List[str] = list(sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0))
+            antennas: list[str] = list(sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0))
 
             if logger:
                 logger.info(f"Device opened: driver={driver}, hardware={hardware}, antennas={antennas}")
@@ -376,7 +373,7 @@ class SDRplayWorker:
             self.status_pipe.send({"type": "open_error", "message": str(e)})
             raise
 
-    def _configure(self, cmd: Dict[str, Any]) -> None:
+    def _configure(self, cmd: dict[str, Any]) -> None:
         """Configure the device."""
         if self.sdr is None:
             if logger:
@@ -433,10 +430,8 @@ class SDRplayWorker:
                         if logger:
                             logger.warning(f"Gain {elem}={g} failed: {e}")
             elif gain is not None:
-                try:
+                with contextlib.suppress(Exception):
                     sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, False)
-                except Exception:
-                    pass
                 sdr.setGain(SoapySDR.SOAPY_SDR_RX, 0, gain)
                 if logger:
                     logger.debug(f"Set overall gain={gain}")
@@ -466,15 +461,11 @@ class SDRplayWorker:
                     if logger:
                         logger.warning(f"setFrequencyCorrection failed: {e}")
 
-            try:
+            with contextlib.suppress(Exception):
                 sdr.setDCOffsetMode(SoapySDR.SOAPY_SDR_RX, 0, dc_offset_auto)
-            except Exception:
-                pass
 
-            try:
+            with contextlib.suppress(Exception):
                 sdr.setIQBalanceMode(SoapySDR.SOAPY_SDR_RX, 0, iq_balance_auto)
-            except Exception:
-                pass
 
             if antenna is not None:
                 sdr.setAntenna(SoapySDR.SOAPY_SDR_RX, 0, antenna)
@@ -726,10 +717,8 @@ class SDRplayWorker:
         )
 
         # Force memory synchronization - Python's mmap on macOS may need this
-        try:
+        with contextlib.suppress(Exception):
             self.shm.buf.flush() if hasattr(self.shm.buf, 'flush') else None
-        except Exception:
-            pass
 
         # Log first few header writes for debugging
         if self._stream_call_count <= 5:
@@ -758,10 +747,8 @@ class SDRplayWorker:
             self.sdr = None
 
         if self.shm is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self.shm.close()
-            except Exception:
-                pass
             self.shm = None
 
         if logger:

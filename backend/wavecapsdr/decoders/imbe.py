@@ -11,10 +11,10 @@ Output: 8kHz 16-bit PCM (resampled to target rate)
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import shutil
 import subprocess
-from typing import Optional
 
 import numpy as np
 from scipy import signal
@@ -52,9 +52,9 @@ class IMBEDecoder:
         """
         self.output_rate = output_rate
         self.input_rate = input_rate
-        self.process: Optional[subprocess.Popen[bytes]] = None
+        self.process: subprocess.Popen[bytes] | None = None
         self.running = False
-        self._decoder_task: Optional[asyncio.Task[None]] = None
+        self._decoder_task: asyncio.Task[None] | None = None
 
         # I/O queues
         self._input_queue: asyncio.Queue[np.ndarray] = asyncio.Queue(maxsize=64)
@@ -105,19 +105,15 @@ class IMBEDecoder:
         # Cancel decoder task
         if self._decoder_task:
             self._decoder_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._decoder_task
-            except asyncio.CancelledError:
-                pass
 
         # Terminate process
         if self.process:
             try:
                 if self.process.stdin:
-                    try:
+                    with contextlib.suppress(BrokenPipeError, OSError):
                         self.process.stdin.close()
-                    except (BrokenPipeError, OSError):
-                        pass
                 self.process.terminate()
                 self.process.wait(timeout=2)
             except subprocess.TimeoutExpired:
@@ -154,7 +150,7 @@ class IMBEDecoder:
             except (asyncio.QueueEmpty, asyncio.QueueFull):
                 pass
 
-    async def get_audio(self) -> Optional[np.ndarray]:
+    async def get_audio(self) -> np.ndarray | None:
         """
         Get decoded and resampled audio.
 
@@ -167,7 +163,7 @@ class IMBEDecoder:
         except asyncio.QueueEmpty:
             return None
 
-    async def get_audio_blocking(self, timeout: float = 0.5) -> Optional[np.ndarray]:
+    async def get_audio_blocking(self, timeout: float = 0.5) -> np.ndarray | None:
         """
         Get decoded audio, waiting up to timeout seconds.
 
@@ -205,7 +201,7 @@ class IMBEDecoder:
             except (asyncio.QueueEmpty, asyncio.QueueFull):
                 pass
 
-    def get_audio_sync(self) -> Optional[np.ndarray]:
+    def get_audio_sync(self) -> np.ndarray | None:
         """
         Get decoded audio if available (sync version).
 
@@ -281,10 +277,8 @@ class IMBEDecoder:
             logger.error(f"IMBE decoder error: {e}", exc_info=True)
         finally:
             if self.process:
-                try:
+                with contextlib.suppress(Exception):
                     self.process.terminate()
-                except Exception:
-                    pass
 
     async def _write_input(self) -> None:
         """Write discriminator audio to DSD-FME stdin."""

@@ -3,47 +3,55 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, AsyncGenerator, Dict, List, Literal, Optional, Union, cast
+from collections.abc import AsyncGenerator
+from typing import Any, Literal, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import JSONResponse, StreamingResponse
 
 logger = logging.getLogger(__name__)
 
-from .models import (
-    DeviceModel,
-    CaptureModel,
-    ConfigWarning,
-    CreateCaptureRequest,
-    UpdateCaptureRequest,
-    ChannelModel,
-    CreateChannelRequest,
-    UpdateChannelRequest,
-    RecipeModel,
-    RecipeChannelModel,
-    CreateScannerRequest,
-    UpdateScannerRequest,
-    ScannerModel,
-    ScanHitModel,
-    SpectrumSnapshotModel,
-    ExtendedMetricsModel,
-    MetricsHistoryModel,
-    MetricsHistoryPoint,
-    RDSDataModel,
-    POCSAGMessageModel,
-)
-from .state import AppState
-from .frequency_namer import get_frequency_namer
+from .config import save_config
 from .device_namer import (
     generate_capture_name,
     get_device_nickname,
-    set_device_nickname,
     get_device_shorthand,
+    set_device_nickname,
 )
-from .config import save_config
+from .frequency_namer import get_frequency_namer
+from .models import (
+    CaptureModel,
+    ChannelModel,
+    ConfigWarning,
+    CreateCaptureRequest,
+    CreateChannelRequest,
+    CreateScannerRequest,
+    DeviceModel,
+    ExtendedMetricsModel,
+    MetricsHistoryModel,
+    MetricsHistoryPoint,
+    POCSAGMessageModel,
+    RDSDataModel,
+    RecipeChannelModel,
+    RecipeModel,
+    ScanHitModel,
+    ScannerModel,
+    SpectrumSnapshotModel,
+    UpdateCaptureRequest,
+    UpdateChannelRequest,
+    UpdateScannerRequest,
+)
 from .sdrplay_recovery import get_recovery
+from .state import AppState
 from .state_broadcaster import get_broadcaster
-
 
 router = APIRouter()
 
@@ -172,7 +180,7 @@ def health_check(request: Request) -> JSONResponse:
 
 
 @router.post("/shutdown")
-async def shutdown_server(request: Request) -> Dict[str, str]:
+async def shutdown_server(request: Request) -> dict[str, str]:
     """Gracefully shutdown the server.
 
     This endpoint triggers a graceful shutdown sequence:
@@ -186,7 +194,7 @@ async def shutdown_server(request: Request) -> Dict[str, str]:
     import os
     import signal
 
-    state: Optional[AppState] = getattr(request.app.state, "app_state", None)
+    state: AppState | None = getattr(request.app.state, "app_state", None)
     if state is None:
         return {"status": "error", "message": "AppState not initialized"}
 
@@ -224,12 +232,12 @@ async def shutdown_server(request: Request) -> Dict[str, str]:
 
 
 # Frontend log storage
-_frontend_logs: List[Dict[str, Any]] = []
+_frontend_logs: list[dict[str, Any]] = []
 _FRONTEND_LOG_MAX = 500  # Keep last 500 log entries
 
 
 @router.post("/frontend-logs")
-async def receive_frontend_logs(request: Request) -> Dict[str, str]:
+async def receive_frontend_logs(request: Request) -> dict[str, str]:
     """Receive console logs from the frontend for debugging."""
     global _frontend_logs
     try:
@@ -249,10 +257,10 @@ async def receive_frontend_logs(request: Request) -> Dict[str, str]:
 
 @router.get("/frontend-logs")
 def get_frontend_logs(
-    level: Optional[str] = None,
-    prefix: Optional[str] = None,
+    level: str | None = None,
+    prefix: str | None = None,
     limit: int = 100,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get recent frontend logs for debugging.
 
     Args:
@@ -262,9 +270,9 @@ def get_frontend_logs(
     """
     logs = _frontend_logs[-limit:]
     if level:
-        logs = [l for l in logs if l.get("level") == level]
+        logs = [log for log in logs if log.get("level") == level]
     if prefix:
-        logs = [l for l in logs if any(str(arg).startswith(prefix) for arg in l.get("args", []))]
+        logs = [log for log in logs if any(str(arg).startswith(prefix) for arg in log.get("args", []))]
     return {
         "count": len(logs),
         "total_stored": len(_frontend_logs),
@@ -273,7 +281,7 @@ def get_frontend_logs(
 
 
 @router.delete("/frontend-logs")
-def clear_frontend_logs() -> Dict[str, str]:
+def clear_frontend_logs() -> dict[str, str]:
     """Clear all stored frontend logs."""
     global _frontend_logs
     count = len(_frontend_logs)
@@ -282,7 +290,7 @@ def clear_frontend_logs() -> Dict[str, str]:
 
 
 @router.get("/debug/perf", response_model=None)
-def get_performance_metrics(request: Request) -> Union[JSONResponse, Dict[str, Any]]:
+def get_performance_metrics(request: Request) -> JSONResponse | dict[str, Any]:
     """Get detailed performance metrics for all captures.
 
     Returns timing statistics (loop time, DSP time, FFT time) and queue depths
@@ -296,7 +304,7 @@ def get_performance_metrics(request: Request) -> Union[JSONResponse, Dict[str, A
         )
 
     import time
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "timestamp": time.time(),
         "captures": {},
     }
@@ -335,13 +343,13 @@ def get_performance_metrics(request: Request) -> Union[JSONResponse, Dict[str, A
 
 
 def get_state(request: Request) -> AppState:
-    state: Optional[AppState] = getattr(request.app.state, "app_state", None)
+    state: AppState | None = getattr(request.app.state, "app_state", None)
     if state is None:
         raise RuntimeError("AppState not initialized")
     return state
 
 
-def _to_rds_data_model(rds_data: Any) -> Optional[RDSDataModel]:
+def _to_rds_data_model(rds_data: Any) -> RDSDataModel | None:
     """Convert RDSData from backend to RDSDataModel for API response."""
     if rds_data is None:
         return None
@@ -426,7 +434,7 @@ def _to_capture_model(cap: Any, trunking_manager: Any = None) -> CaptureModel:
         cap: Capture instance to convert
         trunking_manager: Optional TrunkingManager to look up trunking ownership
     """
-    from .error_tracker import get_error_tracker, ErrorStats
+    from .error_tracker import ErrorStats, get_error_tracker
 
     # Get overflow rate from error tracker
     tracker = get_error_tracker()
@@ -485,7 +493,7 @@ def _to_capture_model(cap: Any, trunking_manager: Any = None) -> CaptureModel:
 
 def _to_channel_model(ch: Any) -> ChannelModel:
     """Helper to convert a Channel to ChannelModel consistently."""
-    from .error_tracker import get_error_tracker, ErrorStats
+    from .error_tracker import ErrorStats, get_error_tracker
 
     # Get drop rate from error tracker
     tracker = get_error_tracker()
@@ -554,7 +562,7 @@ def auth_check(request: Request, state: AppState = Depends(get_state)) -> None:
 
 
 @router.get("/devices/{device_id}/name")
-def get_device_name(device_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)) -> Dict[str, Any]:
+def get_device_name(device_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)) -> dict[str, Any]:
     """Get custom nickname for a device."""
     nickname = get_device_nickname(device_id)
     # Also get device info for shorthand fallback
@@ -573,7 +581,7 @@ def get_device_name(device_id: str, _: None = Depends(auth_check), state: AppSta
 
 
 @router.patch("/devices/{device_id}/name")
-def update_device_name(device_id: str, request: Dict[str, Any], _: None = Depends(auth_check), state: AppState = Depends(get_state)) -> Dict[str, Any]:
+def update_device_name(device_id: str, request: dict[str, Any], _: None = Depends(auth_check), state: AppState = Depends(get_state)) -> dict[str, Any]:
     """Set custom nickname for a device."""
     nickname = request.get("nickname", "")
 
@@ -635,9 +643,9 @@ def _get_stable_device_id(device_id: str) -> str:
     return f"{driver}:{serial}" if serial else f"{driver}:{label}"
 
 
-@router.get("/devices", response_model=List[DeviceModel], response_model_by_alias=False)
-def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> List[DeviceModel]:
-    result: List[DeviceModel] = []
+@router.get("/devices", response_model=list[DeviceModel], response_model_by_alias=False)
+def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> list[DeviceModel]:
+    result: list[DeviceModel] = []
     seen_ids = set()  # Full device IDs
     seen_stable_ids = set()  # Stable IDs for deduplication
 
@@ -718,8 +726,8 @@ def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_st
     return result
 
 
-@router.post("/devices/refresh", response_model=List[DeviceModel], response_model_by_alias=False)
-def refresh_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> List[DeviceModel]:
+@router.post("/devices/refresh", response_model=list[DeviceModel], response_model_by_alias=False)
+def refresh_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> list[DeviceModel]:
     """Force re-enumeration of all SDR devices.
 
     Invalidates the device cache and performs a fresh enumeration.
@@ -735,7 +743,7 @@ def refresh_devices(_: None = Depends(auth_check), state: AppState = Depends(get
 
 
 @router.get("/devices/sdrplay/health")
-def get_sdrplay_health() -> Dict[str, Any]:
+def get_sdrplay_health() -> dict[str, Any]:
     """Get SDRplay service health status for monitoring.
 
     Returns metrics about SDRplay enumeration success/failure history,
@@ -765,7 +773,7 @@ def get_sdrplay_health() -> Dict[str, Any]:
 
 
 @router.post("/devices/sdrplay/restart-service")
-def restart_sdrplay_service(_: None = Depends(auth_check)) -> Dict[str, Any]:
+def restart_sdrplay_service(_: None = Depends(auth_check)) -> dict[str, Any]:
     """Restart the SDRplay API service to recover from stuck states.
 
     Use this when SDRplay captures are stuck in 'starting' state or
@@ -774,7 +782,7 @@ def restart_sdrplay_service(_: None = Depends(auth_check)) -> Dict[str, Any]:
 
     Rate limited: max 5 restarts per hour with 60-second cooldown between attempts.
     """
-    from .devices.soapy import reset_sdrplay_health_counters, invalidate_sdrplay_caches
+    from .devices.soapy import invalidate_sdrplay_caches, reset_sdrplay_health_counters
 
     recovery = get_recovery()
     allowed, reason = recovery.can_restart()
@@ -805,7 +813,7 @@ def restart_sdrplay_service(_: None = Depends(auth_check)) -> Dict[str, Any]:
 
 
 @router.get("/devices/usb/hubs")
-def get_usb_hubs(_: None = Depends(auth_check)) -> Dict[str, Any]:
+def get_usb_hubs(_: None = Depends(auth_check)) -> dict[str, Any]:
     """Get USB hub status for power management.
 
     Returns list of controllable USB hubs and their port status,
@@ -821,7 +829,7 @@ def get_usb_hubs(_: None = Depends(auth_check)) -> Dict[str, Any]:
 async def power_cycle_all_usb(
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Power cycle all USB ports with connected devices.
 
     This performs a hardware reset of all devices on controllable USB hubs.
@@ -829,7 +837,7 @@ async def power_cycle_all_usb(
 
     Requires uhubctl to be installed.
     """
-    from .uhubctl import power_cycle_all_ports, is_uhubctl_available
+    from .uhubctl import is_uhubctl_available, power_cycle_all_ports
 
     if not is_uhubctl_available():
         raise HTTPException(
@@ -863,7 +871,7 @@ async def power_cycle_all_usb(
 
 
 @router.post("/devices/usb/power-cycle/{capture_id}")
-async def power_cycle_capture_device(capture_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)) -> Dict[str, Any]:
+async def power_cycle_capture_device(capture_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)) -> dict[str, Any]:
     """Power cycle the USB port for a capture's device.
 
     This performs a hardware reset by cycling the USB port power,
@@ -873,7 +881,7 @@ async def power_cycle_capture_device(capture_id: str, _: None = Depends(auth_che
     Requires uhubctl to be installed and the device to be connected
     to a controllable USB hub.
     """
-    from .uhubctl import power_cycle_device, is_uhubctl_available
+    from .uhubctl import is_uhubctl_available, power_cycle_device
 
     if not is_uhubctl_available():
         raise HTTPException(
@@ -912,7 +920,7 @@ async def power_cycle_capture_device(capture_id: str, _: None = Depends(auth_che
     }
 
 
-def _adjust_recipe_for_device(recipe_cfg: Any, device_info: Dict[str, Any]) -> Dict[str, Any]:
+def _adjust_recipe_for_device(recipe_cfg: Any, device_info: dict[str, Any]) -> dict[str, Any]:
     """Adjust recipe parameters to fit device capabilities.
 
     Returns a dict with adjusted sampleRate, bandwidth, and gain values.
@@ -943,12 +951,12 @@ def _adjust_recipe_for_device(recipe_cfg: Any, device_info: Dict[str, Any]) -> D
     return adjustments
 
 
-@router.get("/recipes", response_model=List[RecipeModel])
+@router.get("/recipes", response_model=list[RecipeModel])
 def list_recipes(
-    device_id: Optional[str] = None,
+    device_id: str | None = None,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-) -> List[RecipeModel]:
+) -> list[RecipeModel]:
     """Get all available capture creation recipes.
 
     If device_id is provided, recipe parameters are adjusted to fit the device's capabilities.
@@ -1010,7 +1018,7 @@ def list_recipes(
 def identify_frequency(
     frequency_hz: float,
     _: None = Depends(auth_check),
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Identify a frequency and return its auto-generated name."""
     namer = get_frequency_namer()
     freq_info = namer.identify_frequency(frequency_hz)
@@ -1026,8 +1034,8 @@ def identify_frequency(
     return None
 
 
-@router.get("/captures", response_model=List[CaptureModel])
-def list_captures(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> List[CaptureModel]:
+@router.get("/captures", response_model=list[CaptureModel])
+def list_captures(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> list[CaptureModel]:
     tm = getattr(state, "trunking_manager", None)
     return [_to_capture_model(c, tm) for c in state.captures.list_captures()]
 
@@ -1256,7 +1264,7 @@ async def update_capture(
     except Exception as e:
         error_msg = f"update_capture failed: {e}\n{traceback.format_exc()}"
         logger.error(f"PATCH /captures/{cid} - {error_msg}")
-        raise HTTPException(status_code=500, detail=f"Internal error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {e!s}")
 
 
 async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppState) -> CaptureModel:
@@ -1335,24 +1343,22 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
         # Auto-adjust bandwidth to fit new device range
         bw_min = device_info.get("bandwidth_min")
         bw_max = device_info.get("bandwidth_max")
-        if bw_min is not None and bw_max is not None:
-            if cap.cfg.bandwidth is not None:
-                old_bw = cap.cfg.bandwidth
-                new_bw = max(bw_min, min(bw_max, old_bw))
-                if new_bw != old_bw:
-                    cap.cfg.bandwidth = new_bw
-                    adjusted_params.append(f"bandwidth: {old_bw} -> {new_bw}")
+        if bw_min is not None and bw_max is not None and cap.cfg.bandwidth is not None:
+            old_bw = cap.cfg.bandwidth
+            new_bw = max(bw_min, min(bw_max, old_bw))
+            if new_bw != old_bw:
+                cap.cfg.bandwidth = new_bw
+                adjusted_params.append(f"bandwidth: {old_bw} -> {new_bw}")
 
         # Auto-adjust gain to fit new device range
         gain_min = device_info.get("gain_min")
         gain_max = device_info.get("gain_max")
-        if gain_min is not None and gain_max is not None:
-            if cap.cfg.gain is not None:
-                old_gain = cap.cfg.gain
-                new_gain = max(gain_min, min(gain_max, old_gain))
-                if new_gain != old_gain:
-                    cap.cfg.gain = new_gain
-                    adjusted_params.append(f"gain: {old_gain} -> {new_gain}")
+        if gain_min is not None and gain_max is not None and cap.cfg.gain is not None:
+            old_gain = cap.cfg.gain
+            new_gain = max(gain_min, min(gain_max, old_gain))
+            if new_gain != old_gain:
+                cap.cfg.gain = new_gain
+                adjusted_params.append(f"gain: {old_gain} -> {new_gain}")
 
         # Auto-adjust antenna if current one isn't available
         valid_antennas = device_info.get("antennas", [])
@@ -1483,7 +1489,7 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to reconfigure capture: {str(e)}"
+            detail=f"Failed to reconfigure capture: {e!s}"
         )
 
     # Regenerate auto_name if frequency or device changed
@@ -1554,12 +1560,12 @@ async def delete_capture(
     return Response(status_code=204)
 
 
-@router.get("/captures/{cid}/channels", response_model=List[ChannelModel])
+@router.get("/captures/{cid}/channels", response_model=list[ChannelModel])
 def list_channels(
     cid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-) -> List[ChannelModel]:
+) -> list[ChannelModel]:
     chans = state.captures.list_channels(cid)
     return [_to_channel_model(ch) for ch in chans]
 
@@ -1816,7 +1822,7 @@ def delete_channel(
 # Signal monitoring endpoints (for Claude skills)
 # ==============================================================================
 
-def _rssi_to_s_units(rssi_db: Optional[float]) -> Optional[str]:
+def _rssi_to_s_units(rssi_db: float | None) -> str | None:
     """Convert RSSI in dB to S-meter units (S0-S9, S9+10, etc.)."""
     if rssi_db is None:
         return None
@@ -1942,14 +1948,14 @@ def get_channel_metrics_history(
     )
 
 
-@router.get("/channels/{chan_id}/decode/pocsag", response_model=List[POCSAGMessageModel])
+@router.get("/channels/{chan_id}/decode/pocsag", response_model=list[POCSAGMessageModel])
 def get_channel_pocsag_messages(
     chan_id: str,
     limit: int = 50,
-    since: Optional[float] = None,
+    since: float | None = None,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-) -> List[POCSAGMessageModel]:
+) -> list[POCSAGMessageModel]:
     """Get decoded POCSAG pager messages from an NBFM channel.
 
     Args:
@@ -1983,7 +1989,7 @@ def get_channel_pocsag_messages(
 @router.websocket("/stream/captures/{cid}/iq")
 async def stream_capture_iq(websocket: WebSocket, cid: str) -> None:
     # Auth: optional token via header or query `token`
-    app_state: AppState = getattr(websocket.app.state, "app_state")
+    app_state: AppState = websocket.app.state.app_state
     token = app_state.config.server.auth_token
     if token is not None:
         auth = websocket.headers.get("authorization") or websocket.query_params.get("token")
@@ -2019,7 +2025,7 @@ async def stream_capture_spectrum(websocket: WebSocket, cid: str) -> None:
 
     Only calculates FFT when there are active subscribers for efficiency.
     """
-    app_state: AppState = getattr(websocket.app.state, "app_state")
+    app_state: AppState = websocket.app.state.app_state
     token = app_state.config.server.auth_token
     if token is not None:
         auth = websocket.headers.get("authorization") or websocket.query_params.get("token")
@@ -2089,10 +2095,9 @@ async def stream_channel_http(
         try:
             while True:
                 # Check disconnect every 10 packets (~200ms) even if queue has data
-                if packet_count % 10 == 0:
-                    if await request.is_disconnected():
-                        logger.info(f"HTTP stream client disconnected for channel {chan_id}")
-                        break
+                if packet_count % 10 == 0 and await request.is_disconnected():
+                    logger.info(f"HTTP stream client disconnected for channel {chan_id}")
+                    break
 
                 # Get data with shorter timeout to check disconnect more frequently
                 try:
@@ -2113,10 +2118,7 @@ async def stream_channel_http(
             logger.info(f"HTTP stream ended for channel {chan_id}, packets sent: {packet_count}")
 
     # Set appropriate content-type for raw PCM audio
-    if format == "f32":
-        media_type = "audio/x-raw"
-    else:
-        media_type = "audio/x-raw"
+    media_type = "audio/x-raw"
 
     return StreamingResponse(
         audio_generator(),
@@ -2148,10 +2150,9 @@ async def stream_channel_mp3(
         packet_count = 0
         try:
             while True:
-                if packet_count % 10 == 0:
-                    if await request.is_disconnected():
-                        logger.info(f"MP3 stream client disconnected for channel {chan_id}")
-                        break
+                if packet_count % 10 == 0 and await request.is_disconnected():
+                    logger.info(f"MP3 stream client disconnected for channel {chan_id}")
+                    break
 
                 try:
                     data = await asyncio.wait_for(q.get(), timeout=0.5)
@@ -2197,10 +2198,9 @@ async def stream_channel_opus(
         packet_count = 0
         try:
             while True:
-                if packet_count % 10 == 0:
-                    if await request.is_disconnected():
-                        logger.info(f"Opus stream client disconnected for channel {chan_id}")
-                        break
+                if packet_count % 10 == 0 and await request.is_disconnected():
+                    logger.info(f"Opus stream client disconnected for channel {chan_id}")
+                    break
 
                 try:
                     data = await asyncio.wait_for(q.get(), timeout=0.5)
@@ -2246,10 +2246,9 @@ async def stream_channel_aac(
         packet_count = 0
         try:
             while True:
-                if packet_count % 10 == 0:
-                    if await request.is_disconnected():
-                        logger.info(f"AAC stream client disconnected for channel {chan_id}")
-                        break
+                if packet_count % 10 == 0 and await request.is_disconnected():
+                    logger.info(f"AAC stream client disconnected for channel {chan_id}")
+                    break
 
                 try:
                     data = await asyncio.wait_for(q.get(), timeout=0.5)
@@ -2284,7 +2283,7 @@ async def stream_channel_audio(websocket: WebSocket, chan_id: str, format: str =
     Query parameters:
         format: Audio format - "pcm16" (16-bit signed PCM) or "f32" (32-bit float). Default: pcm16
     """
-    app_state: AppState = getattr(websocket.app.state, "app_state")
+    app_state: AppState = websocket.app.state.app_state
     token = app_state.config.server.auth_token
     if token is not None:
         auth = websocket.headers.get("authorization") or websocket.query_params.get("token")
@@ -2369,7 +2368,7 @@ async def stream_health(websocket: WebSocket) -> None:
     await websocket.accept()
 
     tracker = get_error_tracker()
-    queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=100)
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
 
     def on_error(event: Any) -> None:
         try:
@@ -2427,9 +2426,9 @@ async def stream_state(websocket: WebSocket) -> None:
     await websocket.accept()
     logger.info("WebSocket /api/v1/stream/state connected")
 
-    app_state: AppState = getattr(websocket.app.state, "app_state")
+    app_state: AppState = websocket.app.state.app_state
     broadcaster = get_broadcaster()
-    queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue(maxsize=100)
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
 
     def on_state_change(change: Any) -> None:
         try:
@@ -2476,7 +2475,7 @@ async def stream_state(websocket: WebSocket) -> None:
 # Scanner endpoints
 # ==============================================================================
 
-from .scanner import ScannerService, ScanConfig, ScanMode
+from .scanner import ScanConfig, ScanMode, ScannerService
 
 
 def _to_scanner_model(scanner_id: str, scanner: ScannerService) -> ScannerModel:
@@ -2557,8 +2556,8 @@ def create_scanner(
     return _to_scanner_model(scanner_id, scanner)
 
 
-@router.get("/scanners", response_model=List[ScannerModel])
-def list_scanners(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> List[ScannerModel]:
+@router.get("/scanners", response_model=list[ScannerModel])
+def list_scanners(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> list[ScannerModel]:
     """List all scanners."""
     return [_to_scanner_model(sid, scanner) for sid, scanner in state.scanners.items()]
 
@@ -2767,21 +2766,22 @@ def clear_all_lockouts(
 # Frontend error logging endpoint
 # ==============================================================================
 
-from pydantic import BaseModel
-from pathlib import Path
 import json
+from pathlib import Path
+
+from pydantic import BaseModel
 
 
 class FrontendErrorReport(BaseModel):
     """Error report from the frontend JavaScript application."""
     level: str = "error"  # error, warn, info, debug
     message: str
-    stack: Optional[str] = None
-    componentStack: Optional[str] = None  # React error boundary stack
-    url: Optional[str] = None
-    userAgent: Optional[str] = None
-    timestamp: Optional[float] = None
-    context: Optional[Dict[str, Any]] = None  # Additional context (component name, props, etc.)
+    stack: str | None = None
+    componentStack: str | None = None  # React error boundary stack
+    url: str | None = None
+    userAgent: str | None = None
+    timestamp: float | None = None
+    context: dict[str, Any] | None = None  # Additional context (component name, props, etc.)
 
 
 class FrontendLogEntry(BaseModel):
@@ -2789,18 +2789,18 @@ class FrontendLogEntry(BaseModel):
     timestamp: str
     level: str
     message: str
-    data: Optional[Dict[str, Any]] = None
-    source: Optional[str] = None
-    stack: Optional[str] = None
+    data: dict[str, Any] | None = None
+    source: str | None = None
+    stack: str | None = None
 
 
 class FrontendLogBatch(BaseModel):
     """Batch of log entries from frontend."""
-    entries: List[FrontendLogEntry]
+    entries: list[FrontendLogEntry]
 
 
 # In-memory log buffer for recent frontend errors (for the production engineer agent)
-_frontend_error_log: List[Dict[str, Any]] = []
+_frontend_error_log: list[dict[str, Any]] = []
 _MAX_FRONTEND_ERRORS = 500
 
 # File path for persistent frontend logs (accessible to Claude for debugging)
@@ -2812,7 +2812,7 @@ def _ensure_log_dir() -> None:
     _FRONTEND_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
-def _write_to_log_file(entry: Dict[str, Any]) -> None:
+def _write_to_log_file(entry: dict[str, Any]) -> None:
     """Append a log entry to the frontend log file."""
     try:
         _ensure_log_dir()
@@ -2828,7 +2828,7 @@ def _write_to_log_file(entry: Dict[str, Any]) -> None:
 def _rotate_log_file() -> None:
     """Rotate the log file, keeping only the last 500 lines."""
     try:
-        with open(_FRONTEND_LOG_FILE, "r") as f:
+        with open(_FRONTEND_LOG_FILE) as f:
             lines = f.readlines()
         with open(_FRONTEND_LOG_FILE, "w") as f:
             f.writelines(lines[-500:])
@@ -2836,7 +2836,7 @@ def _rotate_log_file() -> None:
         logger.warning(f"Failed to rotate frontend log file: {e}")
 
 
-def _process_log_entry(entry: Dict[str, Any], request: Request) -> Dict[str, Any]:
+def _process_log_entry(entry: dict[str, Any], request: Request) -> dict[str, Any]:
     """Process and store a single log entry."""
     import time
 
@@ -2883,7 +2883,7 @@ def _process_log_entry(entry: Dict[str, Any], request: Request) -> Dict[str, Any
 def log_frontend_batch(
     batch: FrontendLogBatch,
     request: Request,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Receive batch of log entries from the frontend logger.
 
     This endpoint receives multiple log entries at once for efficiency.
@@ -2901,7 +2901,7 @@ def log_frontend_batch(
 def log_frontend_error(
     report: FrontendErrorReport,
     request: Request,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Receive and log errors from the frontend JavaScript application.
 
     This endpoint allows the frontend to report JavaScript errors, React
@@ -2915,10 +2915,10 @@ def log_frontend_error(
 @router.get("/log/frontend")
 def get_frontend_errors(
     limit: int = 50,
-    level: Optional[str] = None,
-    since: Optional[float] = None,
+    level: str | None = None,
+    since: float | None = None,
     _: None = Depends(auth_check),
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Retrieve recent frontend errors from the log buffer.
 
     Args:
@@ -2943,7 +2943,7 @@ def get_frontend_errors(
 
 
 @router.delete("/log/frontend")
-def clear_frontend_errors(_: None = Depends(auth_check)) -> Dict[str, str]:
+def clear_frontend_errors(_: None = Depends(auth_check)) -> dict[str, str]:
     """Clear the frontend error log buffer."""
     _frontend_error_log.clear()
     return {"status": "cleared"}

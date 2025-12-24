@@ -22,7 +22,6 @@ Reference: TIA-102.BAAA-A (P25 Common Air Interface)
 from __future__ import annotations
 
 import logging
-from typing import Optional, Tuple, cast
 
 import numpy as np
 from scipy import signal
@@ -270,7 +269,7 @@ class C4FMDemodulator:
         # c3 = (s3 - s0) / 2 + 3 * (s1 - s2) / 2
         # return c0 + mu * (c1 + mu * (c2 + mu * c3))
 
-    def demodulate(self, iq: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def demodulate(self, iq: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Demodulate C4FM signal to dibits.
 
         Processes IQ samples through FM discriminator, matched filter,
@@ -301,14 +300,14 @@ class C4FMDemodulator:
 
         # FM discriminator
         if _verbose:
-            logger.info(f"C4FMDemodulator.demodulate: calling _fm_discriminator")
+            logger.info("C4FMDemodulator.demodulate: calling _fm_discriminator")
         freq = self._fm_discriminator(iq)
         if _verbose:
             logger.info(f"C4FMDemodulator.demodulate: _fm_discriminator returned {len(freq)} samples")
 
         # Matched filter (RRC)
         if _verbose:
-            logger.info(f"C4FMDemodulator.demodulate: calling lfilter")
+            logger.info("C4FMDemodulator.demodulate: calling lfilter")
         filtered = signal.lfilter(self._rrc, 1.0, freq).astype(np.float32)
         if _verbose:
             logger.info(f"C4FMDemodulator.demodulate: lfilter returned {len(filtered)} samples")
