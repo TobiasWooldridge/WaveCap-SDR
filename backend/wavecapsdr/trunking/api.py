@@ -77,6 +77,7 @@ class CreateSystemRequest(BaseModel):
     recording_path: str | None = Field(None, description="Path for audio file storage")
     record_unknown: bool = Field(False, description="Record unknown talkgroups")
     squelch_db: float = Field(-50.0, description="Squelch level for voice channels (dB)")
+    auto_start: bool = Field(True, description="Start system automatically after creation")
     talkgroups: dict[str, TalkgroupRequest] | None = Field(
         None, description="Initial talkgroup configuration"
     )
@@ -290,6 +291,7 @@ async def create_system(request: Request, req: CreateSystemRequest) -> SystemRes
         recording_path=req.recording_path or "./recordings",
         record_unknown=req.record_unknown,
         squelch_db=req.squelch_db,
+        auto_start=req.auto_start,
     )
 
     try:

@@ -1,0 +1,791 @@
+"""P25 Frame Structure Definitions and Parsers.
+
+This module defines the P25 frame structures and provides parsers for each frame type:
+- NID (Network ID) - Common header with NAC and DUID
+- HDU (Header Data Unit) - Start of voice transmission
+- LDU1/LDU2 (Logical Data Units) - Voice frames with IMBE data
+- TDU (Terminator Data Unit) - End of transmission
+- TSDU (Trunking Signaling Data Unit) - Control channel messages
+
+Frame structure follows TIA-102.BAAA-A specification.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from enum import IntEnum
+from typing import List, Optional, Tuple
+
+import numpy as np
+
+from wavecapsdr.dsp.fec.golay import golay_decode
+from wavecapsdr.dsp.fec.trellis import trellis_decode
+from wavecapsdr.dsp.fec.bch import bch_decode
+from wavecapsdr.decoders.nac_tracker import NACTracker
+
+logger = logging.getLogger(__name__)
+
+
+# P25 Phase 1 data interleave/deinterleave pattern (196 bits)
+# This pattern is used for TSBK and PDU blocks
+DATA_DEINTERLEAVE = [
+    0, 1, 2, 3, 16, 17, 18, 19, 32, 33, 34, 35, 48, 49, 50, 51, 64, 65, 66, 67,
+    80, 81, 82, 83, 96, 97, 98, 99, 112, 113, 114, 115, 128, 129, 130, 131, 144, 145, 146, 147,
+    160, 161, 162, 163, 176, 177, 178, 179, 192, 193, 194, 195, 4, 5, 6, 7, 20, 21, 22, 23,
+    36, 37, 38, 39, 52, 53, 54, 55, 68, 69, 70, 71, 84, 85, 86, 87, 100, 101, 102, 103,
+    116, 117, 118, 119, 132, 133, 134, 135, 148, 149, 150, 151, 164, 165, 166, 167, 180, 181, 182, 183,
+    8, 9, 10, 11, 24, 25, 26, 27, 40, 41, 42, 43, 56, 57, 58, 59, 72, 73, 74, 75,
+    88, 89, 90, 91, 104, 105, 106, 107, 120, 121, 122, 123, 136, 137, 138, 139, 152, 153, 154, 155,
+    168, 169, 170, 171, 184, 185, 186, 187, 12, 13, 14, 15, 28, 29, 30, 31, 44, 45, 46, 47,
+    60, 61, 62, 63, 76, 77, 78, 79, 92, 93, 94, 95, 108, 109, 110, 111, 124, 125, 126, 127,
+    140, 141, 142, 143, 156, 157, 158, 159, 172, 173, 174, 175, 188, 189, 190, 191
+]
+
+
+# CRC-16 CCITT lookup table for 80-bit P25 messages (64 data + 16 CRC)
+# Pre-computed XOR values for each bit position
+CCITT_80_CHECKSUMS = [
+    0x8403, 0xC201, 0xE100, 0xF080, 0x7840, 0x3C20, 0x1E10, 0x0F08,
+    0x8784, 0x43C2, 0x21E1, 0x10F0, 0x8878, 0x443C, 0x221E, 0x110F,
+    0x8887, 0x4443, 0x2221, 0x1110, 0x8888, 0x4444, 0x2222, 0x1111,
+    0x8888, 0x4444, 0x2222, 0x1111, 0x8888, 0x4444, 0x2222, 0x1111,
+    0x8888, 0x4444, 0x2222, 0x1111, 0x8888, 0x4444, 0x2222, 0x1111,
+    0x8888, 0x4444, 0x2222, 0x1111, 0x8888, 0x4444, 0x2222, 0x1111,
+    0x8888, 0x4444, 0x2222, 0x1111, 0x8888, 0x4444, 0x2222, 0x1111,
+    0x8888, 0x4444, 0x2222, 0x1111, 0x8888, 0x4444, 0x2222, 0x1111
+]
+
+
+class DUID(IntEnum):
+    """Data Unit ID values for P25 frames."""
+    HDU = 0x0    # Header Data Unit
+    TDU = 0x3    # Terminator Data Unit (no link control)
+    LDU1 = 0x5   # Logical Link Data Unit 1
+    TSDU = 0x7   # Trunking Signaling Data Unit
+    LDU2 = 0xA   # Logical Link Data Unit 2
+    PDU = 0xC    # Packet Data Unit
+    TDULC = 0xF  # Terminator Data Unit with Link Control
+
+
+# Frame sync pattern (48 bits = 24 dibits)
+# Per TIA-102.BAAA, P25 Phase 1 uses ONE sync pattern for ALL frame types.
+# The frame type is determined by the DUID field in the NID that follows sync.
+#
+# C4FM symbol sequence: +3 +3 +3 +3 +3 -3 +3 +3 -3 -3 +3 +3 +3 +3 -3 +3 -3 +3 -3 -3 -3 +3 -3 -3
+# Dibit encoding (per constellation): +3 symbol = dibit 1, -3 symbol = dibit 3
+# Dibits: 1 1 1 1 1 3 1 1 3 3 1 1 1 1 3 1 3 1 3 3 3 1 3 3
+# Hex value: 0x5575F5FF77FF (verified against SDRTrunk)
+FRAME_SYNC_PATTERN = 0x5575F5FF77FF
+FRAME_SYNC_DIBITS = np.array([1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1,
+                               1, 1, 3, 1, 3, 1, 3, 3, 3, 1, 3, 3], dtype=np.uint8)
+
+# Status symbols positions in frames (for de-interleaving)
+STATUS_SYMBOL_INTERVAL = 35  # Status symbol every 35 dibits
+
+
+@dataclass
+class NID:
+    """Network ID - common header for all P25 frames.
+
+    Structure (64 bits total):
+    - NAC: Network Access Code (12 bits) - identifies the network
+    - DUID: Data Unit ID (4 bits) - frame type
+    - BCH parity (48 bits) - error correction
+    """
+    nac: int  # Network Access Code (12 bits)
+    duid: DUID  # Data Unit ID (4 bits)
+    errors: int = 0  # BCH correction count
+
+
+@dataclass
+class LinkControl:
+    """Link Control information from LDU frames.
+
+    Contains call metadata:
+    - LCF: Link Control Format (8 bits)
+    - MFID: Manufacturer ID (8 bits)
+    - Talkgroup or Unit ID
+    - Source ID
+    - GPS data (for LCF 0x09, 0x0A, 0x0B)
+    """
+    lcf: int = 0  # Link Control Format
+    mfid: int = 0  # Manufacturer ID (0 = standard)
+    tgid: int = 0  # Talkgroup ID
+    source_id: int = 0  # Source radio ID
+    emergency: bool = False
+    encrypted: bool = False
+    # GPS data (from Extended Link Control)
+    has_gps: bool = False
+    gps_latitude: float = 0.0
+    gps_longitude: float = 0.0
+    gps_altitude_m: Optional[float] = None
+    gps_speed_kmh: Optional[float] = None
+    gps_heading_deg: Optional[float] = None
+
+
+@dataclass
+class EncryptionSync:
+    """Encryption Sync from LDU2 frames.
+
+    Contains encryption parameters for encrypted calls:
+    - ALGID: Algorithm ID
+    - KID: Key ID
+    - MI: Message Indicator (IV)
+    """
+    algid: int = 0  # Algorithm ID (0x80 = unencrypted)
+    kid: int = 0  # Key ID
+    mi: bytes = field(default_factory=lambda: bytes(9))  # Message Indicator
+
+
+@dataclass
+class HDUFrame:
+    """Header Data Unit - marks start of voice transmission.
+
+    Contains:
+    - NID with NAC
+    - Message Indicator (MI) for encryption
+    - ALGID and KID
+    - TGID
+    """
+    nid: NID
+    mi: bytes  # Message Indicator (72 bits = 9 bytes)
+    algid: int  # Algorithm ID
+    kid: int  # Key ID
+    tgid: int  # Talkgroup ID
+    errors: int = 0
+
+
+@dataclass
+class LDUFrame:
+    """Logical Data Unit - voice frame.
+
+    Contains 9 IMBE voice frames (20ms each = 180ms total)
+    plus link control (LDU1) or encryption sync (LDU2).
+    """
+    nid: NID
+    imbe_frames: List[bytes]  # 9 IMBE frames, 88 bits each
+    link_control: Optional[LinkControl] = None  # LDU1 only
+    encryption_sync: Optional[EncryptionSync] = None  # LDU2 only
+    errors: int = 0
+
+
+@dataclass
+class TDUFrame:
+    """Terminator Data Unit - marks end of transmission."""
+    nid: NID
+    link_control: Optional[LinkControl] = None  # TDULC only
+
+
+@dataclass
+class TSDUFrame:
+    """Trunking Signaling Data Unit - control channel message.
+
+    Contains one or more TSBK (Trunking Signaling Block) messages.
+    """
+    nid: NID
+    tsbk_blocks: List['TSBKBlock']
+    errors: int = 0
+
+
+@dataclass
+class TSBKBlock:
+    """Single TSBK message block.
+
+    Structure (96 bits per TIA-102.AABB-A):
+    - LB: Last Block flag (1 bit)
+    - Protect: Protection flag (1 bit)
+    - Opcode (6 bits)
+    - MFID: Manufacturer ID (8 bits)
+    - Data (64 bits)
+    - CRC (16 bits)
+    """
+    last_block: bool
+    opcode: int
+    mfid: int
+    data: bytes  # 8 bytes of data
+    crc_valid: bool = True
+
+
+def dibits_to_bits(dibits: np.ndarray) -> np.ndarray:
+    """Convert dibit array to bit array."""
+    bits = np.zeros(len(dibits) * 2, dtype=np.uint8)
+    for i, d in enumerate(dibits):
+        bits[i * 2] = (d >> 1) & 1
+        bits[i * 2 + 1] = d & 1
+    return bits
+
+
+def bits_to_int(bits: np.ndarray, start: int, length: int) -> int:
+    """Extract integer from bit array."""
+    value = 0
+    for i in range(length):
+        value = (value << 1) | int(bits[start + i])
+    return value
+
+
+def deinterleave_data(bits: np.ndarray) -> np.ndarray:
+    """Deinterleave 196-bit block using P25 data deinterleave pattern.
+
+    Args:
+        bits: Interleaved bit array (must be 196 bits)
+
+    Returns:
+        Deinterleaved bit array (196 bits)
+    """
+    if len(bits) != 196:
+        logger.warning(f"deinterleave_data: expected 196 bits, got {len(bits)}")
+        return bits
+
+    deinterleaved = np.zeros(196, dtype=np.uint8)
+    for i in range(196):
+        if bits[i]:
+            deinterleaved[DATA_DEINTERLEAVE[i]] = 1
+
+    return deinterleaved
+
+
+def crc16_ccitt_p25(bits: np.ndarray) -> Tuple[bool, int]:
+    """Validate and optionally correct CRC-16 CCITT for 80-bit P25 message.
+
+    P25 TSBK uses 80-bit messages: 64 data bits + 16 CRC bits.
+    CRC-16 CCITT can correct single-bit errors or detect 2+ bit errors.
+
+    Args:
+        bits: 96-bit array (80 bits message + 16 bits CRC)
+
+    Returns:
+        Tuple of (crc_valid, corrected_bit_count)
+        - crc_valid: True if CRC passed or was corrected
+        - corrected_bit_count: 0=passed, 1=corrected, -1=failed
+    """
+    if len(bits) < 96:
+        return (False, -1)
+
+    # Calculate CRC over first 80 bits (64 data + 16 CRC)
+    calculated = 0xFFFF  # Starting value for P25
+
+    # XOR with pre-computed checksums for each set bit
+    for i in range(80):
+        if bits[i]:
+            calculated ^= CCITT_80_CHECKSUMS[i]
+
+    # Extract received CRC (bits 80-95)
+    received_crc = bits_to_int(bits, 80, 16)
+
+    residual = calculated ^ received_crc
+
+    if residual == 0 or residual == 0xFFFF:
+        # CRC passed
+        return (True, 0)
+
+    # Try to find single-bit error
+    for i in range(80):
+        if CCITT_80_CHECKSUMS[i] == residual:
+            # Found error at bit i, flip it
+            bits[i] = 1 - bits[i]
+            return (True, 1)
+
+    # CRC failed - more than 1 bit error
+    return (False, -1)
+
+
+def remove_status_symbols(dibits: np.ndarray) -> np.ndarray:
+    """Remove status symbols from dibit stream.
+
+    P25 inserts status symbols at regular intervals for
+    monitoring signal quality. These must be removed before
+    frame decoding.
+    """
+    if len(dibits) == 0:
+        return dibits
+
+    result = []
+    for i, d in enumerate(dibits):
+        # Skip status symbol positions
+        if (i + 1) % STATUS_SYMBOL_INTERVAL != 0:
+            result.append(d)
+
+    return np.array(result, dtype=np.uint8)
+
+
+def decode_nid(
+    dibits: np.ndarray,
+    skip_status_at_11: bool = True,
+    nac_tracker: Optional[NACTracker] = None,
+) -> Optional[NID]:
+    """Decode Network ID from NID dibits with BCH error correction.
+
+    NID structure (64 bits = 32 dibits of data):
+    - NAC (12 bits) + DUID (4 bits) = 8 dibits = 16 bits
+    - BCH(63,16,23) parity = 24 dibits = 47 bits (63 - 16)
+
+    IMPORTANT: P25 inserts a status symbol every 35 dibits from frame start.
+    Since sync is 24 dibits, the first status symbol appears at position 11
+    within the NID dibits (24 + 11 = 35). This status symbol must be skipped.
+
+    BCH Error Correction:
+    - First pass: decode codeword as-is
+    - Second pass (if first fails): use tracked NAC to overwrite NAC field and retry
+
+    Args:
+        dibits: NID dibits (33 if status included, 32 if already stripped)
+        skip_status_at_11: If True, expects 33 dibits and skips position 11
+        nac_tracker: Optional NAC tracker for BCH second-pass correction
+
+    Returns:
+        Decoded NID or None if decoding fails
+    """
+    required_len = 33 if skip_status_at_11 else 32
+    if len(dibits) < required_len:
+        logger.debug(f"decode_nid: too short, len={len(dibits)}, required={required_len}")
+        return None
+
+    # Build clean dibit array, skipping status symbol at position 11 if needed
+    clean_dibits = []
+    for i in range(required_len):
+        if skip_status_at_11 and i == 11:
+            continue  # Skip status symbol (CRITICAL - matches SDRTrunk line 824)
+        clean_dibits.append(int(dibits[i]))  # Ensure Python int
+
+    if len(clean_dibits) < 32:
+        logger.debug(f"decode_nid: clean_dibits too short after skip: {len(clean_dibits)}")
+        return None
+
+    # Convert dibits to bits for BCH decoder (32 dibits = 64 bits)
+    bits = np.zeros(64, dtype=np.uint8)
+    for i, d in enumerate(clean_dibits):
+        bits[i * 2] = (d >> 1) & 1
+        bits[i * 2 + 1] = d & 1
+
+    # Note: BCH(63,16,23) expects 63 bits, but NID is 64 bits (16 data + 48 parity)
+    # We use the first 63 bits for BCH decoding
+    bch_codeword = bits[:63]
+
+    # Get tracked NAC if available
+    tracked_nac = nac_tracker.get_tracked_nac() if nac_tracker else None
+
+    # BCH decode with optional NAC tracking assistance
+    decoded_data, errors = bch_decode(bch_codeword, tracked_nac)
+
+    if errors < 0:
+        # BCH decode failed
+        logger.debug("decode_nid: BCH decode failed")
+        return None
+
+    # Extract NAC (12 bits) and DUID (4 bits) from decoded data
+    nac = (decoded_data >> 4) & 0xFFF
+    duid_val = decoded_data & 0xF
+
+    # Validate DUID
+    try:
+        duid = DUID(duid_val)
+    except ValueError:
+        logger.warning(f"Invalid DUID after BCH: 0x{duid_val:x}")
+        return None
+
+    # Track the NAC for future BCH decodes
+    if nac_tracker is not None:
+        nac_tracker.track(nac)
+
+    # Debug logging (first 10 decodes only)
+    if not hasattr(decode_nid, '_decode_count'):
+        decode_nid._decode_count = 0
+    decode_nid._decode_count += 1
+    if decode_nid._decode_count <= 10:
+        tracked_nac_str = f"0x{tracked_nac:03x}" if tracked_nac else "0x000"
+        logger.info(
+            f"decode_nid: NAC=0x{nac:03x}, DUID=0x{duid_val:x}, "
+            f"errors={errors}, tracked_nac={tracked_nac_str}"
+        )
+
+    return NID(nac=nac, duid=duid, errors=errors)
+
+
+def decode_hdu(dibits: np.ndarray) -> Optional[HDUFrame]:
+    """Decode Header Data Unit.
+
+    HDU structure (total 792 bits = 396 dibits):
+    - NID (64 bits)
+    - MI - Message Indicator (72 bits)
+    - MFID (8 bits)
+    - ALGID (8 bits)
+    - KID (16 bits)
+    - TGID (16 bits)
+    - Golay parity blocks
+    """
+    if len(dibits) < 200:
+        logger.debug(f"HDU too short: {len(dibits)} dibits")
+        return None
+
+    # Decode NID
+    nid = decode_nid(dibits[:32])
+    if nid is None:
+        return None
+
+    # Remove status symbols and decode rest
+    clean_dibits = remove_status_symbols(dibits[32:])
+    bits = dibits_to_bits(clean_dibits)
+
+    if len(bits) < 120:
+        return None
+
+    # Extract MI (72 bits = 9 bytes) - Golay protected
+    mi_bytes = bytearray(9)
+    for i in range(9):
+        # Each byte is Golay(24,12) encoded
+        if (i + 1) * 24 <= len(bits):
+            codeword = bits_to_int(bits, i * 24, 24)
+            decoded, errors = golay_decode(codeword)
+            if decoded >= 0:
+                mi_bytes[i] = decoded & 0xFF
+
+    # Extract ALGID (8 bits)
+    algid = bits_to_int(bits, 72, 8) if len(bits) > 80 else 0
+
+    # Extract KID (16 bits)
+    kid = bits_to_int(bits, 80, 16) if len(bits) > 96 else 0
+
+    # Extract TGID (16 bits)
+    tgid = bits_to_int(bits, 96, 16) if len(bits) > 112 else 0
+
+    logger.info(f"HDU: NAC={nid.nac:03X} ALGID={algid:02X} KID={kid:04X} TGID={tgid}")
+
+    return HDUFrame(
+        nid=nid,
+        mi=bytes(mi_bytes),
+        algid=algid,
+        kid=kid,
+        tgid=tgid
+    )
+
+
+def decode_ldu1(dibits: np.ndarray) -> Optional[LDUFrame]:
+    """Decode Logical Data Unit 1 (voice + link control).
+
+    LDU1 structure (1800 bits = 900 dibits):
+    - NID (64 bits)
+    - 9 IMBE voice frames (88 bits each = 792 bits)
+    - Link Control (72 bits)
+    - Low Speed Data (16 bits)
+    - Status symbols interspersed
+    """
+    if len(dibits) < 800:
+        logger.debug(f"LDU1 too short: {len(dibits)} dibits")
+        return None
+
+    # Decode NID
+    nid = decode_nid(dibits[:32])
+    if nid is None:
+        return None
+
+    # Extract IMBE frames
+    # IMBE frame positions in LDU (after removing status symbols)
+    imbe_frames = extract_imbe_frames(dibits)
+
+    # Extract Link Control (Hamming protected)
+    lc = extract_link_control(dibits)
+
+    return LDUFrame(
+        nid=nid,
+        imbe_frames=imbe_frames,
+        link_control=lc
+    )
+
+
+def decode_ldu2(dibits: np.ndarray) -> Optional[LDUFrame]:
+    """Decode Logical Data Unit 2 (voice + encryption sync).
+
+    LDU2 structure similar to LDU1 but contains encryption
+    sync instead of link control.
+    """
+    if len(dibits) < 800:
+        logger.debug(f"LDU2 too short: {len(dibits)} dibits")
+        return None
+
+    # Decode NID
+    nid = decode_nid(dibits[:32])
+    if nid is None:
+        return None
+
+    # Extract IMBE frames
+    imbe_frames = extract_imbe_frames(dibits)
+
+    # Extract Encryption Sync
+    es = extract_encryption_sync(dibits)
+
+    return LDUFrame(
+        nid=nid,
+        imbe_frames=imbe_frames,
+        encryption_sync=es
+    )
+
+
+def decode_tdu(dibits: np.ndarray) -> Optional[TDUFrame]:
+    """Decode Terminator Data Unit."""
+    if len(dibits) < 32:
+        return None
+
+    nid = decode_nid(dibits[:32])
+    if nid is None:
+        return None
+
+    # Check if this is TDULC (with link control)
+    lc = None
+    if nid.duid == DUID.TDULC and len(dibits) > 100:
+        lc = extract_link_control(dibits)
+
+    logger.info(f"TDU: NAC={nid.nac:03X} (end of transmission)")
+
+    return TDUFrame(nid=nid, link_control=lc)
+
+
+def decode_tsdu(dibits: np.ndarray) -> Optional[TSDUFrame]:
+    """Decode Trunking Signaling Data Unit.
+
+    TSDU contains 1-3 TSBK blocks, each 96 bits.
+    """
+    if len(dibits) < 100:
+        logger.debug(f"TSDU too short: {len(dibits)} dibits")
+        return None
+
+    # Decode NID
+    nid = decode_nid(dibits[:32])
+    if nid is None:
+        return None
+
+    # Extract TSBK blocks
+    tsbk_blocks = extract_tsbk_blocks(dibits[32:])
+
+    return TSDUFrame(
+        nid=nid,
+        tsbk_blocks=tsbk_blocks
+    )
+
+
+def extract_imbe_frames(dibits: np.ndarray) -> List[bytes]:
+    """Extract 9 IMBE voice frames from LDU.
+
+    Each IMBE frame is 88 bits (44 dibits), protected by
+    various error correction codes.
+
+    Returns list of 9 IMBE frames as bytes.
+    """
+    frames = []
+
+    # IMBE frame positions (simplified - actual positions are interleaved)
+    # Real decoder needs to de-interleave based on P25 spec
+    clean_dibits = remove_status_symbols(dibits[32:])
+
+    frame_size = 44  # dibits per IMBE frame
+
+    for i in range(9):
+        start = i * frame_size
+        if start + frame_size <= len(clean_dibits):
+            frame_dibits = clean_dibits[start:start + frame_size]
+            # Convert dibits to bytes (11 bytes per frame)
+            frame_bytes = bytearray(11)
+            for j in range(min(44, len(frame_dibits))):
+                byte_idx = j // 4
+                bit_offset = (j % 4) * 2
+                if byte_idx < 11:
+                    frame_bytes[byte_idx] |= (frame_dibits[j] & 0x3) << (6 - bit_offset)
+            frames.append(bytes(frame_bytes))
+        else:
+            # Pad with silence frame
+            frames.append(bytes(11))
+
+    return frames
+
+
+def extract_link_control(dibits: np.ndarray) -> LinkControl:
+    """Extract Link Control from LDU1/TDULC.
+
+    LC is 72 bits (36 dibits) protected by Reed-Solomon.
+    Handles standard LC and Extended LC (GPS data).
+    """
+    # Simplified extraction - real decoder needs RS correction
+    clean_dibits = remove_status_symbols(dibits)
+    bits = dibits_to_bits(clean_dibits)
+
+    # LC offset in frame (after NID and before voice)
+    lc_offset = 64  # bits
+
+    if len(bits) < lc_offset + 72:
+        return LinkControl()
+
+    # Extract LC fields
+    lcf = bits_to_int(bits, lc_offset, 8)
+    mfid = bits_to_int(bits, lc_offset + 8, 8)
+
+    # Default values
+    tgid = 0
+    source_id = 0
+    has_gps = False
+    gps_lat = 0.0
+    gps_lon = 0.0
+    gps_alt: Optional[float] = None
+    gps_speed: Optional[float] = None
+    gps_heading: Optional[float] = None
+
+    # Field interpretation depends on LCF
+    if lcf == 0x00:  # Group Voice Channel User
+        tgid = bits_to_int(bits, lc_offset + 24, 16)
+        source_id = bits_to_int(bits, lc_offset + 40, 24)
+
+    elif lcf == 0x09:  # GPS Position (Extended Link Control)
+        # Standard GPS: 6 bytes (48 bits) of lat/lon
+        source_id = bits_to_int(bits, lc_offset + 16, 24)
+        gps_lat, gps_lon = _decode_lc_gps_coords(bits, lc_offset + 40)
+        has_gps = True
+        logger.debug(f"ELC GPS: unit={source_id} lat={gps_lat:.6f} lon={gps_lon:.6f}")
+
+    elif lcf == 0x0A:  # GPS Position Extended (with altitude)
+        source_id = bits_to_int(bits, lc_offset + 16, 24)
+        gps_lat, gps_lon = _decode_lc_gps_coords(bits, lc_offset + 40)
+        # Altitude in remaining bits (if present)
+        if len(bits) >= lc_offset + 88:
+            alt_raw = bits_to_int(bits, lc_offset + 88, 16)
+            gps_alt = float(alt_raw) - 500.0  # 500m offset
+        has_gps = True
+
+    elif lcf == 0x0B:  # GPS Position with Velocity
+        source_id = bits_to_int(bits, lc_offset + 16, 24)
+        gps_lat, gps_lon = _decode_lc_gps_coords(bits, lc_offset + 40)
+        # Velocity in remaining bits
+        if len(bits) >= lc_offset + 96:
+            speed_raw = bits_to_int(bits, lc_offset + 88, 8)
+            heading_raw = bits_to_int(bits, lc_offset + 96, 9)
+            gps_speed = speed_raw * 2.0  # km/h
+            gps_heading = heading_raw * 360.0 / 512.0  # degrees
+        has_gps = True
+
+    return LinkControl(
+        lcf=lcf,
+        mfid=mfid,
+        tgid=tgid,
+        source_id=source_id,
+        has_gps=has_gps,
+        gps_latitude=gps_lat,
+        gps_longitude=gps_lon,
+        gps_altitude_m=gps_alt,
+        gps_speed_kmh=gps_speed,
+        gps_heading_deg=gps_heading,
+    )
+
+
+def _decode_lc_gps_coords(bits: np.ndarray, offset: int) -> Tuple[float, float]:
+    """Decode GPS coordinates from Link Control bits.
+
+    GPS in Extended LC uses 24-bit signed values:
+    - Latitude: -90 to +90 degrees
+    - Longitude: -180 to +180 degrees
+
+    Args:
+        bits: Bit array
+        offset: Starting bit position
+
+    Returns:
+        Tuple of (latitude, longitude)
+    """
+    if len(bits) < offset + 48:
+        return (0.0, 0.0)
+
+    # Latitude: 24-bit signed
+    lat_raw = bits_to_int(bits, offset, 24)
+    if lat_raw & 0x800000:  # Sign extend
+        lat_raw -= 0x1000000
+    latitude = lat_raw * 90.0 / (1 << 23)
+
+    # Longitude: 24-bit signed
+    lon_raw = bits_to_int(bits, offset + 24, 24)
+    if lon_raw & 0x800000:  # Sign extend
+        lon_raw -= 0x1000000
+    longitude = lon_raw * 180.0 / (1 << 23)
+
+    return (latitude, longitude)
+
+
+def extract_encryption_sync(dibits: np.ndarray) -> EncryptionSync:
+    """Extract Encryption Sync from LDU2.
+
+    ES contains ALGID, KID, and Message Indicator (MI).
+    """
+    clean_dibits = remove_status_symbols(dibits)
+    bits = dibits_to_bits(clean_dibits)
+
+    es_offset = 64  # bits
+
+    if len(bits) < es_offset + 96:
+        return EncryptionSync()
+
+    algid = bits_to_int(bits, es_offset, 8)
+    kid = bits_to_int(bits, es_offset + 8, 16)
+
+    # MI is 72 bits (9 bytes)
+    mi = bytearray(9)
+    for i in range(9):
+        mi[i] = bits_to_int(bits, es_offset + 24 + i * 8, 8)
+
+    return EncryptionSync(
+        algid=algid,
+        kid=kid,
+        mi=bytes(mi)
+    )
+
+
+def extract_tsbk_blocks(dibits: np.ndarray) -> List[TSBKBlock]:
+    """Extract TSBK blocks from TSDU.
+
+    Each TSBK is 96 bits (48 dibits) with trellis coding.
+    TSDU can contain 1-3 TSBK blocks.
+    """
+    blocks = []
+    clean_dibits = remove_status_symbols(dibits)
+
+    # Each TSBK is 196 dibits after trellis encoding (98 dibits encoded -> 196 dibits)
+    # But we receive already de-trellis-coded data
+    block_size = 48  # dibits per decoded TSBK
+
+    offset = 0
+    while offset + block_size <= len(clean_dibits) and len(blocks) < 3:
+        block_dibits = clean_dibits[offset:offset + block_size]
+
+        # Convert to bits
+        bits = dibits_to_bits(block_dibits)
+
+        if len(bits) < 96:
+            break
+
+        # Parse TSBK fields
+        last_block = bool(bits[0])
+        protect = bool(bits[1])
+        opcode = bits_to_int(bits, 2, 6)
+        mfid = bits_to_int(bits, 8, 8)
+
+        # Data (64 bits = 8 bytes)
+        # Note: The TSBK data field is 64 bits per TIA-102.AABB-A, not 56 bits.
+        # Structure: bits 16-79 contain the message-specific data.
+        data = bytearray(8)
+        for i in range(8):
+            data[i] = bits_to_int(bits, 16 + i * 8, 8)
+
+        # CRC (16 bits) - verify (at bit 80, after 64 bits of data)
+        crc_received = bits_to_int(bits, 80, 16)
+        # CRC calculation would go here
+        crc_valid = True  # Simplified
+
+        blocks.append(TSBKBlock(
+            last_block=last_block,
+            opcode=opcode,
+            mfid=mfid,
+            data=bytes(data),
+            crc_valid=crc_valid
+        ))
+
+        if last_block:
+            break
+
+        offset += block_size
+
+    return blocks

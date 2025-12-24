@@ -38,6 +38,7 @@ class TestTrunkingSystemsAPI:
             "center_hz": 855_000_000,
             "sample_rate": 4_000_000,
             "max_voice_recorders": 4,
+            "auto_start": False,
         }
         response = client.post("/api/v1/trunking/systems", json=system_data)
         assert response.status_code == 200
