@@ -2842,86 +2842,87 @@ class Capture:
             # Checkpoint B: After channel metrics
             if _verbose_debug:
                 logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint B - after channel metrics ({len(chans)} channels)")
-            # Calculate FFT for spectrum display (only if there are active subscribers)
+            # Calculate FFT for spectrum display and channel classifier
+            # Always runs (for classifier), but rate adapts based on viewer count
             fft_time_ms = 0.0
             with self._fft_sinks_lock:
                 fft_sinks = list(self._fft_sinks)
-            if fft_sinks:
-                # Debug: log that we have FFT subscribers
-                if self._fft_counter % 100 == 0:
-                    logger.debug(f"FFT processing for {self.cfg.id}: {len(self._fft_sinks)} subscribers, counter={self._fft_counter}")
 
-                # Adaptive FFT FPS based on subscriber count
-                # - No viewers: low FPS (5) to save CPU
-                # - 1 viewer: configured FPS (default 15)
-                # - 2+ viewers: boost FPS for better responsiveness (up to 2x target)
-                # Final FPS is capped at fft_max_fps (hard limit)
-                base_fps = self.cfg.fft_fps or 15
-                max_fps = self.cfg.fft_max_fps or 60
-                subscriber_count = len(fft_sinks)
-                if subscriber_count >= 2:
-                    target_fps = min(max_fps, base_fps * 2)
-                elif subscriber_count == 1:
-                    target_fps = min(max_fps, base_fps)
-                else:
-                    target_fps = 5  # Minimal FPS when no active viewers
+            # Debug: log FFT processing periodically
+            if self._fft_counter % 100 == 0 and fft_sinks:
+                logger.debug(f"FFT processing for {self.cfg.id}: {len(self._fft_sinks)} subscribers, counter={self._fft_counter}")
 
-                # Calculate FFT rate using ACTUAL received samples (not requested chunk)
-                # The SDR may return fewer samples than requested
-                actual_samples = samples.size
-                current_fft_rate = self.cfg.sample_rate / max(1, actual_samples)
+            # Adaptive FFT FPS based on subscriber count
+            # - No viewers: 1 FPS (minimal, just for classifier)
+            # - 1 viewer: configured FPS (default 15)
+            # - 2+ viewers: boost FPS for better responsiveness (up to 2x target)
+            # Final FPS is capped at fft_max_fps (hard limit)
+            base_fps = self.cfg.fft_fps or 15
+            max_fps = self.cfg.fft_max_fps or 60
+            subscriber_count = len(fft_sinks)
+            if subscriber_count >= 2:
+                target_fps = min(max_fps, base_fps * 2)
+            elif subscriber_count == 1:
+                target_fps = min(max_fps, base_fps)
+            else:
+                target_fps = 1  # Minimal FPS for classifier when no viewers
 
-                # Calculate skip interval to achieve target FPS
-                skip_interval = max(1, int(current_fft_rate / target_fps))
+            # Calculate FFT rate using ACTUAL received samples (not requested chunk)
+            # The SDR may return fewer samples than requested
+            actual_samples = samples.size
+            current_fft_rate = self.cfg.sample_rate / max(1, actual_samples)
 
-                # Increment frame counter
-                self._fft_counter += 1
+            # Calculate skip interval to achieve target FPS
+            skip_interval = max(1, int(current_fft_rate / target_fps))
 
-                # Only calculate FFT every Nth frame
-                if self._fft_counter % skip_interval == 0:
-                    # No copy needed - synchronous read-only operation
-                    fft_start = time_module.perf_counter()
-                    fft_size = self.cfg.fft_size or 2048
-                    self._calculate_fft(samples, self.cfg.sample_rate, fft_size)
-                    fft_time_ms = (time_module.perf_counter() - fft_start) * 1000
-                    self._record_perf_time(self._perf_fft_times, fft_time_ms)
+            # Increment frame counter
+            self._fft_counter += 1
 
-                    # Calculate actual FPS (exponential moving average)
-                    now = time_module.perf_counter()
-                    if self._fft_last_time > 0:
-                        delta = now - self._fft_last_time
-                        if delta > 0:
-                            instant_fps = 1.0 / delta
-                            # EMA with alpha=0.1 for smooth FPS display
-                            self._fft_actual_fps = 0.9 * self._fft_actual_fps + 0.1 * instant_fps
-                    self._fft_last_time = now
+            # Only calculate FFT every Nth frame
+            if self._fft_counter % skip_interval == 0:
+                # No copy needed - synchronous read-only operation
+                fft_start = time_module.perf_counter()
+                fft_size = self.cfg.fft_size or 2048
+                self._calculate_fft(samples, self.cfg.sample_rate, fft_size)
+                fft_time_ms = (time_module.perf_counter() - fft_start) * 1000
+                self._record_perf_time(self._perf_fft_times, fft_time_ms)
 
-                    # Broadcast FFT to subscribers (use cached lists to avoid repeated .tolist())
-                    if self._fft_power_list is not None and self._fft_freqs_list is not None:
-                        payload_fft = {
-                            "power": self._fft_power_list,
-                            "freqs": self._fft_freqs_list,
-                            "centerHz": self.cfg.center_hz,
-                            "sampleRate": self.cfg.sample_rate,
-                            "fftSize": fft_size,
-                            "actualFps": round(self._fft_actual_fps, 1),
-                        }
-                        for (fft_q, fft_loop) in fft_sinks:
-                            # Use default args to capture loop variables (avoids closure issues)
-                            def _try_put_fft(q: asyncio.Queue[dict[str, Any]] = fft_q, payload: dict[str, Any] = payload_fft) -> None:
-                                try:
-                                    q.put_nowait(payload)
-                                except asyncio.QueueFull:
-                                    with contextlib.suppress(asyncio.QueueEmpty):
-                                        _ = q.get_nowait()
-                                    with contextlib.suppress(asyncio.QueueFull):
-                                        q.put_nowait(payload)
+                # Calculate actual FPS (exponential moving average)
+                now = time_module.perf_counter()
+                if self._fft_last_time > 0:
+                    delta = now - self._fft_last_time
+                    if delta > 0:
+                        instant_fps = 1.0 / delta
+                        # EMA with alpha=0.1 for smooth FPS display
+                        self._fft_actual_fps = 0.9 * self._fft_actual_fps + 0.1 * instant_fps
+                self._fft_last_time = now
+
+                # Broadcast FFT to subscribers (only if there are any)
+                if fft_sinks and self._fft_power_list is not None and self._fft_freqs_list is not None:
+                    payload_fft = {
+                        "power": self._fft_power_list,
+                        "freqs": self._fft_freqs_list,
+                        "centerHz": self.cfg.center_hz,
+                        "sampleRate": self.cfg.sample_rate,
+                        "fftSize": fft_size,
+                        "actualFps": round(self._fft_actual_fps, 1),
+                    }
+                    for (fft_q, fft_loop) in fft_sinks:
+                        # Use default args to capture loop variables (avoids closure issues)
+                        def _try_put_fft(q: asyncio.Queue[dict[str, Any]] = fft_q, payload: dict[str, Any] = payload_fft) -> None:
                             try:
-                                fft_loop.call_soon_threadsafe(_try_put_fft)
-                            except Exception:
-                                with self._fft_sinks_lock:
-                                    with contextlib.suppress(Exception):
-                                        self._fft_sinks.discard((fft_q, fft_loop))
+                                q.put_nowait(payload)
+                            except asyncio.QueueFull:
+                                with contextlib.suppress(asyncio.QueueEmpty):
+                                    _ = q.get_nowait()
+                                with contextlib.suppress(asyncio.QueueFull):
+                                    q.put_nowait(payload)
+                        try:
+                            fft_loop.call_soon_threadsafe(_try_put_fft)
+                        except Exception:
+                            with self._fft_sinks_lock:
+                                with contextlib.suppress(Exception):
+                                    self._fft_sinks.discard((fft_q, fft_loop))
 
             # Checkpoint C: After FFT processing
             if _verbose_debug:
