@@ -637,9 +637,9 @@ class TrunkingSystem:
         system = self
 
         # Design anti-aliasing filter for decimation
-        # Target output rate is 96kHz for 20 samples/symbol (like OP25)
-        # P25 signal bandwidth is ~12.5kHz
-        target_rate = 96000
+        # Target output rate is 48kHz for 10 samples/symbol (like SDRTrunk)
+        # OP25 uses 19.2kHz (4 sps) but SDRTrunk uses 48kHz
+        target_rate = 48000
         decim_factor = max(1, self.cfg.sample_rate // target_rate)
 
         # Calculate ACTUAL decimated sample rate (may differ slightly from target)
@@ -877,10 +877,30 @@ class TrunkingSystem:
                 )
 
             # Decimate to ~48 kHz for P25 processing
-            # Use simple subsampling (same as decimate_iq_for_p25) - the channel
-            # is already frequency-shifted to baseband and P25 (12.5 kHz BW) is
-            # narrow enough that aliasing is handled by the demodulator
-            if decim_factor > 1:
+            # IMPORTANT: Apply anti-aliasing filter before decimation to prevent
+            # noise from the full capture bandwidth from aliasing into the P25 signal.
+            # Without this filter, 6 MHz -> 48 kHz decimation causes severe noise aliasing.
+            if decim_factor > 1 and anti_alias_taps is not None:
+                # Apply anti-aliasing lowpass filter before decimation
+                # Use streaming filter with state preservation between calls
+                if filter_state[0] is not None:
+                    filtered_iq, filter_state[0] = scipy_signal.lfilter(
+                        anti_alias_taps, 1.0, centered_iq,
+                        zi=filter_state[0]  # Use saved state directly (not scaled by first sample)
+                    )
+                else:
+                    # First call: initialize state for streaming
+                    # Scale the lfilter_zi output by first sample for smooth startup
+                    zi_init = scipy_signal.lfilter_zi(anti_alias_taps, 1.0) * centered_iq[0] if len(centered_iq) > 0 else None
+                    if zi_init is not None:
+                        filtered_iq, filter_state[0] = scipy_signal.lfilter(
+                            anti_alias_taps, 1.0, centered_iq, zi=zi_init
+                        )
+                    else:
+                        filtered_iq = scipy_signal.lfilter(anti_alias_taps, 1.0, centered_iq)
+                decimated_iq = filtered_iq[::decim_factor]
+            elif decim_factor > 1:
+                # Fallback to simple subsampling if no filter (shouldn't happen)
                 decimated_iq = centered_iq[::decim_factor]
             else:
                 decimated_iq = centered_iq

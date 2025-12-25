@@ -45,6 +45,13 @@ DATA_DEINTERLEAVE = [
     48, 49, 50, 51,
 ]
 
+# Dibit-level deinterleave (98 dibits) derived from the bit-level mapping.
+# Each dibit consumes two consecutive bit positions in the deinterleaved stream.
+DATA_DEINTERLEAVE_DIBITS = np.array(
+    [DATA_DEINTERLEAVE[i * 2] // 2 for i in range(98)],
+    dtype=np.int16,
+)
+
 
 # CRC-16 CCITT lookup table for 80-bit P25 messages (64 data + 16 CRC bits)
 # Pre-computed XOR values for each bit position when that bit is set
@@ -620,7 +627,7 @@ def remove_status_symbols_with_offset(dibits: np.ndarray, frame_offset: int) -> 
         frame_offset: Starting position within the frame (for status symbol calculation)
 
     Returns:
-        Dibit array with status symbols removed
+        Array with status symbols removed (dtype preserved)
     """
     if len(dibits) == 0:
         return dibits
@@ -633,10 +640,10 @@ def remove_status_symbols_with_offset(dibits: np.ndarray, frame_offset: int) -> 
         if (frame_pos + 1) % STATUS_SYMBOL_INTERVAL != 0:
             result.append(d)
 
-    return np.array(result, dtype=np.uint8)
+    return np.array(result, dtype=dibits.dtype)
 
 
-def decode_tsdu(dibits: np.ndarray) -> TSDUFrame | None:
+def decode_tsdu(dibits: np.ndarray, soft: np.ndarray | None = None) -> TSDUFrame | None:
     """Decode Trunking Signaling Data Unit.
 
     TSDU structure (360 dibits typical):
@@ -680,16 +687,22 @@ def decode_tsdu(dibits: np.ndarray) -> TSDUFrame | None:
     # TSBK data starts at frame position 57 (after sync + NID)
     tsbk_data_start = nid_end
     tsbk_raw = dibits[tsbk_data_start:]
+    tsbk_soft = soft[tsbk_data_start:] if soft is not None else None
 
     # Remove status symbols from TSBK data
     # Status symbols are at frame positions 70, 105, 140, etc.
     # which are positions 13, 48, 83, etc. relative to TSBK data start
     tsbk_clean = remove_status_symbols_with_offset(tsbk_raw, frame_offset=tsbk_data_start)
+    tsbk_soft_clean = (
+        remove_status_symbols_with_offset(tsbk_soft, frame_offset=tsbk_data_start)
+        if tsbk_soft is not None
+        else None
+    )
 
     logger.debug(f"TSDU: tsbk_raw={len(tsbk_raw)}, tsbk_clean={len(tsbk_clean)} dibits")
 
     # Extract TSBK blocks from cleaned data
-    tsbk_blocks = extract_tsbk_blocks(tsbk_clean)
+    tsbk_blocks = extract_tsbk_blocks(tsbk_clean, tsbk_soft_clean)
 
     return TSDUFrame(
         nid=nid,
@@ -868,7 +881,7 @@ def extract_encryption_sync(dibits: np.ndarray) -> EncryptionSync:
     )
 
 
-def extract_tsbk_blocks(dibits: np.ndarray) -> list[TSBKBlock]:
+def extract_tsbk_blocks(dibits: np.ndarray, soft: np.ndarray | None = None) -> list[TSBKBlock]:
     """Extract TSBK blocks from TSDU.
 
     Each TSBK block in a TSDU is:
@@ -890,6 +903,7 @@ def extract_tsbk_blocks(dibits: np.ndarray) -> list[TSBKBlock]:
 
     Args:
         dibits: TSDU dibits after NID (with status symbols removed)
+        soft: Optional soft symbol values aligned with dibits
 
     Returns:
         List of decoded TSBK blocks (1-3 blocks)
@@ -902,6 +916,24 @@ def extract_tsbk_blocks(dibits: np.ndarray) -> list[TSBKBlock]:
 
     # DEBUG: Log input size
     logger.info(f"extract_tsbk_blocks: input dibits={len(dibits)}")
+    if soft is not None and len(soft) != len(dibits):
+        logger.warning(
+            f"extract_tsbk_blocks: soft length mismatch (soft={len(soft)}, dibits={len(dibits)})"
+        )
+        soft = None
+
+    def _rotate_soft(vals: np.ndarray, xor_mask: int) -> np.ndarray:
+        if xor_mask == 0:
+            return vals
+        if xor_mask == 2:
+            return -vals
+        # XOR 1/3 swaps inner/outer levels; approximate by swapping |1| and |3|
+        abs_vals = np.clip(np.abs(vals), 0.0, 3.0)
+        swapped = (4.0 - abs_vals) * np.sign(vals)
+        if xor_mask == 1:
+            return swapped
+        # xor_mask == 3
+        return -swapped
 
     offset = 0
     for block_idx in range(3):  # Max 3 TSBKs per TSDU
@@ -912,25 +944,70 @@ def extract_tsbk_blocks(dibits: np.ndarray) -> list[TSBKBlock]:
 
         # Extract 98 dibits for this TSBK
         tsbk_dibits = dibits[offset:offset + TSBK_ENCODED_SIZE]
+        tsbk_soft = soft[offset:offset + TSBK_ENCODED_SIZE] if soft is not None else None
 
-        # Convert 98 dibits to 196 bits for deinterleaving
-        interleaved_bits = dibits_to_bits(tsbk_dibits)
+        # Try all 4 phase rotations (QPSK ambiguity) and find best
+        # XOR 0: identity (no change)
+        # XOR 1: swap 0↔1 and 2↔3 (90° rotation)
+        # XOR 2: swap 0↔2 and 1↔3 (180° polarity flip)
+        # XOR 3: swap 0↔3 and 1↔2 (270° rotation)
+        best_decoded = None
+        best_error = float('inf')
+        best_xor = 0
 
-        if len(interleaved_bits) < 196:
-            logger.warning(f"TSBK block {block_idx}: insufficient bits ({len(interleaved_bits)})")
+        for xor_mask in [0, 1, 2, 3]:
+            rotated = (tsbk_dibits ^ xor_mask).astype(np.uint8) if xor_mask else tsbk_dibits
+            rot_soft = None
+            if tsbk_soft is not None:
+                rot_soft = _rotate_soft(tsbk_soft, xor_mask)
+
+            # Convert 98 dibits to 196 bits for deinterleaving
+            interleaved_bits = dibits_to_bits(rotated)
+
+            if len(interleaved_bits) < 196:
+                continue
+
+            # Step 1: Deinterleave using P25 data pattern (196 bits)
+            deinterleaved_bits = deinterleave_data(interleaved_bits)
+
+            # Step 2: Trellis decode (1/2 rate: 196 bits → 98 bits)
+            # Convert bits back to dibits for trellis decoder
+            trellis_dibits_rot = np.zeros(98, dtype=np.uint8)
+            for i in range(98):
+                trellis_dibits_rot[i] = (deinterleaved_bits[i*2] << 1) | deinterleaved_bits[i*2 + 1]
+
+            # Try with deinterleave
+            if rot_soft is not None and len(rot_soft) >= 98:
+                deint_soft = rot_soft[DATA_DEINTERLEAVE_DIBITS]
+                decoded, error = trellis_decode(trellis_dibits_rot, soft_values=deint_soft)
+            else:
+                decoded, error = trellis_decode(trellis_dibits_rot)
+
+            if error < best_error:
+                best_error = error
+                best_decoded = decoded
+                best_xor = xor_mask
+
+            # Try without deinterleave (some captures may already be deinterleaved)
+            if rot_soft is not None and len(rot_soft) >= 98:
+                decoded_raw, error_raw = trellis_decode(rotated, soft_values=rot_soft)
+            else:
+                decoded_raw, error_raw = trellis_decode(rotated)
+
+            if error_raw < best_error:
+                best_error = error_raw
+                best_decoded = decoded_raw
+                best_xor = xor_mask
+
+        if best_decoded is None:
+            logger.warning(f"TSBK block {block_idx}: all XOR rotations failed")
             break
 
-        # Step 1: Deinterleave using P25 data pattern (196 bits)
-        deinterleaved_bits = deinterleave_data(interleaved_bits)
+        decoded_dibits = best_decoded
+        error_metric = best_error
 
-        # Step 2: Trellis decode (1/2 rate: 196 bits → 98 bits)
-        # Convert bits back to dibits for trellis decoder
-        trellis_dibits = np.zeros(98, dtype=np.uint8)
-        for i in range(98):
-            trellis_dibits[i] = (deinterleaved_bits[i*2] << 1) | deinterleaved_bits[i*2 + 1]
-
-        # Trellis decode
-        decoded_dibits, error_metric = trellis_decode(trellis_dibits)
+        if block_idx == 0:
+            logger.info(f"TSBK block 0: best XOR mask={best_xor}, error_metric={best_error}")
 
         # Convert decoded dibits to bits (49 dibits → 98 bits, but we only need 96)
         if len(decoded_dibits) < 48:

@@ -211,12 +211,14 @@ class TrellisDecoder:
         self,
         dibits: np.ndarray,
         soft_values: np.ndarray | None = None,
+        debug: bool = False,
     ) -> tuple[np.ndarray, int]:
         """Decode a block of trellis-encoded dibits.
 
         Args:
             dibits: Array of dibits (must be even length)
             soft_values: Optional soft values for each dibit
+            debug: If True, log detailed debug information
 
         Returns:
             Tuple of (decoded_dibits, num_errors)
@@ -226,6 +228,13 @@ class TrellisDecoder:
             dibits = dibits[:-1]
             if soft_values is not None:
                 soft_values = soft_values[:-1]
+
+        if debug:
+            dibit_str = ' '.join(str(d) for d in dibits[:20])
+            logger.info(f"Trellis decode: input {len(dibits)} dibits, first 20: {dibit_str}")
+            if soft_values is not None:
+                soft_str = ' '.join(f'{s:.1f}' for s in soft_values[:20])
+                logger.info(f"Trellis decode: soft values first 20: {soft_str}")
 
         self.reset()
         decoded = []
@@ -250,6 +259,11 @@ class TrellisDecoder:
         # Calculate error metric (from best path)
         best_path = min(self._paths, key=lambda p: p.metric)
         error_metric = int(best_path.metric)
+
+        if debug:
+            decoded_str = ' '.join(str(d) for d in decoded[:20])
+            logger.info(f"Trellis decode: output {len(decoded)} dibits, first 20: {decoded_str}")
+            logger.info(f"Trellis decode: error_metric={error_metric}")
 
         return np.array(decoded, dtype=np.uint8), error_metric
 
@@ -294,18 +308,20 @@ def trellis_encode(dibits: np.ndarray) -> np.ndarray:
 def trellis_decode(
     dibits: np.ndarray,
     soft_values: np.ndarray | None = None,
+    debug: bool = False,
 ) -> tuple[np.ndarray, int]:
     """Decode trellis-encoded dibits (convenience function).
 
     Args:
         dibits: Encoded dibits (even length)
         soft_values: Optional soft decision values
+        debug: If True, log detailed debug information
 
     Returns:
         Tuple of (decoded_dibits, error_metric)
     """
     decoder = TrellisDecoder()
-    return decoder.decode(dibits, soft_values)
+    return decoder.decode(dibits, soft_values, debug=debug)
 
 
 def trellis_interleave(dibits: np.ndarray, block_size: int = 98) -> np.ndarray:

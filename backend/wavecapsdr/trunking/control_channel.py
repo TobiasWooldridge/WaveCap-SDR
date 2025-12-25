@@ -24,8 +24,8 @@ from typing import Any, Callable
 import numpy as np
 
 # Use demodulators from decoders/p25.py
-from wavecapsdr.decoders.p25 import C4FMDemodulator as P25C4FMDemodulator
 from wavecapsdr.decoders.p25 import CQPSKDemodulator as P25CQPSKDemodulator
+from wavecapsdr.dsp.p25.c4fm import C4FMDemodulator as DSPC4FMDemodulator
 from wavecapsdr.decoders.p25_frames import (
     DUID,
     decode_nid,
@@ -63,6 +63,7 @@ class ControlChannelMonitor:
 
     # Demodulator - either C4FM or CQPSK based on modulation
     _demod: Any | None = None  # P25C4FMDemodulator or P25CQPSKDemodulator
+    _soft_buffer: list[float] = field(default_factory=list)
 
     # TSBK parser
     _tsbk_parser: TSBKParser | None = None
@@ -77,6 +78,11 @@ class ControlChannelMonitor:
     tsbk_decoded: int = 0
     sync_losses: int = 0
     _last_sync_time: float = 0.0
+
+    # TSBK decode statistics (for debugging FEC issues)
+    tsbk_attempts: int = 0  # Number of TSBK blocks we tried to decode
+    tsbk_crc_pass: int = 0  # Number that passed CRC
+    tsbk_error_sum: int = 0  # Sum of bit errors for failed CRCs (for averaging)
 
     # Callbacks
     on_tsbk: Callable[[bytes], None] | None = None
@@ -109,14 +115,14 @@ class ControlChannelMonitor:
                 f"(LSM/CQPSK for simulcast systems)"
             )
         else:
-            # Use C4FM demodulator for standard systems
-            self._demod = P25C4FMDemodulator(
+            # Use DSP C4FM demodulator with soft symbols for trellis decoding
+            self._demod = DSPC4FMDemodulator(
                 sample_rate=self.sample_rate,
                 symbol_rate=4800,
             )
             logger.info(
-                f"ControlChannelMonitor: Using P25C4FMDemodulator @ {self.sample_rate} Hz "
-                f"(C4FM for standard systems)"
+                f"ControlChannelMonitor: Using DSP C4FMDemodulator @ {self.sample_rate} Hz "
+                f"(C4FM for standard systems, soft symbols enabled)"
             )
 
         # Create TSBK parser
@@ -124,6 +130,7 @@ class ControlChannelMonitor:
 
         # Initialize dibit buffer
         self._dibit_buffer = []
+        self._soft_buffer = []
 
         # Polarity reversal tracking (OP25-style)
         # 0 = normal polarity, 2 = reversed (XOR mask to apply)
@@ -133,6 +140,7 @@ class ControlChannelMonitor:
         """Reset monitor state."""
         self.sync_state = SyncState.SEARCHING
         self._dibit_buffer.clear()
+        self._soft_buffer.clear()
         self._sync_pattern_idx = 0
         self._reverse_p = 0
         self._polarity_latched = False
@@ -163,12 +171,16 @@ class ControlChannelMonitor:
             logger.info(f"ControlChannelMonitor.process_iq: ENTRY call #{self._process_iq_calls}, iq.size={iq.size}")
 
         # Demodulate to dibits using C4FM (control channels always use C4FM)
+        soft: np.ndarray | None = None
         if self._demod:
             _start = _time_mod.perf_counter()
             if _verbose:
                 logger.info("ControlChannelMonitor.process_iq: calling demodulate")
-            # P25C4FMDemodulator.demodulate returns just dibits (no soft symbols)
-            dibits = self._demod.demodulate(iq.astype(np.complex64))
+            if isinstance(self._demod, DSPC4FMDemodulator):
+                dibits, soft = self._demod.demodulate(iq.astype(np.complex64))
+            else:
+                # CQPSK demodulator returns dibits only
+                dibits = self._demod.demodulate(iq.astype(np.complex64))
             _elapsed = (_time_mod.perf_counter() - _start) * 1000
             if _verbose:
                 logger.info(f"ControlChannelMonitor.process_iq: demodulate returned {len(dibits)} dibits in {_elapsed:.1f}ms")
@@ -191,13 +203,14 @@ class ControlChannelMonitor:
             self._dibit_debug_count = len(dibits)
 
         # Process dibits
-        return self._process_dibits(dibits)
+        return self._process_dibits(dibits, soft)
 
-    def _process_dibits(self, dibits: np.ndarray) -> list[dict[str, Any]]:
+    def _process_dibits(self, dibits: np.ndarray, soft: np.ndarray | None) -> list[dict[str, Any]]:
         """Process demodulated dibits and extract TSBK messages.
 
         Args:
             dibits: Array of dibits (0-3)
+            soft: Optional soft symbol values aligned to dibits (C4FM only)
 
         Returns:
             List of parsed TSBK results
@@ -207,9 +220,13 @@ class ControlChannelMonitor:
         # Apply polarity correction if needed (OP25-style)
         if self._reverse_p:
             dibits = dibits ^ self._reverse_p
+            if soft is not None and self._reverse_p == 2:
+                soft = -soft
 
         # Add to buffer
         self._dibit_buffer.extend(dibits.tolist())
+        if soft is not None:
+            self._soft_buffer.extend(soft.tolist())
 
         # Process buffer
         while True:
@@ -220,10 +237,14 @@ class ControlChannelMonitor:
                     # Not found, keep last (FRAME_SYNC_DIBITS - 1) dibits
                     if len(self._dibit_buffer) > self.FRAME_SYNC_DIBITS:
                         self._dibit_buffer = self._dibit_buffer[-(self.FRAME_SYNC_DIBITS - 1):]
+                        if self._soft_buffer:
+                            self._soft_buffer = self._soft_buffer[-(self.FRAME_SYNC_DIBITS - 1):]
                     break
 
                 # Found sync pattern
                 self._dibit_buffer = self._dibit_buffer[sync_idx:]
+                if self._soft_buffer:
+                    self._soft_buffer = self._soft_buffer[sync_idx:]
                 self.sync_state = SyncState.SYNCED
                 self._last_sync_time = time.time()
 
@@ -245,6 +266,9 @@ class ControlChannelMonitor:
 
             # Extract frame
             frame_dibits = np.array(self._dibit_buffer[:self.TSDU_FRAME_DIBITS], dtype=np.uint8)
+            frame_soft = None
+            if self._soft_buffer and len(self._soft_buffer) >= self.TSDU_FRAME_DIBITS:
+                frame_soft = np.array(self._soft_buffer[:self.TSDU_FRAME_DIBITS], dtype=np.float32)
 
             # Verify sync pattern at start of frame using soft correlation
             frame_sync = frame_dibits[:self.FRAME_SYNC_DIBITS]
@@ -297,7 +321,7 @@ class ControlChannelMonitor:
             if nid is not None and nid.duid == DUID.TSDU:
                 # This is a TSDU frame - decode it
                 logger.info(f"ControlChannelMonitor: Calling decode_tsdu on TSDU frame, frame_len={len(frame_dibits)}")
-                tsdu = decode_tsdu(frame_dibits)
+                tsdu = decode_tsdu(frame_dibits, frame_soft)
                 if tsdu:
                     logger.info(f"ControlChannelMonitor: decode_tsdu returned {len(tsdu.tsbk_blocks) if tsdu.tsbk_blocks else 0} TSBK blocks")
                 else:
@@ -307,8 +331,20 @@ class ControlChannelMonitor:
 
                     # Parse each TSBK block in the frame
                     for tsbk_block in tsdu.tsbk_blocks:
+                        # Track all TSBK decode attempts for stats
+                        self.tsbk_attempts += 1
+
                         if not tsbk_block.crc_valid:
+                            # CRC failed - log periodically for debugging
+                            if self.tsbk_attempts <= 10 or self.tsbk_attempts % 50 == 0:
+                                logger.warning(
+                                    f"TSBK CRC failed: attempts={self.tsbk_attempts}, "
+                                    f"pass_rate={100*self.tsbk_crc_pass/self.tsbk_attempts:.1f}%"
+                                )
                             continue  # Skip blocks with bad CRC
+
+                        # CRC passed
+                        self.tsbk_crc_pass += 1
 
                         # Pass opcode and mfid from TSBKBlock to parser
                         result = self._parse_tsbk(tsbk_block.opcode, tsbk_block.mfid, tsbk_block.data)
@@ -322,6 +358,8 @@ class ControlChannelMonitor:
 
             # Consume frame from buffer
             self._dibit_buffer = self._dibit_buffer[self.TSDU_FRAME_DIBITS:]
+            if self._soft_buffer:
+                self._soft_buffer = self._soft_buffer[self.TSDU_FRAME_DIBITS:]
             self._last_sync_time = time.time()
 
         # Check for sync timeout
@@ -488,6 +526,11 @@ class ControlChannelMonitor:
 
     def get_stats(self) -> dict[str, Any]:
         """Get monitor statistics."""
+        # Calculate CRC pass rate
+        crc_pass_rate = (
+            100.0 * self.tsbk_crc_pass / self.tsbk_attempts
+            if self.tsbk_attempts > 0 else 0.0
+        )
         return {
             "sync_state": self.sync_state.value,
             "modulation": self.modulation.value,
@@ -495,6 +538,10 @@ class ControlChannelMonitor:
             "tsbk_decoded": self.tsbk_decoded,
             "sync_losses": self.sync_losses,
             "buffer_dibits": len(self._dibit_buffer),
+            # TSBK FEC debug stats
+            "tsbk_attempts": self.tsbk_attempts,
+            "tsbk_crc_pass": self.tsbk_crc_pass,
+            "tsbk_crc_pass_rate": round(crc_pass_rate, 1),
         }
 
 

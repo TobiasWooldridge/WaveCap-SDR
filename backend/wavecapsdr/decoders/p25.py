@@ -638,8 +638,8 @@ class C4FMDemodulator:
     """
 
     # SDRTrunk equalizer gain - compensates for RRC filter constellation compression
-    # Increased from 1.219 to 1.5 for SA-GRN which has lower deviation
-    EQUALIZER_GAIN = 2.0
+    # Original SDRTrunk value is 1.219
+    EQUALIZER_GAIN = 1.219
 
     # C4FM baseband filter cutoff (Hz) - matches SDRTrunk
     BASEBAND_CUTOFF_HZ = 5200
@@ -2030,7 +2030,7 @@ class P25Decoder:
             duid=5,
             voice_data=voice_data,
             tgid=link_control.tgid if link_control.tgid else None,
-            source_id=link_control.source_id if link_control.source_id else None,
+            source=link_control.source_id if link_control.source_id else None,
         )
 
     def _decode_ldu2(self, dibits: np.ndarray) -> P25Frame | None:
@@ -2127,6 +2127,9 @@ class P25Decoder:
             cls._STATUS_KEEP_INDICES[cache_key] = np.array(keep, dtype=np.int16)
         return cls._STATUS_KEEP_INDICES[cache_key]
 
+    # Track if we've logged status stripping info (once per session)
+    _status_strip_logged = False
+
     def _strip_status_symbols(self, dibits: np.ndarray, initial_counter: int = 22) -> np.ndarray:
         """
         Strip P25 status symbols from raw dibit stream.
@@ -2156,6 +2159,22 @@ class P25Decoder:
 
         # Only use indices that are within bounds
         valid_indices = keep_indices[keep_indices < n]
+
+        # Log status stripping details once per session for debugging
+        if not P25Decoder._status_strip_logged and n >= 101:
+            P25Decoder._status_strip_logged = True
+            # Find which indices were skipped (status symbols)
+            all_indices = set(range(n))
+            kept = set(valid_indices)
+            skipped = sorted(all_indices - kept)
+            logger.info(
+                f"Status strip: initial_counter={initial_counter}, input={n} dibits, "
+                f"output={len(valid_indices)} dibits, skipped indices={skipped[:5]}..."
+            )
+            # Log actual dibit values at skipped positions
+            if skipped:
+                status_vals = [dibits[i] for i in skipped[:3]]
+                logger.info(f"Status symbol values at skipped positions: {status_vals}")
 
         return dibits[valid_indices].astype(np.uint8)
 
@@ -2222,21 +2241,22 @@ class P25Decoder:
             if data is None:
                 continue
 
-            # Try with deinterleave
-            deint = self._deinterleave_data(data)
-            _, err_deint = self.trellis.decode(deint)
-            results.append((f"{name}_deint", deint, err_deint))
+            # Try all 4 phase rotations (QPSK ambiguity)
+            # XOR 0: identity (no change)
+            # XOR 1: swap 0↔1 and 2↔3 (90° rotation in QPSK space)
+            # XOR 2: swap 0↔2 and 1↔3 (180° polarity flip)
+            # XOR 3: swap 0↔3 and 1↔2 (270° rotation)
+            for xor_mask in [0, 1, 2, 3]:
+                rotated = (data ^ xor_mask).astype(np.uint8) if xor_mask != 0 else data
 
-            # Try without deinterleave
-            _, err_raw = self.trellis.decode(data)
-            results.append((f"{name}_raw", data, err_raw))
+                # Try with deinterleave
+                deint = self._deinterleave_data(rotated)
+                _, err_deint = self.trellis.decode(deint)
+                results.append((f"{name}_xor{xor_mask}_deint", deint, err_deint))
 
-            # Note: Additional transformations tested but didn't help:
-            # - Polarity inversion (XOR 2): swaps 0↔2, 1↔3
-            # - Bit-reversal within dibit: 0→0, 1→2, 2→1, 3→3
-            # - Full inversion (XOR 3): swaps 0↔3, 1↔2
-            # All produce similar ~22-28 error rates, suggesting issue is
-            # with symbol timing recovery rather than dibit mapping.
+                # Try without deinterleave
+                _, err_raw = self.trellis.decode(rotated)
+                results.append((f"{name}_xor{xor_mask}_raw", rotated, err_raw))
 
         if not results:
             return None
@@ -2257,6 +2277,7 @@ class P25Decoder:
             return None
 
         # Convert dibits to bits for CRC validation
+        # P25 TSBK uses MSB-first bit ordering within each dibit
         decoded_bits = np.zeros(96, dtype=np.uint8)
         for i in range(min(48, len(decoded))):
             decoded_bits[i*2] = (decoded[i] >> 1) & 1
