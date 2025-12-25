@@ -4,6 +4,7 @@ A standalone SDR server for the WaveCap ecosystem. It exposes a network API and 
 
 - Spec: see `docs/api-spec.md` (authoritative) for scope, APIs, and milestones.
 - Contribution & workflow: see `AGENTS.md` for coding principles, testing expectations, and repo conventions.
+- SA-GRN P25 Phase 1 spec: `docs/sa-grn-p25-spec.md`.
 
 ## Status
 Active development. Core functionality is implemented and tested with RTL-SDR Blog V4 and SDRplay RSPdx-R2 via SoapySDR.

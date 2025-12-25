@@ -124,6 +124,7 @@ Base path: `/api/v1`
   - Remove trunking system.
 - POST `/trunking/systems/{id}/start`
   - Start control channel monitoring and voice tracking.
+  - C4FM control-channel decode uses soft-decision trellis when available.
 - POST `/trunking/systems/{id}/stop`
   - Stop trunking system.
 - GET `/trunking/systems/{id}/talkgroups`

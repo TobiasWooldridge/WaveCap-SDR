@@ -65,6 +65,7 @@ Trunking Systems
 - `trunking.systems.<system_id>` (dict): Trunking system configuration.
   - See `backend/wavecapsdr/trunking/` for detailed configuration options.
   - P25 Phase 1 trunking is supported with voice channel following.
+  - SA-GRN P25 Phase 1 spec: `docs/sa-grn-p25-spec.md`.
 
 Captures (auto-start on boot)
 - `captures[]` (array): List of captures to auto-start on server launch.
