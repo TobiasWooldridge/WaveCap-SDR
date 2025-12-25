@@ -7,7 +7,6 @@ import { useToast } from "../../hooks/useToast";
 import SpectrumAnalyzer from "../../components/primitives/SpectrumAnalyzer.react";
 import WaterfallDisplay from "../../components/primitives/WaterfallDisplay.react";
 import ChannelClassifierBar from "../../components/primitives/ChannelClassifierBar.react";
-import Flex from "../../components/primitives/Flex.react";
 
 const FPS_OPTIONS = [
   { value: 5, label: "5 fps" },
@@ -159,97 +158,102 @@ export function SpectrumPanel({ capture, channels }: SpectrumPanelProps) {
   );
 
   return (
-    <Flex direction="column" gap={0}>
-      {/* FFT Settings Bar */}
-      <div
-        className="bg-body-tertiary border rounded-top d-flex align-items-center gap-3 px-2 py-1"
-        style={{ fontSize: "11px" }}
-      >
-        <span className="fw-semibold text-muted d-flex align-items-center gap-1">
-          <Settings size={12} />
-          Display
-        </span>
+    <div>
+      {/* Spectrum and Waterfall group */}
+      <div className="card shadow-sm">
+        {/* FFT Settings Bar */}
+        <div
+          className="card-header bg-body-tertiary d-flex align-items-center gap-3 px-2 py-1"
+          style={{ fontSize: "11px" }}
+        >
+          <span className="fw-semibold text-muted d-flex align-items-center gap-1">
+            <Settings size={12} />
+            Display
+          </span>
 
-        <div className="d-flex align-items-center gap-1">
-          <label className="text-muted mb-0" title="Target update rate for spectrum/waterfall when not actively viewing.">Target:</label>
-          <select
-            className="form-select form-select-sm border-0 bg-transparent"
-            style={{ width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" }}
-            value={capture.fftFps}
-            onChange={(e) => handleFpsChange(parseInt(e.target.value, 10))}
-            title="Target FPS. Actual rate adapts based on viewer activity."
-          >
-            {FPS_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+          <div className="d-flex align-items-center gap-1">
+            <label className="text-muted mb-0" title="Target update rate for spectrum/waterfall when not actively viewing.">Target:</label>
+            <select
+              className="form-select form-select-sm border-0 bg-transparent"
+              style={{ width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" }}
+              value={capture.fftFps}
+              onChange={(e) => handleFpsChange(parseInt(e.target.value, 10))}
+              title="Target FPS. Actual rate adapts based on viewer activity."
+            >
+              {FPS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="d-flex align-items-center gap-1">
+            <label className="text-muted mb-0" title="Maximum FPS cap. Prevents excessive CPU/bandwidth usage.">Max:</label>
+            <select
+              className="form-select form-select-sm border-0 bg-transparent"
+              style={{ width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" }}
+              value={capture.fftMaxFps}
+              onChange={(e) => handleMaxFpsChange(parseInt(e.target.value, 10))}
+              title="Hard cap on FPS. Will never exceed this rate."
+            >
+              {MAX_FPS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="d-flex align-items-center gap-1">
+            <label className="text-muted mb-0" title="FFT bin count. Higher = sharper frequency detail but more CPU.">FFT Size:</label>
+            <select
+              className="form-select form-select-sm border-0 bg-transparent"
+              style={{ width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" }}
+              value={capture.fftSize}
+              onChange={(e) => handleFftSizeChange(parseInt(e.target.value, 10))}
+              title="FFT bin count. Higher values show sharper frequency detail."
+            >
+              {FFT_SIZE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
-        <div className="d-flex align-items-center gap-1">
-          <label className="text-muted mb-0" title="Maximum FPS cap. Prevents excessive CPU/bandwidth usage.">Max:</label>
-          <select
-            className="form-select form-select-sm border-0 bg-transparent"
-            style={{ width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" }}
-            value={capture.fftMaxFps}
-            onChange={(e) => handleMaxFpsChange(parseInt(e.target.value, 10))}
-            title="Hard cap on FPS. Will never exceed this rate."
-          >
-            {MAX_FPS_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <div className="card-body p-0">
+          {/* Spectrum Analyzer */}
+          <div>
+            <SpectrumAnalyzer
+              capture={capture}
+              channels={channels}
+              height={spectrumHeight}
+              onFrequencyClick={handleFrequencyClick}
+            />
+          </div>
 
-        <div className="d-flex align-items-center gap-1">
-          <label className="text-muted mb-0" title="FFT bin count. Higher = sharper frequency detail but more CPU.">FFT Size:</label>
-          <select
-            className="form-select form-select-sm border-0 bg-transparent"
-            style={{ width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" }}
-            value={capture.fftSize}
-            onChange={(e) => handleFftSizeChange(parseInt(e.target.value, 10))}
-            title="FFT bin count. Higher values show sharper frequency detail."
-          >
-            {FFT_SIZE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+          {/* Resize Handle */}
+          <div
+            className="bg-secondary"
+            style={{
+              height: "4px",
+              cursor: "ns-resize",
+              flexShrink: 0,
+            }}
+            onMouseDown={handleResizeMouseDown}
+          />
+
+          {/* Waterfall Display */}
+          <div style={{ height: `${waterfallHeight}px` }}>
+            <WaterfallDisplay capture={capture} channels={channels} />
+          </div>
         </div>
       </div>
 
-      {/* Spectrum Analyzer */}
-      <div>
-        <SpectrumAnalyzer
-          capture={capture}
-          channels={channels}
-          height={spectrumHeight}
-          onFrequencyClick={handleFrequencyClick}
-        />
-      </div>
-
-      {/* Resize Handle */}
-      <div
-        className="bg-secondary"
-        style={{
-          height: "4px",
-          cursor: "ns-resize",
-          flexShrink: 0,
-        }}
-        onMouseDown={handleResizeMouseDown}
-      />
-
-      {/* Waterfall Display */}
-      <div style={{ height: `${waterfallHeight}px` }}>
-        <WaterfallDisplay capture={capture} channels={channels} />
-      </div>
-
-      {/* Channel Classifier Bar - separate component below waterfall */}
+      {/* Channel Classifier Bar - completely separate card */}
       <ChannelClassifierBar capture={capture} height={50} />
-    </Flex>
+    </div>
   );
 }
