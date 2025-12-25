@@ -1736,19 +1736,19 @@ class P25Decoder:
 
         # P25 frame structure (per TIA-102.BAAA and SDRTrunk):
         # - 24 dibits: Frame sync (FS)
-        # - 32 dibits: NID (NAC + DUID + BCH parity) - but includes 1 status at position 35
-        # - 1 status dibit at position 35 (within NID)
+        # - 32 dibits: NID (NAC + DUID + BCH parity) - but includes 1 status at position 36
+        # - 1 status dibit at position 36 (within NID)
         # - Frame data starts after position 57 (24 + 32 + 1 status = 57 raw dibits)
         #
-        # Status symbols occur every 35 dibits from frame start:
-        # - Position 35: Status 1 (in NID)
-        # - Position 70: Status 2 (in data, but position 71 after skipping first status)
-        # - Position 105: Status 3 (= 106 raw)
+        # Status symbols occur every 36 dibits from frame start:
+        # - Position 36: Status 1 (in NID)
+        # - Position 72: Status 2 (in data)
+        # - Position 108: Status 3
         # - etc.
         # We use 8 for minimal extraction, but for proper framing need to account for status
 
         # For TSDU, we need to extract starting at position 57 (after sync + NID + 1 status)
-        # and then strip subsequent status symbols every 35 dibits
+        # and then strip subsequent status symbols every 36 dibits
         if frame_type == P25FrameType.TSDU:
             # TSDU starts after sync + NID + 1 status = 57 dibits
             header_raw_dibits = 57  # 24 + 32 + 1
@@ -2103,9 +2103,9 @@ class P25Decoder:
         return dibits[self.DATA_INTERLEAVE].astype(np.uint8)
 
     # Pre-computed status symbol positions for common initial counters
-    # Status symbols occur every 35 dibits from frame start (at 1-indexed positions 35, 70, 105, ...)
-    # In 0-indexed frame positions: 34, 69, 104, ...
-    # For TSDU data starting at frame position 57, first status is at 69 (relative position 12)
+    # Status symbols occur every 36 dibits from frame start (at 1-indexed positions 36, 72, 108, ...)
+    # In 0-indexed frame positions: 35, 71, 107, ...
+    # For TSDU data starting at frame position 57, first status is at 71 (relative position 14)
     # These arrays contain indices to KEEP (non-status positions) for up to 120 raw dibits
     _STATUS_KEEP_INDICES: dict[tuple[int, int], np.ndarray] = {}
 
@@ -2115,12 +2115,12 @@ class P25Decoder:
         cache_key = (initial_counter, max_len)
         if cache_key not in cls._STATUS_KEEP_INDICES:
             # Compute which indices to keep (not status symbols)
-            # Counter increments each dibit; skip when counter reaches 35 (every 35 dibits)
+            # Counter increments each dibit; skip when counter reaches 36 (every 36 dibits)
             keep = []
             counter = initial_counter
             for i in range(max_len):
                 counter += 1
-                if counter == 35:  # Status symbol every 35 dibits (was incorrectly 36)
+                if counter == 36:  # Status symbol every 36 dibits
                     counter = 0
                     continue  # Skip this index
                 keep.append(i)
@@ -2130,22 +2130,22 @@ class P25Decoder:
     # Track if we've logged status stripping info (once per session)
     _status_strip_logged = False
 
-    def _strip_status_symbols(self, dibits: np.ndarray, initial_counter: int = 22) -> np.ndarray:
+    def _strip_status_symbols(self, dibits: np.ndarray, initial_counter: int = 21) -> np.ndarray:
         """
         Strip P25 status symbols from raw dibit stream.
 
-        P25 inserts a status symbol every 35 dibits from frame start.
-        Status symbols are at 0-indexed frame positions 34, 69, 104, 139, ...
+        P25 inserts a status symbol every 36 dibits from frame start.
+        Status symbols are at 0-indexed frame positions 35, 71, 107, 143, ...
 
         For TSDU data starting at frame position 57:
-        - First status at position 69 = TSDU relative position 12
-        - 57 % 35 = 22, so initial_counter = 22
+        - First status at position 71 = TSDU relative position 14
+        - 57 % 36 = 21, so initial_counter = 21
 
-        When counter reaches 35, that dibit is a status symbol and is skipped.
+        When counter reaches 36, that dibit is a status symbol and is skipped.
 
         Args:
             dibits: Raw dibit stream with embedded status symbols
-            initial_counter: Starting value of status symbol counter (22 for TSDU at position 57)
+            initial_counter: Starting value of status symbol counter (21 for TSDU at position 57)
 
         Returns:
             Clean dibit stream with status symbols removed
@@ -2212,12 +2212,12 @@ class P25Decoder:
         # Approach 1: Raw data without status stripping
         raw_dibits = dibits[:TSBK_ENCODED_DIBITS] if len(dibits) >= 98 else None
 
-        # Approach 2: Strip status symbols (initial counter=22 for TSDU data at frame position 57)
-        # Status symbols at frame positions 34, 69, 104... (0-indexed)
-        # TSDU data starts at 57, first status at 69 = relative position 12
+        # Approach 2: Strip status symbols (initial counter=21 for TSDU data at frame position 57)
+        # Status symbols at frame positions 35, 71, 107... (0-indexed)
+        # TSDU data starts at 57, first status at 71 = relative position 14
         clean_dibits = None
         if len(dibits) >= 101:
-            clean_dibits = self._strip_status_symbols(dibits, initial_counter=22)
+            clean_dibits = self._strip_status_symbols(dibits, initial_counter=21)
             clean_dibits = clean_dibits[:TSBK_ENCODED_DIBITS] if len(clean_dibits) >= 98 else None
 
         # Approach 3: Strip status with counter=0 (in case our counter is wrong)
@@ -2285,7 +2285,7 @@ class P25Decoder:
 
         # Calculate CRC-16 CCITT over first 80 bits
         poly = 0x1021
-        crc = 0xFFFF
+        crc = 0x0000
         for i in range(80):
             bit = int(decoded_bits[i])
             msb = (crc >> 15) & 1
@@ -2297,6 +2297,7 @@ class P25Decoder:
             crc = (crc << 1) & 0xFFFF
             if msb:
                 crc ^= poly
+        crc ^= 0xFFFF
         # Extract received CRC
         received_crc = 0
         for i in range(16):

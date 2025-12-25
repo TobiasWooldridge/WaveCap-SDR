@@ -339,7 +339,7 @@ def main() -> int:
     parser.add_argument(
         "--status-intervals",
         type=str,
-        default="35",
+        default="36",
         help="Comma-separated status symbol intervals to try",
     )
     parser.add_argument(
@@ -383,7 +383,7 @@ def main() -> int:
     decode_offsets = [int(v.strip()) for v in args.decode_offsets.split(",") if v.strip()]
     status_intervals = [int(v.strip()) for v in args.status_intervals.split(",") if v.strip()]
     if not status_intervals:
-        status_intervals = [35]
+        status_intervals = [36]
     sync_thresholds = [int(v.strip()) for v in args.sync_thresholds.split(",") if v.strip()]
     if not sync_thresholds:
         sync_thresholds = [60]

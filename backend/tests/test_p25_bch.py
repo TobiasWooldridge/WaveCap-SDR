@@ -144,10 +144,10 @@ class TestNIDDecode:
         assert result is None or isinstance(result, NID)
 
     def test_status_symbol_skipping(self):
-        """Test that status symbol at position 10 is skipped."""
-        # Create dibits with a marker at position 10
+        """Test that status symbol at position 11 is skipped."""
+        # Create dibits with a marker at position 11
         dibits = np.zeros(33, dtype=np.uint8)
-        dibits[10] = 3  # Mark the status symbol position
+        dibits[11] = 3  # Mark the status symbol position
 
         result = decode_nid(dibits, skip_status_at_10=True)
 

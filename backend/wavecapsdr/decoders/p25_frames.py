@@ -122,7 +122,8 @@ FRAME_SYNC_DIBITS = np.array([1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1,
                                3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3], dtype=np.uint8)
 
 # Status symbols positions in frames (for de-interleaving)
-STATUS_SYMBOL_INTERVAL = 35  # Status symbol every 35 dibits
+STATUS_SYMBOL_INTERVAL = 36  # Status symbol every 36 dibits (positions 36, 72, 108, ...)
+STATUS_SYMBOL_INDEX_IN_NID = 11  # 0-based index within 33-dibit NID (frame pos 35)
 
 
 @dataclass
@@ -293,8 +294,8 @@ def crc16_ccitt_p25(bits: np.ndarray) -> tuple[bool, int]:
 
     CRC-16 CCITT parameters:
     - Polynomial: 0x1021 (x^16 + x^12 + x^5 + 1)
-    - Initial value: 0xFFFF
-    - No final XOR
+    - Initial value: 0x0000
+    - Final XOR: 0xFFFF
 
     Args:
         bits: 96-bit array (80 bits data + 16 bits CRC)
@@ -309,7 +310,7 @@ def crc16_ccitt_p25(bits: np.ndarray) -> tuple[bool, int]:
 
     # Calculate CRC over first 80 bits using standard CCITT algorithm
     poly = 0x1021
-    crc = 0xFFFF  # Initial value
+    crc = 0x0000  # Initial value
 
     for i in range(80):
         bit = int(bits[i])
@@ -324,6 +325,9 @@ def crc16_ccitt_p25(bits: np.ndarray) -> tuple[bool, int]:
         crc = (crc << 1) & 0xFFFF
         if msb:
             crc ^= poly
+
+    # Apply final XOR (per P25 TSBK CRC parameters)
+    crc ^= 0xFFFF
 
     # Extract received CRC (bits 80-95)
     received_crc = bits_to_int(bits, 80, 16)
@@ -365,13 +369,13 @@ def decode_nid(
     - NAC (12 bits) + DUID (4 bits) = 8 dibits = 16 bits
     - BCH(63,16,23) parity = 24 dibits = 47 bits (63 - 16)
 
-    IMPORTANT: P25 inserts a status symbol every 35 dibits from frame start.
-    Status symbols are at 0-indexed frame positions 34, 69, 104, etc.
-    (where (pos+1) % 35 == 0).
+    IMPORTANT: P25 inserts a status symbol every 36 dibits from frame start.
+    Status symbols are at 0-indexed frame positions 35, 71, 107, etc.
+    (where (pos+1) % 36 == 0).
 
     Since sync is 24 dibits (positions 0-23), the NID starts at position 24.
-    The first status symbol is at frame position 34, which is NID position 10
-    (34 - 24 = 10). This status symbol must be skipped.
+    The first status symbol is at frame position 35, which is NID position 11
+    (35 - 24 = 11). This status symbol must be skipped.
 
     BCH Error Correction:
     - First pass: decode codeword as-is
@@ -379,7 +383,7 @@ def decode_nid(
 
     Args:
         dibits: NID dibits (33 if status included, 32 if already stripped)
-        skip_status_at_10: If True, expects 33 dibits and skips position 10 (0-indexed)
+        skip_status_at_10: If True, expects 33 dibits and skips the status symbol
         nac_tracker: Optional NAC tracker for BCH second-pass correction
 
     Returns:
@@ -390,12 +394,12 @@ def decode_nid(
         logger.debug(f"decode_nid: too short, len={len(dibits)}, required={required_len}")
         return None
 
-    # Build clean dibit array, skipping status symbol at position 10 if needed
-    # Status symbol is at frame position 34 = NID position 10 (since NID starts at 24)
+    # Build clean dibit array, skipping status symbol when requested
+    # Status symbol is at frame position 35 = NID position 11 (since NID starts at 24)
     clean_dibits = []
     for i in range(required_len):
-        if skip_status_at_10 and i == 10:
-            continue  # Skip status symbol at frame position 34
+        if skip_status_at_10 and i == STATUS_SYMBOL_INDEX_IN_NID:
+            continue  # Skip status symbol at frame position 35
         clean_dibits.append(int(dibits[i]))  # Ensure Python int
 
     if len(clean_dibits) < 32:
@@ -618,7 +622,7 @@ def decode_tdu(dibits: np.ndarray) -> TDUFrame | None:
 def remove_status_symbols_with_offset(dibits: np.ndarray, frame_offset: int) -> np.ndarray:
     """Remove status symbols from dibit stream with frame position offset.
 
-    Status symbols appear every 35 dibits from frame start. When extracting
+    Status symbols appear every 36 dibits from frame start. When extracting
     a portion of the frame, we need to know the frame offset to correctly
     identify status symbol positions.
 
@@ -635,8 +639,8 @@ def remove_status_symbols_with_offset(dibits: np.ndarray, frame_offset: int) -> 
     result = []
     for i, d in enumerate(dibits):
         frame_pos = frame_offset + i
-        # Status symbol at every 35th position from frame start (positions 35, 70, 105, ...)
-        # Frame position 35 is the first status symbol (in NID)
+        # Status symbol at every 36th position from frame start (positions 36, 72, 108, ...)
+        # Frame position 36 is the first status symbol (in NID)
         if (frame_pos + 1) % STATUS_SYMBOL_INTERVAL != 0:
             result.append(d)
 
@@ -648,14 +652,14 @@ def decode_tsdu(dibits: np.ndarray, soft: np.ndarray | None = None) -> TSDUFrame
 
     TSDU structure (360 dibits typical):
     - Sync: 24 dibits (48 bits)
-    - NID: 33 dibits (includes status symbol at position 11)
+    - NID: 33 dibits (includes status symbol at position 12)
     - TSBK blocks: up to 3 blocks, each 196 dibits (with status symbols)
 
     TSDU contains 1-3 TSBK blocks, each 96 bits after decoding.
     """
     # Frame sync is 24 dibits
     SYNC_DIBITS = 24
-    # NID is 33 dibits (32 data + status symbol at position 11)
+    # NID is 33 dibits (32 data + status symbol at position 12)
     NID_DIBITS = 33
 
     min_frame_dibits = SYNC_DIBITS + NID_DIBITS + 100  # At least some TSBK data
@@ -690,8 +694,8 @@ def decode_tsdu(dibits: np.ndarray, soft: np.ndarray | None = None) -> TSDUFrame
     tsbk_soft = soft[tsbk_data_start:] if soft is not None else None
 
     # Remove status symbols from TSBK data
-    # Status symbols are at frame positions 70, 105, 140, etc.
-    # which are positions 13, 48, 83, etc. relative to TSBK data start
+    # Status symbols are at frame positions 72, 108, 144, etc.
+    # which are positions 15, 51, 87, etc. relative to TSBK data start
     tsbk_clean = remove_status_symbols_with_offset(tsbk_raw, frame_offset=tsbk_data_start)
     tsbk_soft_clean = (
         remove_status_symbols_with_offset(tsbk_soft, frame_offset=tsbk_data_start)

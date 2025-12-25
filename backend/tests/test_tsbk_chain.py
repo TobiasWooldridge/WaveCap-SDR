@@ -19,7 +19,7 @@ from wavecapsdr.decoders.p25_frames import (
 def compute_crc16_ccitt(data_bits: np.ndarray) -> int:
     """Compute CRC-16 CCITT over data bits."""
     poly = 0x1021
-    crc = 0xFFFF
+    crc = 0x0000
 
     for bit in data_bits:
         msb = (crc >> 15) & 1
@@ -33,6 +33,8 @@ def compute_crc16_ccitt(data_bits: np.ndarray) -> int:
         crc = (crc << 1) & 0xFFFF
         if msb:
             crc ^= poly
+
+    crc ^= 0xFFFF
 
     return crc
 

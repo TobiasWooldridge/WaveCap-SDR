@@ -356,6 +356,10 @@ Configuration via environment variables:
 | `dstar` | 🚧 Stub | Accepted as mode, demodulation not yet implemented |
 | `ysf` | 🚧 Stub | Accepted as mode, demodulation not yet implemented |
 
+P25 trunking specifics:
+- TSBK CRC uses CRC-16 CCITT with init 0x0000, 16-bit flush, and final XOR 0xFFFF.
+- Status symbols are stripped every 36 dibits (positions 36, 72, 108, ...).
+
 ## Open Questions
 - Preferred on‑disk container for IQ (raw vs. WAV container with metadata)?
 - Channel scheduler behavior when requested targets drift outside passband (auto retune vs. error).

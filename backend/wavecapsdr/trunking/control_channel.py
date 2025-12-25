@@ -290,8 +290,8 @@ class ControlChannelMonitor:
                 logger.info(f"ControlChannelMonitor: Sync verified (frame {self._verified_frames}, score={sync_score:.1f})")
 
             # Decode NID (Network ID) after sync
-            # NID is 32 dibits of data, but there's a status symbol at position 11
-            # (35 dibits from frame start = 24 sync + 11 into NID), so we need 33 dibits
+            # NID is 32 dibits of data, but there's a status symbol at position 12
+            # (36 dibits from frame start = 24 sync + 12 into NID), so we need 33 dibits
             nid_dibits = frame_dibits[self.FRAME_SYNC_DIBITS:self.FRAME_SYNC_DIBITS + 33]
 
             # Debug: log NID dibits for first few frames
