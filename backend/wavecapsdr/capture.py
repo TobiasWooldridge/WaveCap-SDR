@@ -2477,7 +2477,8 @@ class Capture:
                                 except Exception as cb_err:
                                     logger.error(f"Channel {ch.cfg.id}: TSBK callback error: {cb_err}")
                 except Exception as e:
-                    logger.error(f"Channel {ch.cfg.id}: P25 decoding error: {e}")
+                    import traceback
+                    logger.error(f"Channel {ch.cfg.id}: P25 decoding error: {e}\n{traceback.format_exc()}")
 
                 # P25 IMBE voice decoding via DSD-FME discriminator approach
                 # Compute FM discriminator output (instantaneous frequency) and feed to DSD-FME

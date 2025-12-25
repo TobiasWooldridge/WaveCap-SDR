@@ -590,20 +590,13 @@ trunking:
       id: sa_grn
       name: SA GRN (South Australia Government Radio Network)
       protocol: p25_phase1
-      # LSM (CQPSK) modulation - SA-GRN is a 240+ site simulcast system
-      # References:
-      #   - https://www.radioreference.com/db/sid/8145
-      #   - https://www.sascan.net.au/?page=infPages/GRN_GenInfo
-      #   - https://www.taitcommunications.com/en/about-us/news/2018/01/31/what-is-the-difference-between-c4fm-and-lsm-modulation-for-p25
-      #   - https://github.com/DSheirer/sdrtrunk/wiki/APCO25 (Use LSM for simulcast systems)
-      modulation: lsm
+      modulation: lsm  # LSM/CQPSK for simulcast (SA-GRN uses this)
       system_id: 988
       wacn: 781056
       control_channels:
-      # Adelaide Main control channel - verified from RadioReference
+      - 413.45 MHz
       - 413.3125 MHz
       - 413.075 MHz
-      - 413.45 MHz
       - 414.6875 MHz
       - 414.7625 MHz
       - 415.325 MHz
