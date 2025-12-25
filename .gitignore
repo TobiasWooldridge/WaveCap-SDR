@@ -66,3 +66,12 @@ record_test.py
 test_stream.py
 
 # Do not ignore audio fixtures in tests; avoid global *.wav ignores
+
+# Downloaded P25 sample files (large, not needed in repo)
+backend/tests/fixtures/p25_samples/
+
+# Reference audio captures (large, downloaded separately)
+reference-captures/
+
+# Backup files
+*.bak
