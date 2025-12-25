@@ -160,6 +160,21 @@ class VoiceRecorder:
         """Set the event loop used for scheduling audio decoding."""
         self._event_loop = loop
 
+    def update_center_frequency(self, new_center_hz: float) -> None:
+        """Update offset when capture center frequency changes.
+
+        Called when roaming moves the capture to a new center frequency.
+        This keeps the voice channel tuned to the correct absolute frequency.
+        """
+        if self.frequency_hz != 0.0:
+            old_offset = self.offset_hz
+            self.offset_hz = self.frequency_hz - new_center_hz
+            if abs(old_offset - self.offset_hz) > 100:  # Only log if significant change
+                logger.debug(
+                    f"VoiceRecorder {self.id}: Updated offset from {old_offset/1e3:.1f} kHz "
+                    f"to {self.offset_hz/1e3:.1f} kHz (new center={new_center_hz/1e6:.4f} MHz)"
+                )
+
     def assign(
         self,
         call_id: str,
@@ -510,14 +525,15 @@ class TrunkingSystem:
             if self.cfg.modulation:
                 self._control_channel.p25_modulation = self.cfg.modulation
 
-            # Wire up TSBK callback from P25 decoder in the channel
-            # This routes TSBKs decoded by the channel's P25 decoder to the trunking system
-            self._control_channel.on_tsbk = self._handle_tsbk_callback
+            # NOTE: We intentionally do NOT wire up the channel's on_tsbk callback.
+            # TSBK decoding is handled by ControlChannelMonitor in _setup_tsbk_callback(),
+            # which supports both Phase I (C4FM) and Phase II (CQPSK) modulation.
+            # Having both decoders active would create duplicate TSBK processing.
 
             # Start the control channel (sets state to "running" so it processes IQ)
             self._control_channel.start()
 
-            # Also set up ControlChannelMonitor as backup/alternative decoder
+            # Set up ControlChannelMonitor as the primary TSBK decoder
             self._setup_tsbk_callback()
 
             logger.info(
@@ -783,6 +799,11 @@ class TrunkingSystem:
                             if system._control_channel is not None:
                                 system._control_channel.cfg.offset_hz = 0.0
 
+                            # Update all active voice recorder offsets to new center
+                            for recorder in system._voice_recorders:
+                                if recorder.state in ("tuning", "recording", "hold"):
+                                    recorder.update_center_frequency(roam_to)
+
                             # Reset control monitor for new channel
                             if system._control_monitor is not None:
                                 system._control_monitor.reset()
@@ -866,17 +887,6 @@ class TrunkingSystem:
                 context,
             )
 
-    def _handle_tsbk_callback(self, tsbk_data: dict[str, Any]) -> None:
-        """Handle TSBK message from P25 decoder.
-
-        This is called by the P25 decoder when a TSBK is decoded.
-        We convert the dict to bytes and pass to process_tsbk().
-        """
-        # The P25 decoder gives us parsed TSBK data as a dict
-        # We need to convert back or handle directly
-        # For now, let's handle the parsed data directly
-        self._handle_parsed_tsbk(tsbk_data)
-
     def _handle_parsed_tsbk(self, tsbk_data: dict[str, Any]) -> None:
         """Handle parsed TSBK data from P25 decoder."""
         # Update stats
@@ -901,9 +911,31 @@ class TrunkingSystem:
         # Handle the TSBK based on opcode name (parser returns numeric in 'opcode', string in 'opcode_name')
         opcode_name = tsbk_data.get("opcode_name", "")
 
-        # Voice grants
-        if opcode_name in ("GRP_V_CH_GRANT", "GRP_V_CH_GRANT_UPDT", "GRP_V_CH_GRANT_UPDT_EXP", "UU_V_CH_GRANT"):
+        # Voice grants - normalize different formats before handling
+        if opcode_name == "GRP_V_CH_GRANT":
+            # Standard grant: already has tgid, channel, source_id at top level
             self._handle_voice_grant(tsbk_data)
+
+        elif opcode_name == "GRP_V_CH_GRANT_UPDT":
+            # Grant update: contains grant1 and optionally grant2 sub-dicts
+            self._handle_grant_update(tsbk_data)
+
+        elif opcode_name == "GRP_V_CH_GRANT_UPDT_EXP":
+            # Explicit grant update: has tgid at top level, downlink_channel instead of channel
+            normalized = dict(tsbk_data)
+            normalized["channel"] = tsbk_data.get("downlink_channel", 0)
+            self._handle_voice_grant(normalized)
+
+        elif opcode_name == "UU_V_CH_GRANT":
+            # Unit-to-unit grant: uses target_id instead of tgid
+            normalized = dict(tsbk_data)
+            normalized["tgid"] = tsbk_data.get("target_id", 0)
+            normalized["is_unit_to_unit"] = True
+            self._handle_voice_grant(normalized)
+
+        elif opcode_name == "UU_V_CH_GRANT_UPDT":
+            # Unit-to-unit grant update: grant1/grant2 with target_id
+            self._handle_uu_grant_update(tsbk_data)
 
         # Channel identifiers
         elif opcode_name in ("IDEN_UP", "IDEN_UP_VU", "IDEN_UP_TDMA"):
@@ -1009,9 +1041,26 @@ class TrunkingSystem:
             # Handle different TSBK types
             opcode = result.get("opcode")
 
-            # Voice grants
-            if opcode in ("GRP_V_CH_GRANT", "GRP_V_CH_GRANT_UPDT", "UU_V_CH_GRANT"):
+            # Voice grants - normalize different formats before handling
+            if opcode == "GRP_V_CH_GRANT":
                 self._handle_voice_grant(result)
+
+            elif opcode == "GRP_V_CH_GRANT_UPDT":
+                self._handle_grant_update(result)
+
+            elif opcode == "GRP_V_CH_GRANT_UPDT_EXP":
+                normalized = dict(result)
+                normalized["channel"] = result.get("downlink_channel", 0)
+                self._handle_voice_grant(normalized)
+
+            elif opcode == "UU_V_CH_GRANT":
+                normalized = dict(result)
+                normalized["tgid"] = result.get("target_id", 0)
+                normalized["is_unit_to_unit"] = True
+                self._handle_voice_grant(normalized)
+
+            elif opcode == "UU_V_CH_GRANT_UPDT":
+                self._handle_uu_grant_update(result)
 
             # Channel identifiers
             elif opcode in ("IDEN_UP", "IDEN_UP_VU"):
@@ -1191,6 +1240,71 @@ class TrunkingSystem:
         if self.state == TrunkingSystemState.SYNCED:
             self._set_state(TrunkingSystemState.RUNNING)
 
+    def _handle_grant_update(self, tsbk_data: dict[str, Any]) -> None:
+        """Handle a Group Voice Channel Grant Update TSBK.
+
+        These contain 1-2 grant updates in grant1/grant2 sub-dicts.
+        Each grant has tgid, channel, frequency_hz.
+        """
+        # Process grant1
+        grant1 = tsbk_data.get("grant1")
+        if grant1:
+            normalized = {
+                "tgid": grant1.get("tgid"),
+                "channel": grant1.get("channel", 0),
+                "frequency_hz": grant1.get("frequency_hz"),
+                "source_id": 0,  # Grant updates don't include source
+                "encrypted": tsbk_data.get("encrypted", False),
+                "emergency": tsbk_data.get("emergency", False),
+            }
+            self._handle_voice_grant(normalized)
+
+        # Process grant2 if present
+        grant2 = tsbk_data.get("grant2")
+        if grant2:
+            normalized = {
+                "tgid": grant2.get("tgid"),
+                "channel": grant2.get("channel", 0),
+                "frequency_hz": grant2.get("frequency_hz"),
+                "source_id": 0,
+                "encrypted": tsbk_data.get("encrypted", False),
+                "emergency": tsbk_data.get("emergency", False),
+            }
+            self._handle_voice_grant(normalized)
+
+    def _handle_uu_grant_update(self, tsbk_data: dict[str, Any]) -> None:
+        """Handle a Unit-to-Unit Voice Channel Grant Update TSBK.
+
+        Similar to group grant updates but uses target_id instead of tgid.
+        """
+        # Process grant1
+        grant1 = tsbk_data.get("grant1")
+        if grant1:
+            normalized = {
+                "tgid": grant1.get("target_id"),  # Map target_id to tgid
+                "channel": grant1.get("channel", 0),
+                "frequency_hz": grant1.get("frequency_hz"),
+                "source_id": 0,
+                "is_unit_to_unit": True,
+                "encrypted": False,
+                "emergency": False,
+            }
+            self._handle_voice_grant(normalized)
+
+        # Process grant2 if present
+        grant2 = tsbk_data.get("grant2")
+        if grant2:
+            normalized = {
+                "tgid": grant2.get("target_id"),
+                "channel": grant2.get("channel", 0),
+                "frequency_hz": grant2.get("frequency_hz"),
+                "source_id": 0,
+                "is_unit_to_unit": True,
+                "encrypted": False,
+                "emergency": False,
+            }
+            self._handle_voice_grant(normalized)
+
     def _handle_channel_identifier(self, result: dict[str, Any]) -> None:
         """Handle a channel identifier TSBK (IDEN_UP, IDEN_UP_VU, IDEN_UP_TDMA).
 
@@ -1230,10 +1344,6 @@ class TrunkingSystem:
         If no TSBK has been received for too long, try the next control channel
         in the configured list.
         """
-        # Only hunt if we're in searching state
-        if self.control_channel_state == ControlChannelState.LOCKED:
-            return
-
         # Check timeout
         now = time.time()
         last_tsbk = self._last_tsbk_time if self._last_tsbk_time > 0 else self._state_change_time
@@ -1246,9 +1356,22 @@ class TrunkingSystem:
         if self._hunt_log_count % 100 == 1:
             logger.info(
                 f"TrunkingSystem {self.cfg.id}: Hunt check - "
+                f"state={self.control_channel_state.value}, "
                 f"elapsed={elapsed:.1f}s, timeout={self._control_channel_timeout}s, "
                 f"num_channels={len(self.cfg.control_channels)}"
             )
+
+        # If we're locked but haven't received a TSBK in too long, transition to SEARCHING
+        if self.control_channel_state == ControlChannelState.LOCKED:
+            if elapsed >= self._control_channel_timeout:
+                logger.warning(
+                    f"TrunkingSystem {self.cfg.id}: Lost control channel lock "
+                    f"(no TSBK for {elapsed:.1f}s), starting hunt"
+                )
+                self.control_channel_state = ControlChannelState.SEARCHING
+            else:
+                # Still locked and within timeout, no hunting needed
+                return
 
         if elapsed < self._control_channel_timeout:
             return
