@@ -1037,6 +1037,247 @@ class C4FMDemodulator:
         self._symbol_spread = max(SYMBOL_SPREAD_MIN, min(SYMBOL_SPREAD_MAX, self._symbol_spread))
 
 
+class DiscriminatorDemodulator:
+    """
+    Demodulator for FM discriminator audio input (mono).
+
+    Used when input is already FM-demodulated audio (e.g., from discriminator tap,
+    DSD-FME compatible .dis files, or recordings from scanner discriminator output).
+
+    Skips the FM demodulation step and goes directly to:
+    - DC offset removal
+    - Baseband filtering
+    - Symbol timing recovery
+
+    Expected input: Mono audio at 48kHz (standard discriminator rate) with
+    symbol levels at approximately ±1 and ±3 (relative units).
+    """
+
+    # Same parameters as C4FMDemodulator for consistency
+    BASEBAND_CUTOFF_HZ = 5200
+    MMSE_NTAPS = 8
+    MMSE_NSTEPS = 128
+
+    def __init__(self, sample_rate: int = 48000, symbol_rate: int = 4800):
+        self.sample_rate = sample_rate
+        self.symbol_rate = symbol_rate
+        self.samples_per_symbol = sample_rate / symbol_rate
+
+        # DC offset tracking
+        self._dc_estimate = 0.0
+        self._dc_alpha = 0.001  # Slow DC tracking
+
+        # Symbol timing recovery state
+        self._symbol_clock = 0.0
+        self._symbol_time = symbol_rate / sample_rate
+
+        # Symbol spread tracking
+        self._symbol_spread = 2.0
+        self._K_SYMBOL_SPREAD = 0.0100
+
+        # Timing loop gain
+        self._K_SYMBOL_TIMING = 0.025
+
+        # Frequency correction
+        self._fine_freq_correction = 0.0
+        self._K_FINE_FREQUENCY = 0.125
+        self._coarse_freq_correction = 0.0
+        self._K_COARSE_FREQUENCY = 0.00125
+
+        # Input scaling - discriminator audio may need normalization
+        self._input_gain = 1.0
+        self._auto_gain = True
+
+        # Sample history for MMSE
+        self._history = np.zeros(self.MMSE_NTAPS, dtype=np.float32)
+        self._history_idx = 0
+
+        # Generate MMSE interpolation taps
+        self._mmse_taps = self._generate_mmse_taps()
+
+        # Design baseband filter
+        self._baseband_taps = self._design_baseband_filter()
+
+        # Diagnostics
+        self._symbol_count = 0
+        self._symbol_values: list[float] = []
+        self._diag_interval = 1000
+
+    def _generate_mmse_taps(self) -> np.ndarray:
+        """Generate MMSE interpolation filter coefficients."""
+        taps = np.zeros((self.MMSE_NSTEPS + 1, self.MMSE_NTAPS), dtype=np.float32)
+
+        for step in range(self.MMSE_NSTEPS + 1):
+            mu = step / self.MMSE_NSTEPS
+            for tap in range(self.MMSE_NTAPS):
+                t = tap - 3 - mu
+                if abs(t) < 1e-6:
+                    taps[step, tap] = 1.0
+                else:
+                    sinc_val = np.sin(np.pi * t) / (np.pi * t)
+                    window = 0.5 * (1 + np.cos(np.pi * t / 4)) if abs(t) < 4 else 0
+                    taps[step, tap] = sinc_val * window
+
+            # Normalize
+            tap_sum = np.sum(taps[step])
+            if tap_sum > 0:
+                taps[step] /= tap_sum
+
+        return taps
+
+    def _design_baseband_filter(self) -> np.ndarray:
+        """Design baseband low-pass filter."""
+        from scipy.signal import firwin
+        ntaps = 65
+        cutoff = self.BASEBAND_CUTOFF_HZ / (self.sample_rate / 2)
+        cutoff = min(cutoff, 0.99)
+        return firwin(ntaps, cutoff, window='hamming').astype(np.float32)
+
+    def demodulate(self, audio: np.ndarray) -> np.ndarray:
+        """
+        Demodulate discriminator audio to dibits.
+
+        Args:
+            audio: Mono audio samples (float32, normalized to ±1 range)
+
+        Returns:
+            Array of dibits (0-3) as uint8
+        """
+        if audio.size == 0:
+            return cast(np.ndarray, np.array([], dtype=np.uint8))
+
+        # Ensure float32
+        samples = audio.astype(np.float32, copy=False)
+
+        # Auto-gain normalization
+        if self._auto_gain and len(samples) > 100:
+            max_val = np.max(np.abs(samples))
+            if max_val > 0.01:
+                # Target ±3 symbol range (so max should be ~3)
+                target_max = 3.0
+                new_gain = target_max / max_val
+                self._input_gain = self._input_gain * 0.9 + new_gain * 0.1
+
+        samples = samples * self._input_gain
+
+        # DC offset removal
+        for i in range(len(samples)):
+            self._dc_estimate = self._dc_estimate * (1 - self._dc_alpha) + samples[i] * self._dc_alpha
+            samples[i] = samples[i] - self._dc_estimate
+
+        # Baseband low-pass filter
+        if len(samples) >= len(self._baseband_taps):
+            samples = np.convolve(samples, self._baseband_taps, mode='same').astype(np.float32)
+
+        # Symbol timing recovery
+        return self._mmse_timing_recovery(samples)
+
+    def _mmse_interpolate(self, mu: float) -> float:
+        """MMSE FIR interpolation."""
+        imu = round(mu * self.MMSE_NSTEPS)
+        imu = min(imu, self.MMSE_NSTEPS)
+
+        result = 0.0
+        for i in range(self.MMSE_NTAPS):
+            hist_idx = (self._history_idx + i) % self.MMSE_NTAPS
+            result += self._mmse_taps[imu, i] * self._history[hist_idx]
+
+        return result
+
+    def _mmse_timing_recovery(self, samples: np.ndarray) -> np.ndarray:
+        """Symbol timing recovery using MMSE interpolation."""
+        symbols = []
+
+        for sample in samples:
+            self._history[self._history_idx] = sample
+            self._history_idx = (self._history_idx + 1) % self.MMSE_NTAPS
+
+            self._symbol_clock += self._symbol_time
+
+            if self._symbol_clock > 1.0:
+                self._symbol_clock -= 1.0
+
+                mu = self._symbol_clock / self._symbol_time
+                mu = min(mu, 1.0)
+
+                interp = self._mmse_interpolate(mu)
+                mu_p1 = min(mu + 1.0 / self.MMSE_NSTEPS, 1.0)
+                interp_p1 = self._mmse_interpolate(mu_p1)
+
+                interp -= self._fine_freq_correction
+                interp_p1 -= self._fine_freq_correction
+
+                output = 2.0 * interp / self._symbol_spread
+
+                # Symbol error
+                if interp < -self._symbol_spread:
+                    symbol_error = interp + (1.5 * self._symbol_spread)
+                elif interp < 0.0:
+                    symbol_error = interp + (0.5 * self._symbol_spread)
+                elif interp < self._symbol_spread:
+                    symbol_error = interp - (0.5 * self._symbol_spread)
+                else:
+                    symbol_error = interp - (1.5 * self._symbol_spread)
+
+                # Update spread
+                if interp < -self._symbol_spread or interp >= self._symbol_spread:
+                    self._symbol_spread -= symbol_error * 0.5 * self._K_SYMBOL_SPREAD
+                else:
+                    if interp < 0.0:
+                        self._symbol_spread -= symbol_error * self._K_SYMBOL_SPREAD
+                    else:
+                        self._symbol_spread += symbol_error * self._K_SYMBOL_SPREAD
+                self._symbol_spread = max(1.6, min(2.4, self._symbol_spread))
+
+                # Update timing
+                if interp_p1 < interp:
+                    self._symbol_clock += symbol_error * self._K_SYMBOL_TIMING
+                else:
+                    self._symbol_clock -= symbol_error * self._K_SYMBOL_TIMING
+
+                # Update frequency correction
+                self._coarse_freq_correction += (
+                    (self._fine_freq_correction - self._coarse_freq_correction)
+                    * self._K_COARSE_FREQUENCY
+                )
+                self._fine_freq_correction += symbol_error * self._K_FINE_FREQUENCY
+
+                # 4-level slicing
+                if output < -2.0:
+                    dibit = 3
+                elif output < 0.0:
+                    dibit = 2
+                elif output < 2.0:
+                    dibit = 0
+                else:
+                    dibit = 1
+
+                symbols.append(dibit)
+                self._symbol_count += 1
+
+                self._symbol_values.append(output)
+                if self._symbol_count % self._diag_interval == 0:
+                    vals = np.array(self._symbol_values[-self._diag_interval:])
+                    logger.debug(
+                        f"Discriminator: count={self._symbol_count}, "
+                        f"spread={self._symbol_spread:.3f}, mean={vals.mean():.3f}"
+                    )
+
+        return np.array(symbols, dtype=np.uint8)
+
+    def reset(self) -> None:
+        """Reset demodulator state."""
+        self._dc_estimate = 0.0
+        self._symbol_clock = 0.0
+        self._symbol_spread = 2.0
+        self._fine_freq_correction = 0.0
+        self._coarse_freq_correction = 0.0
+        self._history.fill(0)
+        self._history_idx = 0
+        self._symbol_count = 0
+        self._symbol_values = []
+
+
 class P25TrellisDecoder:
     """
     P25 1/2 rate trellis decoder (Viterbi algorithm).
@@ -1386,6 +1627,11 @@ class P25Decoder:
     Supports both C4FM and LSM (CQPSK) modulation:
     - C4FM: Standard 4-level FSK for non-simulcast systems
     - LSM: CQPSK for simulcast systems (like SA-GRN with 240+ sites)
+
+    Also supports discriminator audio input via process_discriminator() for:
+    - Pre-recorded discriminator tap audio
+    - DSD-FME compatible .dis files
+    - Scanner discriminator output
     """
 
     # P25 frame sizes in dibits
@@ -1405,6 +1651,9 @@ class P25Decoder:
         else:
             self.demodulator = C4FMDemodulator(sample_rate)
             logger.info(f"P25 decoder initialized with C4FM demodulator (sample_rate={sample_rate})")
+
+        # Discriminator demodulator (created on demand)
+        self._discriminator_demod: DiscriminatorDemodulator | None = None
 
         self.frame_sync = P25FrameSync()
         self.trellis = P25TrellisDecoder()
@@ -1574,6 +1823,129 @@ class P25Decoder:
             frames.append(frame)
 
             # Handle trunking logic
+            if frame.tsbk_opcode is not None and frame.tsbk_data:
+                self._handle_tsbk(frame)
+
+        return frames
+
+    def process_discriminator(
+        self, audio: np.ndarray, sample_rate: int = 48000
+    ) -> list[P25Frame]:
+        """
+        Process FM discriminator audio and decode P25 frames.
+
+        Use this method when input is pre-demodulated FM audio (mono),
+        such as discriminator tap recordings or .dis files.
+
+        Args:
+            audio: Mono audio samples (float32 or int16)
+            sample_rate: Audio sample rate (default 48000)
+
+        Returns:
+            List of decoded P25 frames
+        """
+        # Create discriminator demodulator on demand with correct sample rate
+        if self._discriminator_demod is None or self._discriminator_demod.sample_rate != sample_rate:
+            self._discriminator_demod = DiscriminatorDemodulator(sample_rate=sample_rate)
+            logger.info(f"P25 decoder: created discriminator demodulator (sample_rate={sample_rate})")
+
+        self._process_count += 1
+
+        # Normalize int16 to float
+        if audio.dtype == np.int16:
+            audio = audio.astype(np.float32) / 32768.0
+
+        # Demodulate to dibits
+        new_dibits = self._discriminator_demod.demodulate(audio)
+
+        if len(new_dibits) == 0:
+            return []
+
+        # Validate and clip dibits
+        if np.any(new_dibits > 3):
+            logger.warning(f"P25: dibits out of range (max={new_dibits.max()}), clipping")
+            new_dibits = np.clip(new_dibits, 0, 3).astype(np.uint8)
+
+        # Append to ring buffer
+        self._dibit_buffer.append(new_dibits)
+
+        # Log status periodically
+        if self._process_count % 100 == 0:
+            logger.info(
+                f"P25 discriminator: processed={self._process_count}, "
+                f"syncs={self._sync_count}, buffer={len(self._dibit_buffer)}"
+            )
+
+        # Need enough dibits for frame decode
+        if len(self._dibit_buffer) < self.MIN_FRAME_DIBITS:
+            return []
+
+        # From here, use the same frame decoding logic as process_iq
+        buffer_data = self._dibit_buffer.get_contiguous()
+        sync_pos, frame_type, nac, duid = self.frame_sync.find_sync(buffer_data)
+
+        if sync_pos is None:
+            self._no_sync_count += 1
+            return []
+
+        self._sync_count += 1
+        logger.info(f"Found P25 frame sync at position {sync_pos}: {frame_type} NAC={nac:03X}")
+
+        # Calculate frame boundaries (same as process_iq)
+        if frame_type == P25FrameType.TSDU:
+            header_raw_dibits = 57
+        else:
+            header_raw_dibits = 32
+
+        MIN_FRAME_DATA: dict[P25FrameType, int] = {
+            P25FrameType.HDU: 100,
+            P25FrameType.LDU1: 900,
+            P25FrameType.LDU2: 900,
+            P25FrameType.TDU: 10,
+            P25FrameType.TSDU: 104,
+            P25FrameType.PDU: 100,
+            P25FrameType.UNKNOWN: 32,
+        }
+
+        available_data = len(buffer_data) - sync_pos - header_raw_dibits
+        min_required = MIN_FRAME_DATA.get(frame_type, MIN_FRAME_DATA[P25FrameType.UNKNOWN])
+
+        if available_data < min_required:
+            self._dibit_buffer.consume(sync_pos)
+            return []
+
+        # Extract frame dibits
+        if frame_type == P25FrameType.TSDU:
+            frame_dibits = buffer_data[sync_pos + 57:sync_pos + 57 + 104]
+        else:
+            frame_len = min(900, len(buffer_data) - sync_pos - header_raw_dibits)
+            frame_dibits = buffer_data[sync_pos + header_raw_dibits:sync_pos + header_raw_dibits + frame_len]
+
+        consume_len = sync_pos + header_raw_dibits + len(frame_dibits)
+        self._dibit_buffer.consume(consume_len)
+
+        # Decode frame
+        frames = []
+        if frame_type == P25FrameType.HDU:
+            frame = self._decode_hdu(frame_dibits)
+        elif frame_type == P25FrameType.LDU1:
+            frame = self._decode_ldu1(frame_dibits)
+        elif frame_type == P25FrameType.LDU2:
+            frame = self._decode_ldu2(frame_dibits)
+        elif frame_type == P25FrameType.TDU:
+            frame = self._decode_tdu(frame_dibits)
+        elif frame_type == P25FrameType.TSDU:
+            frame = self._decode_tsdu(frame_dibits)
+        else:
+            frame = P25Frame(frame_type=P25FrameType.UNKNOWN, nac=nac, duid=duid)
+
+        if frame:
+            if frame_type is not None:
+                frame.frame_type = frame_type
+            frame.nac = nac
+            frame.duid = duid
+            frames.append(frame)
+
             if frame.tsbk_opcode is not None and frame.tsbk_data:
                 self._handle_tsbk(frame)
 
