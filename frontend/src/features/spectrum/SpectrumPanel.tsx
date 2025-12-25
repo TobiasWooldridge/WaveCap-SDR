@@ -248,8 +248,8 @@ export function SpectrumPanel({ capture, channels }: SpectrumPanelProps) {
         <WaterfallDisplay capture={capture} channels={channels} />
       </div>
 
-      {/* Channel Classifier Bar */}
-      <ChannelClassifierBar capture={capture} height={40} />
+      {/* Channel Classifier Bar - separate component below waterfall */}
+      <ChannelClassifierBar capture={capture} height={50} />
     </Flex>
   );
 }

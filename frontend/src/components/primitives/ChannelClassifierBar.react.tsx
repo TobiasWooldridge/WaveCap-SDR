@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Radio, RotateCcw } from "lucide-react";
+import { Radio, RotateCcw, ChevronDown, ChevronUp } from "lucide-react";
 import type { Capture } from "../../types";
 import { useSpectrumData } from "../../hooks/useSpectrumData";
 
@@ -31,7 +31,7 @@ const VOICE_VARIANCE_THRESHOLD = 10; // High variance = voice channel
 
 export default function ChannelClassifierBar({
   capture,
-  height = 40,
+  height = 50,
 }: ChannelClassifierBarProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -49,6 +49,13 @@ export default function ChannelClassifierBar({
   const [classifiedChannels, setClassifiedChannels] = useState<ClassifiedChannel[]>([]);
   const [isCollecting, setIsCollecting] = useState(true);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // Hover state for tooltip
+  const [hoveredChannel, setHoveredChannel] = useState<ClassifiedChannel | null>(null);
+  const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
+
+  // Expanded list view
+  const [isListExpanded, setIsListExpanded] = useState(false);
 
   // Use shared WebSocket connection
   const { spectrumData } = useSpectrumData(capture, false);
@@ -228,6 +235,46 @@ export default function ChannelClassifierBar({
     setElapsedSeconds(0);
   }, []);
 
+  // Handle mouse move over canvas
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!spectrumInfo || classifiedChannels.length === 0) {
+      setHoveredChannel(null);
+      return;
+    }
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+
+    const { centerHz, freqs } = spectrumInfo;
+    const freqMin = centerHz + freqs[0];
+    const freqMax = centerHz + freqs[freqs.length - 1];
+    const freqSpan = freqMax - freqMin;
+
+    // Find nearest channel within 10 pixels
+    let nearestChannel: ClassifiedChannel | null = null;
+    let nearestDist = 15; // Max distance in pixels
+
+    classifiedChannels.forEach((ch) => {
+      const chX = ((ch.freqHz - freqMin) / freqSpan) * width;
+      const dist = Math.abs(chX - x);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearestChannel = ch;
+      }
+    });
+
+    setHoveredChannel(nearestChannel);
+    setMousePos(nearestChannel ? { x: e.clientX, y: e.clientY } : null);
+  }, [spectrumInfo, classifiedChannels, width]);
+
+  const handleMouseLeave = useCallback(() => {
+    setHoveredChannel(null);
+    setMousePos(null);
+  }, []);
+
   // Render the classifier bar
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -245,9 +292,11 @@ export default function ChannelClassifierBar({
     ctx.fillStyle = "#1a1a1a";
     ctx.fillRect(0, 0, width, height);
 
+    const barHeight = height - 18; // Leave room for legend
+
     // Draw background gradient showing variance density
     if (binStatsRef.current.size > 0 && !isCollecting) {
-      const imageData = ctx.createImageData(width, height - 15);
+      const imageData = ctx.createImageData(width, barHeight);
       const data = imageData.data;
 
       for (let x = 0; x < width; x++) {
@@ -269,20 +318,20 @@ export default function ChannelClassifierBar({
           } else if (stdDev < CONTROL_VARIANCE_THRESHOLD) {
             // Control channel - green
             const intensity = Math.min(1, (avg + 60) / 60);
-            r = 0; g = Math.floor(100 + 155 * intensity); b = 0;
+            r = 0; g = Math.floor(80 + 100 * intensity); b = 0;
           } else if (stdDev > VOICE_VARIANCE_THRESHOLD) {
             // Voice channel - red/orange
             const intensity = Math.min(1, (avg + 60) / 60);
-            r = Math.floor(200 * intensity); g = Math.floor(80 * intensity); b = 0;
+            r = Math.floor(150 * intensity); g = Math.floor(60 * intensity); b = 0;
           } else {
             // Variable - blue
             const intensity = Math.min(1, (avg + 60) / 60);
-            r = 0; g = Math.floor(100 * intensity); b = Math.floor(200 * intensity);
+            r = 0; g = Math.floor(80 * intensity); b = Math.floor(150 * intensity);
           }
         }
 
         // Fill column
-        for (let y = 0; y < height - 15; y++) {
+        for (let y = 0; y < barHeight; y++) {
           const idx = (y * width + x) * 4;
           data[idx] = r;
           data[idx + 1] = g;
@@ -291,7 +340,7 @@ export default function ChannelClassifierBar({
         }
       }
 
-      ctx.putImageData(imageData, 0, height - (height - 15) - 15);
+      ctx.putImageData(imageData, 0, 0);
     }
 
     // Draw channel markers for detected channels
@@ -316,28 +365,38 @@ export default function ChannelClassifierBar({
           markerColor = "#666666";
       }
 
+      // Highlight if hovered
+      const isHovered = hoveredChannel?.freqHz === ch.freqHz;
+      if (isHovered) {
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, barHeight);
+        ctx.stroke();
+      }
+
       ctx.strokeStyle = markerColor;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(x, 0);
-      ctx.lineTo(x, height - 15);
+      ctx.lineTo(x, barHeight);
       ctx.stroke();
 
       // Draw triangle at bottom
       ctx.fillStyle = markerColor;
       ctx.beginPath();
-      ctx.moveTo(x, height - 15);
-      ctx.lineTo(x - 4, height - 10);
-      ctx.lineTo(x + 4, height - 10);
+      ctx.moveTo(x, barHeight);
+      ctx.lineTo(x - 5, barHeight + 6);
+      ctx.lineTo(x + 5, barHeight + 6);
       ctx.closePath();
       ctx.fill();
     });
 
     // Draw legend at bottom
-    ctx.fillStyle = "#ffffff";
     ctx.font = "9px monospace";
-
     const legendY = height - 3;
+
     ctx.fillStyle = "#00ff00";
     ctx.fillRect(5, legendY - 7, 8, 8);
     ctx.fillStyle = "#ffffff";
@@ -364,15 +423,38 @@ export default function ChannelClassifierBar({
     ctx.fillText(statusText, width - 5, legendY);
     ctx.textAlign = "left";
 
-  }, [width, height, spectrumInfo, classifiedChannels, isCollecting, elapsedSeconds]);
+  }, [width, height, spectrumInfo, classifiedChannels, isCollecting, elapsedSeconds, hoveredChannel]);
 
   // Count by type
   const controlCount = classifiedChannels.filter(c => c.type === "control").length;
   const voiceCount = classifiedChannels.filter(c => c.type === "voice").length;
 
+  // Format frequency for display
+  const formatFreq = (hz: number) => `${(hz / 1e6).toFixed(4)} MHz`;
+
+  // Get type label
+  const getTypeLabel = (type: string) => {
+    switch (type) {
+      case "control": return "Control";
+      case "voice": return "Voice";
+      case "variable": return "Variable";
+      default: return type;
+    }
+  };
+
+  // Get type color
+  const getTypeColor = (type: string) => {
+    switch (type) {
+      case "control": return "#00ff00";
+      case "voice": return "#ff6600";
+      case "variable": return "#0088ff";
+      default: return "#888888";
+    }
+  };
+
   return (
-    <div className="card shadow-sm border-top-0">
-      <div className="card-header bg-body-tertiary py-1 px-2 border-top-0">
+    <div className="card shadow-sm mt-2">
+      <div className="card-header bg-body-tertiary py-1 px-2">
         <div className="d-flex justify-content-between align-items-center">
           <small className="fw-semibold mb-0 d-flex align-items-center gap-1">
             <Radio size={12} />
@@ -383,28 +465,118 @@ export default function ChannelClassifierBar({
               </span>
             )}
           </small>
-          <button
-            className="btn btn-sm btn-outline-secondary p-0 d-flex align-items-center justify-content-center"
-            style={{ width: "20px", height: "20px" }}
-            onClick={handleReset}
-            title="Reset classification (use after frequency changes)"
-          >
-            <RotateCcw size={12} />
-          </button>
+          <div className="d-flex align-items-center gap-1">
+            {!isCollecting && classifiedChannels.length > 0 && (
+              <button
+                className="btn btn-sm btn-outline-secondary p-0 d-flex align-items-center justify-content-center"
+                style={{ width: "20px", height: "20px" }}
+                onClick={() => setIsListExpanded(!isListExpanded)}
+                title={isListExpanded ? "Hide channel list" : "Show channel list"}
+              >
+                {isListExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+              </button>
+            )}
+            <button
+              className="btn btn-sm btn-outline-secondary p-0 d-flex align-items-center justify-content-center"
+              style={{ width: "20px", height: "20px" }}
+              onClick={handleReset}
+              title="Reset classification"
+            >
+              <RotateCcw size={12} />
+            </button>
+          </div>
         </div>
       </div>
       <div className="card-body p-1" ref={containerRef}>
-        <canvas
-          ref={canvasRef}
-          width={width}
-          height={height}
-          style={{
-            border: "1px solid #dee2e6",
-            borderRadius: "4px",
-            display: "block",
-            width: "100%",
-          }}
-        />
+        <div style={{ position: "relative" }}>
+          <canvas
+            ref={canvasRef}
+            width={width}
+            height={height}
+            style={{
+              border: "1px solid #dee2e6",
+              borderRadius: "4px",
+              display: "block",
+              width: "100%",
+              cursor: classifiedChannels.length > 0 ? "crosshair" : "default",
+            }}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+          />
+
+          {/* Tooltip */}
+          {hoveredChannel && mousePos && (
+            <div
+              style={{
+                position: "fixed",
+                left: mousePos.x + 10,
+                top: mousePos.y - 60,
+                backgroundColor: "rgba(0, 0, 0, 0.9)",
+                color: "#ffffff",
+                padding: "8px 12px",
+                borderRadius: "4px",
+                fontSize: "11px",
+                fontFamily: "monospace",
+                zIndex: 1000,
+                pointerEvents: "none",
+                border: `2px solid ${getTypeColor(hoveredChannel.type)}`,
+                minWidth: "180px",
+              }}
+            >
+              <div style={{ color: getTypeColor(hoveredChannel.type), fontWeight: "bold", marginBottom: "4px" }}>
+                {getTypeLabel(hoveredChannel.type)} Channel
+              </div>
+              <div><strong>Frequency:</strong> {formatFreq(hoveredChannel.freqHz)}</div>
+              <div><strong>Power:</strong> {hoveredChannel.power.toFixed(1)} dB</div>
+              <div><strong>Variance:</strong> {hoveredChannel.variance.toFixed(2)} dB</div>
+            </div>
+          )}
+        </div>
+
+        {/* Expandable channel list */}
+        {isListExpanded && classifiedChannels.length > 0 && (
+          <div
+            className="mt-1"
+            style={{
+              maxHeight: "200px",
+              overflowY: "auto",
+              fontSize: "10px",
+              fontFamily: "monospace",
+            }}
+          >
+            <table className="table table-sm table-dark mb-0" style={{ fontSize: "10px" }}>
+              <thead>
+                <tr>
+                  <th style={{ width: "60px" }}>Type</th>
+                  <th>Frequency</th>
+                  <th style={{ width: "60px" }}>Power</th>
+                  <th style={{ width: "60px" }}>Std Dev</th>
+                </tr>
+              </thead>
+              <tbody>
+                {classifiedChannels.map((ch, idx) => (
+                  <tr key={idx}>
+                    <td>
+                      <span
+                        className="badge"
+                        style={{
+                          backgroundColor: getTypeColor(ch.type),
+                          color: ch.type === "control" ? "#000" : "#fff",
+                          fontSize: "9px",
+                        }}
+                      >
+                        {getTypeLabel(ch.type)}
+                      </span>
+                    </td>
+                    <td>{formatFreq(ch.freqHz)}</td>
+                    <td>{ch.power.toFixed(1)} dB</td>
+                    <td>{ch.variance.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
