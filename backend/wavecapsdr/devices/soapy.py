@@ -166,7 +166,8 @@ def _enumerate_worker(driver_name: str, queue: MPQueue[Any]) -> None:
                 for k in sorted(args.keys()):
                     if k in volatile_fields:
                         continue
-                    v = args.get(k, None)
+                    # Note: SoapySDRKwargs doesn't have .get() method, use direct access
+                    v = args[k]
                     if v is None:
                         continue
                     items.append(f"{k}={v}")
