@@ -1145,6 +1145,15 @@ async def start_capture(
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
 
+    # Prevent starting a capture that's owned by a trunking system
+    # (trunking system controls its own capture lifecycle)
+    if cap.trunking_system_id:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Capture is owned by trunking system '{cap.trunking_system_id}'. "
+                   f"Use trunking API to control it."
+        )
+
     # Auto-stop other captures using the same device
     # This ensures only one capture per device is running at a time
     target_device_id = cap.requested_device_id or cap.cfg.device_id
@@ -1154,6 +1163,9 @@ async def start_capture(
         for other_cap in state.captures.list_captures():
             if other_cap.cfg.id == cid:
                 continue  # Skip the capture we're starting
+            # Skip captures owned by trunking systems - they manage their own lifecycle
+            if other_cap.trunking_system_id:
+                continue
             # Check if other capture is using the same device using stable ID
             other_stable_id = _get_stable_device_id(other_cap.cfg.device_id)
             if other_stable_id == target_stable_id and other_cap.state in ("running", "starting"):
@@ -1184,6 +1196,15 @@ async def stop_capture(
     cap = state.captures.get_capture(cid)
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
+
+    # Prevent stopping a capture that's owned by a trunking system
+    if cap.trunking_system_id:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Capture is owned by trunking system '{cap.trunking_system_id}'. "
+                   f"Use trunking API to stop it."
+        )
+
     await cap.stop()
 
     # Emit capture stopped
@@ -1547,6 +1568,15 @@ async def delete_capture(
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
 ) -> Response:
+    # Check if capture exists and is not owned by a trunking system
+    cap = state.captures.get_capture(cid)
+    if cap is not None and cap.trunking_system_id:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Capture is owned by trunking system '{cap.trunking_system_id}'. "
+                   f"Delete the trunking system instead."
+        )
+
     # Get channel IDs before deletion to emit events
     channel_ids = [ch.cfg.id for ch in state.captures.list_channels(cid)]
 

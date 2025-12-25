@@ -79,7 +79,9 @@ class MockCaptureManager:
         self._capture_counter += 1
         return MockCapture(f"c{self._capture_counter}")
 
-    def create_channel(self, cid: str, mode: str, offset_hz: float = 0.0) -> MockChannel:
+    def create_channel(
+        self, cid: str, mode: str, offset_hz: float = 0.0, enable_voice_following: bool = True
+    ) -> MockChannel:
         self._channel_counter += 1
         return MockChannel(f"ch{self._channel_counter}")
 

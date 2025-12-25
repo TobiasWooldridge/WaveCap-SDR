@@ -537,32 +537,39 @@ class Channel:
 
     def stop(self) -> None:
         self.state = "stopped"
+
+        def _schedule_stop(decoder_stop_coro: Any, stored_loop: asyncio.AbstractEventLoop | None) -> None:
+            """Schedule decoder stop on an available event loop."""
+            # Try stored loop first
+            if stored_loop is not None and not stored_loop.is_closed():
+                with contextlib.suppress(Exception):
+                    asyncio.run_coroutine_threadsafe(decoder_stop_coro, stored_loop)
+                return
+
+            # Try to get currently running loop (works if called from async context)
+            try:
+                running_loop = asyncio.get_running_loop()
+                if not running_loop.is_closed():
+                    running_loop.create_task(decoder_stop_coro)
+                    return
+            except RuntimeError:
+                pass
+
+            # Last resort: try asyncio.run (only works if no loop is running)
+            try:
+                asyncio.run(decoder_stop_coro)
+            except RuntimeError:
+                # No available loop; best-effort cleanup failed
+                pass
+
         # Clean up IMBE decoder if running
         if self._imbe_decoder is not None:
-            loop = self._imbe_loop
-            if loop is not None and not loop.is_closed():
-                with contextlib.suppress(Exception):
-                    asyncio.run_coroutine_threadsafe(self._imbe_decoder.stop(), loop)
-            else:
-                try:
-                    asyncio.run(self._imbe_decoder.stop())
-                except RuntimeError:
-                    # No available loop; best-effort cleanup
-                    pass
+            _schedule_stop(self._imbe_decoder.stop(), self._imbe_loop)
             self._imbe_loop = None
 
         # Clean up DMR voice decoder if running
         if self._dmr_voice_decoder is not None:
-            loop = self._dmr_voice_loop
-            if loop is not None and not loop.is_closed():
-                with contextlib.suppress(Exception):
-                    asyncio.run_coroutine_threadsafe(self._dmr_voice_decoder.stop(), loop)
-            else:
-                try:
-                    asyncio.run(self._dmr_voice_decoder.stop())
-                except RuntimeError:
-                    # No available loop; best-effort cleanup
-                    pass
+            _schedule_stop(self._dmr_voice_decoder.stop(), self._dmr_voice_loop)
             self._dmr_voice_loop = None
 
     def get_pocsag_messages(self, limit: int = 50, since_timestamp: float | None = None) -> list[dict[str, Any]]:
@@ -1096,7 +1103,8 @@ class Channel:
             if self._p25_decoder is None:
                 self._p25_decoder = P25Decoder(sample_rate)
                 self._p25_decoder.on_voice_frame = lambda voice_data: self._handle_p25_voice(voice_data)
-                self._p25_decoder.on_grant = lambda tgid, freq: self._handle_trunking_grant(tgid, freq)
+                # NOTE: on_grant is not wired here - trunking systems use their own
+                # VoiceRecorder pool for voice following (see TrunkingSystem)
                 logger.info(f"Channel {self.cfg.id}: P25 decoder initialized")
 
             # Initialize IMBE decoder for voice audio (if available)
@@ -1411,7 +1419,7 @@ class Channel:
             if self._p25_decoder is None:
                 self._p25_decoder = P25Decoder(sample_rate)
                 self._p25_decoder.on_voice_frame = lambda voice_data: self._handle_p25_voice(voice_data)
-                self._p25_decoder.on_grant = lambda tgid, freq: self._handle_trunking_grant(tgid, freq)
+                # NOTE: on_grant is not wired - trunking uses VoiceRecorder pool
                 logger.info(f"Channel {self.cfg.id}: P25 decoder initialized")
 
             base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
@@ -1660,6 +1668,7 @@ class Capture:
     device: Device | None = None
     antenna: str | None = None  # Actual antenna in use
     error_message: str | None = None  # Error message if state is "failed"
+    trunking_system_id: str | None = None  # If set, capture is owned by a trunking system
     _stream: StreamHandle | None = None
     _thread: threading.Thread | None = None
     _health_monitor: threading.Thread | None = None
@@ -2451,7 +2460,7 @@ class Capture:
                     modulation = ch.p25_modulation if ch.p25_modulation else P25Mod.LSM
                     ch._p25_decoder = P25Decoder(p25_rate, modulation=modulation)
                     ch._p25_decoder.on_voice_frame = lambda voice_data: ch._handle_p25_voice(voice_data)
-                    ch._p25_decoder.on_grant = lambda tgid, freq: ch._handle_trunking_grant(tgid, freq)
+                    # NOTE: on_grant is not wired - trunking uses VoiceRecorder pool
                     logger.info(f"Channel {ch.cfg.id}: P25 decoder initialized (sample_rate={p25_rate}, decimation={self.cfg.sample_rate // p25_rate}x, modulation={modulation.value})")
 
                 # Initialize IMBE voice decoder for P25 voice decoding via DSD-FME

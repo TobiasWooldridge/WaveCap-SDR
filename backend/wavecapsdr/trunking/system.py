@@ -506,6 +506,9 @@ class TrunkingSystem:
                 device_settings=self.cfg.device_settings if self.cfg.device_settings else None,
             )
 
+            # Mark capture as owned by this trunking system
+            self._capture.trunking_system_id = self.cfg.id
+
             logger.info(
                 f"TrunkingSystem {self.cfg.id}: Created capture {self._capture.cfg.id} "
                 f"at {self.cfg.center_hz/1e6:.4f} MHz, {self.cfg.sample_rate/1e6:.1f} Msps"
@@ -515,10 +518,13 @@ class TrunkingSystem:
             cc_offset_hz = self.control_channel_freq_hz - self.cfg.center_hz
 
             # Create P25 control channel
+            # Disable capture-level voice following since trunking system
+            # manages voice channels via its own VoiceRecorder pool
             self._control_channel = capture_manager.create_channel(
                 cid=self._capture.cfg.id,
                 mode="p25",
                 offset_hz=cc_offset_hz,
+                enable_voice_following=False,
             )
 
             # Set modulation for the channel's P25 decoder
