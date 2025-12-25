@@ -29,6 +29,7 @@ import numpy as np
 from scipy import signal as scipy_signal
 
 from wavecapsdr.decoders.lrrp import LocationCache
+from wavecapsdr.decoders.p25 import P25Decoder
 from wavecapsdr.decoders.p25_tsbk import ChannelIdentifier, TSBKParser
 from wavecapsdr.decoders.voice import VocoderType
 from wavecapsdr.trunking.cc_scanner import ControlChannelScanner
@@ -132,6 +133,12 @@ class VoiceRecorder:
     source_id: int | None = None
     encrypted: bool = False
 
+    # Recording config (set from TrunkingSystemConfig)
+    should_record: bool = True
+    audio_gain: float = 1.0
+    recording_path: str = "./recordings"
+    min_call_duration: float = 1.0
+
     # Frequency shift from capture center
     offset_hz: float = 0.0
 
@@ -155,6 +162,12 @@ class VoiceRecorder:
 
     # Event loop for thread-safe audio scheduling
     _event_loop: asyncio.AbstractEventLoop | None = field(default=None, repr=False)
+
+    # P25 frame decoder for extracting GPS from LDU frames
+    _p25_decoder: P25Decoder | None = field(default=None, repr=False)
+
+    # Callback when GPS location is found in LDU1 link control
+    on_location: Callable[[dict[str, Any]], None] | None = None
 
     def set_event_loop(self, loop: asyncio.AbstractEventLoop | None) -> None:
         """Set the event loop used for scheduling audio decoding."""
@@ -185,6 +198,10 @@ class VoiceRecorder:
         protocol: TrunkingProtocol = TrunkingProtocol.P25_PHASE1,
         source_id: int | None = None,
         encrypted: bool = False,
+        should_record: bool = True,
+        audio_gain: float = 1.0,
+        recording_path: str = "./recordings",
+        min_call_duration: float = 1.0,
     ) -> None:
         """Assign recorder to a call (sync part - sets up state)."""
         self.state = "tuning"
@@ -199,9 +216,16 @@ class VoiceRecorder:
         self._protocol = protocol
         self._last_phase = 0.0
 
+        # Recording config
+        self.should_record = should_record
+        self.audio_gain = audio_gain
+        self.recording_path = recording_path
+        self.min_call_duration = min_call_duration
+
         logger.info(
             f"VoiceRecorder {self.id}: Assigned to TG {talkgroup_id} ({talkgroup_name}) "
             f"at {frequency_hz/1e6:.4f} MHz (offset {self.offset_hz/1e3:.1f} kHz)"
+            f"{' [RECORDING]' if should_record else ''}"
         )
 
     async def start_voice_channel(self) -> None:
@@ -209,13 +233,17 @@ class VoiceRecorder:
         if self._voice_channel is not None:
             await self._voice_channel.stop()
 
-        # Create voice channel config
+        # Create voice channel config with recording settings
         cfg = VoiceChannelConfig(
             id=f"{self.id}_{self.call_id}",
             system_id=self.system_id,
             call_id=self.call_id or "",
             recorder_id=self.id,
             output_rate=8000,  # P25 voice is 8kHz
+            audio_gain=self.audio_gain,
+            should_record=self.should_record,
+            recording_path=self.recording_path,
+            min_call_duration=self.min_call_duration,
         )
 
         # Create and configure voice channel
@@ -235,6 +263,16 @@ class VoiceRecorder:
         # Start the voice channel
         await self._voice_channel.start(vocoder_type=vocoder_type)
         self.state = "recording"
+
+        # Create P25 decoder for extracting GPS from LDU frames
+        # Uses discriminator input mode (48kHz discriminator audio)
+        self._p25_decoder = P25Decoder(
+            sample_rate=48000,
+            use_discriminator_input=True,
+        )
+        # Wire the on_location callback if set
+        if self.on_location:
+            self._p25_decoder.on_location = self.on_location
 
         logger.info(f"VoiceRecorder {self.id}: Voice channel started")
 
@@ -292,6 +330,13 @@ class VoiceRecorder:
         # Update activity time
         self.last_activity = time.time()
 
+        # Feed discriminator audio to P25 decoder for GPS extraction
+        # The decoder uses DiscriminatorDemodulator which expects float discriminator samples
+        if self._p25_decoder is not None:
+            # process_iq with discriminator input will extract LDU frames and call on_location
+            # when GPS data is found in Extended Link Control
+            self._p25_decoder.process_iq(disc_audio.astype(np.float32))
+
         # Feed to voice channel (async, schedule on event loop)
         loop = self._event_loop
         if loop is None or not loop.is_running():
@@ -308,6 +353,9 @@ class VoiceRecorder:
         if self._voice_channel is not None:
             await self._voice_channel.stop()
             self._voice_channel = None
+
+        # Clean up P25 decoder
+        self._p25_decoder = None
 
         if self.call_id:
             logger.info(
@@ -445,6 +493,8 @@ class TrunkingSystem:
                 system_id=self.cfg.id,
                 hold_timeout=self.cfg.voice_hold_time,
             )
+            # Wire GPS location callback from P25 decoder to location cache
+            recorder.on_location = self._handle_location_from_ldu
             self._voice_recorders.append(recorder)
 
         logger.info(
@@ -1215,6 +1265,11 @@ class TrunkingSystem:
                 protocol=self.cfg.protocol,
                 source_id=source_id,
                 encrypted=encrypted,
+                # Recording config from system settings
+                should_record=self.cfg.is_talkgroup_recorded(tgid),
+                audio_gain=self.cfg.audio_gain,
+                recording_path=self.cfg.recording_path,
+                min_call_duration=self.cfg.min_call_duration,
             )
             # Set up decimation filter for IQ processing
             recorder.setup_decimation_filter(self.cfg.sample_rate)
@@ -1662,6 +1717,48 @@ class TrunkingSystem:
     # =========================================================================
     # Location Cache (LRRP GPS data)
     # =========================================================================
+
+    def _handle_location_from_ldu(self, location_data: dict[str, Any]) -> None:
+        """Handle GPS location extracted from LDU1 Extended Link Control.
+
+        This callback is invoked by VoiceRecorder.P25Decoder when GPS data
+        is found in the link control portion of LDU1 voice frames.
+
+        Args:
+            location_data: Dict with keys: source_id, latitude, longitude,
+                          altitude_m, speed_kmh, heading_deg, lcf
+        """
+        source_id = location_data.get("source_id", 0)
+        if source_id == 0:
+            return
+
+        # Map LCF to source type
+        lcf = location_data.get("lcf", 0x09)
+        if lcf == 0x09:
+            source_type = "elc_gps"
+        elif lcf == 0x0A:
+            source_type = "elc_gps_alt"
+        elif lcf == 0x0B:
+            source_type = "elc_gps_vel"
+        else:
+            source_type = "elc_unknown"
+
+        location = RadioLocation(
+            unit_id=source_id,
+            latitude=location_data.get("latitude", 0.0),
+            longitude=location_data.get("longitude", 0.0),
+            altitude_m=location_data.get("altitude_m"),
+            speed_kmh=location_data.get("speed_kmh"),
+            heading_deg=location_data.get("heading_deg"),
+            source=source_type,
+        )
+
+        if location.is_valid():
+            logger.info(
+                f"GPS from LDU1 ELC: unit={source_id} "
+                f"lat={location.latitude:.6f} lon={location.longitude:.6f}"
+            )
+            self.update_radio_location(location)
 
     def update_radio_location(self, location: RadioLocation) -> None:
         """Update the location cache with a new GPS report.

@@ -9,10 +9,14 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import io
 import json
 import logging
+import os
 import time
+import wave
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -78,6 +82,10 @@ class VoiceChannelConfig:
     recorder_id: str
     audio_rate: int = 8000  # DSD-FME outputs 8kHz
     output_rate: int = 48000  # Resampled output rate
+    audio_gain: float = 1.0  # Audio output gain multiplier
+    should_record: bool = True  # Whether to record this call to file
+    recording_path: str = "./recordings"  # Path for audio file storage
+    min_call_duration: float = 1.0  # Minimum call duration to save (seconds)
 
 
 @dataclass
@@ -133,6 +141,10 @@ class VoiceChannel:
     # Decoder output reader task
     _decoder_reader_task: asyncio.Task[None] | None = field(default=None, repr=False)
 
+    # Recording buffer for WAV file output
+    _recording_buffer: io.BytesIO | None = field(default=None, repr=False)
+    _recording_samples: int = 0  # Total samples recorded
+
     def __post_init__(self) -> None:
         """Initialize timing."""
         self.start_time = time.time()
@@ -177,13 +189,19 @@ class VoiceChannel:
             # Start decoder output reader
             self._decoder_reader_task = asyncio.create_task(self._read_decoder_output())
 
+            # Initialize recording buffer if recording is enabled
+            if self.cfg.should_record:
+                self._recording_buffer = io.BytesIO()
+                self._recording_samples = 0
+
             self.state = "active"
             self.start_time = time.time()
             self.last_audio_time = time.time()
 
             logger.info(
                 f"VoiceChannel {self.id}: Started ({vocoder_type.value}, "
-                f"TG={self.talkgroup_id}, src={self.source_id})"
+                f"TG={self.talkgroup_id}, src={self.source_id}"
+                f"{', RECORDING' if self.cfg.should_record else ''})"
             )
 
         except VoiceDecoderError as e:
@@ -210,12 +228,32 @@ class VoiceChannel:
             await self._voice_decoder.stop()
             self._voice_decoder = None
 
+        # Save recording if enabled and meets minimum duration
+        recording_saved = False
+        if self._recording_buffer and self._recording_samples > 0:
+            duration_s = self._recording_samples / self.cfg.output_rate
+            if duration_s >= self.cfg.min_call_duration:
+                try:
+                    recording_saved = self._save_recording()
+                except Exception as e:
+                    logger.error(f"VoiceChannel {self.id}: Failed to save recording: {e}")
+            else:
+                logger.debug(
+                    f"VoiceChannel {self.id}: Recording too short "
+                    f"({duration_s:.1f}s < {self.cfg.min_call_duration}s), not saving"
+                )
+
+        # Clear recording buffer
+        self._recording_buffer = None
+        self._recording_samples = 0
+
         # Clear subscribers
         self._audio_sinks.clear()
 
         logger.info(
             f"VoiceChannel {self.id}: Stopped (frames={self.audio_frame_count}, "
-            f"duration={self.duration_seconds:.1f}s)"
+            f"duration={self.duration_seconds:.1f}s"
+            f"{', saved' if recording_saved else ''})"
         )
 
     async def subscribe_audio(self, format: str = "json") -> asyncio.Queue[bytes]:
@@ -287,6 +325,16 @@ class VoiceChannel:
 
     async def _broadcast(self, audio: np.ndarray) -> None:
         """Broadcast audio to all subscribers with metadata."""
+        # Apply audio gain
+        if self.cfg.audio_gain != 1.0:
+            audio = audio * self.cfg.audio_gain
+
+        # Write to recording buffer if enabled
+        if self._recording_buffer is not None:
+            pcm16_for_recording = pack_pcm16(audio)
+            self._recording_buffer.write(pcm16_for_recording)
+            self._recording_samples += len(audio)
+
         if not self._audio_sinks:
             return
 
@@ -381,6 +429,50 @@ class VoiceChannel:
             except Exception:
                 # Loop closed, remove subscriber
                 self._audio_sinks.discard((q, loop, ""))
+
+    def _save_recording(self) -> bool:
+        """Save recorded audio to WAV file.
+
+        Returns True if recording was saved successfully.
+        """
+        if self._recording_buffer is None or self._recording_samples == 0:
+            return False
+
+        # Create recording directory if needed
+        recording_dir = Path(self.cfg.recording_path)
+        try:
+            recording_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            logger.error(f"VoiceChannel {self.id}: Cannot create recording dir: {e}")
+            return False
+
+        # Generate filename: {system}_{tg}_{timestamp}.wav
+        timestamp = time.strftime("%Y%m%d_%H%M%S", time.localtime(self.start_time))
+        filename = f"{self.cfg.system_id}_TG{self.talkgroup_id}_{timestamp}.wav"
+        filepath = recording_dir / filename
+
+        # Get raw PCM data from buffer
+        self._recording_buffer.seek(0)
+        pcm_data = self._recording_buffer.read()
+
+        # Write WAV file
+        try:
+            with wave.open(str(filepath), "wb") as wav_file:
+                wav_file.setnchannels(1)  # Mono
+                wav_file.setsampwidth(2)  # 16-bit
+                wav_file.setframerate(self.cfg.output_rate)
+                wav_file.writeframes(pcm_data)
+
+            duration_s = self._recording_samples / self.cfg.output_rate
+            logger.info(
+                f"VoiceChannel {self.id}: Saved recording {filename} "
+                f"({duration_s:.1f}s, {len(pcm_data)} bytes)"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"VoiceChannel {self.id}: Failed to write WAV: {e}")
+            return False
 
     def get_stats(self) -> dict[str, Any]:
         """Get channel statistics."""

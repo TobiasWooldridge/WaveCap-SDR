@@ -21,6 +21,7 @@ from typing import Any, Callable, cast
 import numpy as np
 
 from wavecapsdr.decoders.p25_tsbk import TSBKParser
+from wavecapsdr.decoders.p25_frames import extract_link_control
 from wavecapsdr.dsp.fec.bch import bch_decode
 from wavecapsdr.dsp.fec.trellis import TrellisDecoder
 
@@ -1673,6 +1674,7 @@ class P25Decoder:
         self.on_voice_frame: Callable[[bytes], None] | None = None
         self.on_tsbk_message: Callable[[dict[str, Any]], None] | None = None
         self.on_grant: Callable[[int, float], None] | None = None  # (tgid, freq)
+        self.on_location: Callable[[dict[str, Any]], None] | None = None  # GPS location from ELC
 
         # Debug counters
         self._process_count = 0
@@ -1996,8 +1998,25 @@ class P25Decoder:
         if len(dibits) < 900:  # LDU1 is ~1800 bits
             return None
 
-        # Extract link control data (contains TGID, source ID)
-        # This is simplified - full decoder needs error correction
+        # Extract link control data (contains TGID, source ID, and possibly GPS)
+        link_control = extract_link_control(dibits)
+
+        # If GPS data found, notify via callback
+        if link_control.has_gps and self.on_location:
+            location_data = {
+                "source_id": link_control.source_id,
+                "latitude": link_control.gps_latitude,
+                "longitude": link_control.gps_longitude,
+                "altitude_m": link_control.gps_altitude_m,
+                "speed_kmh": link_control.gps_speed_kmh,
+                "heading_deg": link_control.gps_heading_deg,
+                "lcf": link_control.lcf,
+            }
+            logger.info(
+                f"LDU1 GPS: unit={link_control.source_id} "
+                f"lat={link_control.gps_latitude:.6f} lon={link_control.gps_longitude:.6f}"
+            )
+            self.on_location(location_data)
 
         # Extract voice IMBE frames (9 frames per LDU)
         voice_data = self._extract_imbe_frames(dibits)
@@ -2009,7 +2028,9 @@ class P25Decoder:
             frame_type=P25FrameType.LDU1,
             nac=0,  # Would extract from frame
             duid=5,
-            voice_data=voice_data
+            voice_data=voice_data,
+            tgid=link_control.tgid if link_control.tgid else None,
+            source_id=link_control.source_id if link_control.source_id else None,
         )
 
     def _decode_ldu2(self, dibits: np.ndarray) -> P25Frame | None:
