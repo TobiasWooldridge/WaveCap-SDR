@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useCallback } from "react";
 import { Settings } from "lucide-react";
 import type { Capture, Channel } from "../../types";
 import { useUpdateCapture } from "../../hooks/useCaptures";
@@ -36,11 +36,6 @@ interface SpectrumPanelProps {
 }
 
 export function SpectrumPanel({ capture, channels }: SpectrumPanelProps) {
-  const [spectrumHeight, setSpectrumHeight] = useState(() => {
-    const saved = localStorage.getItem("spectrum-height");
-    return saved ? parseInt(saved) : 200;
-  });
-
   const updateCapture = useUpdateCapture();
   const createChannel = useCreateChannel();
   const startChannel = useStartChannel(capture.id);
@@ -95,164 +90,81 @@ export function SpectrumPanel({ capture, channels }: SpectrumPanelProps) {
     [capture.id, capture.centerHz, channels, createChannel, startChannel, toast]
   );
 
-  // Save spectrum height to localStorage
-  const handleHeightChange = useCallback((height: number) => {
-    setSpectrumHeight(height);
-    localStorage.setItem("spectrum-height", height.toString());
-  }, []);
-
-  const [waterfallHeight, setWaterfallHeight] = useState(() => {
-    const saved = localStorage.getItem("waterfall-height");
-    return saved ? parseInt(saved) : 200;
-  });
-
-  // Save waterfall height to localStorage
-  const handleWaterfallHeightChange = useCallback((height: number) => {
-    setWaterfallHeight(height);
-    localStorage.setItem("waterfall-height", height.toString());
-  }, []);
-
-  // Ref to store cleanup function for drag handlers
-  const dragCleanupRef = useRef<(() => void) | null>(null);
-
-  // Clean up drag event listeners on unmount
-  useEffect(() => {
-    return () => {
-      if (dragCleanupRef.current) {
-        dragCleanupRef.current();
-      }
-    };
-  }, []);
-
-  // Handle resize drag
-  const handleResizeMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      const startY = e.clientY;
-      const startSpectrumHeight = spectrumHeight;
-      const startWaterfallHeight = waterfallHeight;
-
-      const handleMouseMove = (moveEvent: MouseEvent) => {
-        const deltaY = moveEvent.clientY - startY;
-        const newSpectrumHeight = Math.max(80, Math.min(500, startSpectrumHeight + deltaY));
-        const newWaterfallHeight = Math.max(80, Math.min(500, startWaterfallHeight - deltaY));
-        handleHeightChange(newSpectrumHeight);
-        handleWaterfallHeightChange(newWaterfallHeight);
-      };
-
-      const cleanup = () => {
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
-        dragCleanupRef.current = null;
-      };
-
-      const handleMouseUp = () => {
-        cleanup();
-      };
-
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      dragCleanupRef.current = cleanup;
-    },
-    [spectrumHeight, waterfallHeight, handleHeightChange, handleWaterfallHeightChange]
-  );
-
   return (
-    <div>
-      {/* Spectrum and Waterfall group */}
-      <div className="card shadow-sm">
-        {/* FFT Settings Bar */}
-        <div
-          className="card-header bg-body-tertiary d-flex align-items-center gap-3 px-2 py-1"
-          style={{ fontSize: "11px" }}
-        >
-          <span className="fw-semibold text-muted d-flex align-items-center gap-1">
-            <Settings size={12} />
-            Display
-          </span>
+    <div className="d-flex flex-column gap-2">
+      {/* FFT Settings Bar */}
+      <div
+        className="bg-body-tertiary border rounded d-flex align-items-center gap-3 px-2 py-1"
+        style={{ fontSize: "11px" }}
+      >
+        <span className="fw-semibold text-muted d-flex align-items-center gap-1">
+          <Settings size={12} />
+          Display
+        </span>
 
-          <div className="d-flex align-items-center gap-1">
-            <label className="text-muted mb-0" title="Target update rate for spectrum/waterfall when not actively viewing.">Target:</label>
-            <select
-              className="form-select form-select-sm border-0 bg-transparent"
-              style={{ width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" }}
-              value={capture.fftFps}
-              onChange={(e) => handleFpsChange(parseInt(e.target.value, 10))}
-              title="Target FPS. Actual rate adapts based on viewer activity."
-            >
-              {FPS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="d-flex align-items-center gap-1">
-            <label className="text-muted mb-0" title="Maximum FPS cap. Prevents excessive CPU/bandwidth usage.">Max:</label>
-            <select
-              className="form-select form-select-sm border-0 bg-transparent"
-              style={{ width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" }}
-              value={capture.fftMaxFps}
-              onChange={(e) => handleMaxFpsChange(parseInt(e.target.value, 10))}
-              title="Hard cap on FPS. Will never exceed this rate."
-            >
-              {MAX_FPS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="d-flex align-items-center gap-1">
-            <label className="text-muted mb-0" title="FFT bin count. Higher = sharper frequency detail but more CPU.">FFT Size:</label>
-            <select
-              className="form-select form-select-sm border-0 bg-transparent"
-              style={{ width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" }}
-              value={capture.fftSize}
-              onChange={(e) => handleFftSizeChange(parseInt(e.target.value, 10))}
-              title="FFT bin count. Higher values show sharper frequency detail."
-            >
-              {FFT_SIZE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="d-flex align-items-center gap-1">
+          <label className="text-muted mb-0" title="Target update rate for spectrum/waterfall when not actively viewing.">Target:</label>
+          <select
+            className="form-select form-select-sm border-0 bg-transparent"
+            style={{ width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" }}
+            value={capture.fftFps}
+            onChange={(e) => handleFpsChange(parseInt(e.target.value, 10))}
+            title="Target FPS. Actual rate adapts based on viewer activity."
+          >
+            {FPS_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
         </div>
 
-        <div className="card-body p-0">
-          {/* Spectrum Analyzer */}
-          <div>
-            <SpectrumAnalyzer
-              capture={capture}
-              channels={channels}
-              height={spectrumHeight}
-              onFrequencyClick={handleFrequencyClick}
-            />
-          </div>
+        <div className="d-flex align-items-center gap-1">
+          <label className="text-muted mb-0" title="Maximum FPS cap. Prevents excessive CPU/bandwidth usage.">Max:</label>
+          <select
+            className="form-select form-select-sm border-0 bg-transparent"
+            style={{ width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" }}
+            value={capture.fftMaxFps}
+            onChange={(e) => handleMaxFpsChange(parseInt(e.target.value, 10))}
+            title="Hard cap on FPS. Will never exceed this rate."
+          >
+            {MAX_FPS_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
 
-          {/* Resize Handle */}
-          <div
-            className="bg-secondary"
-            style={{
-              height: "4px",
-              cursor: "ns-resize",
-              flexShrink: 0,
-            }}
-            onMouseDown={handleResizeMouseDown}
-          />
-
-          {/* Waterfall Display */}
-          <div style={{ height: `${waterfallHeight}px` }}>
-            <WaterfallDisplay capture={capture} channels={channels} />
-          </div>
+        <div className="d-flex align-items-center gap-1">
+          <label className="text-muted mb-0" title="FFT bin count. Higher = sharper frequency detail but more CPU.">FFT Size:</label>
+          <select
+            className="form-select form-select-sm border-0 bg-transparent"
+            style={{ width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" }}
+            value={capture.fftSize}
+            onChange={(e) => handleFftSizeChange(parseInt(e.target.value, 10))}
+            title="FFT bin count. Higher values show sharper frequency detail."
+          >
+            {FFT_SIZE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* Channel Classifier Bar - completely separate card */}
+      {/* Spectrum Analyzer - its own card */}
+      <SpectrumAnalyzer
+        capture={capture}
+        channels={channels}
+        onFrequencyClick={handleFrequencyClick}
+      />
+
+      {/* Waterfall Display - its own card */}
+      <WaterfallDisplay capture={capture} channels={channels} />
+
+      {/* Channel Classifier Bar - its own card */}
       <ChannelClassifierBar capture={capture} />
     </div>
   );
