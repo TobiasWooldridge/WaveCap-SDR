@@ -50,8 +50,8 @@ Open browser DevTools → Network → WS tab
 # List available captures
 curl http://127.0.0.1:8087/api/v1/captures | jq
 
-# Check spectrum metadata
-curl http://127.0.0.1:8087/api/v1/stream/spectrum/{capture_id}/metadata
+# Check spectrum snapshot (includes metadata: centerHz, sampleRate, fft_bins)
+curl http://127.0.0.1:8087/api/v1/captures/{capture_id}/spectrum/snapshot | jq
 ```
 
 4. **Check browser console for errors:**
@@ -63,7 +63,7 @@ curl http://127.0.0.1:8087/api/v1/stream/spectrum/{capture_id}/metadata
 - Restart capture if stopped
 - Refresh browser to reconnect WebSocket
 - Check server logs for spectrum streaming errors
-- Verify `useSpectrumData` hook is properly configured in `RadioTuner.react.tsx`
+- Verify `useSpectrumData` hook is properly configured in `SpectrumAnalyzer.react.tsx`
 
 ---
 
@@ -116,7 +116,7 @@ const freqPerBin = sampleRate / fftBins
 
 1. **Check FFT size:**
 ```bash
-curl http://127.0.0.1:8087/api/v1/stream/spectrum/{capture_id}/metadata | jq '.fft_bins'
+curl http://127.0.0.1:8087/api/v1/captures/{capture_id}/spectrum/snapshot | jq '.power | length'
 ```
 
 Typical FFT sizes: 512, 1024, 2048, 4096
@@ -210,8 +210,9 @@ spectrum_db = 20 * np.log10(np.abs(fft_result) + 1e-10)
 
 1. **Check FFT computation rate:**
 ```bash
-# Monitor WebSocket data rate
-curl -N http://127.0.0.1:8087/api/v1/stream/spectrum/{capture_id}.json
+# Monitor WebSocket data rate (requires WebSocket client like wscat)
+# Install wscat: npm install -g wscat
+wscat -c ws://127.0.0.1:8087/api/v1/stream/captures/{capture_id}/spectrum
 
 # Count messages per second
 ```

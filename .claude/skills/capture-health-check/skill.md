@@ -87,7 +87,7 @@ Test if spectrum data is being generated:
 
 ```bash
 # Fetch spectrum snapshot
-curl -s http://localhost:8087/api/v1/captures/c1/spectrum | python3 -c "
+curl -s http://localhost:8087/api/v1/captures/c1/spectrum/snapshot | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)

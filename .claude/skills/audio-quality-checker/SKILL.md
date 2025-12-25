@@ -91,7 +91,7 @@ Based on the results:
 - Adjust channel frequency (offset_hz) - may not be tuned to a station
 - Check antenna connection
 - Try different frequencies known to have active broadcasts
-- Verify modulation mode matches the signal (currently only WBFM supported)
+- Verify modulation mode matches the signal (wbfm, nbfm, am, ssb, p25, dmr supported)
 
 **If CLIPPED detected:**
 - Reduce SDR gain settings

@@ -17,7 +17,7 @@ Scope: applies to the entire repo.
 - Add tests alongside features; do not defer.
 
 ## Documentation Expectations
-- Treat `SPEC.md` as the authoritative product spec. Update it with any functional change, even small.
+- Treat `docs/api-spec.md` as the authoritative product spec. Update it with any functional change, even small.
 - Document every meaningful configuration option in `docs/configuration.md` (create if missing). Keep options discoverable and auditable.
 - In user‑facing docs (README, guides), focus on workflows and outcomes. Avoid naming frameworks/libraries unless strictly needed for setup or troubleshooting.
 

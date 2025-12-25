@@ -4,30 +4,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-WaveCap-SDR is a standalone SDR (Software Defined Radio) server that provides device control, RF capture, and demodulation via a REST/WebSocket API. It supports RTL-SDR, SDRplay, and other SoapySDR-compatible devices.
+WaveCap-SDR is a standalone SDR (Software Defined Radio) server providing device control, RF capture, demodulation, and streaming via REST/WebSocket APIs, plus a bundled web UI. Supports RTL-SDR, SDRplay, and other SoapySDR-compatible devices, with a direct RTL driver and a fake driver for tests.
 
 ## Build & Run Commands
 
 ```bash
-# Run the server (from project root)
+# Run the server (from project root; builds frontend if present)
 ./start-app.sh
-# Or with custom settings:
 HOST=0.0.0.0 PORT=8087 ./start-app.sh
 
-# Manual start (from backend/)
-cd backend
-source .venv/bin/activate
+# Manual start
+cd backend && source .venv/bin/activate
 PYTHONPATH=. python -m wavecapsdr --bind 0.0.0.0 --port 8087
 
-# Run tests
-cd backend && source .venv/bin/activate
-PYTHONPATH=. pytest tests/
+# Run all tests (wrap with timeout to avoid hangs)
+scripts/run-with-timeout.sh --seconds 120 -- bash -lc 'cd backend && source .venv/bin/activate && PYTHONPATH=. pytest tests/'
 
 # Run a single test
+cd backend && source .venv/bin/activate
 PYTHONPATH=. pytest tests/test_captures_channels.py::test_channel_audio_stream -v
 
-# Type checking (frontend)
+# Frontend quality checks (no unit tests, only type-check and lint)
 cd frontend && npm run type-check
+cd frontend && npm run lint
+
+# Backend type checking
+cd backend && source .venv/bin/activate && mypy wavecapsdr
 
 # Build frontend
 cd frontend && npm run build
@@ -35,8 +37,6 @@ cp -r dist/* ../backend/wavecapsdr/static/
 
 # Verify SDR device detection
 scripts/soapy-find.sh
-# Or directly:
-SoapySDRUtil --find
 ```
 
 ## Architecture
@@ -45,21 +45,56 @@ SoapySDRUtil --find
 
 ```
 backend/wavecapsdr/
-├── app.py          # FastAPI app factory, startup, static file serving
-├── api.py          # REST/WebSocket endpoints (/api/v1/*)
-├── capture.py      # Core: Capture, Channel, CaptureManager classes
-├── config.py       # YAML config loading (wavecapsdr.yaml)
-├── state.py        # AppState - runtime state container
-├── models.py       # Pydantic models for API serialization
-├── devices/        # SDR driver abstractions
-│   ├── soapy.py    # SoapySDR driver (primary)
-│   └── fake.py     # Test/mock driver
-└── dsp/            # Signal processing
-    ├── fm.py       # WBFM/NBFM demodulation
-    ├── am.py       # AM/SSB demodulation
-    ├── filters.py  # FIR/IIR filter design
-    ├── agc.py      # Automatic gain control
-    └── rds.py      # RDS decoder (FM broadcast)
+├── app.py           # FastAPI app factory, startup, static file serving
+├── api.py           # REST/WebSocket endpoints (/api/v1/*)
+├── capture.py       # Core: Capture, Channel, CaptureManager classes
+├── config.py        # YAML config loading (wavecapsdr.yaml)
+├── encoders.py      # Audio encoders (mp3/opus/aac via ffmpeg)
+├── state.py         # AppState - runtime state container
+├── models.py        # Pydantic models for API serialization
+├── scanner.py       # Frequency scanner (sequential/priority/activity modes)
+├── sdrplay_recovery.py  # SDRplay service health monitoring and recovery
+├── state_broadcaster.py # Pushes state updates to websocket clients
+├── error_tracker.py  # Error collection for UI/API visibility
+├── devices/         # SDR driver abstractions
+│   ├── soapy.py     # SoapySDR driver (primary)
+│   ├── rtl.py       # Direct RTL-SDR driver
+│   ├── sdrplay_proxy.py  # Subprocess isolation for SDRplay multi-device
+│   └── fake.py      # Test/mock driver
+├── decoders/        # Digital decoders (P25, DMR, POCSAG, IMBE/AMBE voice)
+│   ├── p25.py       # P25 Phase 1/2 decoder with trunking
+│   ├── p25_tsbk.py  # P25 TSBK (control channel) message parsing
+│   ├── p25_frames.py # P25 frame structures and parsing
+│   ├── dmr.py       # DMR decoder
+│   ├── imbe.py      # IMBE voice codec
+│   ├── ambe.py      # AMBE voice codec
+│   ├── lrrp.py      # LRRP (GPS location) decoder
+│   ├── nac_tracker.py # Network Access Code tracking
+│   ├── trunking.py  # Generic trunking protocol abstractions
+│   └── voice.py     # Voice decoder abstractions
+├── trunking/        # Trunking system configuration and control
+│   ├── system.py    # Trunking system orchestration
+│   ├── control_channel.py  # Control channel monitoring
+│   ├── voice_channel.py    # Voice channel recording
+│   ├── manager.py   # Trunking system manager
+│   ├── identifiers.py # IdentifierCollection (SDRTrunk-inspired)
+│   ├── event_tracker.py # P25EventTracker (call state machine)
+│   ├── network_config.py # Network configuration monitoring
+│   ├── duplicate_detector.py # Duplicate call detection
+│   ├── cc_scanner.py # Control channel scanner
+│   └── api.py       # Trunking REST API endpoints
+└── dsp/             # Signal processing
+    ├── fm.py        # WBFM/NBFM demodulation
+    ├── am.py        # AM/SSB demodulation
+    ├── sam.py       # Synchronous AM demodulation
+    ├── filters.py   # FIR/IIR filter design
+    ├── agc.py       # Automatic gain control
+    ├── rds.py       # RDS decoder (FM broadcast)
+    ├── pocsag.py    # POCSAG paging decoder
+    └── fec/         # Forward error correction
+        ├── bch.py   # BCH codes
+        ├── golay.py # Golay codes
+        └── trellis.py # Trellis/Viterbi decoding
 ```
 
 **Key Data Flow:**
@@ -67,6 +102,7 @@ backend/wavecapsdr/
 2. IQ samples are broadcast to `Channel` objects for demodulation
 3. `Channel` performs DSP (freq shift → demod → filter → AGC) and broadcasts audio
 4. Audio/IQ/FFT data is pushed to WebSocket subscribers via asyncio queues
+5. Encoders provide MP3/Opus/AAC streams when requested
 
 **Threading Model:**
 - Each `Capture` has a dedicated thread for device I/O (`_run_thread`)
@@ -91,6 +127,8 @@ Configuration lives in `backend/config/wavecapsdr.yaml`:
 - `recipes`: Templates for common setups (Marine VHF, FM Broadcast, etc.)
 - `captures`: Auto-start captures on server launch
 - `device_names`: Human-readable names for device IDs
+- `recovery`: SDRplay and IQ watchdog recovery settings
+- `trunking`: Trunking system configuration (see `backend/wavecapsdr/trunking/`)
 
 ## API Structure
 
@@ -107,6 +145,29 @@ WebSocket streams:
 
 ## Testing
 
+### Backend (pytest)
+
+459 tests in `backend/tests/` covering DSP, trunking, API, and integration:
+
+```bash
+cd backend && source .venv/bin/activate
+
+# Run all tests (with timeout to avoid hangs)
+scripts/run-with-timeout.sh --seconds 120 -- bash -lc 'cd backend && source .venv/bin/activate && PYTHONPATH=. pytest tests/'
+
+# Run all tests (direct)
+PYTHONPATH=. pytest tests/
+
+# Run unit tests only
+PYTHONPATH=. pytest tests/unit/
+
+# Skip hardware tests
+PYTHONPATH=. pytest tests/ -m "not hardware"
+
+# Run a single test
+PYTHONPATH=. pytest tests/test_captures_channels.py::test_channel_audio_stream -v
+```
+
 Tests use the `fake` driver to simulate SDR hardware:
 ```python
 cfg = AppConfig()
@@ -115,71 +176,76 @@ app = create_app(cfg)
 client = TestClient(app)
 ```
 
+Hardware tests are marked with `@pytest.mark.hardware` and skipped by default.
+
+### Frontend
+
+No unit test framework is installed. Quality checks:
+
+```bash
+cd frontend
+npm run type-check  # TypeScript validation
+npm run lint        # ESLint
+npm run build       # Compile check
+```
+
+## SDRplay Dependencies
+
+**Important:** This project requires a custom SoapySDRPlay3 driver with multi-device serialization fixes:
+- Repository: https://github.com/TobiasWooldridge/SoapySDRPlay3
+- This fork includes API-level locking to prevent crashes on rapid config changes
+
+Build and install:
+```bash
+cd ../SoapySDRPlay3
+mkdir -p build && cd build
+cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ..
+make -j4
+sudo make install
+```
+
 ## SDRplay Service Recovery
 
-The SDRplay API service can become stuck, causing captures to hang in "starting" state. Symptoms:
+The SDRplay API service can become stuck, causing captures to hang in "starting" state.
+
+**Symptoms:**
 - `SoapySDRUtil --find` hangs indefinitely
 - Spectrum analyzer shows "starting" but never updates
-- SDRplay device not detected even though USB is connected
+- SDRplay device not detected
 
-### Automatic Recovery (Proactive)
+**Automatic Recovery:**
+WaveCap-SDR has proactive health monitoring that detects stuck states and attempts service restart.
 
-WaveCap-SDR has proactive SDRplay health monitoring that automatically:
-1. Detects stuck state during device enumeration (2 consecutive timeouts trigger recovery)
-2. Attempts service restart before retrying enumeration
-3. Runs pre-flight health checks before opening SDRplay devices
-
-Check SDRplay health via API:
+**Manual Recovery (Linux/systemd):**
 ```bash
-curl http://localhost:8087/api/v1/devices/sdrplay/health
-```
-
-### Manual Recovery (API)
-
-Restart the service via API:
-```bash
+# Via API
 curl -X POST http://localhost:8087/api/v1/devices/sdrplay/restart-service
+
+# Via CLI
+sudo systemctl restart sdrplay
 ```
-
-### Manual Recovery (CLI)
-
-To restart the service (macOS, configured in sudoers for passwordless operation):
-```bash
-sudo /bin/launchctl kickstart -kp system/com.sdrplay.service
-```
-
-The fix script with full diagnostics: `.claude/skills/sdrplay-service-fix/fix_sdrplay.sh`
-
-### Architecture Notes
-
-- Recovery is enabled during enumeration (safe - no active streams)
-- Recovery is **disabled** during streaming (avoids thrashing)
-- Rate limited: max 5 restarts per hour with 60-second cooldown
-- Health counters reset on successful restart
 
 ## Claude Code Skills
 
 Located in `.claude/skills/`:
-- `capture-health-check`: **E2E verification** - check captures, channels, spectrum, audio flow
-- `sdrplay-service-fix`: Diagnose and fix stuck SDRplay API service
-- `radio-tuner`: Adjust SDR settings (frequency, gain, squelch, filters)
+- `agc-tuner`: Tune AGC response for audio stability
 - `audio-quality-checker`: Analyze audio stream quality
-- `spectrum-analyzer-debug`: Debug spectrum/waterfall display issues
+- `capture-health-check`: E2E verification (captures, channels, spectrum, audio flow)
+- `channel-optimizer`: Optimize per-channel settings (squelch, filters, gain)
+- `config-validator`: Validate config file structure and settings
 - `device-prober`: Test SDR hardware capabilities
+- `dsp-filter-designer`: Design/validate DSP filter settings
+- `frequency-lookup`: Resolve frequencies and labels
+- `harness-runner`: Run harness scenarios with timeouts
 - `log-viewer`: View and analyze server logs
+- `radio-tuner`: Adjust SDR settings (frequency, gain, squelch, filters)
+- `recipe-builder`: Create/update recipe templates
+- `sdrplay-service-fix`: Diagnose and fix stuck SDRplay API service
+- `signal-monitor`: Monitor signal levels and drift
+- `spectrum-analyzer-debug`: Debug spectrum/waterfall display issues
+- `stream-validator`: Validate audio/IQ stream outputs
 
-### Quick Health Check
-
-```bash
-.claude/skills/capture-health-check/check_health.sh
-```
-
-This verifies:
-- Server responding
-- SDR devices detected
-- Captures running (not stuck in "starting")
-- Channels receiving audio (RSSI and audio levels)
-- Spectrum data flowing
+Quick health check: `.claude/skills/capture-health-check/check_health.sh`
 
 ## References
 

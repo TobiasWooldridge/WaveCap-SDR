@@ -107,7 +107,7 @@ curl -s http://127.0.0.1:8087/api/v1/channels/ch1/metrics/extended | jq '{rssiDb
 ### Step 5: Handle Errors
 If something fails:
 1. Check the error response from the API
-2. Look at logs: `cat /tmp/wavecapsdr_error.log`
+2. Look at logs: `tail -50 backend/logs/wavecapsdr.log` or use the log-viewer skill
 3. Verify server is running: `curl http://127.0.0.1:8087/api/v1/health`
 
 ## Common Presets
@@ -165,7 +165,7 @@ If something fails:
 ## Error Handling
 
 ### API Returns 500 Error
-1. Check `/tmp/wavecapsdr_error.log` for traceback
+1. Check `backend/logs/wavecapsdr.log` for traceback (or use log-viewer skill)
 2. Verify the request JSON is valid
 3. Check if the value is within allowed range
 

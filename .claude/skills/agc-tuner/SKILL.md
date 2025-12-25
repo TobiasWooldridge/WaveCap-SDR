@@ -136,14 +136,12 @@ Update AGC parameters via API:
 curl -X PATCH http://127.0.0.1:8087/api/v1/channels/ch1 \
   -H "Content-Type: application/json" \
   -d '{
-    "agc_attack_time": 0.010,
-    "agc_release_time": 0.500,
-    "agc_target_level": 0.2
+    "agcAttackMs": 10,
+    "agcReleaseMs": 500,
+    "agcTargetDb": -20
   }'
 
-# Restart channel to apply new settings
-curl -X POST http://127.0.0.1:8087/api/v1/channels/ch1/stop
-curl -X POST http://127.0.0.1:8087/api/v1/channels/ch1/start
+# Note: Channel settings can be updated while running (no restart needed)
 ```
 
 Or update in `backend/config/wavecapsdr.yaml` presets/recipes.

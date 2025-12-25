@@ -1,6 +1,6 @@
 # WaveCap‑SDR — Product Specification (Authoritative)
 
-Status: Alpha (updated 2025-11-21)
+Status: Alpha (updated 2025-12-25)
 
 ## Overview
 WaveCap‑SDR is a standalone server that encapsulates all Software‑Defined Radio (SDR) control and signal processing for the WaveCap ecosystem. It exposes a network API for device discovery, tuning, capture, and demodulation so other services (e.g., WaveCap in `~/speaker/WaveCap`) can consume radio streams or recorded artifacts without bundling radio drivers or DSP logic.
@@ -113,6 +113,36 @@ Base path: `/api/v1`
 - DELETE `/scanners/{id}/lockouts`
   - Clear all lockouts.
 
+### Trunking Systems (P25 trunking)
+- GET `/trunking/systems`
+  - List all trunking systems.
+- POST `/trunking/systems`
+  - Create system: `{ id, name, protocol, modulation?, controlChannels, centerHz, sampleRate, deviceId?, gain?, maxVoiceRecorders?, recordingPath?, squelchDb?, autoStart?, talkgroups? }`
+- GET `/trunking/systems/{id}`
+  - Get system details including NAC, system ID, site ID, decode rate, active calls.
+- DELETE `/trunking/systems/{id}`
+  - Remove trunking system.
+- POST `/trunking/systems/{id}/start`
+  - Start control channel monitoring and voice tracking.
+- POST `/trunking/systems/{id}/stop`
+  - Stop trunking system.
+- GET `/trunking/systems/{id}/talkgroups`
+  - List configured talkgroups.
+- POST `/trunking/systems/{id}/talkgroups`
+  - Import/add talkgroups.
+- GET `/trunking/systems/{id}/calls/active`
+  - List active calls for this system.
+- GET `/trunking/calls`
+  - List all active calls across all systems.
+- GET `/trunking/vocoders`
+  - Check IMBE/AMBE vocoder availability.
+- GET `/trunking/systems/{id}/locations`
+  - Get GPS locations from LRRP messages.
+- GET `/trunking/systems/{id}/voice-streams`
+  - List active voice streams for playback.
+- GET `/trunking/recipes`
+  - List pre-configured trunking system templates.
+
 ### Streaming
 - WS `/stream/captures/{id}/iq`
   - Streams capture IQ frames (binary: `iq16` or `f32`).
@@ -128,6 +158,12 @@ Base path: `/api/v1`
   - HTTP Opus streaming.
 - GET `/stream/channels/{chanId}.aac`
   - HTTP AAC streaming.
+- WS `/stream/trunking/{systemId}`
+  - Real-time trunking events (grants, denials, registrations) for a specific system.
+- WS `/stream/trunking`
+  - Trunking events for all systems.
+- GET `/stream/trunking/{systemId}/voice/{streamId}.pcm`
+  - HTTP streaming for trunked voice channels.
 
 ### Health
 - GET `/health`
@@ -172,12 +208,17 @@ AM/SSB filters:
 - `enableAmLowpass`, `amLowpassHz`
 - `enableSsbBandpass`, `ssbBandpassLowHz`, `ssbBandpassHighHz`
 - `ssbMode` ("usb" | "lsb")
+- `ssbBfoOffsetHz` (BFO offset for centering voice)
+
+SAM (Synchronous AM):
+- `samSideband` ("dsb" | "usb" | "lsb")
+- `samPllBandwidthHz` (10-200 Hz)
 
 AGC:
 - `enableAgc`, `agcTargetDb`, `agcAttackMs`, `agcReleaseMs`
 
 Noise reduction:
-- `enableNoiseBlanker`, `noiseBlankerThresholdDb`
+- `enableNoiseReduction`, `noiseReductionDb` (spectral noise suppression, 3-30 dB)
 - `notchFrequencies[]` (up to 10 frequencies for interference rejection)
 
 ### Scanner
@@ -193,6 +234,25 @@ Modes: `sequential`, `priority`, `activity`
 ```
 { id, name, description, category, centerHz, sampleRate, gain?, bandwidth?,
   channels[], allowFrequencyInput?, frequencyLabel? }
+```
+
+### Trunking System
+```
+{ id, name, protocol, deviceId?, state, controlChannelState, controlChannelFreqHz?,
+  nac?, systemId?, rfssId?, siteId?, decodeRate, activeCalls, talkgroups[] }
+```
+Protocol: `p25_phase1` | `p25_phase2`
+States: `stopped`, `starting`, `running`, `failed`
+
+### Active Call
+```
+{ callId, talkgroupId, talkgroupName, frequency, startTime, duration,
+  sourceId?, sourceName?, encrypted, emergency, priority, phase2? }
+```
+
+### Talkgroup
+```
+{ tgid, name, alphaTag?, category?, priority, record, monitor }
 ```
 
 ## Deployment & Running
@@ -259,31 +319,41 @@ Configuration via environment variables:
 7. ✅ **Scanner**: Sequential/priority/activity scan modes with lockout management.
 8. ✅ **Signal metrics**: RSSI/SNR measurement, S-meter display.
 9. ✅ **Click-to-tune**: Interactive spectrum with frequency tooltip.
+10. ✅ **AM/SSB modes**: Synchronous AM (SAM) with PLL, USB/LSB with BFO.
+11. ✅ **RDS decoder**: Station name (PS), radio text (RT), PTY, TA/TP flags.
+12. ✅ **POCSAG decoder**: Pager message decoding for numeric and alphanumeric formats.
+13. ✅ **P25 trunking**: Phase 1/2 control channel decoding, voice channel tracking, TSBK parsing.
+14. ✅ **Trunking API**: Complete REST/WebSocket API for P25 systems, talkgroups, and call tracking.
+15. ✅ **IMBE/AMBE vocoders**: Vocoder integration for digital voice playback (external codec support).
 
 ### In Progress
-10. **AM/SSB refinement**: Synchronous AM, improved SSB filters.
-11. **Digital modes**: P25/DMR frame decoding (voice codec pending).
+16. **Digital voice modes**: NXDN, D-Star, YSF demodulation (stubs exist, full implementation pending).
+17. **DMR trunking**: DMR Tier 3 trunking support with CSBK decoding.
 
 ### Planned
-12. **Stereo FM**: 19 kHz pilot detection, L-R decoding.
-13. **RDS decoder**: Station name, radio text extraction.
-14. **CW decoder**: Morse code recognition.
+18. **Stereo FM**: 19 kHz pilot detection, L-R decoding for stereo broadcast.
+19. **CW decoder**: Morse code recognition and text extraction.
 
 ## Out of Scope (for now)
 - Multi‑node clustering and remote device brokers.
-- Advanced digital decoders beyond core analog modes.
+- Full DMR, NXDN, D-Star, and YSF voice demodulation (stubs in place).
+- Commercial trunking protocols (EDACS, LTR, Motorola SmartZone).
 
 ## Demodulation Modes
 
 | Mode | Status | Description |
 |------|--------|-------------|
-| `wbfm` | ✅ Complete | Wideband FM (broadcast) with deemphasis, 150 kHz deviation |
-| `nbfm` | ✅ Complete | Narrowband FM (VHF/UHF comms) with 5 kHz deviation |
-| `am` | ✅ Basic | Envelope detection with configurable bandwidth and AGC |
-| `ssb` | ✅ Basic | USB/LSB with bandpass filter and AGC |
-| `raw` | ✅ Complete | Pass-through IQ samples |
-| `p25` | 🚧 Partial | Frame sync and TSBK decoding, voice codec pending |
-| `dmr` | 🚧 Partial | Frame sync and CSBK decoding, voice codec pending |
+| `wbfm` | ✅ Complete | Wideband FM (broadcast) with deemphasis, 150 kHz deviation, RDS support |
+| `nbfm` | ✅ Complete | Narrowband FM (VHF/UHF comms) with 5 kHz deviation, POCSAG paging |
+| `am` | ✅ Complete | Envelope detection with configurable bandwidth and AGC |
+| `sam` | ✅ Complete | Synchronous AM with carrier PLL for improved audio quality |
+| `ssb` | ✅ Complete | USB/LSB with bandpass filter, BFO offset, and AGC |
+| `raw` | ✅ Complete | Pass-through IQ samples for external processing |
+| `p25` | ✅ Complete | P25 Phase 1/2 with IMBE/AMBE voice codec support and full trunking |
+| `dmr` | 🚧 Partial | 4-FSK demodulation, CSBK decoding, voice codec integration in progress |
+| `nxdn` | 🚧 Stub | Accepted as mode, demodulation not yet implemented |
+| `dstar` | 🚧 Stub | Accepted as mode, demodulation not yet implemented |
+| `ysf` | 🚧 Stub | Accepted as mode, demodulation not yet implemented |
 
 ## Open Questions
 - Preferred on‑disk container for IQ (raw vs. WAV container with metadata)?

@@ -2,7 +2,7 @@
 
 A standalone SDR server for the WaveCap ecosystem. It exposes a network API and bundled web UI so other services (and humans) can list devices, start/stop tuned captures, create multiple demod channels from a single device stream, stream IQ or audio, and record to disk.
 
-- Spec: see `SPEC.md` (authoritative) for scope, APIs, and milestones.
+- Spec: see `docs/api-spec.md` (authoritative) for scope, APIs, and milestones.
 - Contribution & workflow: see `AGENTS.md` for coding principles, testing expectations, and repo conventions.
 
 ## Status
@@ -11,21 +11,36 @@ Active development. Core functionality is implemented and tested with RTL-SDR Bl
 ## Capabilities
 - Device enumeration and capture lifecycle (multi-device)
 - Multi-channel demodulation (FM/AM/SSB) with AGC, filters, and squelch
+- Digital voice modes: P25, DMR, NXDN, D-Star, YSF (various levels of support)
+- P25 Phase 1 trunking system support with voice following and recording
 - Spectrum/FFT display and scanner modes (sequential, priority, activity)
 - Streaming: IQ (int16/f32), PCM audio, MP3/Opus/AAC via ffmpeg, WebSocket and HTTP
-- RDS decoding and POCSAG decoding (when enabled)
+- RDS decoding (FM broadcast) and POCSAG paging decoder
 - Web UI for monitoring, tuning, and channel management
 
 ## Getting Started
 
 ### Prerequisites
-- Python 3.9+ (project supports <3.15)
+- Python 3.9+ (project supports 3.9 to 3.14)
 - SoapySDR with device modules installed (system-level)
-  - For RTL-SDR: `SoapyRTLSDR` module
-  - For SDRplay: `SoapySDRPlay3` module and SDRplay API
+  - For RTL-SDR: `SoapyRTLSDR` module (or use built-in direct RTL driver)
+  - For SDRplay: `SoapySDRPlay3` module and SDRplay API (custom fork recommended - see below)
 - System packages: `python3-soapysdr` or equivalent
 - Node.js 20+ (required by `./start-app.sh`, which builds the frontend)
 - ffmpeg (required for MP3/Opus/AAC audio streaming)
+
+**SDRplay Users:** This project requires a custom SoapySDRPlay3 driver with multi-device serialization fixes:
+- Repository: https://github.com/TobiasWooldridge/SoapySDRPlay3
+- This fork includes API-level locking to prevent crashes on rapid config changes
+
+Build and install:
+```bash
+cd ../SoapySDRPlay3
+mkdir -p build && cd build
+cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ..
+make -j4
+sudo make install
+```
 
 ### Quick Start
 
@@ -125,7 +140,7 @@ pip install fastapi uvicorn httpx websockets pyyaml numpy scipy slowapi
 PYTHONPATH=. python -m wavecapsdr --bind 0.0.0.0 --port 8087
 ```
 
-Then visit `http://localhost:8087/` for the web UI catalog page, or use the API directly (see `SPEC.md`).
+Then visit `http://localhost:8087/` for the web UI catalog page, or use the API directly (see `docs/api-spec.md`).
 
 ### Building the Frontend (Development)
 
@@ -139,40 +154,97 @@ npm run build
 cp -r dist/* ../backend/wavecapsdr/static/
 ```
 
+## Trunking System Support
+
+WaveCap-SDR includes comprehensive P25 Phase 1 trunking support with automatic voice following:
+
+- **Control Channel Monitoring**: Tracks trunking control channel for voice grants
+- **Voice Following**: Automatically tunes voice recorders to follow active calls
+- **Talkgroup Filtering**: Priority-based talkgroup selection and filtering
+- **Call Recording**: Records voice calls with metadata (talkgroup, timestamp, identifiers)
+- **Network Configuration**: Monitors system parameters (WACN, System ID, NAC, sites)
+- **Event Tracking**: Call state machine with staleness detection (SDRTrunk-inspired)
+- **Duplicate Detection**: Suppresses duplicate voice grants
+
+Supported P25 modulations:
+- **C4FM**: Standard P25 Phase 1 (12.5 kHz channel spacing)
+- **CQPSK/LSM**: Simulcast-compatible modulation (used by many large metro systems)
+
+Configuration is done via `backend/config/wavecapsdr.yaml` in the `trunking.systems` section. See the `sa_grn` example for a complete configuration.
+
 ## Relation to WaveCap
 - WaveCap (control/UI) lives in `~/speaker/WaveCap` (also symlinked as `~/speaker/smart-speaker`). WaveCap‑SDR provides the radio server component and a lightweight web UI for local monitoring/tuning. Together they form one product.
 
 ## Repository Layout
 - `backend/` — Python server implementation
   - `wavecapsdr/` — main package
-    - `devices/` — SDR driver abstractions (soapy, rtl, fake)
-    - `decoders/` — digital decoders (e.g., POCSAG)
-    - `dsp/` — signal processing (FM demodulation)
-    - `trunking/` — trunking system configuration
+    - `devices/` — SDR driver abstractions (soapy, rtl, sdrplay_proxy, fake)
+    - `decoders/` — digital decoders (P25, DMR, POCSAG, IMBE/AMBE voice, LRRP)
+    - `dsp/` — signal processing (FM/AM/SSB demod, AGC, filters, RDS, POCSAG, P25 C4FM/CQPSK)
+    - `trunking/` — P25 Phase 1 trunking system (control channel, voice following, recording)
     - `static/` — web UI files (built from frontend/)
     - `api.py` — REST/WebSocket endpoints
     - `app.py` — application setup and static file serving
     - `capture.py` — capture and channel management
+    - `scanner.py` — frequency scanner (sequential, priority, activity)
+    - `encoders.py` — audio encoders (MP3, Opus, AAC via ffmpeg)
     - `harness.py` — test harness
-  - `tests/` — pytest test suite
+    - `sdrplay_recovery.py` — SDRplay service health monitoring and recovery
+    - `state_broadcaster.py` — WebSocket state updates
+    - `error_tracker.py` — error collection for UI visibility
+  - `tests/` — pytest test suite (459+ tests)
   - `config/` — configuration files and presets
 - `frontend/` — React/TypeScript web UI
   - `src/` — source code (components, hooks, types)
   - `dist/` — build output (copied to backend/wavecapsdr/static/)
 - `docs/` — documentation
+  - `api-spec.md` — API reference, data models, and milestones
+  - `antenna.md` — multi-antenna device configuration
   - `configuration.md` — runtime options
   - `troubleshooting.md` — common issues and solutions
 - `scripts/` — helper scripts
   - `soapy-*.sh` — SoapySDR utilities with timeout wrappers
   - `harness-*.sh` — test harness convenience wrappers
   - `run-with-timeout.sh` — generic command timeout wrapper
+  - `fix-sdrplay.sh` — SDRplay service recovery script
+- `.claude/skills/` — Claude Code skills for development and debugging
 
 ## Documentation
 
-- **API Reference**: See `SPEC.md`
-- **Development Guidelines**: See `AGENTS.md`
+- **API Reference**: See `docs/api-spec.md`
+- **Antenna Configuration**: See `docs/antenna.md`
 - **Configuration**: See `docs/configuration.md`
 - **Troubleshooting**: See `docs/troubleshooting.md`
+- **Development Guidelines**: See `AGENTS.md`
+- **Claude Code Instructions**: See `CLAUDE.md`
+- **Trunking Configuration**: See `trunking.systems` section in `backend/config/wavecapsdr.yaml`
+
+## SDRplay Service Recovery
+
+The SDRplay API service can become stuck, causing captures to hang in "starting" state.
+
+**Symptoms:**
+- `SoapySDRUtil --find` hangs indefinitely
+- Spectrum analyzer shows "starting" but never updates
+- SDRplay device not detected
+
+**Automatic Recovery:**
+WaveCap-SDR has proactive health monitoring that detects stuck states and attempts service restart.
+
+**Manual Recovery:**
+```bash
+# Via API
+curl -X POST http://localhost:8087/api/v1/devices/sdrplay/restart-service
+
+# Via script
+scripts/fix-sdrplay.sh
+
+# Via CLI (Linux/systemd)
+sudo systemctl restart sdrplay
+
+# Via CLI (macOS/launchd - requires sudoers configuration)
+sudo /bin/launchctl kickstart -kp system/com.sdrplay.service
+```
 
 ## License
 TBD
