@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 logger = logging.getLogger(__name__)
 
-from .config import save_config
+from .config import load_config, save_config
 from .device_namer import (
     generate_capture_name,
     get_device_nickname,
@@ -229,6 +229,142 @@ async def shutdown_server(request: Request) -> dict[str, str]:
     asyncio.create_task(do_shutdown())
 
     return {"status": "ok", "message": "Shutdown initiated"}
+
+
+@router.post("/config/reload")
+async def reload_config(request: Request) -> dict[str, Any]:
+    """Reload configuration from the config file.
+
+    This endpoint reloads the YAML configuration file and updates runtime settings
+    that can be hot-reloaded without restarting the server:
+    - presets: Capture presets
+    - recipes: Recipe templates
+    - device_names: Device nickname mappings
+    - limits: Concurrent capture/channel limits
+    - recovery: SDRplay recovery settings
+
+    Note: Some settings require a server restart to take effect:
+    - device.driver: The SDR driver type
+    - server.*: Bind address and port
+    - captures: Auto-start captures (already running)
+
+    Returns:
+        dict with status and details about what was reloaded
+    """
+    from .device_namer import load_device_nicknames
+    from .trunking.config import TrunkingSystemConfig
+
+    state: AppState | None = getattr(request.app.state, "app_state", None)
+    if state is None:
+        raise HTTPException(status_code=500, detail="AppState not initialized")
+
+    if not state.config_path:
+        raise HTTPException(
+            status_code=400,
+            detail="No config path configured - cannot reload"
+        )
+
+    from pathlib import Path
+    config_file = Path(state.config_path)
+    if not config_file.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Config file not found: {state.config_path}"
+        )
+
+    try:
+        # Load fresh config from file
+        new_config = load_config(state.config_path)
+
+        # Track what was updated
+        updated: list[str] = []
+
+        # Update presets
+        if new_config.presets != state.config.presets:
+            state.config.presets = new_config.presets
+            updated.append(f"presets ({len(new_config.presets)} presets)")
+
+        # Update recipes
+        if new_config.recipes != state.config.recipes:
+            state.config.recipes = new_config.recipes
+            updated.append(f"recipes ({len(new_config.recipes)} recipes)")
+
+        # Update device names and reload into runtime
+        if new_config.device_names != state.config.device_names:
+            state.config.device_names = new_config.device_names
+            load_device_nicknames(new_config.device_names)
+            updated.append(f"device_names ({len(new_config.device_names)} names)")
+
+        # Update limits
+        if (new_config.limits.max_concurrent_captures != state.config.limits.max_concurrent_captures or
+            new_config.limits.max_channels_per_capture != state.config.limits.max_channels_per_capture or
+            new_config.limits.max_sample_rate != state.config.limits.max_sample_rate):
+            state.config.limits = new_config.limits
+            updated.append("limits")
+
+        # Update recovery settings
+        if (new_config.recovery.sdrplay_service_restart_enabled != state.config.recovery.sdrplay_service_restart_enabled or
+            new_config.recovery.sdrplay_service_restart_cooldown != state.config.recovery.sdrplay_service_restart_cooldown or
+            new_config.recovery.max_service_restarts_per_hour != state.config.recovery.max_service_restarts_per_hour or
+            new_config.recovery.sdrplay_operation_cooldown != state.config.recovery.sdrplay_operation_cooldown or
+            new_config.recovery.iq_watchdog_enabled != state.config.recovery.iq_watchdog_enabled or
+            new_config.recovery.iq_watchdog_timeout != state.config.recovery.iq_watchdog_timeout):
+            state.config.recovery = new_config.recovery
+            # Update the recovery singleton with new settings
+            recovery = get_recovery()
+            recovery.enabled = new_config.recovery.sdrplay_service_restart_enabled
+            recovery.cooldown_seconds = new_config.recovery.sdrplay_service_restart_cooldown
+            recovery.max_restarts_per_hour = new_config.recovery.max_service_restarts_per_hour
+            updated.append("recovery")
+
+        # Update stream defaults
+        if (new_config.stream.default_transport != state.config.stream.default_transport or
+            new_config.stream.default_format != state.config.stream.default_format or
+            new_config.stream.default_audio_rate != state.config.stream.default_audio_rate):
+            state.config.stream = new_config.stream
+            updated.append("stream")
+
+        # Update trunking systems (register new ones, update existing configs)
+        trunking_updated = []
+        for sys_id, sys_data in new_config.trunking_systems.items():
+            try:
+                sys_data_with_id = dict(sys_data)
+                if "id" not in sys_data_with_id:
+                    sys_data_with_id["id"] = sys_id
+                trunking_config = TrunkingSystemConfig.from_dict(sys_data_with_id)
+
+                # Check if system exists
+                existing = state.trunking_manager.get_system(sys_id)
+                if existing is None:
+                    # Register new system
+                    state.trunking_manager.register_config(trunking_config)
+                    trunking_updated.append(f"{sys_id} (new)")
+                else:
+                    # System exists - config update would require restart
+                    trunking_updated.append(f"{sys_id} (exists)")
+            except Exception as e:
+                logger.warning(f"Failed to process trunking system '{sys_id}': {e}")
+
+        if trunking_updated:
+            state.config.trunking_systems = new_config.trunking_systems
+            updated.append(f"trunking ({', '.join(trunking_updated)})")
+
+        logger.info(f"Config reloaded from {state.config_path}: {updated or 'no changes'}")
+
+        return {
+            "status": "ok",
+            "message": "Configuration reloaded",
+            "config_path": state.config_path,
+            "updated": updated,
+            "note": "Some settings (device.driver, server.*, captures) require server restart"
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to reload config: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reload config: {e}"
+        )
 
 
 # Frontend log storage
