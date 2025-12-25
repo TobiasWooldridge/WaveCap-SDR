@@ -561,28 +561,30 @@ class TrunkingSystem:
         if self._control_channel is None or self._capture is None:
             return
 
-        # Create ControlChannelMonitor with correct protocol and modulation
-        # Sample rate 48000 is standard for P25 decoding
+        # Store reference to self for dynamic offset access in closure
+        system = self
+
+        # Design anti-aliasing filter for decimation
+        # Target output rate is 96kHz for 20 samples/symbol (like OP25)
+        # P25 signal bandwidth is ~12.5kHz
+        target_rate = 96000
+        decim_factor = max(1, self.cfg.sample_rate // target_rate)
+
+        # Calculate ACTUAL decimated sample rate (may differ slightly from target)
+        actual_sample_rate = self.cfg.sample_rate // decim_factor
+
+        # Create ControlChannelMonitor with ACTUAL sample rate for correct timing
         self._control_monitor = create_control_monitor(
             protocol=self.cfg.protocol,
-            sample_rate=48000,
+            sample_rate=actual_sample_rate,  # Use actual, not target
             modulation=self.cfg.modulation,
         )
 
         mod_str = self.cfg.modulation.value if self.cfg.modulation else "auto"
         logger.info(
             f"TrunkingSystem {self.cfg.id}: Created ControlChannelMonitor "
-            f"for {self.cfg.protocol.value} (modulation: {mod_str})"
+            f"for {self.cfg.protocol.value} (modulation: {mod_str}, rate={actual_sample_rate}Hz)"
         )
-
-        # Store reference to self for dynamic offset access in closure
-        system = self
-
-        # Design anti-aliasing filter for decimation
-        # Target output rate is 48kHz, P25 signal bandwidth is ~12.5kHz
-        # Use a lowpass FIR filter with cutoff at 20kHz to preserve P25 signal
-        target_rate = 48000
-        decim_factor = max(1, self.cfg.sample_rate // target_rate)
         if decim_factor > 1:
             # Design lowpass filter: cutoff at 0.8 * (target_rate/2) / (sample_rate/2)
             # = 0.8 * target_rate / sample_rate
@@ -669,10 +671,34 @@ class TrunkingSystem:
                                 else 0
                             )
 
-                            # Update control channel offset
+                            # Recenter capture on control channel for best reception
+                            # This puts the CC at center of waterfall display
+                            if system._capture is not None:
+                                old_center = system._capture.cfg.center_hz
+                                if old_center != best_freq:
+                                    # Use synchronous hot-reconfigure directly on capture device
+                                    # This avoids async issues from the thread callback
+                                    try:
+                                        device = system._capture.device
+                                        if device is not None:
+                                            device.reconfigure_running(center_hz=best_freq)
+                                            system._capture.cfg.center_hz = best_freq
+                                            system.cfg.center_hz = best_freq
+                                            # Update scanner's center_hz to match new capture center
+                                            if system._cc_scanner is not None:
+                                                system._cc_scanner.center_hz = best_freq
+                                            logger.info(
+                                                f"TrunkingSystem {self.cfg.id}: Recentered capture from "
+                                                f"{old_center/1e6:.4f} MHz to {best_freq/1e6:.4f} MHz"
+                                            )
+                                    except Exception as e:
+                                        logger.warning(
+                                            f"TrunkingSystem {self.cfg.id}: Could not recenter capture: {e}"
+                                        )
+
+                            # Update control channel offset (now 0 since we recentered)
                             if system._control_channel is not None:
-                                new_offset = best_freq - system.cfg.center_hz
-                                system._control_channel.cfg.offset_hz = new_offset
+                                system._control_channel.cfg.offset_hz = 0.0
                                 logger.info(
                                     f"TrunkingSystem {self.cfg.id}: Selected best control channel: "
                                     f"{best_freq/1e6:.4f} MHz (SNR={best_measurement.snr_db:.1f} dB, "
@@ -731,10 +757,31 @@ class TrunkingSystem:
                                 else 0
                             )
 
-                            # Update control channel offset
+                            # Recenter capture on new control channel
+                            if system._capture is not None:
+                                old_center = system._capture.cfg.center_hz
+                                if old_center != roam_to:
+                                    try:
+                                        device = system._capture.device
+                                        if device is not None:
+                                            device.reconfigure_running(center_hz=roam_to)
+                                            system._capture.cfg.center_hz = roam_to
+                                            system.cfg.center_hz = roam_to
+                                            # Update scanner's center_hz to match new capture center
+                                            if system._cc_scanner is not None:
+                                                system._cc_scanner.center_hz = roam_to
+                                            logger.info(
+                                                f"TrunkingSystem {self.cfg.id}: Recentered capture from "
+                                                f"{old_center/1e6:.4f} MHz to {roam_to/1e6:.4f} MHz"
+                                            )
+                                    except Exception as e:
+                                        logger.warning(
+                                            f"TrunkingSystem {self.cfg.id}: Could not recenter capture: {e}"
+                                        )
+
+                            # Update control channel offset (now 0 since we recentered)
                             if system._control_channel is not None:
-                                new_offset = roam_to - system.cfg.center_hz
-                                system._control_channel.cfg.offset_hz = new_offset
+                                system._control_channel.cfg.offset_hz = 0.0
 
                             # Reset control monitor for new channel
                             if system._control_monitor is not None:
@@ -752,18 +799,12 @@ class TrunkingSystem:
                     f"centered_mean={np.mean(centered_mag):.4f}"
                 )
 
-            # Apply anti-aliasing filter and decimate
-            if decim_factor > 1 and anti_alias_taps is not None:
-                # Apply lowpass anti-aliasing filter
-                if filter_state[0] is not None:
-                    filtered_iq, filter_state[0] = scipy_signal.lfilter(
-                        anti_alias_taps, 1.0, centered_iq,
-                        zi=filter_state[0] * centered_iq[0]
-                    )
-                else:
-                    filtered_iq = scipy_signal.lfilter(anti_alias_taps, 1.0, centered_iq)
-                # Decimate
-                decimated_iq = filtered_iq[::decim_factor]
+            # Decimate to ~48 kHz for P25 processing
+            # Use simple subsampling (same as decimate_iq_for_p25) - the channel
+            # is already frequency-shifted to baseband and P25 (12.5 kHz BW) is
+            # narrow enough that aliasing is handled by the demodulator
+            if decim_factor > 1:
+                decimated_iq = centered_iq[::decim_factor]
             else:
                 decimated_iq = centered_iq
             if _verbose:
