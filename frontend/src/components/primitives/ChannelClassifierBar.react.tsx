@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { Radio, RotateCcw, ChevronDown, ChevronUp } from "lucide-react";
 import type { Capture } from "../../types";
 import { useSpectrumData } from "../../hooks/useSpectrumData";
@@ -23,11 +23,11 @@ interface ClassifiedChannel {
   type: "control" | "voice" | "variable" | "noise";
 }
 
-const MIN_COLLECTION_SECONDS = 60; // Need at least 60 seconds of data before classifying
-const MIN_SAMPLES_PER_BIN = 50; // Minimum samples per bin for reliable stats
-const NOISE_THRESHOLD_DB = -50; // Below this is noise
-const CONTROL_VARIANCE_THRESHOLD = 4; // Low variance = control channel
-const VOICE_VARIANCE_THRESHOLD = 10; // High variance = voice channel
+const MIN_COLLECTION_SECONDS = 60;
+const MIN_SAMPLES_PER_BIN = 50;
+const NOISE_THRESHOLD_DB = -50;
+const CONTROL_VARIANCE_THRESHOLD = 4;
+const VOICE_VARIANCE_THRESHOLD = 10;
 
 export default function ChannelClassifierBar({
   capture,
@@ -37,35 +37,39 @@ export default function ChannelClassifierBar({
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(800);
 
-  // Track statistics per bin
+  // Use refs for statistics to avoid triggering re-renders
   const binStatsRef = useRef<Map<number, FrequencyBinStats>>(new Map());
   const sampleCountRef = useRef(0);
   const collectionStartRef = useRef<number | null>(null);
-
-  // Track capture parameters to detect changes
-  const prevCaptureParamsRef = useRef<string>("");
-
-  // Classified channels for display
-  const [classifiedChannels, setClassifiedChannels] = useState<ClassifiedChannel[]>([]);
-  const [isCollecting, setIsCollecting] = useState(true);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-
-  // Hover state for tooltip
-  const [hoveredChannel, setHoveredChannel] = useState<ClassifiedChannel | null>(null);
-  const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
-
-  // Expanded list view
-  const [isListExpanded, setIsListExpanded] = useState(false);
-
-  // Use shared WebSocket connection
-  const { spectrumData } = useSpectrumData(capture, false);
-
-  // Spectrum info for frequency mapping
-  const [spectrumInfo, setSpectrumInfo] = useState<{
+  const spectrumInfoRef = useRef<{
     centerHz: number;
     freqs: number[];
     sampleRate: number;
   } | null>(null);
+
+  // Track capture parameters to detect changes
+  const prevCaptureParamsRef = useRef<string>("");
+
+  // State that actually needs to trigger re-renders
+  const [classifiedChannels, setClassifiedChannels] = useState<ClassifiedChannel[]>([]);
+  const [isCollecting, setIsCollecting] = useState(true);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [isListExpanded, setIsListExpanded] = useState(false);
+
+  // Hover state - use ref to avoid re-renders, only update canvas directly
+  const hoveredChannelRef = useRef<ClassifiedChannel | null>(null);
+  const [tooltipInfo, setTooltipInfo] = useState<{
+    channel: ClassifiedChannel;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  // Track when canvas needs full redraw vs just hover update
+  const needsFullRedrawRef = useRef(true);
+  const lastDrawnChannelsRef = useRef<ClassifiedChannel[]>([]);
+
+  // Use shared WebSocket connection
+  const { spectrumData } = useSpectrumData(capture, false);
 
   // Update canvas width when container resizes
   useEffect(() => {
@@ -73,6 +77,7 @@ export default function ChannelClassifierBar({
       if (containerRef.current) {
         const containerWidth = containerRef.current.offsetWidth;
         setWidth(containerWidth - 16);
+        needsFullRedrawRef.current = true;
       }
     };
 
@@ -85,19 +90,21 @@ export default function ChannelClassifierBar({
   useEffect(() => {
     const currentParams = `${capture.id}:${capture.centerHz}:${capture.sampleRate}`;
     if (prevCaptureParamsRef.current !== currentParams) {
-      // Parameters changed - reset statistics
       binStatsRef.current = new Map();
       sampleCountRef.current = 0;
       collectionStartRef.current = null;
+      spectrumInfoRef.current = null;
       setClassifiedChannels([]);
       setIsCollecting(true);
       setElapsedSeconds(0);
       prevCaptureParamsRef.current = currentParams;
+      needsFullRedrawRef.current = true;
     }
   }, [capture.id, capture.centerHz, capture.sampleRate]);
 
   // Classify channels based on accumulated statistics
   const classifyChannels = useCallback(() => {
+    const spectrumInfo = spectrumInfoRef.current;
     if (!spectrumInfo) return;
 
     const { centerHz, freqs } = spectrumInfo;
@@ -124,7 +131,6 @@ export default function ChannelClassifierBar({
       const variance = (stats.sumSq / stats.count) - (avg * avg);
       const stdDev = Math.sqrt(Math.max(0, variance));
 
-      // Only consider signals above threshold
       if (avg < signalThreshold) return;
 
       // Check if this is a local peak
@@ -166,9 +172,10 @@ export default function ChannelClassifierBar({
     // Sort by power (strongest first)
     classified.sort((a, b) => b.power - a.power);
     setClassifiedChannels(classified);
-  }, [spectrumInfo]);
+    needsFullRedrawRef.current = true;
+  }, []);
 
-  // Handle incoming spectrum data
+  // Handle incoming spectrum data - optimized to minimize state updates
   useEffect(() => {
     if (!spectrumData || capture.state !== "running") {
       return;
@@ -182,12 +189,12 @@ export default function ChannelClassifierBar({
       collectionStartRef.current = Date.now();
     }
 
-    // Update spectrum info
-    setSpectrumInfo({
+    // Update spectrum info ref (no state update)
+    spectrumInfoRef.current = {
       centerHz: spectrumData.centerHz,
       freqs: spectrumData.freqs,
       sampleRate: spectrumData.sampleRate,
-    });
+    };
 
     // Update statistics for each bin
     for (let i = 0; i < power.length; i++) {
@@ -211,34 +218,45 @@ export default function ChannelClassifierBar({
     // Calculate elapsed time
     const elapsed = (Date.now() - collectionStartRef.current) / 1000;
     const hasEnoughData = elapsed >= MIN_COLLECTION_SECONDS;
-
-    // Update elapsed time for display (every second)
     const newElapsedSeconds = Math.floor(elapsed);
-    setElapsedSeconds(newElapsedSeconds);
 
-    // Classify channels periodically (every 10 samples) once we have enough time
-    if (sampleCountRef.current % 10 === 0 && hasEnoughData) {
-      classifyChannels();
+    // Only update state when values actually change
+    if (newElapsedSeconds !== elapsedSeconds) {
+      setElapsedSeconds(newElapsedSeconds);
     }
 
-    // Update collecting state
-    setIsCollecting(!hasEnoughData);
-  }, [spectrumData, capture.state, classifyChannels]);
+    if (hasEnoughData !== !isCollecting) {
+      setIsCollecting(!hasEnoughData);
+    }
+
+    // Classify channels periodically (every 30 samples) once we have enough time
+    if (sampleCountRef.current % 30 === 0 && hasEnoughData) {
+      classifyChannels();
+    }
+  }, [spectrumData, capture.state, classifyChannels, elapsedSeconds, isCollecting]);
 
   // Manual reset
   const handleReset = useCallback(() => {
     binStatsRef.current = new Map();
     sampleCountRef.current = 0;
     collectionStartRef.current = null;
+    spectrumInfoRef.current = null;
     setClassifiedChannels([]);
     setIsCollecting(true);
     setElapsedSeconds(0);
+    needsFullRedrawRef.current = true;
   }, []);
 
-  // Handle mouse move over canvas
+  // Handle mouse move over canvas - lightweight, no state for hover position
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const spectrumInfo = spectrumInfoRef.current;
     if (!spectrumInfo || classifiedChannels.length === 0) {
-      setHoveredChannel(null);
+      if (hoveredChannelRef.current !== null) {
+        hoveredChannelRef.current = null;
+        setTooltipInfo(null);
+        // Redraw without highlight
+        needsFullRedrawRef.current = true;
+      }
       return;
     }
 
@@ -253,181 +271,220 @@ export default function ChannelClassifierBar({
     const freqMax = centerHz + freqs[freqs.length - 1];
     const freqSpan = freqMax - freqMin;
 
-    // Find nearest channel within 10 pixels
+    // Find nearest channel within 15 pixels
     let nearestChannel: ClassifiedChannel | null = null;
-    let nearestDist = 15; // Max distance in pixels
+    let nearestDist = 15;
 
-    classifiedChannels.forEach((ch) => {
+    for (const ch of classifiedChannels) {
       const chX = ((ch.freqHz - freqMin) / freqSpan) * width;
       const dist = Math.abs(chX - x);
       if (dist < nearestDist) {
         nearestDist = dist;
         nearestChannel = ch;
       }
-    });
+    }
 
-    setHoveredChannel(nearestChannel);
-    setMousePos(nearestChannel ? { x: e.clientX, y: e.clientY } : null);
-  }, [spectrumInfo, classifiedChannels, width]);
+    const prevHovered = hoveredChannelRef.current;
+    hoveredChannelRef.current = nearestChannel;
+
+    if (nearestChannel) {
+      setTooltipInfo({ channel: nearestChannel, x: e.clientX, y: e.clientY });
+    } else {
+      setTooltipInfo(null);
+    }
+
+    // Only redraw if hover changed
+    if (prevHovered?.freqHz !== nearestChannel?.freqHz) {
+      needsFullRedrawRef.current = true;
+    }
+  }, [classifiedChannels, width]);
 
   const handleMouseLeave = useCallback(() => {
-    setHoveredChannel(null);
-    setMousePos(null);
+    if (hoveredChannelRef.current !== null) {
+      hoveredChannelRef.current = null;
+      setTooltipInfo(null);
+      needsFullRedrawRef.current = true;
+    }
   }, []);
 
-  // Render the classifier bar
+  // Draw the canvas - uses requestAnimationFrame for efficiency
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !spectrumInfo) return;
+    let animationId: number | null = null;
+    let lastDrawTime = 0;
+    const MIN_DRAW_INTERVAL = 100; // Max 10fps for canvas updates
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const draw = (timestamp: number) => {
+      if (!needsFullRedrawRef.current) {
+        animationId = requestAnimationFrame(draw);
+        return;
+      }
 
-    const { centerHz, freqs } = spectrumInfo;
-    const freqMin = centerHz + freqs[0];
-    const freqMax = centerHz + freqs[freqs.length - 1];
-    const freqSpan = freqMax - freqMin;
+      // Throttle redraws
+      if (timestamp - lastDrawTime < MIN_DRAW_INTERVAL) {
+        animationId = requestAnimationFrame(draw);
+        return;
+      }
+      lastDrawTime = timestamp;
+      needsFullRedrawRef.current = false;
 
-    // Clear canvas
-    ctx.fillStyle = "#1a1a1a";
-    ctx.fillRect(0, 0, width, height);
+      const canvas = canvasRef.current;
+      const spectrumInfo = spectrumInfoRef.current;
+      if (!canvas || !spectrumInfo) {
+        animationId = requestAnimationFrame(draw);
+        return;
+      }
 
-    const barHeight = height - 18; // Leave room for legend
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        animationId = requestAnimationFrame(draw);
+        return;
+      }
 
-    // Draw background gradient showing variance density
-    if (binStatsRef.current.size > 0 && !isCollecting) {
-      const imageData = ctx.createImageData(width, barHeight);
-      const data = imageData.data;
+      const { centerHz, freqs } = spectrumInfo;
+      const freqMin = centerHz + freqs[0];
+      const freqMax = centerHz + freqs[freqs.length - 1];
+      const freqSpan = freqMax - freqMin;
 
-      for (let x = 0; x < width; x++) {
-        // Map x to bin index
-        const binIdx = Math.floor((x / width) * binStatsRef.current.size);
-        const stats = binStatsRef.current.get(binIdx);
+      // Clear canvas
+      ctx.fillStyle = "#1a1a1a";
+      ctx.fillRect(0, 0, width, height);
 
-        let r = 30, g = 30, b = 30;
+      const barHeight = height - 18;
 
-        if (stats && stats.count >= MIN_SAMPLES_PER_BIN) {
-          const avg = stats.sum / stats.count;
-          const variance = (stats.sumSq / stats.count) - (avg * avg);
-          const stdDev = Math.sqrt(Math.max(0, variance));
+      // Draw background gradient showing variance density
+      if (binStatsRef.current.size > 0 && !isCollecting) {
+        const imageData = ctx.createImageData(width, barHeight);
+        const data = imageData.data;
+        const binCount = binStatsRef.current.size;
 
-          // Color based on classification
-          if (avg < NOISE_THRESHOLD_DB) {
-            // Noise - dark
-            r = 30; g = 30; b = 30;
-          } else if (stdDev < CONTROL_VARIANCE_THRESHOLD) {
-            // Control channel - green
-            const intensity = Math.min(1, (avg + 60) / 60);
-            r = 0; g = Math.floor(80 + 100 * intensity); b = 0;
-          } else if (stdDev > VOICE_VARIANCE_THRESHOLD) {
-            // Voice channel - red/orange
-            const intensity = Math.min(1, (avg + 60) / 60);
-            r = Math.floor(150 * intensity); g = Math.floor(60 * intensity); b = 0;
-          } else {
-            // Variable - blue
-            const intensity = Math.min(1, (avg + 60) / 60);
-            r = 0; g = Math.floor(80 * intensity); b = Math.floor(150 * intensity);
+        for (let x = 0; x < width; x++) {
+          const binIdx = Math.floor((x / width) * binCount);
+          const stats = binStatsRef.current.get(binIdx);
+
+          let r = 30, g = 30, b = 30;
+
+          if (stats && stats.count >= MIN_SAMPLES_PER_BIN) {
+            const avg = stats.sum / stats.count;
+            const variance = (stats.sumSq / stats.count) - (avg * avg);
+            const stdDev = Math.sqrt(Math.max(0, variance));
+
+            if (avg < NOISE_THRESHOLD_DB) {
+              r = 30; g = 30; b = 30;
+            } else if (stdDev < CONTROL_VARIANCE_THRESHOLD) {
+              const intensity = Math.min(1, (avg + 60) / 60);
+              r = 0; g = Math.floor(80 + 100 * intensity); b = 0;
+            } else if (stdDev > VOICE_VARIANCE_THRESHOLD) {
+              const intensity = Math.min(1, (avg + 60) / 60);
+              r = Math.floor(150 * intensity); g = Math.floor(60 * intensity); b = 0;
+            } else {
+              const intensity = Math.min(1, (avg + 60) / 60);
+              r = 0; g = Math.floor(80 * intensity); b = Math.floor(150 * intensity);
+            }
+          }
+
+          // Fill column
+          for (let y = 0; y < barHeight; y++) {
+            const idx = (y * width + x) * 4;
+            data[idx] = r;
+            data[idx + 1] = g;
+            data[idx + 2] = b;
+            data[idx + 3] = 255;
           }
         }
 
-        // Fill column
-        for (let y = 0; y < barHeight; y++) {
-          const idx = (y * width + x) * 4;
-          data[idx] = r;
-          data[idx + 1] = g;
-          data[idx + 2] = b;
-          data[idx + 3] = 255;
+        ctx.putImageData(imageData, 0, 0);
+      }
+
+      // Draw channel markers
+      const hoveredChannel = hoveredChannelRef.current;
+      for (const ch of classifiedChannels) {
+        const x = ((ch.freqHz - freqMin) / freqSpan) * width;
+
+        if (x < 0 || x > width) continue;
+
+        let markerColor: string;
+        switch (ch.type) {
+          case "control": markerColor = "#00ff00"; break;
+          case "voice": markerColor = "#ff6600"; break;
+          case "variable": markerColor = "#0088ff"; break;
+          default: markerColor = "#666666";
         }
-      }
 
-      ctx.putImageData(imageData, 0, 0);
-    }
+        // Highlight if hovered
+        if (hoveredChannel?.freqHz === ch.freqHz) {
+          ctx.strokeStyle = "#ffffff";
+          ctx.lineWidth = 4;
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, barHeight);
+          ctx.stroke();
+        }
 
-    // Draw channel markers for detected channels
-    classifiedChannels.forEach((ch) => {
-      const x = ((ch.freqHz - freqMin) / freqSpan) * width;
-
-      if (x < 0 || x > width) return;
-
-      // Draw marker
-      let markerColor: string;
-      switch (ch.type) {
-        case "control":
-          markerColor = "#00ff00";
-          break;
-        case "voice":
-          markerColor = "#ff6600";
-          break;
-        case "variable":
-          markerColor = "#0088ff";
-          break;
-        default:
-          markerColor = "#666666";
-      }
-
-      // Highlight if hovered
-      const isHovered = hoveredChannel?.freqHz === ch.freqHz;
-      if (isHovered) {
-        ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 4;
+        ctx.strokeStyle = markerColor;
+        ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(x, 0);
         ctx.lineTo(x, barHeight);
         ctx.stroke();
+
+        // Draw triangle at bottom
+        ctx.fillStyle = markerColor;
+        ctx.beginPath();
+        ctx.moveTo(x, barHeight);
+        ctx.lineTo(x - 5, barHeight + 6);
+        ctx.lineTo(x + 5, barHeight + 6);
+        ctx.closePath();
+        ctx.fill();
       }
 
-      ctx.strokeStyle = markerColor;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, barHeight);
-      ctx.stroke();
+      // Draw legend at bottom
+      ctx.font = "9px monospace";
+      const legendY = height - 3;
 
-      // Draw triangle at bottom
-      ctx.fillStyle = markerColor;
-      ctx.beginPath();
-      ctx.moveTo(x, barHeight);
-      ctx.lineTo(x - 5, barHeight + 6);
-      ctx.lineTo(x + 5, barHeight + 6);
-      ctx.closePath();
-      ctx.fill();
-    });
+      ctx.fillStyle = "#00ff00";
+      ctx.fillRect(5, legendY - 7, 8, 8);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText("Control", 16, legendY);
 
-    // Draw legend at bottom
-    ctx.font = "9px monospace";
-    const legendY = height - 3;
+      ctx.fillStyle = "#ff6600";
+      ctx.fillRect(70, legendY - 7, 8, 8);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText("Voice", 81, legendY);
 
-    ctx.fillStyle = "#00ff00";
-    ctx.fillRect(5, legendY - 7, 8, 8);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText("Control", 16, legendY);
+      ctx.fillStyle = "#0088ff";
+      ctx.fillRect(120, legendY - 7, 8, 8);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText("Variable", 131, legendY);
 
-    ctx.fillStyle = "#ff6600";
-    ctx.fillRect(70, legendY - 7, 8, 8);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText("Voice", 81, legendY);
+      // Show collection status
+      const remainingSeconds = Math.max(0, MIN_COLLECTION_SECONDS - elapsedSeconds);
+      const statusText = isCollecting
+        ? `Collecting... ${remainingSeconds}s remaining`
+        : `${classifiedChannels.length} signals (${elapsedSeconds}s)`;
 
-    ctx.fillStyle = "#0088ff";
-    ctx.fillRect(120, legendY - 7, 8, 8);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText("Variable", 131, legendY);
+      ctx.fillStyle = "#888888";
+      ctx.textAlign = "right";
+      ctx.fillText(statusText, width - 5, legendY);
+      ctx.textAlign = "left";
 
-    // Show collection status
-    const remainingSeconds = Math.max(0, MIN_COLLECTION_SECONDS - elapsedSeconds);
-    const statusText = isCollecting
-      ? `Collecting... ${remainingSeconds}s remaining`
-      : `${classifiedChannels.length} signals (${elapsedSeconds}s)`;
+      lastDrawnChannelsRef.current = classifiedChannels;
+      animationId = requestAnimationFrame(draw);
+    };
 
-    ctx.fillStyle = "#888888";
-    ctx.textAlign = "right";
-    ctx.fillText(statusText, width - 5, legendY);
-    ctx.textAlign = "left";
+    animationId = requestAnimationFrame(draw);
 
-  }, [width, height, spectrumInfo, classifiedChannels, isCollecting, elapsedSeconds, hoveredChannel]);
+    return () => {
+      if (animationId !== null) {
+        cancelAnimationFrame(animationId);
+      }
+    };
+  }, [width, height, classifiedChannels, isCollecting, elapsedSeconds]);
 
-  // Count by type
-  const controlCount = classifiedChannels.filter(c => c.type === "control").length;
-  const voiceCount = classifiedChannels.filter(c => c.type === "voice").length;
+  // Memoized counts
+  const { controlCount, voiceCount } = useMemo(() => ({
+    controlCount: classifiedChannels.filter(c => c.type === "control").length,
+    voiceCount: classifiedChannels.filter(c => c.type === "voice").length,
+  }), [classifiedChannels]);
 
   // Format frequency for display
   const formatFreq = (hz: number) => `${(hz / 1e6).toFixed(4)} MHz`;
@@ -505,12 +562,12 @@ export default function ChannelClassifierBar({
           />
 
           {/* Tooltip */}
-          {hoveredChannel && mousePos && (
+          {tooltipInfo && (
             <div
               style={{
                 position: "fixed",
-                left: mousePos.x + 10,
-                top: mousePos.y - 60,
+                left: tooltipInfo.x + 10,
+                top: tooltipInfo.y - 60,
                 backgroundColor: "rgba(0, 0, 0, 0.9)",
                 color: "#ffffff",
                 padding: "8px 12px",
@@ -519,16 +576,16 @@ export default function ChannelClassifierBar({
                 fontFamily: "monospace",
                 zIndex: 1000,
                 pointerEvents: "none",
-                border: `2px solid ${getTypeColor(hoveredChannel.type)}`,
+                border: `2px solid ${getTypeColor(tooltipInfo.channel.type)}`,
                 minWidth: "180px",
               }}
             >
-              <div style={{ color: getTypeColor(hoveredChannel.type), fontWeight: "bold", marginBottom: "4px" }}>
-                {getTypeLabel(hoveredChannel.type)} Channel
+              <div style={{ color: getTypeColor(tooltipInfo.channel.type), fontWeight: "bold", marginBottom: "4px" }}>
+                {getTypeLabel(tooltipInfo.channel.type)} Channel
               </div>
-              <div><strong>Frequency:</strong> {formatFreq(hoveredChannel.freqHz)}</div>
-              <div><strong>Power:</strong> {hoveredChannel.power.toFixed(1)} dB</div>
-              <div><strong>Variance:</strong> {hoveredChannel.variance.toFixed(2)} dB</div>
+              <div><strong>Frequency:</strong> {formatFreq(tooltipInfo.channel.freqHz)}</div>
+              <div><strong>Power:</strong> {tooltipInfo.channel.power.toFixed(1)} dB</div>
+              <div><strong>Variance:</strong> {tooltipInfo.channel.variance.toFixed(2)} dB</div>
             </div>
           )}
         </div>
