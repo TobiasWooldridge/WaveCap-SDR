@@ -6,6 +6,7 @@ import { useCreateChannel, useStartChannel } from "../../hooks/useChannels";
 import { useToast } from "../../hooks/useToast";
 import SpectrumAnalyzer from "../../components/primitives/SpectrumAnalyzer.react";
 import WaterfallDisplay from "../../components/primitives/WaterfallDisplay.react";
+import ChannelClassifierBar from "../../components/primitives/ChannelClassifierBar.react";
 import Flex from "../../components/primitives/Flex.react";
 
 const FPS_OPTIONS = [
@@ -246,6 +247,9 @@ export function SpectrumPanel({ capture, channels }: SpectrumPanelProps) {
       <div style={{ height: `${waterfallHeight}px` }}>
         <WaterfallDisplay capture={capture} channels={channels} />
       </div>
+
+      {/* Channel Classifier Bar */}
+      <ChannelClassifierBar capture={capture} height={40} />
     </Flex>
   );
 }
