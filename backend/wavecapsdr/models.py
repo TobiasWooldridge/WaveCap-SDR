@@ -480,6 +480,20 @@ class SpectrumSnapshotModel(BaseModel):
     timestamp: float
 
 
+class ClassifiedChannelModel(BaseModel):
+    """A channel classified by power variance analysis."""
+    freqHz: float
+    powerDb: float
+    stdDevDb: float
+    channelType: str  # "control", "voice", "variable", "unknown"
+
+
+class ClassifiedChannelsResponse(BaseModel):
+    """Response for channel classification endpoint."""
+    channels: list[ClassifiedChannelModel]
+    status: dict  # elapsed_seconds, sample_count, is_ready, remaining_seconds
+
+
 class ExtendedMetricsModel(BaseModel):
     """Extended signal metrics for tuning and monitoring."""
     channelId: str

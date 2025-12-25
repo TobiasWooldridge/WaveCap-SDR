@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 import contextlib
 
+from .channel_classifier import ChannelClassifier
 from .config import AppConfig
 from .decoders.ambe import DMRVoiceDecoder
 from .decoders.dmr import DMRDecoder
@@ -1724,6 +1725,8 @@ class Capture:
     _dsp_drop_last_log: float = 0.0
     # Per-capture DSP executor for CPU isolation between captures
     _dsp_executor: ThreadPoolExecutor | None = None
+    # Channel classifier for identifying control vs voice channels
+    _channel_classifier: ChannelClassifier = field(default_factory=ChannelClassifier)
 
     def get_perf_stats(self) -> dict[str, Any]:
         """Get performance statistics for this capture."""
@@ -2226,6 +2229,14 @@ class Capture:
         self._fft_freqs = result.freqs
         self._fft_power_list = result.power_db.tolist()
         self._fft_freqs_list = result.freqs.tolist()
+
+        # Feed spectrum data to channel classifier
+        self._channel_classifier.update(
+            self._fft_power_list,
+            self._fft_freqs_list,
+            self.cfg.center_hz,
+            self.cfg.sample_rate,
+        )
 
     async def _broadcast_fft(self) -> None:
         """Broadcast FFT data to all subscribers."""

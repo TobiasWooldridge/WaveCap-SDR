@@ -253,7 +253,7 @@ export function SpectrumPanel({ capture, channels }: SpectrumPanelProps) {
       </div>
 
       {/* Channel Classifier Bar - completely separate card */}
-      <ChannelClassifierBar capture={capture} height={50} />
+      <ChannelClassifierBar capture={capture} />
     </div>
   );
 }

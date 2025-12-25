@@ -1,495 +1,88 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Radio, RotateCcw, ChevronDown, ChevronUp } from "lucide-react";
 import type { Capture } from "../../types";
-import { useSpectrumData } from "../../hooks/useSpectrumData";
-
-interface ChannelClassifierBarProps {
-  capture: Capture;
-  height?: number;
-}
-
-interface FrequencyBinStats {
-  sum: number;
-  sumSq: number;
-  count: number;
-  min: number;
-  max: number;
-}
 
 interface ClassifiedChannel {
   freqHz: number;
-  power: number;
-  variance: number;
-  type: "control" | "voice" | "variable" | "noise";
+  powerDb: number;
+  stdDevDb: number;
+  channelType: "control" | "voice" | "variable" | "unknown";
 }
 
-const MIN_COLLECTION_SECONDS = 60;
-const MIN_SAMPLES_PER_BIN = 50;
-const NOISE_THRESHOLD_DB = -50;
-const CONTROL_VARIANCE_THRESHOLD = 4;
-const VOICE_VARIANCE_THRESHOLD = 10;
+interface ClassifierStatus {
+  elapsed_seconds: number;
+  sample_count: number;
+  is_ready: boolean;
+  remaining_seconds: number;
+}
+
+interface ClassifiedChannelsResponse {
+  channels: ClassifiedChannel[];
+  status: ClassifierStatus;
+}
+
+interface ChannelClassifierBarProps {
+  capture: Capture;
+}
 
 export default function ChannelClassifierBar({
   capture,
-  height = 50,
 }: ChannelClassifierBarProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(800);
-
-  // Use refs for statistics to avoid triggering re-renders
-  const binStatsRef = useRef<Map<number, FrequencyBinStats>>(new Map());
-  const sampleCountRef = useRef(0);
-  const collectionStartRef = useRef<number | null>(null);
-  const spectrumInfoRef = useRef<{
-    centerHz: number;
-    freqs: number[];
-    sampleRate: number;
-  } | null>(null);
-
-  // Track capture parameters to detect changes
-  const prevCaptureParamsRef = useRef<string>("");
-
-  // State that actually needs to trigger re-renders
-  const [classifiedChannels, setClassifiedChannels] = useState<ClassifiedChannel[]>([]);
-  const [isCollecting, setIsCollecting] = useState(true);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [channels, setChannels] = useState<ClassifiedChannel[]>([]);
+  const [status, setStatus] = useState<ClassifierStatus | null>(null);
   const [isListExpanded, setIsListExpanded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Hover state - use ref to avoid re-renders, only update canvas directly
-  const hoveredChannelRef = useRef<ClassifiedChannel | null>(null);
-  const [tooltipInfo, setTooltipInfo] = useState<{
-    channel: ClassifiedChannel;
-    x: number;
-    y: number;
-  } | null>(null);
+  // Fetch classified channels from API
+  const fetchChannels = useCallback(async (reset: boolean = false) => {
+    if (capture.state !== "running") return;
 
-  // Track when canvas needs full redraw vs just hover update
-  const needsFullRedrawRef = useRef(true);
-  const lastDrawnChannelsRef = useRef<ClassifiedChannel[]>([]);
-
-  // Use shared WebSocket connection
-  const { spectrumData } = useSpectrumData(capture, false);
-
-  // Update canvas width when container resizes
-  useEffect(() => {
-    const updateWidth = () => {
-      if (containerRef.current) {
-        const containerWidth = containerRef.current.offsetWidth;
-        setWidth(containerWidth - 16);
-        needsFullRedrawRef.current = true;
+    try {
+      const url = `/api/v1/captures/${capture.id}/classified-channels${reset ? "?reset=true" : ""}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
-    };
+      const data: ClassifiedChannelsResponse = await response.json();
+      setChannels(data.channels);
+      setStatus(data.status);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch");
+    }
+  }, [capture.id, capture.state]);
 
-    updateWidth();
-    window.addEventListener("resize", updateWidth);
-    return () => window.removeEventListener("resize", updateWidth);
-  }, []);
+  // Poll for updates every 2 seconds
+  useEffect(() => {
+    if (capture.state !== "running") {
+      setChannels([]);
+      setStatus(null);
+      return;
+    }
+
+    fetchChannels();
+    const interval = setInterval(() => fetchChannels(), 2000);
+    return () => clearInterval(interval);
+  }, [capture.id, capture.state, fetchChannels]);
 
   // Reset when capture parameters change
   useEffect(() => {
-    const currentParams = `${capture.id}:${capture.centerHz}:${capture.sampleRate}`;
-    if (prevCaptureParamsRef.current !== currentParams) {
-      binStatsRef.current = new Map();
-      sampleCountRef.current = 0;
-      collectionStartRef.current = null;
-      spectrumInfoRef.current = null;
-      setClassifiedChannels([]);
-      setIsCollecting(true);
-      setElapsedSeconds(0);
-      prevCaptureParamsRef.current = currentParams;
-      needsFullRedrawRef.current = true;
-    }
-  }, [capture.id, capture.centerHz, capture.sampleRate]);
+    setChannels([]);
+    setStatus(null);
+  }, [capture.centerHz, capture.sampleRate]);
 
-  // Classify channels based on accumulated statistics
-  const classifyChannels = useCallback(() => {
-    const spectrumInfo = spectrumInfoRef.current;
-    if (!spectrumInfo) return;
-
-    const { centerHz, freqs } = spectrumInfo;
-
-    // Calculate noise floor from 20th percentile of averages
-    const averages: number[] = [];
-    binStatsRef.current.forEach((stats) => {
-      if (stats.count > 0) {
-        averages.push(stats.sum / stats.count);
-      }
-    });
-    averages.sort((a, b) => a - b);
-    const noiseFloor = averages[Math.floor(averages.length * 0.2)] ?? -60;
-    const signalThreshold = noiseFloor + 10;
-
-    // Find peaks and classify them
-    const classified: ClassifiedChannel[] = [];
-    const visited = new Set<number>();
-
-    binStatsRef.current.forEach((stats, binIdx) => {
-      if (visited.has(binIdx) || stats.count < MIN_SAMPLES_PER_BIN) return;
-
-      const avg = stats.sum / stats.count;
-      const variance = (stats.sumSq / stats.count) - (avg * avg);
-      const stdDev = Math.sqrt(Math.max(0, variance));
-
-      if (avg < signalThreshold) return;
-
-      // Check if this is a local peak
-      const prevStats = binStatsRef.current.get(binIdx - 1);
-      const nextStats = binStatsRef.current.get(binIdx + 1);
-      const prevAvg = prevStats ? prevStats.sum / prevStats.count : -Infinity;
-      const nextAvg = nextStats ? nextStats.sum / nextStats.count : -Infinity;
-
-      if (avg <= prevAvg || avg <= nextAvg) return;
-
-      // Mark nearby bins as visited
-      for (let offset = -3; offset <= 3; offset++) {
-        visited.add(binIdx + offset);
-      }
-
-      // Calculate frequency
-      const freqHz = centerHz + (freqs[binIdx] ?? 0);
-
-      // Classify based on variance
-      let type: "control" | "voice" | "variable" | "noise";
-      if (avg < noiseFloor + 5) {
-        type = "noise";
-      } else if (stdDev < CONTROL_VARIANCE_THRESHOLD) {
-        type = "control";
-      } else if (stdDev > VOICE_VARIANCE_THRESHOLD) {
-        type = "voice";
-      } else {
-        type = "variable";
-      }
-
-      classified.push({
-        freqHz,
-        power: avg,
-        variance: stdDev,
-        type,
-      });
-    });
-
-    // Sort by power (strongest first)
-    classified.sort((a, b) => b.power - a.power);
-    setClassifiedChannels(classified);
-    needsFullRedrawRef.current = true;
-  }, []);
-
-  // Handle incoming spectrum data - optimized to minimize state updates
-  useEffect(() => {
-    if (!spectrumData || capture.state !== "running") {
-      return;
-    }
-
-    const power = spectrumData.power;
-    if (!power || power.length === 0) return;
-
-    // Start collection timer on first sample
-    if (collectionStartRef.current === null) {
-      collectionStartRef.current = Date.now();
-    }
-
-    // Update spectrum info ref (no state update)
-    spectrumInfoRef.current = {
-      centerHz: spectrumData.centerHz,
-      freqs: spectrumData.freqs,
-      sampleRate: spectrumData.sampleRate,
-    };
-
-    // Update statistics for each bin
-    for (let i = 0; i < power.length; i++) {
-      const p = power[i];
-      let stats = binStatsRef.current.get(i);
-
-      if (!stats) {
-        stats = { sum: 0, sumSq: 0, count: 0, min: Infinity, max: -Infinity };
-        binStatsRef.current.set(i, stats);
-      }
-
-      stats.sum += p;
-      stats.sumSq += p * p;
-      stats.count += 1;
-      if (p < stats.min) stats.min = p;
-      if (p > stats.max) stats.max = p;
-    }
-
-    sampleCountRef.current += 1;
-
-    // Calculate elapsed time
-    const elapsed = (Date.now() - collectionStartRef.current) / 1000;
-    const hasEnoughData = elapsed >= MIN_COLLECTION_SECONDS;
-    const newElapsedSeconds = Math.floor(elapsed);
-
-    // Only update state when values actually change
-    if (newElapsedSeconds !== elapsedSeconds) {
-      setElapsedSeconds(newElapsedSeconds);
-    }
-
-    if (hasEnoughData !== !isCollecting) {
-      setIsCollecting(!hasEnoughData);
-    }
-
-    // Classify channels periodically (every 30 samples) once we have enough time
-    if (sampleCountRef.current % 30 === 0 && hasEnoughData) {
-      classifyChannels();
-    }
-  }, [spectrumData, capture.state, classifyChannels, elapsedSeconds, isCollecting]);
-
-  // Manual reset
   const handleReset = useCallback(() => {
-    binStatsRef.current = new Map();
-    sampleCountRef.current = 0;
-    collectionStartRef.current = null;
-    spectrumInfoRef.current = null;
-    setClassifiedChannels([]);
-    setIsCollecting(true);
-    setElapsedSeconds(0);
-    needsFullRedrawRef.current = true;
-  }, []);
-
-  // Handle mouse move over canvas - lightweight, no state for hover position
-  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const spectrumInfo = spectrumInfoRef.current;
-    if (!spectrumInfo || classifiedChannels.length === 0) {
-      if (hoveredChannelRef.current !== null) {
-        hoveredChannelRef.current = null;
-        setTooltipInfo(null);
-        // Redraw without highlight
-        needsFullRedrawRef.current = true;
-      }
-      return;
-    }
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-
-    const { centerHz, freqs } = spectrumInfo;
-    const freqMin = centerHz + freqs[0];
-    const freqMax = centerHz + freqs[freqs.length - 1];
-    const freqSpan = freqMax - freqMin;
-
-    // Find nearest channel within 15 pixels
-    let nearestChannel: ClassifiedChannel | null = null;
-    let nearestDist = 15;
-
-    for (const ch of classifiedChannels) {
-      const chX = ((ch.freqHz - freqMin) / freqSpan) * width;
-      const dist = Math.abs(chX - x);
-      if (dist < nearestDist) {
-        nearestDist = dist;
-        nearestChannel = ch;
-      }
-    }
-
-    const prevHovered = hoveredChannelRef.current;
-    hoveredChannelRef.current = nearestChannel;
-
-    if (nearestChannel) {
-      setTooltipInfo({ channel: nearestChannel, x: e.clientX, y: e.clientY });
-    } else {
-      setTooltipInfo(null);
-    }
-
-    // Only redraw if hover changed
-    if (prevHovered?.freqHz !== nearestChannel?.freqHz) {
-      needsFullRedrawRef.current = true;
-    }
-  }, [classifiedChannels, width]);
-
-  const handleMouseLeave = useCallback(() => {
-    if (hoveredChannelRef.current !== null) {
-      hoveredChannelRef.current = null;
-      setTooltipInfo(null);
-      needsFullRedrawRef.current = true;
-    }
-  }, []);
-
-  // Draw the canvas - uses requestAnimationFrame for efficiency
-  useEffect(() => {
-    let animationId: number | null = null;
-    let lastDrawTime = 0;
-    const MIN_DRAW_INTERVAL = 100; // Max 10fps for canvas updates
-
-    const draw = (timestamp: number) => {
-      if (!needsFullRedrawRef.current) {
-        animationId = requestAnimationFrame(draw);
-        return;
-      }
-
-      // Throttle redraws
-      if (timestamp - lastDrawTime < MIN_DRAW_INTERVAL) {
-        animationId = requestAnimationFrame(draw);
-        return;
-      }
-      lastDrawTime = timestamp;
-      needsFullRedrawRef.current = false;
-
-      const canvas = canvasRef.current;
-      const spectrumInfo = spectrumInfoRef.current;
-      if (!canvas || !spectrumInfo) {
-        animationId = requestAnimationFrame(draw);
-        return;
-      }
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) {
-        animationId = requestAnimationFrame(draw);
-        return;
-      }
-
-      const { centerHz, freqs } = spectrumInfo;
-      const freqMin = centerHz + freqs[0];
-      const freqMax = centerHz + freqs[freqs.length - 1];
-      const freqSpan = freqMax - freqMin;
-
-      // Clear canvas
-      ctx.fillStyle = "#1a1a1a";
-      ctx.fillRect(0, 0, width, height);
-
-      const barHeight = height - 18;
-
-      // Draw background gradient showing variance density
-      if (binStatsRef.current.size > 0 && !isCollecting) {
-        const imageData = ctx.createImageData(width, barHeight);
-        const data = imageData.data;
-        const binCount = binStatsRef.current.size;
-
-        for (let x = 0; x < width; x++) {
-          const binIdx = Math.floor((x / width) * binCount);
-          const stats = binStatsRef.current.get(binIdx);
-
-          let r = 30, g = 30, b = 30;
-
-          if (stats && stats.count >= MIN_SAMPLES_PER_BIN) {
-            const avg = stats.sum / stats.count;
-            const variance = (stats.sumSq / stats.count) - (avg * avg);
-            const stdDev = Math.sqrt(Math.max(0, variance));
-
-            if (avg < NOISE_THRESHOLD_DB) {
-              r = 30; g = 30; b = 30;
-            } else if (stdDev < CONTROL_VARIANCE_THRESHOLD) {
-              const intensity = Math.min(1, (avg + 60) / 60);
-              r = 0; g = Math.floor(80 + 100 * intensity); b = 0;
-            } else if (stdDev > VOICE_VARIANCE_THRESHOLD) {
-              const intensity = Math.min(1, (avg + 60) / 60);
-              r = Math.floor(150 * intensity); g = Math.floor(60 * intensity); b = 0;
-            } else {
-              const intensity = Math.min(1, (avg + 60) / 60);
-              r = 0; g = Math.floor(80 * intensity); b = Math.floor(150 * intensity);
-            }
-          }
-
-          // Fill column
-          for (let y = 0; y < barHeight; y++) {
-            const idx = (y * width + x) * 4;
-            data[idx] = r;
-            data[idx + 1] = g;
-            data[idx + 2] = b;
-            data[idx + 3] = 255;
-          }
-        }
-
-        ctx.putImageData(imageData, 0, 0);
-      }
-
-      // Draw channel markers
-      const hoveredChannel = hoveredChannelRef.current;
-      for (const ch of classifiedChannels) {
-        const x = ((ch.freqHz - freqMin) / freqSpan) * width;
-
-        if (x < 0 || x > width) continue;
-
-        let markerColor: string;
-        switch (ch.type) {
-          case "control": markerColor = "#00ff00"; break;
-          case "voice": markerColor = "#ff6600"; break;
-          case "variable": markerColor = "#0088ff"; break;
-          default: markerColor = "#666666";
-        }
-
-        // Highlight if hovered
-        if (hoveredChannel?.freqHz === ch.freqHz) {
-          ctx.strokeStyle = "#ffffff";
-          ctx.lineWidth = 4;
-          ctx.beginPath();
-          ctx.moveTo(x, 0);
-          ctx.lineTo(x, barHeight);
-          ctx.stroke();
-        }
-
-        ctx.strokeStyle = markerColor;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, barHeight);
-        ctx.stroke();
-
-        // Draw triangle at bottom
-        ctx.fillStyle = markerColor;
-        ctx.beginPath();
-        ctx.moveTo(x, barHeight);
-        ctx.lineTo(x - 5, barHeight + 6);
-        ctx.lineTo(x + 5, barHeight + 6);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      // Draw legend at bottom
-      ctx.font = "9px monospace";
-      const legendY = height - 3;
-
-      ctx.fillStyle = "#00ff00";
-      ctx.fillRect(5, legendY - 7, 8, 8);
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText("Control", 16, legendY);
-
-      ctx.fillStyle = "#ff6600";
-      ctx.fillRect(70, legendY - 7, 8, 8);
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText("Voice", 81, legendY);
-
-      ctx.fillStyle = "#0088ff";
-      ctx.fillRect(120, legendY - 7, 8, 8);
-      ctx.fillStyle = "#ffffff";
-      ctx.fillText("Variable", 131, legendY);
-
-      // Show collection status
-      const remainingSeconds = Math.max(0, MIN_COLLECTION_SECONDS - elapsedSeconds);
-      const statusText = isCollecting
-        ? `Collecting... ${remainingSeconds}s remaining`
-        : `${classifiedChannels.length} signals (${elapsedSeconds}s)`;
-
-      ctx.fillStyle = "#888888";
-      ctx.textAlign = "right";
-      ctx.fillText(statusText, width - 5, legendY);
-      ctx.textAlign = "left";
-
-      lastDrawnChannelsRef.current = classifiedChannels;
-      animationId = requestAnimationFrame(draw);
-    };
-
-    animationId = requestAnimationFrame(draw);
-
-    return () => {
-      if (animationId !== null) {
-        cancelAnimationFrame(animationId);
-      }
-    };
-  }, [width, height, classifiedChannels, isCollecting, elapsedSeconds]);
+    fetchChannels(true);
+  }, [fetchChannels]);
 
   // Memoized counts
   const { controlCount, voiceCount } = useMemo(() => ({
-    controlCount: classifiedChannels.filter(c => c.type === "control").length,
-    voiceCount: classifiedChannels.filter(c => c.type === "voice").length,
-  }), [classifiedChannels]);
+    controlCount: channels.filter(c => c.channelType === "control").length,
+    voiceCount: channels.filter(c => c.channelType === "voice").length,
+  }), [channels]);
 
-  // Format frequency for display
   const formatFreq = (hz: number) => `${(hz / 1e6).toFixed(4)} MHz`;
 
-  // Get type label
   const getTypeLabel = (type: string) => {
     switch (type) {
       case "control": return "Control";
@@ -499,7 +92,6 @@ export default function ChannelClassifierBar({
     }
   };
 
-  // Get type color
   const getTypeColor = (type: string) => {
     switch (type) {
       case "control": return "#00ff00";
@@ -509,6 +101,10 @@ export default function ChannelClassifierBar({
     }
   };
 
+  const isReady = status?.is_ready ?? false;
+  const remainingSeconds = status?.remaining_seconds ?? 60;
+  const elapsedSeconds = status?.elapsed_seconds ?? 0;
+
   return (
     <div className="card shadow-sm mt-2">
       <div className="card-header bg-body-tertiary py-1 px-2">
@@ -516,14 +112,14 @@ export default function ChannelClassifierBar({
           <small className="fw-semibold mb-0 d-flex align-items-center gap-1">
             <Radio size={12} />
             Channel Classifier
-            {!isCollecting && (
+            {isReady && channels.length > 0 && (
               <span className="badge bg-success text-white ms-2" style={{ fontSize: "8px" }}>
                 {controlCount} CC / {voiceCount} VC
               </span>
             )}
           </small>
           <div className="d-flex align-items-center gap-1">
-            {!isCollecting && classifiedChannels.length > 0 && (
+            {isReady && channels.length > 0 && (
               <button
                 className="btn btn-sm btn-outline-secondary p-0 d-flex align-items-center justify-content-center"
                 style={{ width: "20px", height: "20px" }}
@@ -544,56 +140,41 @@ export default function ChannelClassifierBar({
           </div>
         </div>
       </div>
-      <div className="card-body p-1" ref={containerRef}>
-        <div style={{ position: "relative" }}>
-          <canvas
-            ref={canvasRef}
-            width={width}
-            height={height}
-            style={{
-              border: "1px solid #dee2e6",
-              borderRadius: "4px",
-              display: "block",
-              width: "100%",
-              cursor: classifiedChannels.length > 0 ? "crosshair" : "default",
-            }}
-            onMouseMove={handleMouseMove}
-            onMouseLeave={handleMouseLeave}
-          />
-
-          {/* Tooltip */}
-          {tooltipInfo && (
-            <div
-              style={{
-                position: "fixed",
-                left: tooltipInfo.x + 10,
-                top: tooltipInfo.y - 60,
-                backgroundColor: "rgba(0, 0, 0, 0.9)",
-                color: "#ffffff",
-                padding: "8px 12px",
-                borderRadius: "4px",
-                fontSize: "11px",
-                fontFamily: "monospace",
-                zIndex: 1000,
-                pointerEvents: "none",
-                border: `2px solid ${getTypeColor(tooltipInfo.channel.type)}`,
-                minWidth: "180px",
-              }}
-            >
-              <div style={{ color: getTypeColor(tooltipInfo.channel.type), fontWeight: "bold", marginBottom: "4px" }}>
-                {getTypeLabel(tooltipInfo.channel.type)} Channel
-              </div>
-              <div><strong>Frequency:</strong> {formatFreq(tooltipInfo.channel.freqHz)}</div>
-              <div><strong>Power:</strong> {tooltipInfo.channel.power.toFixed(1)} dB</div>
-              <div><strong>Variance:</strong> {tooltipInfo.channel.variance.toFixed(2)} dB</div>
-            </div>
-          )}
+      <div className="card-body p-2">
+        {/* Status bar */}
+        <div
+          className="d-flex align-items-center justify-content-between"
+          style={{ fontSize: "10px", fontFamily: "monospace" }}
+        >
+          <div className="d-flex align-items-center gap-3">
+            <span className="d-flex align-items-center gap-1">
+              <span style={{ width: "8px", height: "8px", backgroundColor: "#00ff00", display: "inline-block" }} />
+              Control
+            </span>
+            <span className="d-flex align-items-center gap-1">
+              <span style={{ width: "8px", height: "8px", backgroundColor: "#ff6600", display: "inline-block" }} />
+              Voice
+            </span>
+            <span className="d-flex align-items-center gap-1">
+              <span style={{ width: "8px", height: "8px", backgroundColor: "#0088ff", display: "inline-block" }} />
+              Variable
+            </span>
+          </div>
+          <span className="text-muted">
+            {error ? (
+              <span className="text-danger">{error}</span>
+            ) : !isReady ? (
+              `Collecting... ${Math.round(remainingSeconds)}s remaining`
+            ) : (
+              `${channels.length} signals (${Math.round(elapsedSeconds)}s)`
+            )}
+          </span>
         </div>
 
-        {/* Expandable channel list */}
-        {isListExpanded && classifiedChannels.length > 0 && (
+        {/* Channel list */}
+        {isListExpanded && channels.length > 0 && (
           <div
-            className="mt-1"
+            className="mt-2"
             style={{
               maxHeight: "200px",
               overflowY: "auto",
@@ -611,27 +192,50 @@ export default function ChannelClassifierBar({
                 </tr>
               </thead>
               <tbody>
-                {classifiedChannels.map((ch, idx) => (
+                {channels.map((ch, idx) => (
                   <tr key={idx}>
                     <td>
                       <span
                         className="badge"
                         style={{
-                          backgroundColor: getTypeColor(ch.type),
-                          color: ch.type === "control" ? "#000" : "#fff",
+                          backgroundColor: getTypeColor(ch.channelType),
+                          color: ch.channelType === "control" ? "#000" : "#fff",
                           fontSize: "9px",
                         }}
                       >
-                        {getTypeLabel(ch.type)}
+                        {getTypeLabel(ch.channelType)}
                       </span>
                     </td>
                     <td>{formatFreq(ch.freqHz)}</td>
-                    <td>{ch.power.toFixed(1)} dB</td>
-                    <td>{ch.variance.toFixed(2)}</td>
+                    <td>{ch.powerDb.toFixed(1)} dB</td>
+                    <td>{ch.stdDevDb.toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Simple channel summary when not expanded */}
+        {!isListExpanded && isReady && channels.length > 0 && (
+          <div className="mt-1" style={{ fontSize: "10px", fontFamily: "monospace" }}>
+            {channels.slice(0, 5).map((ch, idx) => (
+              <span
+                key={idx}
+                className="badge me-1"
+                style={{
+                  backgroundColor: getTypeColor(ch.channelType),
+                  color: ch.channelType === "control" ? "#000" : "#fff",
+                  fontSize: "9px",
+                }}
+                title={`${formatFreq(ch.freqHz)} - ${ch.powerDb.toFixed(1)} dB, std ${ch.stdDevDb.toFixed(2)}`}
+              >
+                {(ch.freqHz / 1e6).toFixed(3)}
+              </span>
+            ))}
+            {channels.length > 5 && (
+              <span className="text-muted">+{channels.length - 5} more</span>
+            )}
           </div>
         )}
       </div>

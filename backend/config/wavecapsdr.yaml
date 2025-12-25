@@ -24,12 +24,12 @@ limits:
   max_channels_per_capture: 8
 presets:
   kexp:
-    center_hz: 91900000
-    sample_rate: 1024000
+    center_hz: 414000000
+    sample_rate: 2400000
     offsets:
     - 0.0
-    gain: 16.0
-    bandwidth: 300000.0
+    gain: 40.0
+    bandwidth: 200000.0
     ppm: 0.0
     antenna: Antenna B
   sa_grn:
@@ -601,24 +601,27 @@ trunking:
   systems:
     sa_grn:
       antenna: Antenna A
-      auto_start: false
+      auto_start: true
       bandwidth: 5000000
-      center_hz: 414.5 MHz
+      center_hz: 415.5 MHz
       control_channel_timeout: 30
       control_channels:
+      - 413.175 MHz
       - 413.3125 MHz
-      - 414.6875 MHz
-      - 414.7625 MHz
-      - 415.7625 MHz
-      - 416.4500 MHz
+      - 413.35 MHz
+      - 413.4625 MHz
+      - 414.75 MHz
+      - 414.8875 MHz
+      - 415.25 MHz
       device_id: driver=sdrplay,serial=240305E670
       device_settings:
-        rfnotch_en: 'true'
-      gain: 10
+        rfnotch_en: 'false'
+        dabnotch_ctrl: 'false'
+      gain: 30
       id: sa_grn
       max_voice_recorders: 2
       min_call_duration: 1.0
-      modulation: c4fm
+      modulation: lsm
       name: SA GRN (South Australia Government Radio Network)
       protocol: p25_phase1
       record_unknown: true

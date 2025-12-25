@@ -30,6 +30,8 @@ from .frequency_namer import get_frequency_namer
 from .models import (
     CaptureModel,
     ChannelModel,
+    ClassifiedChannelModel,
+    ClassifiedChannelsResponse,
     ConfigWarning,
     CreateCaptureRequest,
     CreateChannelRequest,
@@ -2035,6 +2037,48 @@ def get_spectrum_snapshot(
         centerHz=cap.cfg.center_hz,
         sampleRate=cap.cfg.sample_rate,
         timestamp=time.time(),
+    )
+
+
+@router.get("/captures/{cid}/classified-channels", response_model=ClassifiedChannelsResponse)
+def get_classified_channels(
+    cid: str,
+    reset: bool = False,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+) -> ClassifiedChannelsResponse:
+    """Get classified channels (control vs voice) based on spectrum analysis.
+
+    The classifier accumulates spectrum data over time and identifies:
+    - Control channels: constant power, low variance (always transmitting)
+    - Voice channels: intermittent power, high variance (on/off during calls)
+    - Variable: moderate variance (could be either)
+
+    Query params:
+    - reset: If true, reset the classifier and start fresh collection
+    """
+    cap = state.captures.get_capture(cid)
+    if cap is None:
+        raise HTTPException(status_code=404, detail="Capture not found")
+
+    if reset:
+        cap._channel_classifier.reset()
+
+    # Get classification results
+    classified = cap._channel_classifier.classify()
+    status = cap._channel_classifier.get_status()
+
+    return ClassifiedChannelsResponse(
+        channels=[
+            ClassifiedChannelModel(
+                freqHz=ch.freq_hz,
+                powerDb=ch.power_db,
+                stdDevDb=ch.std_dev_db,
+                channelType=ch.channel_type,
+            )
+            for ch in classified
+        ],
+        status=status,
     )
 
 
