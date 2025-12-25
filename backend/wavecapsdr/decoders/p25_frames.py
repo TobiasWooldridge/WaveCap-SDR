@@ -349,7 +349,7 @@ def remove_status_symbols(dibits: np.ndarray) -> np.ndarray:
 
 def decode_nid(
     dibits: np.ndarray,
-    skip_status_at_11: bool = True,
+    skip_status_at_10: bool = True,
     nac_tracker: NACTracker | None = None,
 ) -> NID | None:
     """Decode Network ID from NID dibits with BCH error correction.
@@ -359,8 +359,12 @@ def decode_nid(
     - BCH(63,16,23) parity = 24 dibits = 47 bits (63 - 16)
 
     IMPORTANT: P25 inserts a status symbol every 35 dibits from frame start.
-    Since sync is 24 dibits, the first status symbol appears at position 11
-    within the NID dibits (24 + 11 = 35). This status symbol must be skipped.
+    Status symbols are at 0-indexed frame positions 34, 69, 104, etc.
+    (where (pos+1) % 35 == 0).
+
+    Since sync is 24 dibits (positions 0-23), the NID starts at position 24.
+    The first status symbol is at frame position 34, which is NID position 10
+    (34 - 24 = 10). This status symbol must be skipped.
 
     BCH Error Correction:
     - First pass: decode codeword as-is
@@ -368,22 +372,23 @@ def decode_nid(
 
     Args:
         dibits: NID dibits (33 if status included, 32 if already stripped)
-        skip_status_at_11: If True, expects 33 dibits and skips position 11
+        skip_status_at_10: If True, expects 33 dibits and skips position 10 (0-indexed)
         nac_tracker: Optional NAC tracker for BCH second-pass correction
 
     Returns:
         Decoded NID or None if decoding fails
     """
-    required_len = 33 if skip_status_at_11 else 32
+    required_len = 33 if skip_status_at_10 else 32
     if len(dibits) < required_len:
         logger.debug(f"decode_nid: too short, len={len(dibits)}, required={required_len}")
         return None
 
-    # Build clean dibit array, skipping status symbol at position 11 if needed
+    # Build clean dibit array, skipping status symbol at position 10 if needed
+    # Status symbol is at frame position 34 = NID position 10 (since NID starts at 24)
     clean_dibits = []
     for i in range(required_len):
-        if skip_status_at_11 and i == 11:
-            continue  # Skip status symbol (CRITICAL - matches SDRTrunk line 824)
+        if skip_status_at_10 and i == 10:
+            continue  # Skip status symbol at frame position 34
         clean_dibits.append(int(dibits[i]))  # Ensure Python int
 
     if len(clean_dibits) < 32:
@@ -663,7 +668,7 @@ def decode_tsdu(dibits: np.ndarray) -> TSDUFrame | None:
     if decode_tsdu._debug_count <= 10:
         logger.info(f"decode_tsdu: nid_dibits[0:15]={list(nid_dibits[:15])}, len={len(nid_dibits)}")
 
-    nid = decode_nid(nid_dibits, skip_status_at_11=True)
+    nid = decode_nid(nid_dibits, skip_status_at_10=True)
     if nid is None:
         logger.debug("TSDU: NID decode failed")
         return None
@@ -866,53 +871,57 @@ def extract_encryption_sync(dibits: np.ndarray) -> EncryptionSync:
 def extract_tsbk_blocks(dibits: np.ndarray) -> list[TSBKBlock]:
     """Extract TSBK blocks from TSDU.
 
-    CRITICAL: Each TSBK block in a TSDU is:
-    - 196 dibits (interleaved, trellis-encoded)
-    - After deinterleaving: 196 bits
-    - After trellis 1/2 rate decode: 98 bits
+    Each TSBK block in a TSDU is:
+    - 98 dibits (trellis-encoded, interleaved) = 196 bits
+    - After deinterleaving: 196 bits (reordered)
+    - After trellis 1/2 rate decode: 49 dibits = 98 bits
     - Final structure: 1 LB + 1 Protect + 6 Opcode + 8 MFID + 64 Data + 16 CRC = 96 bits
       (2 bits are flushing bits from trellis and discarded)
 
     TSDU can contain 1-3 TSBK blocks.
 
-    Processing steps per SDRTrunk:
-    1. Remove status symbols from dibit stream (ALREADY DONE at framer level in SDRTrunk)
-    2. For each TSBK block (196 dibits):
-       a. Convert dibits to bits (196 dibits → 392 bits, but use first 196)
-       b. Deinterleave using DATA_DEINTERLEAVE pattern
-       c. Trellis decode 196 bits → 98 bits (discard last 2 flushing bits)
-       d. Validate CRC-16 CCITT on first 96 bits
-       e. Parse TSBK structure
+    Processing steps:
+    1. Extract 98 dibits per TSBK block
+    2. Convert 98 dibits → 196 bits
+    3. Deinterleave 196 bits using DATA_DEINTERLEAVE pattern
+    4. Convert 196 bits → 98 dibits for trellis decoder
+    5. Trellis decode 98 dibits → 49 dibits (98 bits, use first 96)
+    6. Validate CRC-16 CCITT and parse TSBK structure
 
     Args:
-        dibits: TSDU dibits after NID
+        dibits: TSDU dibits after NID (with status symbols removed)
 
     Returns:
         List of decoded TSBK blocks (1-3 blocks)
     """
     blocks = []
 
-    # TSDU structure: up to 3 TSBK blocks, each 196 dibits
-    TSBK_ENCODED_SIZE = 196  # dibits per TSBK (interleaved, trellis-encoded)
+    # Each TSBK block is 98 dibits (196 bits after conversion)
+    # TSDU can hold up to 3 TSBK blocks: 98 * 3 = 294 dibits
+    TSBK_ENCODED_SIZE = 98  # dibits per TSBK
+
+    # DEBUG: Log input size
+    logger.info(f"extract_tsbk_blocks: input dibits={len(dibits)}")
 
     offset = 0
     for block_idx in range(3):  # Max 3 TSBKs per TSDU
         # Check if we have enough dibits for another TSBK
         if offset + TSBK_ENCODED_SIZE > len(dibits):
+            logger.info(f"TSBK block {block_idx}: not enough dibits (have {len(dibits)-offset}, need {TSBK_ENCODED_SIZE})")
             break
 
-        # Extract 196 dibits for this TSBK
+        # Extract 98 dibits for this TSBK
         tsbk_dibits = dibits[offset:offset + TSBK_ENCODED_SIZE]
 
-        # Convert dibits to bits (196 dibits → 392 bits)
+        # Convert 98 dibits to 196 bits for deinterleaving
         interleaved_bits = dibits_to_bits(tsbk_dibits)
 
         if len(interleaved_bits) < 196:
             logger.warning(f"TSBK block {block_idx}: insufficient bits ({len(interleaved_bits)})")
             break
 
-        # Step 1: Deinterleave using P25 data pattern (first 196 bits)
-        deinterleaved_bits = deinterleave_data(interleaved_bits[:196])
+        # Step 1: Deinterleave using P25 data pattern (196 bits)
+        deinterleaved_bits = deinterleave_data(interleaved_bits)
 
         # Step 2: Trellis decode (1/2 rate: 196 bits → 98 bits)
         # Convert bits back to dibits for trellis decoder

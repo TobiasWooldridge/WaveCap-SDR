@@ -125,11 +125,17 @@ class ControlChannelMonitor:
         # Initialize dibit buffer
         self._dibit_buffer = []
 
+        # Polarity reversal tracking (OP25-style)
+        # 0 = normal polarity, 2 = reversed (XOR mask to apply)
+        self._reverse_p: int = 0
+
     def reset(self) -> None:
         """Reset monitor state."""
         self.sync_state = SyncState.SEARCHING
         self._dibit_buffer.clear()
         self._sync_pattern_idx = 0
+        self._reverse_p = 0
+        self._polarity_latched = False
         # P25C4FMDemodulator doesn't have a reset method; it maintains
         # minimal state that resets naturally with new IQ blocks
 
@@ -198,6 +204,10 @@ class ControlChannelMonitor:
         """
         results: list[dict[str, Any]] = []
 
+        # Apply polarity correction if needed (OP25-style)
+        if self._reverse_p:
+            dibits = dibits ^ self._reverse_p
+
         # Add to buffer
         self._dibit_buffer.extend(dibits.tolist())
 
@@ -236,15 +246,14 @@ class ControlChannelMonitor:
             # Extract frame
             frame_dibits = np.array(self._dibit_buffer[:self.TSDU_FRAME_DIBITS], dtype=np.uint8)
 
-            # Verify sync pattern at start of frame
-            sync_dibits = self._get_sync_dibits()
+            # Verify sync pattern at start of frame using soft correlation
             frame_sync = frame_dibits[:self.FRAME_SYNC_DIBITS]
-            sync_errors = np.sum(frame_sync != sync_dibits)
-            if sync_errors > 4:  # Match search tolerance
+            sync_score = self._soft_correlation(frame_sync.tolist())
+            if sync_score < self.SOFT_SYNC_THRESHOLD:  # Match search tolerance
                 # Lost sync
                 self.sync_state = SyncState.SEARCHING
                 self.sync_losses += 1
-                logger.warning(f"ControlChannelMonitor: Lost frame sync (errors={sync_errors})")
+                logger.warning(f"ControlChannelMonitor: Lost frame sync (score={sync_score:.1f} < {self.SOFT_SYNC_THRESHOLD})")
                 if self.on_sync_lost:
                     self.on_sync_lost()
                 # Don't consume dibits, let search find next sync
@@ -254,7 +263,7 @@ class ControlChannelMonitor:
                 self._verified_frames = 0
             self._verified_frames += 1
             if self._verified_frames % 50 == 1:
-                logger.info(f"ControlChannelMonitor: Sync verified (frame {self._verified_frames}, errors={sync_errors})")
+                logger.info(f"ControlChannelMonitor: Sync verified (frame {self._verified_frames}, score={sync_score:.1f})")
 
             # Decode NID (Network ID) after sync
             # NID is 32 dibits of data, but there's a status symbol at position 11
@@ -276,7 +285,7 @@ class ControlChannelMonitor:
                     f"NID dibits (33): {list(nid_dibits[:15])}..."
                 )
 
-            nid = decode_nid(nid_dibits, skip_status_at_11=True)
+            nid = decode_nid(nid_dibits, skip_status_at_10=True)
 
             # Debug: log every 10th frame for now (to see DUID distribution)
             if self._frame_count <= 5 or self._frame_count % 10 == 1:
@@ -326,8 +335,48 @@ class ControlChannelMonitor:
 
         return results
 
+    # Soft correlation constants (same as P25FrameSync)
+    SYNC_PATTERN_SYMBOLS = np.array([+3, +3, +3, +3, +3, -3, +3, +3, -3, -3, +3, +3,
+                                      -3, -3, -3, -3, +3, -3, +3, -3, -3, -3, -3, -3], dtype=np.float32)
+    # Reversed polarity sync pattern (negated symbols)
+    SYNC_PATTERN_SYMBOLS_REV = np.array([-3, -3, -3, -3, -3, +3, -3, -3, +3, +3, -3, -3,
+                                          +3, +3, +3, +3, -3, +3, -3, +3, +3, +3, +3, +3], dtype=np.float32)
+    DIBIT_TO_SYMBOL = np.array([+1.0, +3.0, -1.0, -3.0], dtype=np.float32)
+    SOFT_SYNC_THRESHOLD = 60  # SDRTrunk-style threshold
+
+    def _soft_correlation(self, dibits: list[int], detect_polarity: bool = False) -> float | tuple[float, bool]:
+        """Compute soft correlation score between dibits and sync pattern.
+
+        SDRTrunk-style: dot product of received symbols with ideal sync symbols.
+        Max score is 24 * 9 = 216 when all symbols match perfectly at ±3.
+        Checks both normal and reversed polarity, returns best absolute score.
+
+        Args:
+            dibits: 24 dibits to correlate
+            detect_polarity: If True, also return whether reversed polarity is better
+
+        Returns:
+            If detect_polarity=False: best score
+            If detect_polarity=True: tuple of (best_score, is_reversed)
+        """
+        # Convert dibits to symbols: 0->+1, 1->+3, 2->-1, 3->-3
+        symbols = self.DIBIT_TO_SYMBOL[np.clip(dibits[:24], 0, 3)]
+        # Check both normal and reversed polarity
+        normal_score = float(np.dot(symbols, self.SYNC_PATTERN_SYMBOLS))
+        rev_score = float(np.dot(symbols, self.SYNC_PATTERN_SYMBOLS_REV))
+
+        if detect_polarity:
+            if rev_score > normal_score:
+                return rev_score, True
+            return normal_score, False
+        return max(normal_score, rev_score)
+
     def _find_sync_in_buffer(self) -> int:
-        """Find frame sync pattern in dibit buffer.
+        """Find frame sync pattern in dibit buffer using soft correlation.
+
+        Uses SDRTrunk-style soft correlation for robust detection even
+        with noisy dibits. This is more tolerant than hard dibit matching.
+        Detects and latches polarity reversal (OP25-style).
 
         Returns:
             Index of sync pattern start, or -1 if not found
@@ -335,52 +384,68 @@ class ControlChannelMonitor:
         if len(self._dibit_buffer) < self.FRAME_SYNC_DIBITS:
             return -1
 
-        # Convert expected sync pattern to dibits
-        sync_dibits = self._get_sync_dibits()
-
-        # Debug: Log buffer sample every 1000 calls
+        # Debug: Log buffer sample periodically
         if not hasattr(self, '_find_sync_calls'):
             self._find_sync_calls = 0
         self._find_sync_calls += 1
-        if self._find_sync_calls <= 3 or self._find_sync_calls % 500 == 0:
+        verbose = self._find_sync_calls <= 3 or self._find_sync_calls % 500 == 0
+
+        best_pos = -1
+        best_score = 0.0
+        best_is_reversed = False
+
+        # Search for sync using soft correlation with polarity detection
+        for i in range(len(self._dibit_buffer) - self.FRAME_SYNC_DIBITS + 1):
+            window = self._dibit_buffer[i:i + self.FRAME_SYNC_DIBITS]
+            score, is_reversed = self._soft_correlation(window, detect_polarity=True)
+
+            if score > best_score:
+                best_score = score
+                best_pos = i
+                best_is_reversed = is_reversed
+
+        if verbose:
             sample = self._dibit_buffer[:min(30, len(self._dibit_buffer))]
             logger.info(
                 f"ControlChannelMonitor._find_sync_in_buffer: call #{self._find_sync_calls}, "
-                f"buffer_len={len(self._dibit_buffer)}, "
-                f"first_30_dibits={list(sample)}, "
-                f"expected_sync={list(sync_dibits[:12])}..."
+                f"buffer_len={len(self._dibit_buffer)}, best_score={best_score:.1f}, "
+                f"threshold={self.SOFT_SYNC_THRESHOLD}, best_pos={best_pos}, reversed={best_is_reversed}, "
+                f"first_30_dibits={list(sample)}"
             )
 
-        # Search for pattern (allow 4 errors like P25FrameSync)
-        for i in range(len(self._dibit_buffer) - self.FRAME_SYNC_DIBITS + 1):
-            match = True
-            errors = 0
-            max_errors = 4  # Allow up to 4 dibit errors (matches P25FrameSync.sync_threshold)
+        # Check if best score exceeds threshold
+        if best_score >= self.SOFT_SYNC_THRESHOLD:
+            # Latch polarity on FIRST successful sync only (don't flip-flop)
+            # This follows OP25 approach: detect once and maintain
+            if not hasattr(self, '_polarity_latched'):
+                self._polarity_latched = False
 
-            for j in range(self.FRAME_SYNC_DIBITS):
-                if self._dibit_buffer[i + j] != sync_dibits[j]:
-                    errors += 1
-                    if errors > max_errors:
-                        match = False
-                        break
+            if not self._polarity_latched:
+                if best_is_reversed:
+                    self._reverse_p = 2
+                    logger.info(f"ControlChannelMonitor: Latching reversed polarity (reverse_p=2)")
+                    # Apply polarity correction to entire buffer
+                    self._dibit_buffer = [d ^ 2 for d in self._dibit_buffer]
+                else:
+                    logger.info(f"ControlChannelMonitor: Latching normal polarity (reverse_p=0)")
+                self._polarity_latched = True
 
-            if match:
-                return i
+            return best_pos
 
         return -1
 
     def _verify_sync(self, dibits: np.ndarray) -> bool:
-        """Verify that dibits match sync pattern.
+        """Verify that dibits match sync pattern using soft correlation.
 
         Args:
             dibits: First 24 dibits of frame
 
         Returns:
-            True if sync pattern matches (with error tolerance)
+            True if sync pattern matches (above soft correlation threshold)
         """
-        sync_dibits = self._get_sync_dibits()
-        errors = np.sum(dibits != sync_dibits)
-        return errors <= 4  # Allow up to 4 dibit errors (matches P25FrameSync)
+        score = self._soft_correlation(dibits.tolist())
+        # Use same threshold as search for consistency
+        return score >= self.SOFT_SYNC_THRESHOLD
 
     def _get_sync_dibits(self) -> np.ndarray:
         """Get P25 frame sync pattern as dibits.

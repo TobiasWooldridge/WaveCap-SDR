@@ -167,8 +167,9 @@ class BCH_63_16_23:
         for n in range(2 * self.T):
             # Compute discrepancy
             d = syndromes[n]
-            for i in range(1, L + 1):
-                if C[i] != 0 and syndromes[n - i] != 0:
+            # Clamp loop to avoid accessing beyond array bounds
+            for i in range(1, min(L + 1, self.T + 1)):
+                if C[i] != 0 and n >= i and syndromes[n - i] != 0:
                     d ^= self._gf_mul(C[i], syndromes[n - i])
 
             if d == 0:
@@ -218,8 +219,9 @@ class BCH_63_16_23:
                     val ^= self._a_pow((self.a_log_tab[poly[j]] + i * j) % self.N)
 
             if val == 0:
-                # Root found at alpha^(-i), error at position (N-1-i)
-                roots.append((self.N - 1 - i) % self.N)
+                # Root found at alpha^i corresponds to error at position (N-i) mod N
+                # because Berlekamp-Massey produces inverted locator polynomial
+                roots.append((self.N - i) % self.N)
 
         return np.array(roots, dtype=np.int32)
 

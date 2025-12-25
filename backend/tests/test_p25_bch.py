@@ -129,7 +129,7 @@ class TestNIDDecode:
         tracker = NACTracker()
 
         # Decode (will likely fail with all zeros, but should not crash)
-        result = decode_nid(dibits, skip_status_at_11=True, nac_tracker=tracker)
+        result = decode_nid(dibits, skip_status_at_10=True, nac_tracker=tracker)
 
         # Result should be NID or None
         assert result is None or isinstance(result, NID)
@@ -139,17 +139,17 @@ class TestNIDDecode:
         dibits = np.zeros(33, dtype=np.uint8)
 
         # Should work without tracker
-        result = decode_nid(dibits, skip_status_at_11=True, nac_tracker=None)
+        result = decode_nid(dibits, skip_status_at_10=True, nac_tracker=None)
 
         assert result is None or isinstance(result, NID)
 
     def test_status_symbol_skipping(self):
-        """Test that status symbol at position 11 is skipped."""
-        # Create dibits with a marker at position 11
+        """Test that status symbol at position 10 is skipped."""
+        # Create dibits with a marker at position 10
         dibits = np.zeros(33, dtype=np.uint8)
-        dibits[11] = 3  # Mark the status symbol position
+        dibits[10] = 3  # Mark the status symbol position
 
-        result = decode_nid(dibits, skip_status_at_11=True)
+        result = decode_nid(dibits, skip_status_at_10=True)
 
         # The status symbol should have been skipped
         # (hard to verify without internal state inspection,
@@ -160,7 +160,7 @@ class TestNIDDecode:
         """Test handling of too-short input."""
         dibits = np.zeros(10, dtype=np.uint8)
 
-        result = decode_nid(dibits, skip_status_at_11=True)
+        result = decode_nid(dibits, skip_status_at_10=True)
         assert result is None
 
 
