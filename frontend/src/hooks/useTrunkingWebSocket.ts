@@ -4,27 +4,32 @@ import type {
   TrunkingEvent,
   TrunkingSystem,
   ActiveCall,
+  P25Message,
 } from "../types/trunking";
 import { trunkingKeys } from "./useTrunking";
+
+const MAX_MESSAGES = 500; // Keep last 500 messages
 
 interface UseTrunkingWebSocketOptions {
   systemId?: string | null; // If provided, subscribe to specific system
   enabled?: boolean;
   onCallStart?: (call: ActiveCall) => void;
   onCallEnd?: (call: ActiveCall) => void;
+  onMessage?: (message: P25Message) => void;
 }
 
 interface UseTrunkingWebSocketResult {
   isConnected: boolean;
   systems: TrunkingSystem[];
   activeCalls: ActiveCall[];
+  messages: P25Message[];
   error: string | null;
 }
 
 export function useTrunkingWebSocket(
   options: UseTrunkingWebSocketOptions = {}
 ): UseTrunkingWebSocketResult {
-  const { systemId, enabled = true, onCallStart, onCallEnd } = options;
+  const { systemId, enabled = true, onCallStart, onCallEnd, onMessage } = options;
   const queryClient = useQueryClient();
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -34,6 +39,7 @@ export function useTrunkingWebSocket(
   const [isConnected, setIsConnected] = useState(false);
   const [systems, setSystems] = useState<TrunkingSystem[]>([]);
   const [activeCalls, setActiveCalls] = useState<ActiveCall[]>([]);
+  const [messages, setMessages] = useState<P25Message[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const handleEvent = useCallback(
@@ -83,9 +89,15 @@ export function useTrunkingWebSocket(
           });
           queryClient.invalidateQueries({ queryKey: trunkingKeys.allCalls() });
           break;
+
+        case "message":
+          // Add message to the list, keeping only the last MAX_MESSAGES
+          setMessages((prev) => [...prev.slice(-MAX_MESSAGES + 1), event.message]);
+          onMessage?.(event.message);
+          break;
       }
     },
-    [queryClient, onCallStart, onCallEnd]
+    [queryClient, onCallStart, onCallEnd, onMessage]
   );
 
   const connect = useCallback(() => {
@@ -187,6 +199,7 @@ export function useTrunkingWebSocket(
     isConnected,
     systems,
     activeCalls,
+    messages,
     error,
   };
 }

@@ -28,7 +28,7 @@ presets:
     sample_rate: 2400000
     offsets:
     - 0.0
-    gain: 40.0
+    gain: 6.4
     bandwidth: 200000.0
     ppm: 0.0
     antenna: Antenna B
@@ -603,21 +603,29 @@ trunking:
       antenna: Antenna A
       auto_start: true
       bandwidth: 5000000
-      center_hz: 415.5 MHz
-      control_channel_timeout: 30
+      center_hz: 415.375 MHz
+      control_channel_timeout: 5
       control_channels:
-      - 413.175 MHz
-      - 413.3125 MHz
-      - 413.35 MHz
-      - 413.4625 MHz
-      - 414.75 MHz
-      - 414.8875 MHz
-      - 415.25 MHz
+      - 412.725 MHz
+      - 413.075 MHz
+      - 413.225 MHz
+      - 414.725 MHz
+      - 415.225 MHz
+      - 415.725 MHz
+      - 416.025 MHz
+      - 416.225 MHz
+      - 416.725 MHz
+      - 417.025 MHz
+      - 417.225 MHz
+      - 417.475 MHz
+      - 417.525 MHz
+      - 417.725 MHz
+      - 418.025 MHz
       device_id: driver=sdrplay,serial=240305E670
       device_settings:
         rfnotch_en: 'false'
         dabnotch_ctrl: 'false'
-      gain: 30
+      gain: 5
       id: sa_grn
       max_voice_recorders: 2
       min_call_duration: 1.0

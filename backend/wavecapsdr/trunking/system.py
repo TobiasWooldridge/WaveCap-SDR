@@ -442,6 +442,11 @@ class TrunkingSystem:
     _location_cache: LocationCache | None = None
     _location_max_age: float = 300.0  # 5 minutes
 
+    # Message log buffer (ring buffer for decoded messages like SDRTrunk)
+    _message_log: list[dict[str, Any]] = field(default_factory=list)
+    _message_log_max_size: int = 500  # Keep last 500 messages
+    on_message: Callable[[dict[str, Any]], None] | None = None
+
     # Event callbacks
     on_call_start: Callable[[ActiveCall], None] | None = None
     on_call_update: Callable[[ActiveCall], None] | None = None
@@ -452,6 +457,9 @@ class TrunkingSystem:
     _state_change_time: float = field(default_factory=time.time)
     _control_channel_timeout: float = 10.0  # Seconds before trying next CC
     _hunt_check_task: asyncio.Task[None] | None = None
+
+    # IQ buffer for control channel - accumulates decimated samples before processing
+    _cc_iq_buffer: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.complex128))
 
     # Control channel scanner for signal strength measurement
     _cc_scanner: ControlChannelScanner | None = None
@@ -680,6 +688,49 @@ class TrunkingSystem:
         # Debug counter for IQ flow monitoring
         iq_debug_state = {"samples": 0, "calls": 0}
 
+        # Phase-continuous frequency shift state
+        # Track sample index across calls to maintain phase continuity
+        # Phase discontinuities at chunk boundaries corrupt the narrowband signal
+        freq_shift_state = {"sample_idx": 0, "last_offset_hz": 0.0}
+
+        def phase_continuous_freq_shift(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray:
+            """Frequency shift with phase continuity across calls.
+
+            Unlike the regular freq_shift which starts at phase=0 each call,
+            this maintains the sample index across calls so the phase continues
+            smoothly. This is critical for extracting narrowband signals from
+            wideband captures.
+            """
+            if offset_hz == 0.0 or iq.size == 0:
+                return iq
+
+            # Reset phase if offset changed (e.g., during hunting)
+            if offset_hz != freq_shift_state["last_offset_hz"]:
+                freq_shift_state["sample_idx"] = 0
+                freq_shift_state["last_offset_hz"] = offset_hz
+
+            # Generate complex exponential starting from current sample index
+            n = np.arange(iq.size, dtype=np.float64) + freq_shift_state["sample_idx"]
+            phase = -2.0 * np.pi * offset_hz * n / sample_rate
+            shift = np.exp(1j * phase).astype(np.complex64)
+
+            # Update sample index for next call
+            freq_shift_state["sample_idx"] += iq.size
+
+            # Prevent sample_idx from growing too large (wrap at 1 second worth of samples)
+            # Phase is periodic so this doesn't cause discontinuities
+            wrap_samples = sample_rate
+            if freq_shift_state["sample_idx"] >= wrap_samples:
+                freq_shift_state["sample_idx"] %= wrap_samples
+
+            return (iq.astype(np.complex64, copy=False) * shift).astype(np.complex64)
+
+        # IQ buffer for control channel - accumulate decimated samples before processing
+        # SDRplay returns small chunks (~8192 samples), after decimation we get only ~65 samples
+        # C4FM demodulation needs ~1000+ samples for reliable timing recovery
+        IQ_BUFFER_MIN_SAMPLES = 4000  # ~400 symbols at 10 sps = ~83ms of audio
+        # Buffer is stored as self._cc_iq_buffer (instance variable) so it can be reset from hunting
+
         # Initial scan state - collect samples for 2 seconds then scan
         # Use capture sample rate from config
         capture_sample_rate = self.cfg.sample_rate
@@ -743,34 +794,18 @@ class TrunkingSystem:
                                 else 0
                             )
 
-                            # Recenter capture on control channel for best reception
-                            # This puts the CC at center of waterfall display
-                            if system._capture is not None:
-                                old_center = system._capture.cfg.center_hz
-                                if old_center != best_freq:
-                                    # Use synchronous hot-reconfigure directly on capture device
-                                    # This avoids async issues from the thread callback
-                                    try:
-                                        device = system._capture.device
-                                        if device is not None:
-                                            device.reconfigure_running(center_hz=best_freq)
-                                            system._capture.cfg.center_hz = best_freq
-                                            system.cfg.center_hz = best_freq
-                                            # Update scanner's center_hz to match new capture center
-                                            if system._cc_scanner is not None:
-                                                system._cc_scanner.center_hz = best_freq
-                                            logger.info(
-                                                f"TrunkingSystem {self.cfg.id}: Recentered capture from "
-                                                f"{old_center/1e6:.4f} MHz to {best_freq/1e6:.4f} MHz"
-                                            )
-                                    except Exception as e:
-                                        logger.warning(
-                                            f"TrunkingSystem {self.cfg.id}: Could not recenter capture: {e}"
-                                        )
-
-                            # Update control channel offset (now 0 since we recentered)
+                            # Set the control channel offset based on configured center
+                            # DON'T recenter the capture - the configured center (e.g. 415.375 MHz)
+                            # is chosen to be in the middle of the control channel range so all
+                            # channels are within the capture bandwidth. Recentering would cause
+                            # some control channels to fall outside the bandwidth during hunting.
                             if system._control_channel is not None:
-                                system._control_channel.cfg.offset_hz = 0.0
+                                new_offset = best_freq - system.cfg.center_hz
+                                system._control_channel.cfg.offset_hz = new_offset
+                                logger.info(
+                                    f"TrunkingSystem {self.cfg.id}: Set control channel offset to "
+                                    f"{new_offset/1e3:.1f} kHz for {best_freq/1e6:.4f} MHz"
+                                )
                                 logger.info(
                                     f"TrunkingSystem {self.cfg.id}: Selected best control channel: "
                                     f"{best_freq/1e6:.4f} MHz (SNR={best_measurement.snr_db:.1f} dB, "
@@ -829,46 +864,27 @@ class TrunkingSystem:
                                 else 0
                             )
 
-                            # Recenter capture on new control channel
-                            if system._capture is not None:
-                                old_center = system._capture.cfg.center_hz
-                                if old_center != roam_to:
-                                    try:
-                                        device = system._capture.device
-                                        if device is not None:
-                                            device.reconfigure_running(center_hz=roam_to)
-                                            system._capture.cfg.center_hz = roam_to
-                                            system.cfg.center_hz = roam_to
-                                            # Update scanner's center_hz to match new capture center
-                                            if system._cc_scanner is not None:
-                                                system._cc_scanner.center_hz = roam_to
-                                            logger.info(
-                                                f"TrunkingSystem {self.cfg.id}: Recentered capture from "
-                                                f"{old_center/1e6:.4f} MHz to {roam_to/1e6:.4f} MHz"
-                                            )
-                                    except Exception as e:
-                                        logger.warning(
-                                            f"TrunkingSystem {self.cfg.id}: Could not recenter capture: {e}"
-                                        )
-
-                            # Update control channel offset (now 0 since we recentered)
+                            # Set the control channel offset based on configured center
+                            # DON'T recenter the capture - keep it at the configured center
                             if system._control_channel is not None:
-                                system._control_channel.cfg.offset_hz = 0.0
+                                new_offset = roam_to - system.cfg.center_hz
+                                system._control_channel.cfg.offset_hz = new_offset
+                                logger.info(
+                                    f"TrunkingSystem {self.cfg.id}: Set control channel offset to "
+                                    f"{new_offset/1e3:.1f} kHz for {roam_to/1e6:.4f} MHz"
+                                )
 
-                            # Update all active voice recorder offsets to new center
-                            for recorder in system._voice_recorders:
-                                if recorder.state in ("tuning", "recording", "hold"):
-                                    recorder.update_center_frequency(roam_to)
-
-                            # Reset control monitor for new channel
+                            # Reset control monitor and IQ buffer for new channel
                             if system._control_monitor is not None:
                                 system._control_monitor.reset()
+                            system._cc_iq_buffer = np.array([], dtype=np.complex128)
 
                     system._last_roam_check = now
 
             # Shift frequency to center on control channel (dynamic offset for hunting)
+            # Use phase-continuous freq shift to avoid phase jumps at chunk boundaries
             cc_offset_hz = system._control_channel.cfg.offset_hz if system._control_channel else 0
-            centered_iq = freq_shift(iq, cc_offset_hz, sample_rate)
+            centered_iq = phase_continuous_freq_shift(iq, cc_offset_hz, sample_rate)
             if _verbose:
                 centered_mag = np.abs(centered_iq)
                 logger.info(
@@ -911,23 +927,36 @@ class TrunkingSystem:
                     f"size={len(decimated_iq)}, decim_mean={np.mean(decim_mag):.4f}"
                 )
 
-            # Feed to ControlChannelMonitor
-            if self._control_monitor is not None:
-                try:
-                    if _verbose:
-                        logger.info(f"TrunkingSystem {self.cfg.id}: calling process_iq on control_monitor")
-                    tsbk_results = self._control_monitor.process_iq(decimated_iq)
-                    if _verbose:
-                        logger.info(f"TrunkingSystem {self.cfg.id}: process_iq returned {len(tsbk_results)} results")
+            # Buffer decimated IQ samples until we have enough for reliable demodulation
+            # Small chunks (65 samples) cause timing recovery to fail
+            system._cc_iq_buffer = np.concatenate([system._cc_iq_buffer, decimated_iq])
 
-                    # Handle each TSBK result
-                    for tsbk_data in tsbk_results:
-                        if tsbk_data:
-                            self._handle_parsed_tsbk(tsbk_data)
+            # Only process when we have enough samples
+            if len(system._cc_iq_buffer) >= IQ_BUFFER_MIN_SAMPLES:
+                buffered_iq = system._cc_iq_buffer
+                system._cc_iq_buffer = np.array([], dtype=np.complex128)
 
-                except Exception as e:
-                    import traceback
-                    logger.error(f"TrunkingSystem {self.cfg.id}: Control monitor error: {e}\n{traceback.format_exc()}")
+                if _verbose:
+                    logger.info(
+                        f"TrunkingSystem {self.cfg.id}: Processing buffered IQ: "
+                        f"{len(buffered_iq)} samples ({len(buffered_iq)/10:.0f} symbols)"
+                    )
+
+                # Feed to ControlChannelMonitor
+                if self._control_monitor is not None:
+                    try:
+                        tsbk_results = self._control_monitor.process_iq(buffered_iq)
+                        if _verbose:
+                            logger.info(f"TrunkingSystem {self.cfg.id}: process_iq returned {len(tsbk_results)} results")
+
+                        # Handle each TSBK result
+                        for tsbk_data in tsbk_results:
+                            if tsbk_data:
+                                self._handle_parsed_tsbk(tsbk_data)
+
+                    except Exception as e:
+                        import traceback
+                        logger.error(f"TrunkingSystem {self.cfg.id}: Control monitor error: {e}\n{traceback.format_exc()}")
 
             # Check for control channel hunting (no TSBK received for too long)
             self._check_control_channel_hunt()
@@ -965,6 +994,9 @@ class TrunkingSystem:
 
     def _handle_parsed_tsbk(self, tsbk_data: dict[str, Any]) -> None:
         """Handle parsed TSBK data from P25 decoder."""
+        # Log the message for UI display
+        self._log_message(tsbk_data)
+
         # Update stats
         self._tsbk_count += 1
         now = time.time()
@@ -1472,7 +1504,25 @@ class TrunkingSystem:
             f"(channel {self.control_channel_index + 1}/{num_channels})"
         )
 
-        # Update the control channel offset
+        # Retune the SDR center frequency to the control channel for best reception
+        if self._capture is not None:
+            try:
+                # Schedule the async reconfigure on the event loop
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(
+                        self._capture.reconfigure(center_hz=self.control_channel_freq_hz)
+                    )
+                    # Update config to match
+                    self.cfg.center_hz = self.control_channel_freq_hz
+                    logger.info(
+                        f"TrunkingSystem {self.cfg.id}: Retuned SDR center to "
+                        f"{self.control_channel_freq_hz/1e6:.4f} MHz"
+                    )
+            except Exception as e:
+                logger.warning(f"TrunkingSystem {self.cfg.id}: Failed to retune SDR: {e}")
+
+        # Update the control channel offset (now 0 since center = control channel)
         if self._control_channel is not None:
             new_offset = self.control_channel_freq_hz - self.cfg.center_hz
             self._control_channel.cfg.offset_hz = new_offset
@@ -1481,9 +1531,10 @@ class TrunkingSystem:
         self._state_change_time = now
         self._last_tsbk_time = 0.0
 
-        # Reset the control channel monitor
+        # Reset the control channel monitor and IQ buffer
         if self._control_monitor is not None:
             self._control_monitor.reset()
+        self._cc_iq_buffer = np.array([], dtype=np.complex128)
 
     async def _hunt_check_loop(self) -> None:
         """Background loop to periodically check for control channel hunting.
@@ -1834,3 +1885,164 @@ class TrunkingSystem:
             "enabled": True,
             **self._location_cache.to_dict()
         }
+
+    # =========================================================================
+    # Message Log (decoded TSBK messages for UI display)
+    # =========================================================================
+
+    def _log_message(self, tsbk_data: dict[str, Any]) -> None:
+        """Add a decoded message to the log buffer.
+
+        Creates a timestamped, formatted message entry for UI display
+        similar to SDRTrunk's message window.
+
+        Args:
+            tsbk_data: Parsed TSBK data from the decoder
+        """
+        now = time.time()
+        opcode_name = tsbk_data.get("opcode_name", "UNKNOWN")
+
+        # Format message summary based on opcode type
+        summary = self._format_message_summary(tsbk_data, opcode_name)
+
+        message = {
+            "timestamp": now,
+            "opcode": tsbk_data.get("opcode", 0),
+            "opcode_name": opcode_name,
+            "nac": tsbk_data.get("nac"),
+            "summary": summary,
+            "raw": tsbk_data,
+        }
+
+        # Add to ring buffer
+        self._message_log.append(message)
+        if len(self._message_log) > self._message_log_max_size:
+            self._message_log = self._message_log[-self._message_log_max_size:]
+
+        # Notify callback (for WebSocket broadcast)
+        if self.on_message:
+            try:
+                self.on_message(message)
+            except Exception as e:
+                logger.error(f"Error in on_message callback: {e}")
+
+    def _format_message_summary(self, tsbk_data: dict[str, Any], opcode_name: str) -> str:
+        """Format a human-readable summary of a TSBK message.
+
+        Args:
+            tsbk_data: Parsed TSBK data
+            opcode_name: TSBK opcode name
+
+        Returns:
+            Human-readable summary string
+        """
+        # Voice grants
+        if opcode_name == "GRP_V_CH_GRANT":
+            tgid = tsbk_data.get("tgid", 0)
+            source = tsbk_data.get("source_id", 0)
+            channel = tsbk_data.get("channel", 0)
+            freq = tsbk_data.get("frequency_hz")
+            freq_str = f" ({freq/1e6:.4f} MHz)" if freq else ""
+            return f"Voice Grant TG:{tgid} SRC:{source} CH:0x{channel:04X}{freq_str}"
+
+        elif opcode_name == "GRP_V_CH_GRANT_UPDT":
+            parts = []
+            for key in ("grant1", "grant2"):
+                grant = tsbk_data.get(key)
+                if grant:
+                    tgid = grant.get("tgid", 0)
+                    channel = grant.get("channel", 0)
+                    parts.append(f"TG:{tgid} CH:0x{channel:04X}")
+            return f"Grant Update {', '.join(parts)}"
+
+        elif opcode_name == "GRP_V_CH_GRANT_UPDT_EXP":
+            tgid = tsbk_data.get("tgid", 0)
+            channel = tsbk_data.get("downlink_channel", 0)
+            return f"Grant Update (Exp) TG:{tgid} CH:0x{channel:04X}"
+
+        elif opcode_name == "UU_V_CH_GRANT":
+            target = tsbk_data.get("target_id", 0)
+            source = tsbk_data.get("source_id", 0)
+            channel = tsbk_data.get("channel", 0)
+            return f"Unit-Unit Grant SRC:{source} TGT:{target} CH:0x{channel:04X}"
+
+        # Channel identifiers
+        elif opcode_name in ("IDEN_UP", "IDEN_UP_VU", "IDEN_UP_TDMA"):
+            ident = tsbk_data.get("identifier", 0)
+            base = tsbk_data.get("base_freq_mhz", 0)
+            spacing = tsbk_data.get("channel_spacing_khz", 0)
+            return f"Channel ID:{ident} Base:{base:.4f} MHz Spacing:{spacing} kHz"
+
+        # System status
+        elif opcode_name == "RFSS_STS_BCAST":
+            sys_id = tsbk_data.get("system_id", 0)
+            rfss = tsbk_data.get("rfss_id", 0)
+            site = tsbk_data.get("site_id", 0)
+            return f"RFSS Status SYS:{sys_id} RFSS:{rfss} SITE:{site}"
+
+        elif opcode_name == "NET_STS_BCAST":
+            sys_id = tsbk_data.get("system_id", 0)
+            wacn = tsbk_data.get("wacn", 0)
+            return f"Network Status SYS:{sys_id} WACN:{wacn}"
+
+        elif opcode_name == "ADJ_STS_BCAST":
+            sys_id = tsbk_data.get("system_id", 0)
+            rfss = tsbk_data.get("rfss_id", 0)
+            site = tsbk_data.get("site_id", 0)
+            return f"Adjacent Site SYS:{sys_id} RFSS:{rfss} SITE:{site}"
+
+        # Affiliation/registration
+        elif opcode_name == "GRP_AFF_RSP":
+            tgid = tsbk_data.get("tgid", 0)
+            source = tsbk_data.get("source_id", 0)
+            return f"Group Affiliation TG:{tgid} SRC:{source}"
+
+        elif opcode_name == "U_REG_RSP":
+            source = tsbk_data.get("source_id", 0)
+            sys_id = tsbk_data.get("system_id", 0)
+            return f"Unit Registration SRC:{source} SYS:{sys_id}"
+
+        elif opcode_name == "U_DE_REG_ACK":
+            source = tsbk_data.get("source_id", 0)
+            return f"Unit Deregistration SRC:{source}"
+
+        # Location
+        elif opcode_name == "LOC_REG_RSP":
+            source = tsbk_data.get("source_id", 0)
+            rfss = tsbk_data.get("rfss_id", 0)
+            site = tsbk_data.get("site_id", 0)
+            return f"Location Registration SRC:{source} RFSS:{rfss} SITE:{site}"
+
+        # Default
+        else:
+            # Try to include any IDs we can find
+            parts = [opcode_name]
+            if "tgid" in tsbk_data:
+                parts.append(f"TG:{tsbk_data['tgid']}")
+            if "source_id" in tsbk_data:
+                parts.append(f"SRC:{tsbk_data['source_id']}")
+            return " ".join(parts)
+
+    def get_messages(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Get recent messages from the log buffer.
+
+        Args:
+            limit: Maximum number of messages to return
+            offset: Number of messages to skip from the end
+
+        Returns:
+            List of message dictionaries, newest first
+        """
+        # Return messages in reverse order (newest first)
+        messages = list(reversed(self._message_log))
+        return messages[offset:offset + limit]
+
+    def clear_messages(self) -> int:
+        """Clear the message log.
+
+        Returns:
+            Number of messages cleared
+        """
+        count = len(self._message_log)
+        self._message_log.clear()
+        return count

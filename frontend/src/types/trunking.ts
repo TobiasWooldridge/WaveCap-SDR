@@ -146,12 +146,22 @@ export interface TrunkingRecipe {
 
 // WebSocket event types
 
+// Decoded P25 message
+export interface P25Message {
+  timestamp: number;
+  opcode: number;
+  opcodeName: string;
+  nac: number | null;
+  summary: string;
+}
+
 export type TrunkingEventType =
   | "snapshot"
   | "system_update"
   | "call_start"
   | "call_update"
   | "call_end"
+  | "message"
   | "talkgroup_update";
 
 export interface TrunkingSnapshotEvent {
@@ -185,12 +195,19 @@ export interface TrunkingCallEndEvent {
   call: ActiveCall;
 }
 
+export interface TrunkingMessageEvent {
+  type: "message";
+  systemId: string;
+  message: P25Message;
+}
+
 export type TrunkingEvent =
   | TrunkingSnapshotEvent
   | TrunkingSystemUpdateEvent
   | TrunkingCallStartEvent
   | TrunkingCallUpdateEvent
-  | TrunkingCallEndEvent;
+  | TrunkingCallEndEvent
+  | TrunkingMessageEvent;
 
 // Voice stream types
 

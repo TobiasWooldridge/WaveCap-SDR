@@ -27340,6 +27340,16 @@ const Antenna = createLucideIcon("Antenna", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const ArrowRight = createLucideIcon("ArrowRight", [
+  ["path", { d: "M5 12h14", key: "1ays0h" }],
+  ["path", { d: "m12 5 7 7-7 7", key: "xquz4c" }]
+]);
+/**
+ * @license lucide-react v0.294.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const BookOpen = createLucideIcon("BookOpen", [
   ["path", { d: "M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z", key: "vv98re" }],
   ["path", { d: "M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z", key: "1cyq3y" }]
@@ -27492,6 +27502,17 @@ const Filter = createLucideIcon("Filter", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const History = createLucideIcon("History", [
+  ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
+  ["path", { d: "M3 3v5h5", key: "1xhq8a" }],
+  ["path", { d: "M12 7v5l4 2", key: "1fdv2h" }]
+]);
+/**
+ * @license lucide-react v0.294.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const Info = createLucideIcon("Info", [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "M12 16v-4", key: "1dtifu" }],
@@ -27532,6 +27553,15 @@ const Lock = createLucideIcon("Lock", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const MessageSquare = createLucideIcon("MessageSquare", [
+  ["path", { d: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z", key: "1lielz" }]
+]);
+/**
+ * @license lucide-react v0.294.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const Minus = createLucideIcon("Minus", [["path", { d: "M5 12h14", key: "1ays0h" }]]);
 /**
  * @license lucide-react v0.294.0 - ISC
@@ -27541,6 +27571,23 @@ const Minus = createLucideIcon("Minus", [["path", { d: "M5 12h14", key: "1ays0h"
  */
 const Pen = createLucideIcon("Pen", [
   ["path", { d: "M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z", key: "5qss01" }]
+]);
+/**
+ * @license lucide-react v0.294.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const PhoneIncoming = createLucideIcon("PhoneIncoming", [
+  ["polyline", { points: "16 2 16 8 22 8", key: "1ygljm" }],
+  ["line", { x1: "22", x2: "16", y1: "2", y2: "8", key: "1xzwqn" }],
+  [
+    "path",
+    {
+      d: "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z",
+      key: "foiqr5"
+    }
+  ]
 ]);
 /**
  * @license lucide-react v0.294.0 - ISC
@@ -27650,6 +27697,18 @@ const Scan = createLucideIcon("Scan", [
 const Search = createLucideIcon("Search", [
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }],
   ["path", { d: "m21 21-4.3-4.3", key: "1qie3q" }]
+]);
+/**
+ * @license lucide-react v0.294.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
+const Settings2 = createLucideIcon("Settings2", [
+  ["path", { d: "M20 7h-9", key: "3s1dr2" }],
+  ["path", { d: "M14 17H5", key: "gfn3mx" }],
+  ["circle", { cx: "17", cy: "17", r: "3", key: "18b49y" }],
+  ["circle", { cx: "7", cy: "7", r: "3", key: "dfmy0x" }]
 ]);
 /**
  * @license lucide-react v0.294.0 - ISC
@@ -28764,6 +28823,7 @@ function useSelectedRadio() {
     window.history.replaceState({}, "", url.toString());
     setUrlSelection({ type, id });
     setUserHasSelected(true);
+    window.dispatchEvent(new CustomEvent("radioselectionchange", { detail: { type, id } }));
   }, []);
   reactExports.useEffect(() => {
     const handlePopState = () => {
@@ -28783,8 +28843,19 @@ function useSelectedRadio() {
       }
       setUrlSelection(null);
     };
+    const handleSelectionChange = (event) => {
+      const { type, id } = event.detail;
+      if ((type === "capture" || type === "trunking") && id) {
+        setUrlSelection({ type, id });
+        setUserHasSelected(true);
+      }
+    };
     window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
+    window.addEventListener("radioselectionchange", handleSelectionChange);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("radioselectionchange", handleSelectionChange);
+    };
   }, []);
   return {
     // Selection state
@@ -31426,6 +31497,268 @@ function DeviceControlsContent({ capture, device: _device }) {
     isRunning && /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorStatusBar, { captureId: capture.id, capture })
   ] });
 }
+function InfoTooltip({ content }) {
+  const [isVisible, setIsVisible] = reactExports.useState(false);
+  const [position, setPosition] = reactExports.useState("bottom");
+  const tooltipRef = reactExports.useRef(null);
+  const iconRef = reactExports.useRef(null);
+  reactExports.useEffect(() => {
+    if (isVisible && iconRef.current) {
+      const rect = iconRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      setPosition(spaceBelow < 150 && spaceAbove > spaceBelow ? "top" : "bottom");
+    }
+  }, [isVisible]);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "position-relative d-inline-block ms-1", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "span",
+      {
+        ref: iconRef,
+        className: "d-inline-flex align-items-center",
+        onMouseEnter: () => setIsVisible(true),
+        onMouseLeave: () => setIsVisible(false),
+        style: { cursor: "help" },
+        children: /* @__PURE__ */ jsxRuntimeExports.jsx(Info, { size: 14, className: "text-muted opacity-75" })
+      }
+    ),
+    isVisible && /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "div",
+      {
+        ref: tooltipRef,
+        className: "position-absolute start-50 translate-middle-x p-2 rounded shadow-sm",
+        style: {
+          [position === "top" ? "bottom" : "top"]: "100%",
+          marginTop: position === "bottom" ? "4px" : void 0,
+          marginBottom: position === "top" ? "4px" : void 0,
+          backgroundColor: "#f8f9fa",
+          border: "1px solid #dee2e6",
+          fontSize: "12px",
+          width: "250px",
+          zIndex: 1e3,
+          pointerEvents: "none"
+        },
+        children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "text-dark", children: content })
+      }
+    )
+  ] });
+}
+function SDRplaySettings({ capture, device: _device }) {
+  const updateCapture2 = useUpdateCapture();
+  const isRunning = capture.state === "running";
+  const currentSettings = capture.deviceSettings ?? {};
+  const updateSetting = (key, value) => {
+    const newSettings = { ...currentSettings, [key]: value };
+    updateCapture2.mutate({
+      captureId: capture.id,
+      request: { deviceSettings: newSettings }
+    });
+  };
+  const [fmNotch, setFmNotch] = useDebouncedMutation(
+    currentSettings["rfnotch_ctrl"] === "true",
+    (value) => updateSetting("rfnotch_ctrl", value ? "true" : "false"),
+    { delay: 0 }
+  );
+  const [dabNotch, setDabNotch] = useDebouncedMutation(
+    currentSettings["dabnotch_ctrl"] === "true",
+    (value) => updateSetting("dabnotch_ctrl", value ? "true" : "false"),
+    { delay: 0 }
+  );
+  const [biasT, setBiasT] = useDebouncedMutation(
+    currentSettings["biasT_ctrl"] === "true",
+    (value) => updateSetting("biasT_ctrl", value ? "true" : "false"),
+    { delay: 0 }
+  );
+  const [hdrMode, setHdrMode] = useDebouncedMutation(
+    currentSettings["hdr_ctrl"] === "true",
+    (value) => updateSetting("hdr_ctrl", value ? "true" : "false"),
+    { delay: 0 }
+  );
+  const [iqCorrection, setIqCorrection] = useDebouncedMutation(
+    currentSettings["iqcorr_ctrl"] === "true",
+    (value) => updateSetting("iqcorr_ctrl", value ? "true" : "false"),
+    { delay: 0 }
+  );
+  const [agcSetpoint, setAgcSetpoint] = useDebouncedMutation(
+    parseInt(currentSettings["agc_setpoint"] || "-30", 10),
+    (value) => updateSetting("agc_setpoint", value.toString()),
+    { delay: 300 }
+  );
+  const centerMHz = capture.centerHz / 1e6;
+  const fmNotchRelevant = centerMHz >= 77 && centerMHz <= 115;
+  const dabNotchRelevant = centerMHz >= 155 && centerMHz <= 235;
+  const hdrRelevant = centerMHz <= 2;
+  const currentAntenna = capture.antenna || "Antenna A";
+  const biasTAvailable = currentAntenna === "Antenna B";
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 3, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 2, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Radio, { size: 16, className: "text-primary" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "fw-semibold small", children: "SDRplay RSPdx Settings" })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "border rounded p-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Settings2, { size: 14, className: "text-muted" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "small fw-semibold", children: "Notch Filters" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-check", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            className: "form-check-input",
+            type: "checkbox",
+            id: "fmNotch",
+            checked: fmNotch,
+            onChange: (e) => setFmNotch(e.target.checked),
+            disabled: isRunning
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-check-label small", htmlFor: "fmNotch", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
+          "FM Notch (77-115 MHz)",
+          /* @__PURE__ */ jsxRuntimeExports.jsx(InfoTooltip, { content: "Rejects FM broadcast interference. Enable when receiving near the FM band." }),
+          fmNotchRelevant && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-warning text-dark", style: { fontSize: "0.65rem" }, children: "In-Band" })
+        ] }) })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-check", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            className: "form-check-input",
+            type: "checkbox",
+            id: "dabNotch",
+            checked: dabNotch,
+            onChange: (e) => setDabNotch(e.target.checked),
+            disabled: isRunning
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-check-label small", htmlFor: "dabNotch", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
+          "DAB Notch (155-235 MHz)",
+          /* @__PURE__ */ jsxRuntimeExports.jsx(InfoTooltip, { content: "Rejects DAB digital broadcast interference. Enable when receiving in the VHF region." }),
+          dabNotchRelevant && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-warning text-dark", style: { fontSize: "0.65rem" }, children: "In-Band" })
+        ] }) })
+      ] })
+    ] }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "border rounded p-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Zap, { size: 14, className: "text-muted" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "small fw-semibold", children: "Antenna & Power" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-check", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            className: "form-check-input",
+            type: "checkbox",
+            id: "biasT",
+            checked: biasT,
+            onChange: (e) => setBiasT(e.target.checked),
+            disabled: isRunning || !biasTAvailable
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-check-label small", htmlFor: "biasT", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
+          "Bias-T (4.7V on Antenna B)",
+          /* @__PURE__ */ jsxRuntimeExports.jsx(InfoTooltip, { content: "Provides 4.7V DC power to active antennas via Antenna B port. Only available on Antenna B." }),
+          !biasTAvailable && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-secondary", style: { fontSize: "0.65rem" }, children: "Antenna B Only" })
+        ] }) })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-check", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            className: "form-check-input",
+            type: "checkbox",
+            id: "hdrMode",
+            checked: hdrMode,
+            onChange: (e) => setHdrMode(e.target.checked),
+            disabled: isRunning || !hdrRelevant
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-check-label small", htmlFor: "hdrMode", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
+          "HDR Mode (below 2 MHz)",
+          /* @__PURE__ */ jsxRuntimeExports.jsx(InfoTooltip, { content: "High Dynamic Range mode provides improved performance for LF/MW frequencies below 2 MHz." }),
+          !hdrRelevant && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-secondary", style: { fontSize: "0.65rem" }, children: "LF/MW Only" })
+        ] }) })
+      ] })
+    ] }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "border rounded p-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Volume2, { size: 14, className: "text-muted" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "small fw-semibold", children: "Signal Processing" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "form-check", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            className: "form-check-input",
+            type: "checkbox",
+            id: "iqCorrection",
+            checked: iqCorrection,
+            onChange: (e) => setIqCorrection(e.target.checked),
+            disabled: isRunning
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-check-label small", htmlFor: "iqCorrection", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
+          "IQ Imbalance Correction",
+          /* @__PURE__ */ jsxRuntimeExports.jsx(InfoTooltip, { content: "Corrects gain and phase imbalance between I and Q channels. Recommended for most use cases." })
+        ] }) })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 1, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { justify: "between", align: "center", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "small", children: "AGC Setpoint" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(InfoTooltip, { content: "Target level for automatic gain control in dBfs. Default: -30 dBfs. Lower values = more headroom but potentially weaker signals." })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "badge bg-secondary", children: [
+            agcSetpoint,
+            " dBfs"
+          ] })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            type: "range",
+            className: "form-range",
+            min: -60,
+            max: 0,
+            step: 1,
+            value: agcSetpoint,
+            onChange: (e) => setAgcSetpoint(parseInt(e.target.value, 10)),
+            disabled: isRunning
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { justify: "between", className: "small text-muted", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "-60 dBfs" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "0 dBfs" })
+        ] })
+      ] })
+    ] }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "alert alert-info py-1 px-2 mb-0 small", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Current:" }),
+      " ",
+      currentAntenna,
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mt-1 text-muted", style: { fontSize: "0.75rem" }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "A:" }),
+        " 1 kHz-2 GHz wideband (general) ·",
+        " ",
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "B:" }),
+        " 1 kHz-2 GHz + Bias-T ·",
+        " ",
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "C:" }),
+        " 1 kHz-200 MHz BNC (HF/VHF)"
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "small text-muted", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("em", { children: [
+      "Band pass filters are automatic: 380-420 MHz (P25 UHF) is active at ",
+      centerMHz.toFixed(1),
+      " MHz"
+    ] }) }),
+    isRunning && /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-warning", children: "Stop capture to change device settings" })
+  ] });
+}
+function isSDRplayDevice(deviceId) {
+  if (!deviceId)
+    return false;
+  return deviceId.toLowerCase().includes("sdrplay");
+}
 function AdvancedSettingsContent({ capture, device: _device }) {
   const updateCapture2 = useUpdateCapture();
   const isRunning = capture.state === "running";
@@ -31442,16 +31775,6 @@ function AdvancedSettingsContent({ capture, device: _device }) {
   const [streamFormat, setStreamFormat] = useDebouncedMutation(
     capture.streamFormat ?? "",
     (value) => updateCapture2.mutate({ captureId: capture.id, request: { streamFormat: value || void 0 } }),
-    { delay: 0 }
-  );
-  const [fftFps, setFftFps] = useDebouncedMutation(
-    capture.fftFps ?? 15,
-    (value) => updateCapture2.mutate({ captureId: capture.id, request: { fftFps: value } }),
-    { delay: 300 }
-  );
-  const [fftSize, setFftSize] = useDebouncedMutation(
-    capture.fftSize ?? 2048,
-    (value) => updateCapture2.mutate({ captureId: capture.id, request: { fftSize: value } }),
     { delay: 0 }
   );
   const [elementGains, setElementGains] = useDebouncedMutation(
@@ -31516,49 +31839,6 @@ function AdvancedSettingsContent({ capture, device: _device }) {
       ),
       /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: "Stream format affects bandwidth and precision" })
     ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-label mb-0 small fw-semibold", children: "Spectrum Analyzer" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 1, children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { justify: "between", align: "center", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-label mb-0 small", children: "Target FPS" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "badge bg-secondary", children: [
-            fftFps,
-            " FPS"
-          ] })
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "input",
-          {
-            type: "range",
-            className: "form-range",
-            min: 5,
-            max: 60,
-            step: 5,
-            value: fftFps,
-            onChange: (e) => setFftFps(parseInt(e.target.value, 10))
-          }
-        ),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: "Higher FPS uses more CPU. Adaptive: doubles when viewing spectrum." })
-      ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 1, children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-label mb-0 small", children: "FFT Size (Resolution)" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs(
-          "select",
-          {
-            className: "form-select form-select-sm",
-            value: fftSize,
-            onChange: (e) => setFftSize(parseInt(e.target.value, 10)),
-            children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: 512, children: "512 bins (fast, low resolution)" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: 1024, children: "1024 bins" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: 2048, children: "2048 bins (default)" }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: 4096, children: "4096 bins (high resolution)" })
-            ]
-          }
-        ),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: "Larger FFT = better frequency resolution but more CPU" })
-      ] })
-    ] }),
     hasElementGains && /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 0, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-label mb-0 small fw-semibold", children: "Element Gains" }),
@@ -31579,7 +31859,7 @@ function AdvancedSettingsContent({ capture, device: _device }) {
         )
       ] }, key))
     ] }),
-    hasDeviceSettings && /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, children: [
+    isSDRplayDevice(capture.deviceId) ? /* @__PURE__ */ jsxRuntimeExports.jsx(SDRplaySettings, { capture, device: _device }) : hasDeviceSettings ? /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-label mb-0 small fw-semibold", children: "Device Settings" }),
       Object.entries(deviceSettings).map(([key, value]) => /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 1, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "form-label mb-0 small", children: key }),
@@ -31594,7 +31874,7 @@ function AdvancedSettingsContent({ capture, device: _device }) {
           }
         )
       ] }, key))
-    ] }),
+    ] }) : null,
     !isRunning && /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: "Start capture to apply changes" })
   ] });
 }
@@ -34131,7 +34411,7 @@ function RdsDisplay({ rdsData }) {
     ] })
   ] }) });
 }
-const ChannelCard = reactExports.memo(function ChannelCard2({ channel, capture }) {
+const ChannelCard = reactExports.memo(function ChannelCard2({ channel, capture, readOnly = false }) {
   var _a2, _b2;
   const [isExpanded, setIsExpanded] = reactExports.useState(false);
   const [isEditingName, setIsEditingName] = reactExports.useState(false);
@@ -34212,36 +34492,38 @@ const ChannelCard = reactExports.memo(function ChannelCard2({ channel, capture }
             ] })
           }
         ),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          Button,
-          {
-            use: "secondary",
-            size: "sm",
-            onClick: () => setIsExpanded(!isExpanded),
-            title: isExpanded ? "Collapse" : "Settings",
-            className: "p-1",
-            children: isExpanded ? /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronUp, { size: 14 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Settings, { size: 14 })
-          }
-        ),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          Button,
-          {
-            use: "danger",
-            size: "sm",
-            appearance: "outline",
-            onClick: handleDelete,
-            title: "Delete",
-            className: "p-1",
-            children: /* @__PURE__ */ jsxRuntimeExports.jsx(Trash2, { size: 14 })
-          }
-        )
+        !readOnly && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              use: "secondary",
+              size: "sm",
+              onClick: () => setIsExpanded(!isExpanded),
+              title: isExpanded ? "Collapse" : "Settings",
+              className: "p-1",
+              children: isExpanded ? /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronUp, { size: 14 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(Settings, { size: 14 })
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              use: "danger",
+              size: "sm",
+              appearance: "outline",
+              onClick: handleDelete,
+              title: "Delete",
+              className: "p-1",
+              children: /* @__PURE__ */ jsxRuntimeExports.jsx(Trash2, { size: 14 })
+            }
+          )
+        ] })
       ] })
     ] }) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card-body p-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { justify: "between", align: "center", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "small text-muted", children: channel.mode.toUpperCase() }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
+          !readOnly && /* @__PURE__ */ jsxRuntimeExports.jsx(
             "button",
             {
               className: "btn btn-sm p-0",
@@ -34327,7 +34609,7 @@ const ChannelCard = reactExports.memo(function ChannelCard2({ channel, capture }
 }, (prevProps, nextProps) => {
   const prevCh = prevProps.channel;
   const nextCh = nextProps.channel;
-  return prevCh.id === nextCh.id && prevCh.name === nextCh.name && prevCh.autoName === nextCh.autoName && prevCh.mode === nextCh.mode && prevCh.offsetHz === nextCh.offsetHz && prevCh.rssiDb === nextCh.rssiDb && prevCh.snrDb === nextCh.snrDb && prevCh.rdsData === nextCh.rdsData && prevProps.capture.id === nextProps.capture.id && prevProps.capture.centerHz === nextProps.capture.centerHz && prevProps.capture.sampleRate === nextProps.capture.sampleRate;
+  return prevCh.id === nextCh.id && prevCh.name === nextCh.name && prevCh.autoName === nextCh.autoName && prevCh.mode === nextCh.mode && prevCh.offsetHz === nextCh.offsetHz && prevCh.rssiDb === nextCh.rssiDb && prevCh.snrDb === nextCh.snrDb && prevCh.rdsData === nextCh.rdsData && prevProps.capture.id === nextProps.capture.id && prevProps.capture.centerHz === nextProps.capture.centerHz && prevProps.capture.sampleRate === nextProps.capture.sampleRate && prevProps.readOnly === nextProps.readOnly;
 });
 function formatChannelId(id) {
   const match = id.match(/^ch(\d+)$/);
@@ -34418,12 +34700,17 @@ function ChannelList({ capture }) {
   const startChannel2 = useStartChannel(capture.id);
   const { playingChannels, stopAll, masterVolume, setMasterVolume } = useAudio();
   const toast = useToast();
+  const { data: trunkingSystems } = useTrunkingSystems();
+  const { selectTab } = useSelectedRadio();
   const [showNewChannel, setShowNewChannel] = reactExports.useState(false);
   const [newFrequency, setNewFrequency] = reactExports.useState(capture.centerHz);
   const [newMode, setNewMode] = reactExports.useState("wbfm");
   const [newSquelch, setNewSquelch] = reactExports.useState(-60);
   const hasPlayingChannels = playingChannels.size > 0;
   const channelCount = (channels == null ? void 0 : channels.length) ?? 0;
+  const trunkingSystemId = capture.trunkingSystemId;
+  const trunkingSystem = trunkingSystemId && trunkingSystems ? trunkingSystems.find((s) => s.id === trunkingSystemId) : null;
+  const isTrunkingManaged = !!trunkingSystemId;
   const handleCreateChannel = async () => {
     try {
       const result = await createChannel2.mutateAsync({
@@ -34449,6 +34736,26 @@ function ChannelList({ capture }) {
     ] });
   }
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 2, children: [
+    isTrunkingManaged && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "alert alert-info py-2 px-3 mb-0 d-flex align-items-center gap-2", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Radio, { size: 16 }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "small flex-grow-1", children: [
+        "Managed by trunking system ",
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: (trunkingSystem == null ? void 0 : trunkingSystem.name) || trunkingSystemId })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        Button,
+        {
+          size: "sm",
+          use: "link",
+          onClick: () => selectTab("trunking", trunkingSystemId),
+          className: "p-0 text-decoration-none",
+          children: [
+            "Go to Trunking ",
+            /* @__PURE__ */ jsxRuntimeExports.jsx(ArrowRight, { size: 14, className: "ms-1" })
+          ]
+        }
+      )
+    ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center gap-2 p-2 bg-light rounded border", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "fw-semibold small", children: [
         "Channels (",
@@ -34462,7 +34769,7 @@ function ChannelList({ capture }) {
           "Stop All"
         ] })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      !isTrunkingManaged && /* @__PURE__ */ jsxRuntimeExports.jsxs(
         Button,
         {
           size: "sm",
@@ -34547,7 +34854,7 @@ function ChannelList({ capture }) {
       /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "small mb-0", children: "No channels yet" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: "small text-muted", children: 'Click "Add" to create a channel' })
     ] }),
-    channels == null ? void 0 : channels.map((channel) => /* @__PURE__ */ jsxRuntimeExports.jsx(ChannelCard, { channel, capture }, channel.id))
+    channels == null ? void 0 : channels.map((channel) => /* @__PURE__ */ jsxRuntimeExports.jsx(ChannelCard, { channel, capture, readOnly: isTrunkingManaged }, channel.id))
   ] });
 }
 class SpectrumWebSocketManager {
@@ -35187,7 +35494,9 @@ function SpectrumAnalyzer({
     isConnected
   ]);
   const getBadgeStatus = () => {
-    if (isIdle && capture.state === "running") {
+    if (isCollapsed) {
+      return { text: "PAUSED", className: "bg-secondary" };
+    } else if (isIdle && capture.state === "running") {
       return { text: "PAUSED (IDLE)", className: "bg-warning" };
     } else if (isConnected) {
       return { text: "LIVE", className: "bg-success" };
@@ -35247,7 +35556,13 @@ function SpectrumAnalyzer({
           "span",
           {
             className: "badge bg-info text-white",
-            style: { fontSize: "8px", padding: "2px 6px" },
+            style: {
+              fontSize: "8px",
+              padding: "2px 6px",
+              minWidth: "42px",
+              textAlign: "center",
+              fontVariantNumeric: "tabular-nums"
+            },
             title: `FFT: ${spectrumData.fftSize || "N/A"} bins`,
             children: [
               spectrumData.actualFps.toFixed(0),
@@ -35754,7 +36069,9 @@ function WaterfallDisplay({
     getColor
   ]);
   const getBadgeStatus = () => {
-    if (isIdle && capture.state === "running") {
+    if (isCollapsed) {
+      return { text: "PAUSED", className: "bg-secondary" };
+    } else if (isIdle && capture.state === "running") {
       return { text: "PAUSED (IDLE)", className: "bg-warning" };
     } else if (isConnected) {
       return { text: "LIVE", className: "bg-success" };
@@ -35863,14 +36180,237 @@ function WaterfallDisplay({
     ] }) })
   ] });
 }
+function ChannelClassifierBar({
+  capture
+}) {
+  const [channels, setChannels] = reactExports.useState([]);
+  const [status, setStatus] = reactExports.useState(null);
+  const [isListExpanded, setIsListExpanded] = reactExports.useState(false);
+  const [error, setError] = reactExports.useState(null);
+  const fetchChannels2 = reactExports.useCallback(async (reset = false) => {
+    if (capture.state !== "running")
+      return;
+    try {
+      const url = `/api/v1/captures/${capture.id}/classified-channels${reset ? "?reset=true" : ""}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const data = await response.json();
+      setChannels(data.channels);
+      setStatus(data.status);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch");
+    }
+  }, [capture.id, capture.state]);
+  reactExports.useEffect(() => {
+    if (capture.state !== "running") {
+      setChannels([]);
+      setStatus(null);
+      return;
+    }
+    fetchChannels2();
+    const interval = setInterval(() => fetchChannels2(), 2e3);
+    return () => clearInterval(interval);
+  }, [capture.id, capture.state, fetchChannels2]);
+  reactExports.useEffect(() => {
+    setChannels([]);
+    setStatus(null);
+  }, [capture.centerHz, capture.sampleRate]);
+  const handleReset = reactExports.useCallback(() => {
+    fetchChannels2(true);
+  }, [fetchChannels2]);
+  const { controlCount, voiceCount } = reactExports.useMemo(() => ({
+    controlCount: channels.filter((c) => c.channelType === "control").length,
+    voiceCount: channels.filter((c) => c.channelType === "voice").length
+  }), [channels]);
+  const formatFreq = (hz) => `${(hz / 1e6).toFixed(4)} MHz`;
+  const getTypeLabel = (type) => {
+    switch (type) {
+      case "control":
+        return "Control";
+      case "voice":
+        return "Voice";
+      case "variable":
+        return "Variable";
+      default:
+        return type;
+    }
+  };
+  const getTypeColor = (type) => {
+    switch (type) {
+      case "control":
+        return "#00ff00";
+      case "voice":
+        return "#ff6600";
+      case "variable":
+        return "#0088ff";
+      default:
+        return "#888888";
+    }
+  };
+  const isReady = (status == null ? void 0 : status.is_ready) ?? false;
+  const remainingSeconds = (status == null ? void 0 : status.remaining_seconds) ?? 60;
+  const elapsedSeconds = (status == null ? void 0 : status.elapsed_seconds) ?? 0;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card shadow-sm mt-2", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "card-header bg-body-tertiary py-1 px-2", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex justify-content-between align-items-center", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { className: "fw-semibold mb-0 d-flex align-items-center gap-1", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Radio, { size: 12 }),
+        "Channel Classifier",
+        isReady && channels.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "badge bg-success text-white ms-2", style: { fontSize: "8px" }, children: [
+          controlCount,
+          " CC / ",
+          voiceCount,
+          " VC"
+        ] })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center gap-1", children: [
+        isReady && channels.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: "btn btn-sm btn-outline-secondary p-0 d-flex align-items-center justify-content-center",
+            style: { width: "20px", height: "20px" },
+            onClick: () => setIsListExpanded(!isListExpanded),
+            title: isListExpanded ? "Hide channel list" : "Show channel list",
+            children: isListExpanded ? /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronUp, { size: 12 }) : /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { size: 12 })
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: "btn btn-sm btn-outline-secondary p-0 d-flex align-items-center justify-content-center",
+            style: { width: "20px", height: "20px" },
+            onClick: handleReset,
+            title: "Reset classification",
+            children: /* @__PURE__ */ jsxRuntimeExports.jsx(RotateCcw, { size: 12 })
+          }
+        )
+      ] })
+    ] }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card-body p-2", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "div",
+        {
+          className: "d-flex align-items-center justify-content-between",
+          style: { fontSize: "10px", fontFamily: "monospace" },
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center gap-3", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "d-flex align-items-center gap-1", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: "8px", height: "8px", backgroundColor: "#00ff00", display: "inline-block" } }),
+                "Control"
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "d-flex align-items-center gap-1", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: "8px", height: "8px", backgroundColor: "#ff6600", display: "inline-block" } }),
+                "Voice"
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "d-flex align-items-center gap-1", children: [
+                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: "8px", height: "8px", backgroundColor: "#0088ff", display: "inline-block" } }),
+                "Variable"
+              ] })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted", children: error ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-danger", children: error }) : !isReady ? `Collecting... ${Math.round(remainingSeconds)}s remaining` : `${channels.length} signals (${Math.round(elapsedSeconds)}s)` })
+          ]
+        }
+      ),
+      isListExpanded && channels.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "div",
+        {
+          className: "mt-2",
+          style: {
+            maxHeight: "200px",
+            overflowY: "auto",
+            fontSize: "10px",
+            fontFamily: "monospace"
+          },
+          children: /* @__PURE__ */ jsxRuntimeExports.jsxs("table", { className: "table table-sm table-dark mb-0", style: { fontSize: "10px" }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("thead", { children: /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("th", { style: { width: "60px" }, children: "Type" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("th", { children: "Frequency" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("th", { style: { width: "60px" }, children: "Power" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("th", { style: { width: "60px" }, children: "Std Dev" })
+            ] }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("tbody", { children: channels.map((ch, idx) => /* @__PURE__ */ jsxRuntimeExports.jsxs("tr", { children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "span",
+                {
+                  className: "badge",
+                  style: {
+                    backgroundColor: getTypeColor(ch.channelType),
+                    color: ch.channelType === "control" ? "#000" : "#fff",
+                    fontSize: "9px"
+                  },
+                  children: getTypeLabel(ch.channelType)
+                }
+              ) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: formatFreq(ch.freqHz) }),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("td", { children: [
+                ch.powerDb.toFixed(1),
+                " dB"
+              ] }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: ch.stdDevDb.toFixed(2) })
+            ] }, idx)) })
+          ] })
+        }
+      ),
+      !isListExpanded && isReady && channels.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mt-1", style: { fontSize: "10px", fontFamily: "monospace" }, children: [
+        channels.slice(0, 5).map((ch, idx) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "span",
+          {
+            className: "badge me-1",
+            style: {
+              backgroundColor: getTypeColor(ch.channelType),
+              color: ch.channelType === "control" ? "#000" : "#fff",
+              fontSize: "9px"
+            },
+            title: `${formatFreq(ch.freqHz)} - ${ch.powerDb.toFixed(1)} dB, std ${ch.stdDevDb.toFixed(2)}`,
+            children: (ch.freqHz / 1e6).toFixed(3)
+          },
+          idx
+        )),
+        channels.length > 5 && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", children: [
+          "+",
+          channels.length - 5,
+          " more"
+        ] })
+      ] })
+    ] })
+  ] });
+}
+const FPS_OPTIONS = [
+  { value: 5, label: "5 fps" },
+  { value: 10, label: "10 fps" },
+  { value: 15, label: "15 fps" },
+  { value: 20, label: "20 fps" },
+  { value: 30, label: "30 fps" },
+  { value: 60, label: "60 fps" }
+];
+const MAX_FPS_OPTIONS = [
+  { value: 15, label: "15 fps" },
+  { value: 30, label: "30 fps" },
+  { value: 60, label: "60 fps" },
+  { value: 120, label: "120 fps" }
+];
+const FFT_SIZE_OPTIONS = [
+  { value: 512, label: "512 bins" },
+  { value: 1024, label: "1024 bins" },
+  { value: 2048, label: "2048 bins" },
+  { value: 4096, label: "4096 bins" }
+];
 function SpectrumPanel({ capture, channels }) {
-  const [spectrumHeight, setSpectrumHeight] = reactExports.useState(() => {
-    const saved = localStorage.getItem("spectrum-height");
-    return saved ? parseInt(saved) : 200;
-  });
+  const updateCapture2 = useUpdateCapture();
   const createChannel2 = useCreateChannel();
   const startChannel2 = useStartChannel(capture.id);
   const toast = useToast();
+  const handleFpsChange = (fps) => {
+    updateCapture2.mutate({ captureId: capture.id, request: { fftFps: fps } });
+  };
+  const handleMaxFpsChange = (maxFps) => {
+    updateCapture2.mutate({ captureId: capture.id, request: { fftMaxFps: maxFps } });
+  };
+  const handleFftSizeChange = (size) => {
+    updateCapture2.mutate({ captureId: capture.id, request: { fftSize: size } });
+  };
   const handleFrequencyClick = reactExports.useCallback(
     async (frequencyHz) => {
       const existingChannel = channels == null ? void 0 : channels.find((ch) => {
@@ -35899,80 +36439,77 @@ function SpectrumPanel({ capture, channels }) {
     },
     [capture.id, capture.centerHz, channels, createChannel2, startChannel2, toast]
   );
-  const handleHeightChange = reactExports.useCallback((height) => {
-    setSpectrumHeight(height);
-    localStorage.setItem("spectrum-height", height.toString());
-  }, []);
-  const [waterfallHeight, setWaterfallHeight] = reactExports.useState(() => {
-    const saved = localStorage.getItem("waterfall-height");
-    return saved ? parseInt(saved) : 200;
-  });
-  const handleWaterfallHeightChange = reactExports.useCallback((height) => {
-    setWaterfallHeight(height);
-    localStorage.setItem("waterfall-height", height.toString());
-  }, []);
-  const dragCleanupRef = reactExports.useRef(null);
-  reactExports.useEffect(() => {
-    return () => {
-      if (dragCleanupRef.current) {
-        dragCleanupRef.current();
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex flex-column gap-2", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
+      {
+        className: "bg-body-tertiary border rounded d-flex align-items-center gap-3 px-2 py-1",
+        style: { fontSize: "11px" },
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "fw-semibold text-muted d-flex align-items-center gap-1", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Settings, { size: 12 }),
+            "Display"
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center gap-1", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "text-muted mb-0", title: "Target update rate for spectrum/waterfall when not actively viewing.", children: "Target:" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "select",
+              {
+                className: "form-select form-select-sm border-0 bg-transparent",
+                style: { width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" },
+                value: capture.fftFps,
+                onChange: (e) => handleFpsChange(parseInt(e.target.value, 10)),
+                title: "Target FPS. Actual rate adapts based on viewer activity.",
+                children: FPS_OPTIONS.map((opt) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: opt.value, children: opt.label }, opt.value))
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center gap-1", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "text-muted mb-0", title: "Maximum FPS cap. Prevents excessive CPU/bandwidth usage.", children: "Max:" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "select",
+              {
+                className: "form-select form-select-sm border-0 bg-transparent",
+                style: { width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" },
+                value: capture.fftMaxFps,
+                onChange: (e) => handleMaxFpsChange(parseInt(e.target.value, 10)),
+                title: "Hard cap on FPS. Will never exceed this rate.",
+                children: MAX_FPS_OPTIONS.map((opt) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: opt.value, children: opt.label }, opt.value))
+              }
+            )
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center gap-1", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("label", { className: "text-muted mb-0", title: "FFT bin count. Higher = sharper frequency detail but more CPU.", children: "FFT Size:" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "select",
+              {
+                className: "form-select form-select-sm border-0 bg-transparent",
+                style: { width: "auto", fontSize: "11px", padding: "1px 20px 1px 4px" },
+                value: capture.fftSize,
+                onChange: (e) => handleFftSizeChange(parseInt(e.target.value, 10)),
+                title: "FFT bin count. Higher values show sharper frequency detail.",
+                children: FFT_SIZE_OPTIONS.map((opt) => /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: opt.value, children: opt.label }, opt.value))
+              }
+            )
+          ] })
+        ]
       }
-    };
-  }, []);
-  const handleResizeMouseDown = reactExports.useCallback(
-    (e) => {
-      e.preventDefault();
-      const startY = e.clientY;
-      const startSpectrumHeight = spectrumHeight;
-      const startWaterfallHeight = waterfallHeight;
-      const handleMouseMove = (moveEvent) => {
-        const deltaY = moveEvent.clientY - startY;
-        const newSpectrumHeight = Math.max(80, Math.min(500, startSpectrumHeight + deltaY));
-        const newWaterfallHeight = Math.max(80, Math.min(500, startWaterfallHeight - deltaY));
-        handleHeightChange(newSpectrumHeight);
-        handleWaterfallHeightChange(newWaterfallHeight);
-      };
-      const cleanup = () => {
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
-        dragCleanupRef.current = null;
-      };
-      const handleMouseUp = () => {
-        cleanup();
-      };
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      dragCleanupRef.current = cleanup;
-    },
-    [spectrumHeight, waterfallHeight, handleHeightChange, handleWaterfallHeightChange]
-  );
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { direction: "column", gap: 0, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
       SpectrumAnalyzer,
       {
         capture,
         channels,
-        height: spectrumHeight,
         onFrequencyClick: handleFrequencyClick
       }
-    ) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "div",
-      {
-        className: "bg-secondary",
-        style: {
-          height: "4px",
-          cursor: "ns-resize",
-          flexShrink: 0
-        },
-        onMouseDown: handleResizeMouseDown
-      }
     ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { height: `${waterfallHeight}px` }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(WaterfallDisplay, { capture, channels }) })
+    /* @__PURE__ */ jsxRuntimeExports.jsx(WaterfallDisplay, { capture, channels }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(ChannelClassifierBar, { capture })
   ] });
 }
+const MAX_MESSAGES = 500;
 function useTrunkingWebSocket(options = {}) {
-  const { systemId, enabled = true, onCallStart, onCallEnd } = options;
+  const { systemId, enabled = true, onCallStart, onCallEnd, onMessage } = options;
   const queryClient2 = useQueryClient();
   const wsRef = reactExports.useRef(null);
   const reconnectTimeoutRef = reactExports.useRef(null);
@@ -35981,6 +36518,7 @@ function useTrunkingWebSocket(options = {}) {
   const [isConnected, setIsConnected] = reactExports.useState(false);
   const [systems, setSystems] = reactExports.useState([]);
   const [activeCalls, setActiveCalls] = reactExports.useState([]);
+  const [messages, setMessages] = reactExports.useState([]);
   const [error, setError] = reactExports.useState(null);
   const handleEvent = reactExports.useCallback(
     (event) => {
@@ -36021,9 +36559,13 @@ function useTrunkingWebSocket(options = {}) {
           });
           queryClient2.invalidateQueries({ queryKey: trunkingKeys.allCalls() });
           break;
+        case "message":
+          setMessages((prev) => [...prev.slice(-MAX_MESSAGES + 1), event.message]);
+          onMessage == null ? void 0 : onMessage(event.message);
+          break;
       }
     },
-    [queryClient2, onCallStart, onCallEnd]
+    [queryClient2, onCallStart, onCallEnd, onMessage]
   );
   const connect = reactExports.useCallback(() => {
     var _a2, _b2;
@@ -36112,10 +36654,11 @@ function useTrunkingWebSocket(options = {}) {
     isConnected,
     systems,
     activeCalls,
+    messages,
     error
   };
 }
-function formatFrequency$1(hz) {
+function formatFrequency$2(hz) {
   if (hz === null)
     return "---";
   return (hz / 1e6).toFixed(4) + " MHz";
@@ -36146,6 +36689,26 @@ function getControlChannelIcon(state) {
       return /* @__PURE__ */ jsxRuntimeExports.jsx(Unlock, { size: 14, className: "text-muted" });
   }
 }
+function getChannelIndex(system) {
+  const scanner = system.stats.cc_scanner;
+  if (!scanner || !scanner.current_channel_hz || !scanner.measurements) {
+    return 1;
+  }
+  const freqs = Object.keys(scanner.measurements).map((key) => parseFloat(key.replace("_MHz", "")) * 1e6).sort((a, b) => a - b);
+  const currentHz = scanner.current_channel_hz;
+  const index2 = freqs.findIndex((f) => Math.abs(f - currentHz) < 1e3);
+  return index2 >= 0 ? index2 + 1 : 1;
+}
+function getChannelSnr(system) {
+  const scanner = system.stats.cc_scanner;
+  if (!scanner || !scanner.current_channel_hz || !scanner.measurements) {
+    return null;
+  }
+  const currentMHz = (scanner.current_channel_hz / 1e6).toFixed(4);
+  const key = `${currentMHz}_MHz`;
+  const measurement = scanner.measurements[key];
+  return measurement ? measurement.snr_db : null;
+}
 function SystemStatusPanel({
   system,
   onStart,
@@ -36156,10 +36719,10 @@ function SystemStatusPanel({
   onPlayAudio,
   onStopAudio
 }) {
-  const isRunning = system.state === "running" || system.state === "searching" || system.state === "syncing";
-  const isStopped = system.state === "stopped";
+  const isRunning = system.state !== "stopped" && system.state !== "failed";
+  const isStopped = system.state === "stopped" || system.state === "failed";
   const isBusy = isStarting || isStopping;
-  const canPlayAudio = isRunning && onPlayAudio && onStopAudio;
+  const canPlayAudio = isRunning && system.state !== "starting" && onPlayAudio && onStopAudio;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card-header d-flex align-items-center justify-content-between py-2", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 2, children: [
@@ -36212,10 +36775,23 @@ function SystemStatusPanel({
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-3", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "bg-body-secondary rounded p-2 text-center", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center justify-content-center gap-1 mb-1", children: [
             getControlChannelIcon(system.controlChannelState),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: "Control" })
+            /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: "Control" }),
+            system.stats.cc_scanner && system.stats.cc_scanner.channels_configured > 1 && /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { className: "text-muted", children: [
+              "(",
+              getChannelIndex(system),
+              " of ",
+              system.stats.cc_scanner.channels_configured,
+              ")"
+            ] })
           ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "fw-semibold", style: { fontSize: "0.9rem" }, children: formatFrequency$1(system.controlChannelFreqHz) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: system.controlChannelState.toUpperCase() })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "fw-semibold", style: { fontSize: "0.9rem" }, children: formatFrequency$2(system.controlChannelFreqHz) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center justify-content-center gap-1", children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: system.controlChannelState.toUpperCase() }),
+            system.stats.cc_scanner && getChannelSnr(system) !== null && /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { className: "text-success", children: [
+              getChannelSnr(system).toFixed(1),
+              " dB"
+            ] })
+          ] })
         ] }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-3", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "bg-body-secondary rounded p-2 text-center", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted d-block mb-1", children: "NAC" }),
@@ -36236,7 +36812,7 @@ function SystemStatusPanel({
           ] })
         ] }) })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex gap-3 mt-2 small text-muted", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex gap-3 mt-2 small text-muted flex-wrap", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: system.stats.tsbk_count }),
           " TSBKs"
@@ -36255,6 +36831,10 @@ function SystemStatusPanel({
           system.stats.recorders_active + system.stats.recorders_idle,
           " ",
           "Recorders"
+        ] }),
+        system.stats.initial_scan_complete === false && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-warning", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Activity, { size: 12, className: "me-1", style: { animation: "pulse 1s infinite" } }),
+          "Scanning channels..."
         ] })
       ] }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mt-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -36267,10 +36847,10 @@ function SystemStatusPanel({
     ] })
   ] });
 }
-function formatFrequency(hz) {
+function formatFrequency$1(hz) {
   return (hz / 1e6).toFixed(4);
 }
-function formatDuration(seconds) {
+function formatDuration$1(seconds) {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
@@ -36357,8 +36937,8 @@ function ActiveCallsTable({
           ] })
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("td", { children: call.sourceId !== null ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-secondary", children: call.sourceId }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted", children: "---" }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "text-end font-monospace", children: formatFrequency(call.frequencyHz) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "text-end font-monospace", children: formatDuration(call.durationSeconds) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "text-end font-monospace", children: formatFrequency$1(call.frequencyHz) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "text-end font-monospace", children: formatDuration$1(call.durationSeconds) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("td", { className: "text-center", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "btn-group btn-group-sm", children: [
           onPlayAudio && !call.encrypted && call.state === "recording" && call.recorderId && /* @__PURE__ */ jsxRuntimeExports.jsx(
             "button",
@@ -36608,19 +37188,270 @@ function TalkgroupDirectory({
     )
   ] });
 }
+function formatTime$1(timestamp) {
+  const date = new Date(timestamp * 1e3);
+  return date.toLocaleTimeString("en-US", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+function formatFrequency(hz) {
+  return (hz / 1e6).toFixed(4);
+}
+function formatDuration(seconds) {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  if (mins > 0) {
+    return `${mins}m ${secs}s`;
+  }
+  return `${secs}s`;
+}
+function getEventIcon(type, encrypted) {
+  if (encrypted) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsx(Phone, { size: 12, className: "text-danger" });
+  }
+  switch (type) {
+    case "start":
+      return /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneIncoming, { size: 12, className: "text-success" });
+    case "end":
+      return /* @__PURE__ */ jsxRuntimeExports.jsx(PhoneOff, { size: 12, className: "text-muted" });
+    default:
+      return /* @__PURE__ */ jsxRuntimeExports.jsx(Phone, { size: 12, className: "text-info" });
+  }
+}
+function getEventClass(type) {
+  switch (type) {
+    case "start":
+      return "border-start border-success border-2";
+    case "end":
+      return "border-start border-secondary border-2";
+    default:
+      return "";
+  }
+}
+function CallEventLog({ events, maxHeight = 300 }) {
+  const scrollRef = reactExports.useRef(null);
+  const isAtBottomRef = reactExports.useRef(true);
+  const handleScroll = () => {
+    if (scrollRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+      isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 10;
+    }
+  };
+  reactExports.useEffect(() => {
+    if (scrollRef.current && isAtBottomRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [events.length]);
+  if (events.length === 0) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
+      {
+        className: "text-center text-muted py-3 bg-body-secondary rounded",
+        style: { fontSize: "0.8rem" },
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Phone, { size: 20, className: "mb-1 opacity-50" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: "Waiting for call activity..." })
+        ]
+      }
+    );
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "div",
+    {
+      ref: scrollRef,
+      className: "bg-body-secondary rounded overflow-auto",
+      style: { maxHeight, fontSize: "0.75rem" },
+      onScroll: handleScroll,
+      children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "d-flex flex-column", children: events.map((event) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "div",
+        {
+          className: `d-flex align-items-center gap-2 px-2 py-1 ${getEventClass(event.type)}`,
+          style: { borderBottom: "1px solid var(--bs-border-color)" },
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted font-monospace", style: { width: "60px" }, children: formatTime$1(event.timestamp) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: "16px" }, children: getEventIcon(event.type, event.encrypted) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                className: `badge ${event.type === "start" ? "bg-success" : event.type === "end" ? "bg-secondary" : "bg-info"}`,
+                style: { width: "40px", fontSize: "0.65rem" },
+                children: event.type.toUpperCase()
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "fw-semibold text-truncate", style: { minWidth: "80px", maxWidth: "150px" }, children: event.talkgroupName }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", style: { width: "50px" }, children: [
+              "TG ",
+              event.talkgroupId
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: "50px" }, children: event.sourceId !== null ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-secondary", style: { fontSize: "0.65rem" }, children: event.sourceId }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted", children: "---" }) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-monospace text-muted", style: { width: "70px" }, children: formatFrequency(event.frequencyHz) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: "45px" }, children: event.type === "end" && event.durationSeconds !== void 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-info", children: formatDuration(event.durationSeconds) }) })
+          ]
+        },
+        `${event.id}-${event.type}-${event.timestamp}`
+      )) })
+    }
+  );
+}
+function formatTime(timestamp) {
+  const date = new Date(timestamp * 1e3);
+  return date.toLocaleTimeString("en-US", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
+}
+function formatMillis(timestamp) {
+  const millis = Math.floor(timestamp % 1 * 1e3);
+  return millis.toString().padStart(3, "0");
+}
+function getOpcodeColor(opcodeName) {
+  if (opcodeName.includes("GRANT")) {
+    return "text-success";
+  }
+  if (opcodeName.includes("IDEN")) {
+    return "text-info";
+  }
+  if (opcodeName.includes("STS") || opcodeName.includes("BCAST")) {
+    return "text-warning";
+  }
+  if (opcodeName.includes("REG") || opcodeName.includes("AFF")) {
+    return "text-primary";
+  }
+  return "text-secondary";
+}
+function getOpcodeBadgeClass(opcodeName) {
+  if (opcodeName.includes("GRANT")) {
+    return "bg-success";
+  }
+  if (opcodeName.includes("IDEN")) {
+    return "bg-info";
+  }
+  if (opcodeName.includes("STS") || opcodeName.includes("BCAST")) {
+    return "bg-warning text-dark";
+  }
+  if (opcodeName.includes("REG") || opcodeName.includes("AFF")) {
+    return "bg-primary";
+  }
+  return "bg-secondary";
+}
+function MessageLog({ messages, maxHeight = 400 }) {
+  const scrollRef = reactExports.useRef(null);
+  const isAtBottomRef = reactExports.useRef(true);
+  const handleScroll = () => {
+    if (scrollRef.current) {
+      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+      isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 10;
+    }
+  };
+  reactExports.useEffect(() => {
+    if (scrollRef.current && isAtBottomRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages.length]);
+  if (messages.length === 0) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
+      {
+        className: "text-center text-muted py-4 bg-body-secondary rounded",
+        style: { fontSize: "0.8rem" },
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(MessageSquare, { size: 24, className: "mb-2 opacity-50" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: "Waiting for decoded messages..." }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "small mt-1", children: "Messages will appear when the control channel is locked" })
+        ]
+      }
+    );
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "div",
+    {
+      ref: scrollRef,
+      className: "bg-dark text-light rounded overflow-auto font-monospace",
+      style: { maxHeight, fontSize: "0.7rem" },
+      onScroll: handleScroll,
+      children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "d-flex flex-column", children: messages.map((msg, idx) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "div",
+        {
+          className: "d-flex align-items-start gap-2 px-2 py-1 border-bottom border-secondary",
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", style: { minWidth: "85px" }, children: [
+              formatTime(msg.timestamp),
+              /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-secondary", children: [
+                ".",
+                formatMillis(msg.timestamp)
+              ] })
+            ] }),
+            msg.nac !== null && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-info", style: { minWidth: "45px" }, children: [
+              "NAC:",
+              msg.nac.toString(16).toUpperCase().padStart(3, "0")
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                className: `badge ${getOpcodeBadgeClass(msg.opcodeName)}`,
+                style: { fontSize: "0.6rem", minWidth: "100px" },
+                children: msg.opcodeName
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: `flex-grow-1 ${getOpcodeColor(msg.opcodeName)}`, children: msg.summary })
+          ]
+        },
+        `${msg.timestamp}-${idx}`
+      )) })
+    }
+  );
+}
+const MAX_EVENTS = 100;
 function TrunkingPanel({ systemId, onCreateSystem }) {
   const [activeTab, setActiveTab] = reactExports.useState("active");
+  const [callEvents, setCallEvents] = reactExports.useState([]);
   const toast = useToast();
+  const handleCallStart = reactExports.useCallback((call) => {
+    const event = {
+      id: call.id,
+      timestamp: call.startTime,
+      type: "start",
+      talkgroupId: call.talkgroupId,
+      talkgroupName: call.talkgroupName,
+      sourceId: call.sourceId,
+      frequencyHz: call.frequencyHz,
+      encrypted: call.encrypted
+    };
+    setCallEvents((prev) => [...prev.slice(-MAX_EVENTS + 1), event]);
+  }, []);
+  const handleCallEnd = reactExports.useCallback((call) => {
+    const event = {
+      id: call.id,
+      timestamp: Date.now() / 1e3,
+      // Use current time for end event
+      type: "end",
+      talkgroupId: call.talkgroupId,
+      talkgroupName: call.talkgroupName,
+      sourceId: call.sourceId,
+      frequencyHz: call.frequencyHz,
+      durationSeconds: call.durationSeconds,
+      encrypted: call.encrypted
+    };
+    setCallEvents((prev) => [...prev.slice(-MAX_EVENTS + 1), event]);
+  }, []);
   const { data: system, isLoading: systemLoading } = useTrunkingSystem(systemId);
   const { data: vocoder } = useVocoderStatus();
   const { data: talkgroups } = useTalkgroups(systemId);
   const { data: activeCalls } = useActiveCalls(systemId);
   const {
     isConnected: wsConnected,
-    activeCalls: wsActiveCalls
+    activeCalls: wsActiveCalls,
+    messages: wsMessages
   } = useTrunkingWebSocket({
     systemId,
-    enabled: !!systemId
+    enabled: !!systemId,
+    onCallStart: handleCallStart,
+    onCallEnd: handleCallEnd
   });
   const {
     isPlaying: isPlayingAudio,
@@ -36736,6 +37567,30 @@ function TrunkingPanel({ systemId, onCreateSystem }) {
               talkgroups && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-secondary ms-1", children: talkgroups.length })
             ]
           }
+        ) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("li", { className: "nav-item", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "button",
+          {
+            className: `nav-link ${activeTab === "messages" ? "active" : ""}`,
+            onClick: () => setActiveTab("messages"),
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(MessageSquare, { size: 14, className: "me-1" }),
+              "Messages",
+              wsMessages.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-dark ms-1", children: wsMessages.length })
+            ]
+          }
+        ) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("li", { className: "nav-item", children: /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "button",
+          {
+            className: `nav-link ${activeTab === "history" ? "active" : ""}`,
+            onClick: () => setActiveTab("history"),
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(History, { size: 14, className: "me-1" }),
+              "History",
+              callEvents.length > 0 && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "badge bg-info ms-1", children: callEvents.length })
+            ]
+          }
         ) })
       ] }) }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card-body", children: [
@@ -36755,7 +37610,9 @@ function TrunkingPanel({ systemId, onCreateSystem }) {
             talkgroups,
             activeTalkgroups: activeTalkgroupIds
           }
-        )
+        ),
+        activeTab === "messages" && /* @__PURE__ */ jsxRuntimeExports.jsx(MessageLog, { messages: wsMessages, maxHeight: 400 }),
+        activeTab === "history" && /* @__PURE__ */ jsxRuntimeExports.jsx(CallEventLog, { events: callEvents, maxHeight: 400 })
       ] })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "small text-muted d-flex align-items-center gap-1", children: [
@@ -37857,4 +38714,4 @@ logger.init();
 client.createRoot(document.getElementById("root")).render(
   /* @__PURE__ */ jsxRuntimeExports.jsx(React.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(App, {}) })
 );
-//# sourceMappingURL=index-b1bcf091.js.map
+//# sourceMappingURL=index-059ea20d.js.map

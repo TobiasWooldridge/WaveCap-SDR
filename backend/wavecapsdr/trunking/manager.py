@@ -190,6 +190,7 @@ class TrunkingManager:
         system.on_call_update = lambda call: self._on_call_update(config.id, call)
         system.on_call_end = lambda call: self._on_call_end(config.id, call)
         system.on_system_update = lambda sys: self._on_system_update(sys)
+        system.on_message = lambda msg: self._on_message(config.id, msg)
 
         self._systems[config.id] = system
 
@@ -439,6 +440,23 @@ class TrunkingManager:
             "type": "system_update",
             "systemId": system.cfg.id,
             "system": system.to_dict(),
+        })
+
+    def _on_message(self, system_id: str, message: dict[str, Any]) -> None:
+        """Handle decoded message event.
+
+        Broadcasts the message to WebSocket subscribers for real-time display.
+        """
+        self._schedule_broadcast({
+            "type": "message",
+            "systemId": system_id,
+            "message": {
+                "timestamp": message.get("timestamp", 0),
+                "opcode": message.get("opcode", 0),
+                "opcodeName": message.get("opcode_name", ""),
+                "nac": message.get("nac"),
+                "summary": message.get("summary", ""),
+            },
         })
 
     async def _maintenance_loop(self) -> None:

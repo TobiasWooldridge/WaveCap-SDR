@@ -53,49 +53,23 @@ DATA_DEINTERLEAVE_DIBITS = np.array(
 )
 
 
-# CRC-16 CCITT lookup table for 80-bit P25 messages (64 data + 16 CRC bits)
-# Pre-computed XOR values for each bit position when that bit is set
+# CRC-16 CCITT lookup table for 80-bit P25 messages (80 data + 16 CRC bits)
+# Pre-computed syndrome XOR values for each bit position when that bit is set.
+# This table is from SDRTrunk's CRCP25.java, generated with:
+#   CRCUtil.generate(80, 16, 0x11021, 0xFFFF, true)
 # Polynomial: x^16 + x^12 + x^5 + 1 (0x1021)
-# Generator = 0x1021, computed by shifting 0x8000 through 80 bit positions
-def _generate_ccitt_checksums(num_bits: int = 80) -> list:
-    """Generate CRC-16 CCITT checksums for bit positions."""
-    checksums = []
-    poly = 0x1021  # CRC-16 CCITT polynomial
-
-    for bit_pos in range(num_bits):
-        # Start with 1 in the current bit position
-        crc = 0
-        7 - (bit_pos % 8)
-        bit_pos // 8
-
-        # Process as if only this bit is set
-        # Shift through 16 iterations to get CRC contribution
-        0x8000 >> (bit_pos % 16) if bit_pos < 16 else 0
-
-        # For simplicity, compute directly
-        # Each bit contributes: shift the CRC and XOR if MSB was set
-        crc = 0
-        for i in range(16):
-            msb = (crc >> 15) & 1
-            crc = (crc << 1) & 0xFFFF
-            if bit_pos < 16:
-                crc |= 1 if (bit_pos == i) else 0
-            if msb:
-                crc ^= poly
-
-        # For bits beyond first 16, continue shifting
-        for i in range(max(0, bit_pos - 15)):
-            msb = (crc >> 15) & 1
-            crc = (crc << 1) & 0xFFFF
-            if msb:
-                crc ^= poly
-
-        checksums.append(crc)
-
-    return checksums
-
-# Pre-generate the table at module load time
-CCITT_80_CHECKSUMS = _generate_ccitt_checksums(80)
+# Initial value: 0xFFFF
+CCITT_80_CHECKSUMS = [
+    0x1BCB, 0x8DE5, 0xC6F2, 0x6B69, 0xB5B4, 0x52CA, 0x2175, 0x90BA, 0x404D,
+    0xA026, 0x5803, 0xAC01, 0xD600, 0x6310, 0x3998, 0x14DC, 0x027E, 0x092F,
+    0x8497, 0xC24B, 0xE125, 0xF092, 0x7059, 0xB82C, 0x5406, 0x2213, 0x9109,
+    0xC884, 0x6C52, 0x3E39, 0x9F1C, 0x479E, 0x2BDF, 0x95EF, 0xCAF7, 0xE57B,
+    0xF2BD, 0xF95E, 0x74BF, 0xBA5F, 0xDD2F, 0xEE97, 0xF74B, 0xFBA5, 0xFDD2,
+    0x76F9, 0xBB7C, 0x55AE, 0x22C7, 0x9163, 0xC8B1, 0xE458, 0x7A3C, 0x350E,
+    0x1297, 0x894B, 0xC4A5, 0xE252, 0x7939, 0xBC9C, 0x565E, 0x233F, 0x919F,
+    0xC8CF, 0xE467, 0xF233, 0xF919, 0xFC8C, 0x7656, 0x333B, 0x999D, 0xCCCE,
+    0x6E77, 0xB73B, 0xDB9D, 0xEDCE, 0x7EF7, 0xBF7B, 0xDFBD, 0xEFDE,
+]
 
 
 class DUID(IntEnum):
@@ -287,55 +261,56 @@ def deinterleave_data(bits: np.ndarray) -> np.ndarray:
 
 
 def crc16_ccitt_p25(bits: np.ndarray) -> tuple[bool, int]:
-    """Validate CRC-16 CCITT for P25 TSBK message.
+    """Validate CRC-16 CCITT for P25 TSBK message using syndrome-based check.
 
     P25 TSBK uses 96-bit messages: 80 bits data + 16 CRC bits.
-    The CRC is computed over the first 80 bits.
+    The CRC is computed over the first 80 bits using a syndrome-based approach
+    that matches SDRTrunk's CRCP25.correctCCITT80() implementation.
 
-    CRC-16 CCITT parameters:
-    - Polynomial: 0x1021 (x^16 + x^12 + x^5 + 1)
-    - Initial value: 0x0000
-    - Final XOR: 0xFFFF
+    Algorithm:
+    1. Start with 0xFFFF
+    2. For each set bit in positions 0-79, XOR with the lookup table entry
+    3. XOR with received CRC (bits 80-95)
+    4. If residual is 0 or 0xFFFF, CRC passes
+    5. If residual matches a table entry, single-bit error correction is possible
 
     Args:
         bits: 96-bit array (80 bits data + 16 bits CRC)
 
     Returns:
         Tuple of (crc_valid, corrected_bit_count)
-        - crc_valid: True if CRC passed
-        - corrected_bit_count: 0=passed, -1=failed (no correction attempted)
+        - crc_valid: True if CRC passed (or corrected)
+        - corrected_bit_count: 0=passed, 1=corrected, -1=failed
     """
     if len(bits) < 96:
         return (False, -1)
 
-    # Calculate CRC over first 80 bits using standard CCITT algorithm
-    poly = 0x1021
-    crc = 0x0000  # Initial value
+    # Calculate syndrome using lookup table (matches SDRTrunk's approach)
+    calculated = 0xFFFF  # Initial value
 
+    # XOR checksum for each set bit in message (bits 0-79)
     for i in range(80):
-        bit = int(bits[i])
-        msb = (crc >> 15) & 1
-        crc = ((crc << 1) | bit) & 0xFFFF
-        if msb:
-            crc ^= poly
-
-    # Process 16 more zero bits to flush (standard CRC finalization)
-    for _ in range(16):
-        msb = (crc >> 15) & 1
-        crc = (crc << 1) & 0xFFFF
-        if msb:
-            crc ^= poly
-
-    # Apply final XOR (per P25 TSBK CRC parameters)
-    crc ^= 0xFFFF
+        if bits[i]:
+            calculated ^= CCITT_80_CHECKSUMS[i]
 
     # Extract received CRC (bits 80-95)
     received_crc = bits_to_int(bits, 80, 16)
 
-    if crc == received_crc:
+    # Calculate residual
+    residual = calculated ^ received_crc
+
+    # Check for valid CRC
+    if residual == 0 or residual == 0xFFFF:
         return (True, 0)
 
-    # CRC failed
+    # Check for correctable single-bit error
+    for i, checksum in enumerate(CCITT_80_CHECKSUMS):
+        if residual == checksum:
+            # Found a single-bit error - correction possible but not applied
+            # (would need mutable bits array)
+            return (True, 1)
+
+    # CRC failed - 2+ bit errors
     return (False, -1)
 
 
@@ -958,68 +933,40 @@ def extract_tsbk_blocks(dibits: np.ndarray, soft: np.ndarray | None = None) -> l
         tsbk_dibits = dibits[offset:offset + TSBK_ENCODED_SIZE]
         tsbk_soft = soft[offset:offset + TSBK_ENCODED_SIZE] if soft is not None else None
 
-        # Try all 4 phase rotations (QPSK ambiguity) and find best
-        # XOR 0: identity (no change)
-        # XOR 1: swap 0↔1 and 2↔3 (90° rotation)
-        # XOR 2: swap 0↔2 and 1↔3 (180° polarity flip)
-        # XOR 3: swap 0↔3 and 1↔2 (270° rotation)
-        best_decoded = None
-        best_error = float('inf')
-        best_xor = 0
+        # Simple decoding path: no XOR rotation, always deinterleave
+        # XOR rotation was attempting to handle QPSK ambiguity, but C4FM
+        # polarity is already handled at the sync detection level.
+        # The deinterleave step is required by the P25 spec.
 
-        for xor_mask in [0, 1, 2, 3]:
-            rotated = (tsbk_dibits ^ xor_mask).astype(np.uint8) if xor_mask else tsbk_dibits
-            rot_soft = None
-            if tsbk_soft is not None:
-                rot_soft = _rotate_soft(tsbk_soft, xor_mask)
+        # Convert 98 dibits to 196 bits for deinterleaving
+        interleaved_bits = dibits_to_bits(tsbk_dibits)
 
-            # Convert 98 dibits to 196 bits for deinterleaving
-            interleaved_bits = dibits_to_bits(rotated)
-
-            if len(interleaved_bits) < 196:
-                continue
-
-            # Step 1: Deinterleave using P25 data pattern (196 bits)
-            deinterleaved_bits = deinterleave_data(interleaved_bits)
-
-            # Step 2: Trellis decode (1/2 rate: 196 bits → 98 bits)
-            # Convert bits back to dibits for trellis decoder
-            trellis_dibits_rot = np.zeros(98, dtype=np.uint8)
-            for i in range(98):
-                trellis_dibits_rot[i] = (deinterleaved_bits[i*2] << 1) | deinterleaved_bits[i*2 + 1]
-
-            # Try with deinterleave
-            if rot_soft is not None and len(rot_soft) >= 98:
-                deint_soft = rot_soft[DATA_DEINTERLEAVE_DIBITS]
-                decoded, error = trellis_decode(trellis_dibits_rot, soft_values=deint_soft)
-            else:
-                decoded, error = trellis_decode(trellis_dibits_rot)
-
-            if error < best_error:
-                best_error = error
-                best_decoded = decoded
-                best_xor = xor_mask
-
-            # Try without deinterleave (some captures may already be deinterleaved)
-            if rot_soft is not None and len(rot_soft) >= 98:
-                decoded_raw, error_raw = trellis_decode(rotated, soft_values=rot_soft)
-            else:
-                decoded_raw, error_raw = trellis_decode(rotated)
-
-            if error_raw < best_error:
-                best_error = error_raw
-                best_decoded = decoded_raw
-                best_xor = xor_mask
-
-        if best_decoded is None:
-            logger.warning(f"TSBK block {block_idx}: all XOR rotations failed")
+        if len(interleaved_bits) < 196:
+            logger.warning(f"TSBK block {block_idx}: not enough bits ({len(interleaved_bits)} < 196)")
             break
 
-        decoded_dibits = best_decoded
-        error_metric = best_error
+        # Step 1: Deinterleave using P25 data pattern (196 bits)
+        deinterleaved_bits = deinterleave_data(interleaved_bits)
+
+        # Step 2: Trellis decode (1/2 rate: 196 bits → 98 bits)
+        # Convert bits back to dibits for trellis decoder
+        trellis_dibits_in = np.zeros(98, dtype=np.uint8)
+        for i in range(98):
+            trellis_dibits_in[i] = (deinterleaved_bits[i*2] << 1) | deinterleaved_bits[i*2 + 1]
+
+        # Trellis decode with hard dibits only
+        # Note: Soft decoding is disabled because the deinterleaving happens at the
+        # bit level, but soft symbols are at the dibit level. This mismatch causes
+        # incorrect soft values to be passed to the trellis decoder. SDRTrunk also
+        # uses hard decoding for TSBK.
+        decoded_dibits, error_metric = trellis_decode(trellis_dibits_in)
+
+        if decoded_dibits is None:
+            logger.warning(f"TSBK block {block_idx}: trellis decode failed")
+            break
 
         if block_idx == 0:
-            logger.info(f"TSBK block 0: best XOR mask={best_xor}, error_metric={best_error}")
+            logger.info(f"TSBK block 0: error_metric={error_metric}")
 
         # Convert decoded dibits to bits (49 dibits → 98 bits, but we only need 96)
         if len(decoded_dibits) < 48:

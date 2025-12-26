@@ -380,7 +380,7 @@ class ControlChannelMonitor:
     SYNC_PATTERN_SYMBOLS_REV = np.array([-3, -3, -3, -3, -3, +3, -3, -3, +3, +3, -3, -3,
                                           +3, +3, +3, +3, -3, +3, -3, +3, +3, +3, +3, +3], dtype=np.float32)
     DIBIT_TO_SYMBOL = np.array([+1.0, +3.0, -1.0, -3.0], dtype=np.float32)
-    SOFT_SYNC_THRESHOLD = 60  # SDRTrunk-style threshold
+    SOFT_SYNC_THRESHOLD = 80  # Matches SDRTrunk's P25P1DemodulatorC4FM.SYNC_THRESHOLD_DETECTION = 80
 
     def _soft_correlation(self, dibits: list[int], detect_polarity: bool = False) -> float | tuple[float, bool]:
         """Compute soft correlation score between dibits and sync pattern.
@@ -462,8 +462,10 @@ class ControlChannelMonitor:
                 if best_is_reversed:
                     self._reverse_p = 2
                     logger.info(f"ControlChannelMonitor: Latching reversed polarity (reverse_p=2)")
-                    # Apply polarity correction to entire buffer
+                    # Apply polarity correction to entire buffer (dibits AND soft symbols)
                     self._dibit_buffer = [d ^ 2 for d in self._dibit_buffer]
+                    if self._soft_buffer:
+                        self._soft_buffer = [-s for s in self._soft_buffer]
                 else:
                     logger.info(f"ControlChannelMonitor: Latching normal polarity (reverse_p=0)")
                 self._polarity_latched = True

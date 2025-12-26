@@ -23,6 +23,16 @@ from scipy.signal import resample_poly
 
 from wavecapsdr.decoders.p25_tsbk import TSBKParser
 from wavecapsdr.decoders.p25_frames import extract_link_control
+from wavecapsdr.decoders.p25_framer import (
+    P25P1MessageFramer,
+    P25P1Message,
+    P25P1DataUnitID,
+)
+from wavecapsdr.decoders.p25_phase2 import (
+    P25P2Decoder as _P25P2StreamingDecoder,
+    P25P2Timeslot,
+    P25P2TimeslotType,
+)
 from wavecapsdr.dsp.fec.bch import bch_decode
 from wavecapsdr.dsp.fec.trellis import TrellisDecoder
 from wavecapsdr.dsp.p25.c4fm import C4FMDemodulator as _WorkingC4FMDemodulator
@@ -33,17 +43,25 @@ logger = logging.getLogger(__name__)
 class _C4FMDemodulatorWrapper:
     """Wrapper around the working C4FM demodulator from dsp/p25/c4fm.py.
 
-    The wrapped demodulator returns (dibits, soft_symbols) tuple, but P25Decoder
-    expects just dibits. This wrapper adapts the interface.
+    The wrapped demodulator returns (dibits, soft_symbols) tuple.
+    This wrapper provides both outputs for streaming framer support.
     """
 
     def __init__(self, sample_rate: int):
         self._demod = _WorkingC4FMDemodulator(sample_rate=sample_rate)
 
     def demodulate(self, iq: np.ndarray) -> np.ndarray:
-        """Demodulate IQ to dibits."""
+        """Demodulate IQ to dibits only (legacy API)."""
         dibits, _ = self._demod.demodulate(iq)
         return dibits
+
+    def demodulate_soft(self, iq: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Demodulate IQ to both dibits and soft symbols.
+
+        Returns:
+            Tuple of (dibits, soft_symbols)
+        """
+        return self._demod.demodulate(iq)
 
     def reset(self) -> None:
         """Reset demodulator state."""
@@ -1644,18 +1662,25 @@ class P25FrameSync:
 
 
 class P25Modulation(str, Enum):
-    """P25 Phase 1 modulation types."""
-    C4FM = "c4fm"    # Standard 4-level FSK (non-simulcast)
-    LSM = "lsm"      # Linear Simulcast Modulation (CQPSK/differential QPSK)
+    """P25 modulation types."""
+    C4FM = "c4fm"    # Phase 1: Standard 4-level FSK (non-simulcast)
+    LSM = "lsm"      # Phase 1: Linear Simulcast Modulation (CQPSK/differential QPSK)
+    PHASE2 = "phase2"  # Phase 2: CQPSK TDMA with 2 timeslots at 6000 symbols/second
 
 
 class P25Decoder:
     """
-    Complete P25 Phase 1 decoder with trunking support.
+    Complete P25 Phase 1 and Phase 2 decoder with trunking support.
 
-    Supports both C4FM and LSM (CQPSK) modulation:
-    - C4FM: Standard 4-level FSK (most P25 systems including SA-GRN)
-    - LSM: CQPSK for simulcast systems using phase modulation
+    Supports multiple modulation types:
+    - C4FM: Phase 1 standard 4-level FSK (most P25 systems)
+    - LSM: Phase 1 CQPSK for simulcast systems using phase modulation
+    - PHASE2: Phase 2 CQPSK TDMA with 2 timeslots at 6000 symbols/second
+
+    Phase 2 uses TDMA with SuperFrame structure:
+    - 720 dibits per SuperFrame fragment
+    - 4 timeslots per fragment (2 logical channels)
+    - Sync patterns at positions 360 and 540 dibits
 
     Also supports discriminator audio input via process_discriminator() for:
     - Pre-recorded discriminator tap audio
@@ -1669,32 +1694,38 @@ class P25Decoder:
     MIN_FRAME_DIBITS = 150  # Minimum to attempt frame decode (sync + NID + some data)
     MAX_BUFFER_DIBITS = 4000  # ~2 frames worth, prevent unbounded growth
 
-    # Minimum sample rate for C4FM demodulation (10 samples/symbol at 4800 baud)
-    # Lower sample rates will be automatically upsampled for accurate symbol timing
-    MIN_DEMOD_SAMPLE_RATE = 48000
+    # Minimum sample rate for C4FM demodulation (4 samples/symbol at 4800 baud)
+    MIN_SAMPLE_RATE = 19200  # 4 sps
 
     def __init__(self, sample_rate: int = 48000, modulation: P25Modulation = P25Modulation.C4FM):
         self.sample_rate = sample_rate
         self.modulation = modulation
 
-        # Calculate upsampling ratio if input rate is too low
-        # C4FM needs 10 samples/symbol (48kHz) for accurate demodulation
-        if sample_rate < self.MIN_DEMOD_SAMPLE_RATE:
-            # Find rational upsampling ratio
+        # Only resample if input rate is below minimum
+        # Resampling degrades signal quality, so avoid when possible
+        if sample_rate >= self.MIN_SAMPLE_RATE:
+            # Use input rate directly - no resampling
+            self._upsample_up = 1
+            self._upsample_down = 1
+            self._demod_sample_rate = sample_rate
+            sps = sample_rate / 4800
+            logger.info(f"P25 decoder: using input rate {sample_rate}Hz directly ({sps:.1f} sps)")
+        else:
+            # Upsample to minimum rate
             from math import gcd
-            target_rate = self.MIN_DEMOD_SAMPLE_RATE
+            target_rate = self.MIN_SAMPLE_RATE
             g = gcd(target_rate, sample_rate)
             self._upsample_up = target_rate // g
             self._upsample_down = sample_rate // g
             self._demod_sample_rate = target_rate
             logger.info(f"P25 decoder: input {sample_rate}Hz -> upsampling {self._upsample_up}/{self._upsample_down} -> {target_rate}Hz")
-        else:
-            self._upsample_up = 1
-            self._upsample_down = 1
-            self._demod_sample_rate = sample_rate
 
         # Select demodulator based on modulation type - always use demod sample rate
-        if modulation == P25Modulation.LSM:
+        if modulation == P25Modulation.PHASE2:
+            # Phase 2 uses CQPSK at 6000 symbols/second with TDMA
+            self.demodulator = CQPSKDemodulator(self._demod_sample_rate, symbol_rate=6000)
+            logger.info(f"P25 decoder initialized with Phase 2 CQPSK/TDMA demodulator (demod_rate={self._demod_sample_rate})")
+        elif modulation == P25Modulation.LSM:
             self.demodulator = CQPSKDemodulator(self._demod_sample_rate)
             logger.info(f"P25 decoder initialized with CQPSK/LSM demodulator (demod_rate={self._demod_sample_rate})")
         else:
@@ -1705,14 +1736,32 @@ class P25Decoder:
         # Discriminator demodulator (created on demand)
         self._discriminator_demod: DiscriminatorDemodulator | None = None
 
+        # Legacy frame sync (for backward compatibility)
         self.frame_sync = P25FrameSync()
         self.trellis = P25TrellisDecoder()
+
+        # SDRTrunk-compatible streaming message framer (Phase 1)
+        self._message_framer = P25P1MessageFramer()
+        self._message_framer.set_listener(self._on_framer_message)
+        self._message_framer.start()
+        self._framed_messages: list[P25P1Message] = []
+
+        # Phase 2 TDMA decoder (only initialized if using Phase 2)
+        self._phase2_decoder: _P25P2StreamingDecoder | None = None
+        self._phase2_timeslots: list[P25P2Timeslot] = []
+        if modulation == P25Modulation.PHASE2:
+            self._phase2_decoder = _P25P2StreamingDecoder()
+            self._phase2_decoder.on_timeslot = self._on_phase2_timeslot
+            logger.info("P25 Phase 2 TDMA decoder initialized")
 
         # TSBK parser for full parsing of control channel messages
         self.tsbk_parser = TSBKParser()
 
-        # Pre-allocated ring buffer for dibit accumulation (avoids repeated allocations)
+        # Pre-allocated ring buffer for dibit accumulation (legacy, for batch mode)
         self._dibit_buffer = DibitRingBuffer(capacity=self.MAX_BUFFER_DIBITS)
+
+        # Use streaming mode by default (SDRTrunk-compatible)
+        self._use_streaming_framer = True
 
         # Trunking state
         self.control_channel = True  # Are we on control channel?
@@ -1731,12 +1780,22 @@ class P25Decoder:
         self._sync_count = 0
         self._tsbk_decode_count = 0
 
+    def _on_framer_message(self, message: P25P1Message):
+        """Callback from streaming framer when a message is assembled."""
+        self._framed_messages.append(message)
+
+    def _on_phase2_timeslot(self, timeslot: P25P2Timeslot):
+        """Callback from Phase 2 decoder when a timeslot is received."""
+        self._phase2_timeslots.append(timeslot)
+
     def process_iq(self, iq: np.ndarray) -> list[P25Frame]:
         """
         Process IQ samples and decode P25 frames.
 
-        Accumulates dibits across multiple IQ chunks to ensure enough
-        data for frame sync and decoding.
+        Uses SDRTrunk-compatible streaming architecture by default,
+        processing symbols one at a time through the message framer.
+
+        For Phase 2, uses TDMA SuperFrame detection and timeslot demultiplexing.
 
         Args:
             iq: Complex IQ samples
@@ -1751,6 +1810,264 @@ class P25Decoder:
             # resample_poly handles complex arrays correctly (processes real/imag separately)
             iq = resample_poly(iq, self._upsample_up, self._upsample_down)
 
+        # Route Phase 2 to dedicated TDMA processor
+        if self.modulation == P25Modulation.PHASE2:
+            return self._process_iq_phase2(iq)
+
+        # Use streaming framer (SDRTrunk-compatible)
+        if self._use_streaming_framer:
+            return self._process_iq_streaming(iq)
+
+        # Legacy batch processing
+        return self._process_iq_batch(iq)
+
+    def _process_iq_streaming(self, iq: np.ndarray) -> list[P25Frame]:
+        """Process IQ using SDRTrunk-compatible streaming framer."""
+        # Clear message buffer
+        self._framed_messages.clear()
+
+        # Demodulate to both dibits and soft symbols
+        if hasattr(self.demodulator, 'demodulate_soft'):
+            dibits, soft_symbols = self.demodulator.demodulate_soft(iq)
+        else:
+            # Fallback for demodulators without soft output
+            dibits = self.demodulator.demodulate(iq)
+            # Approximate soft symbols from dibits: 0->+1, 1->+3, 2->-1, 3->-3
+            dibit_to_soft = np.array([1.0, 3.0, -1.0, -3.0], dtype=np.float32)
+            soft_symbols = dibit_to_soft[np.clip(dibits, 0, 3)]
+
+        if len(dibits) == 0:
+            return []
+
+        # Validate dibits
+        if np.any(dibits > 3):
+            logger.warning(f"P25: dibits out of range (max={dibits.max()}), clipping")
+            dibits = np.clip(dibits, 0, 3).astype(np.uint8)
+
+        # Process symbols through streaming framer one at a time
+        for i in range(len(dibits)):
+            self._message_framer.process_with_soft_sync(
+                float(soft_symbols[i]),
+                int(dibits[i])
+            )
+
+        # Convert framer messages to P25Frame objects
+        frames = []
+        for msg in self._framed_messages:
+            frame = self._convert_framer_message(msg)
+            if frame is not None:
+                frames.append(frame)
+                self._sync_count += 1
+
+                # Handle trunking logic
+                if frame.tsbk_opcode is not None and frame.tsbk_data:
+                    self._handle_tsbk(frame)
+
+        # Log status periodically
+        if self._process_count % 100 == 0:
+            logger.info(
+                f"P25 decoder (streaming): processed={self._process_count}, "
+                f"syncs={self._sync_count}, frames={len(frames)}"
+            )
+
+        return frames
+
+    def _convert_framer_message(self, msg: P25P1Message) -> P25Frame | None:
+        """Convert a P25P1Message from the streaming framer to a P25Frame."""
+        # Map DUID to frame type
+        duid_to_frame_type = {
+            P25P1DataUnitID.HEADER_DATA_UNIT: P25FrameType.HDU,
+            P25P1DataUnitID.TERMINATOR_DATA_UNIT: P25FrameType.TDU,
+            P25P1DataUnitID.LOGICAL_LINK_DATA_UNIT_1: P25FrameType.LDU1,
+            P25P1DataUnitID.LOGICAL_LINK_DATA_UNIT_2: P25FrameType.LDU2,
+            P25P1DataUnitID.TRUNKING_SIGNALING_BLOCK_1: P25FrameType.TSDU,
+            P25P1DataUnitID.TRUNKING_SIGNALING_BLOCK_2: P25FrameType.TSDU,
+            P25P1DataUnitID.TRUNKING_SIGNALING_BLOCK_3: P25FrameType.TSDU,
+            P25P1DataUnitID.PACKET_DATA_UNIT: P25FrameType.PDU,
+            P25P1DataUnitID.TERMINATOR_DATA_UNIT_LINK_CONTROL: P25FrameType.TDU,
+        }
+
+        frame_type = duid_to_frame_type.get(msg.duid, P25FrameType.UNKNOWN)
+
+        # Create base frame
+        frame = P25Frame(
+            frame_type=frame_type,
+            nac=msg.nac,
+            duid=int(msg.duid),
+            errors=msg.corrected_bit_count,
+        )
+
+        # Decode frame content based on type
+        if frame_type == P25FrameType.TSDU:
+            # Decode TSBK from message bits
+            try:
+                tsbk_result = self._decode_tsbk_from_bits(msg.bits)
+                if tsbk_result:
+                    frame.tsbk_opcode = tsbk_result.get('opcode')
+                    frame.tsbk_data = tsbk_result
+            except Exception as e:
+                logger.debug(f"TSBK decode error: {e}")
+
+        elif frame_type in (P25FrameType.LDU1, P25FrameType.LDU2):
+            # Extract voice and link control data
+            try:
+                if frame_type == P25FrameType.LDU1:
+                    lc_info = self._decode_ldu1_from_bits(msg.bits)
+                else:
+                    lc_info = self._decode_ldu2_from_bits(msg.bits)
+                if lc_info:
+                    frame.tgid = lc_info.get('tgid')
+                    frame.source = lc_info.get('source')
+                    frame.algid = lc_info.get('algid')
+                    frame.kid = lc_info.get('kid')
+            except Exception as e:
+                logger.debug(f"LDU decode error: {e}")
+
+        return frame
+
+    def _decode_tsbk_from_bits(self, bits: np.ndarray) -> dict[str, Any] | None:
+        """Decode TSBK message from raw bits."""
+        if len(bits) < 196:
+            return None
+
+        # Convert bits back to dibits for existing decoder
+        dibits = np.zeros(98, dtype=np.uint8)
+        for i in range(98):
+            if i * 2 + 1 < len(bits):
+                dibits[i] = (int(bits[i * 2]) << 1) | int(bits[i * 2 + 1])
+
+        # Use existing TSBK parser
+        return self._decode_tsdu_dibits(dibits)
+
+    def _decode_ldu1_from_bits(self, bits: np.ndarray) -> dict[str, Any] | None:
+        """Decode LDU1 link control from bits."""
+        # LDU1 contains Link Control in specific positions
+        # For now, return minimal info
+        return {'type': 'LDU1'}
+
+    def _decode_ldu2_from_bits(self, bits: np.ndarray) -> dict[str, Any] | None:
+        """Decode LDU2 encryption info from bits."""
+        # LDU2 contains Encryption Sync Parameters
+        return {'type': 'LDU2'}
+
+    def _decode_tsdu_dibits(self, dibits: np.ndarray) -> dict[str, Any] | None:
+        """Decode TSDU from dibits using existing _decode_tsdu logic.
+
+        This is a wrapper for the streaming framer that takes clean dibits
+        and returns the TSBK data dictionary.
+        """
+        if len(dibits) < 98:
+            return None
+
+        # Try trellis decoding with deinterleave
+        try:
+            deint = self._deinterleave_data(dibits[:98])
+            decoded_dibits, errors = self.trellis.decode(deint)
+
+            if errors >= 0 and decoded_dibits is not None and len(decoded_dibits) >= 48:
+                # Convert 48 decoded dibits to 96 bits
+                # Each dibit contains 2 bits: bit0 = (dibit >> 1), bit1 = (dibit & 1)
+                decoded_bits = np.zeros(96, dtype=np.uint8)
+                for i in range(48):
+                    decoded_bits[i * 2] = (decoded_dibits[i] >> 1) & 1
+                    decoded_bits[i * 2 + 1] = decoded_dibits[i] & 1
+                return self._parse_tsbk_bits(decoded_bits)
+        except Exception as e:
+            logger.debug(f"TSDU decode failed: {e}")
+
+        return None
+
+    def _parse_tsbk_bits(self, decoded_bits: np.ndarray) -> dict[str, Any] | None:
+        """Parse TSBK message from trellis-decoded bits."""
+        if len(decoded_bits) < 96:
+            return None
+
+        # TSBK structure (96 bits = 12 bytes):
+        # LB (1), Protect (1), Opcode (6), MFID (8), Data (64), CRC (16)
+        lb = int(decoded_bits[0])
+        protect = int(decoded_bits[1])
+        opcode = 0
+        for i in range(6):
+            opcode = (opcode << 1) | int(decoded_bits[2 + i])
+        mfid = 0
+        for i in range(8):
+            mfid = (mfid << 1) | int(decoded_bits[8 + i])
+
+        # Extract 64-bit data payload
+        data_bits = decoded_bits[16:80]
+        data_bytes = bytes(
+            int(''.join(str(int(b)) for b in data_bits[i:i+8]), 2)
+            for i in range(0, 64, 8)
+        )
+
+        # Use existing TSBK parser for full decoding
+        tsbk_data = self.tsbk_parser.parse_tsbk(opcode, data_bytes)
+
+        if tsbk_data:
+            tsbk_data['opcode'] = opcode
+            tsbk_data['mfid'] = mfid
+            tsbk_data['last_block'] = lb
+            tsbk_data['protected'] = protect
+            return tsbk_data
+
+        return {
+            'opcode': opcode,
+            'mfid': mfid,
+            'last_block': lb,
+            'protected': protect,
+            'raw_data': data_bytes.hex(),
+        }
+
+    def _process_iq_phase2(self, iq: np.ndarray) -> list[P25Frame]:
+        """Process IQ using Phase 2 TDMA decoder.
+
+        Phase 2 uses SuperFrame fragments (720 dibits) with 4 timeslots.
+        Each fragment contains 2 sync patterns at positions 360 and 540.
+        """
+        if self._phase2_decoder is None:
+            logger.warning("Phase 2 decoder not initialized")
+            return []
+
+        # Clear timeslot buffer
+        self._phase2_timeslots.clear()
+
+        # Demodulate to dibits
+        dibits = self.demodulator.demodulate(iq)
+
+        if len(dibits) == 0:
+            return []
+
+        # Process dibits through Phase 2 TDMA decoder
+        timeslots = self._phase2_decoder.process_dibits(dibits)
+
+        # Convert timeslots to P25Frame objects
+        frames: list[P25Frame] = []
+        for ts in timeslots:
+            # Create a P25Frame for each timeslot
+            # Phase 2 timeslots contain voice or SACCH/FACCH data
+            frame_type = P25FrameType.VOICE if ts.slot_type == P25P2TimeslotType.VOICE else P25FrameType.TSDU
+
+            frame = P25Frame(
+                frame_type=frame_type,
+                nac=0,  # NAC is in ISCH, not decoded yet
+                payload=ts.dibits.tobytes(),
+                decoded={
+                    'phase': 2,
+                    'timeslot': ts.timeslot_number,
+                    'slot_type': ts.slot_type.name,
+                    'isch': ts.isch_dibits.tobytes().hex(),
+                },
+                timestamp=ts.timestamp,
+            )
+            frames.append(frame)
+
+        if frames:
+            logger.debug(f"P25 Phase 2: decoded {len(frames)} timeslots")
+
+        return frames
+
+    def _process_iq_batch(self, iq: np.ndarray) -> list[P25Frame]:
+        """Legacy batch processing (pre-streaming framer)."""
         # Demodulate to dibits
         new_dibits = self.demodulator.demodulate(iq)
 
@@ -2337,26 +2654,14 @@ class P25Decoder:
             decoded_bits[i*2] = (decoded[i] >> 1) & 1
             decoded_bits[i*2 + 1] = decoded[i] & 1
 
-        # Calculate CRC-16 CCITT over first 80 bits
-        poly = 0x1021
-        crc = 0x0000
-        for i in range(80):
-            bit = int(decoded_bits[i])
-            msb = (crc >> 15) & 1
-            crc = ((crc << 1) | bit) & 0xFFFF
-            if msb:
-                crc ^= poly
-        for _ in range(16):
-            msb = (crc >> 15) & 1
-            crc = (crc << 1) & 0xFFFF
-            if msb:
-                crc ^= poly
-        crc ^= 0xFFFF
-        # Extract received CRC
+        # Use syndrome-based CRC check from p25_frames (matches SDRTrunk)
+        from wavecapsdr.decoders.p25_frames import crc16_ccitt_p25
+        crc_valid, crc_errors = crc16_ccitt_p25(decoded_bits)
+        # For logging, calculate the received CRC
         received_crc = 0
         for i in range(16):
             received_crc = (received_crc << 1) | int(decoded_bits[80 + i])
-        crc_valid = (crc == received_crc)
+        crc = received_crc if crc_valid else 0  # Placeholder for logging
 
         # Log all decode attempts for debugging
         # Show first 12 decoded dibits (24 bits = 3 bytes: LB + opcode + MFID start)

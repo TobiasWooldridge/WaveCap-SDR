@@ -8,6 +8,7 @@ import {
   CheckCircle,
   XCircle,
   History,
+  MessageSquare,
 } from "lucide-react";
 import {
   useTrunkingSystem,
@@ -26,11 +27,12 @@ import { SystemStatusPanel } from "./SystemStatusPanel";
 import { ActiveCallsTable } from "./ActiveCallsTable";
 import { TalkgroupDirectory } from "./TalkgroupDirectory";
 import { CallEventLog, CallEvent } from "./CallEventLog";
+import { MessageLog } from "./MessageLog";
 import { StreamLinks, TRUNKING_SYSTEM_STREAM_FORMATS } from "../../components/StreamLinks";
 import Flex from "../../components/primitives/Flex.react";
 import Spinner from "../../components/primitives/Spinner.react";
 
-type TabId = "active" | "talkgroups" | "history";
+type TabId = "active" | "talkgroups" | "messages" | "history";
 
 const MAX_EVENTS = 100; // Keep last 100 events
 
@@ -85,6 +87,7 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
   const {
     isConnected: wsConnected,
     activeCalls: wsActiveCalls,
+    messages: wsMessages,
   } = useTrunkingWebSocket({
     systemId,
     enabled: !!systemId,
@@ -264,6 +267,20 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
             </li>
             <li className="nav-item">
               <button
+                className={`nav-link ${activeTab === "messages" ? "active" : ""}`}
+                onClick={() => setActiveTab("messages")}
+              >
+                <MessageSquare size={14} className="me-1" />
+                Messages
+                {wsMessages.length > 0 && (
+                  <span className="badge bg-dark ms-1">
+                    {wsMessages.length}
+                  </span>
+                )}
+              </button>
+            </li>
+            <li className="nav-item">
+              <button
                 className={`nav-link ${activeTab === "history" ? "active" : ""}`}
                 onClick={() => setActiveTab("history")}
               >
@@ -295,6 +312,10 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
               talkgroups={talkgroups}
               activeTalkgroups={activeTalkgroupIds}
             />
+          )}
+
+          {activeTab === "messages" && (
+            <MessageLog messages={wsMessages} maxHeight={400} />
           )}
 
           {activeTab === "history" && (

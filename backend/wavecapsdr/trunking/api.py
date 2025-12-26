@@ -513,6 +513,72 @@ async def get_radio_locations(system_id: str, request: Request) -> list[Location
     ]
 
 
+class MessageResponse(BaseModel):
+    """Response containing a decoded P25 message."""
+    timestamp: float
+    opcode: int
+    opcodeName: str
+    nac: int | None = None
+    summary: str
+
+
+@router.get("/systems/{system_id}/messages", response_model=list[MessageResponse])
+async def get_messages(
+    system_id: str,
+    request: Request,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[MessageResponse]:
+    """Get recent decoded P25 messages from a trunking system.
+
+    Returns decoded TSBK messages in reverse chronological order (newest first).
+    Similar to the message log shown in SDRTrunk's UI.
+
+    Args:
+        system_id: Trunking system ID
+        limit: Maximum number of messages to return (default 100, max 500)
+        offset: Number of messages to skip (for pagination)
+
+    Returns:
+        List of decoded messages with timestamps and summaries
+    """
+    manager = get_trunking_manager(request)
+    system = manager.get_system(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail=f"System {system_id} not found")
+
+    # Clamp limit to prevent abuse
+    limit = min(limit, 500)
+
+    messages = system.get_messages(limit=limit, offset=offset)
+    return [
+        MessageResponse(
+            timestamp=msg.get("timestamp", 0),
+            opcode=msg.get("opcode", 0),
+            opcodeName=msg.get("opcode_name", ""),
+            nac=msg.get("nac"),
+            summary=msg.get("summary", ""),
+        )
+        for msg in messages
+    ]
+
+
+@router.delete("/systems/{system_id}/messages")
+async def clear_messages(system_id: str, request: Request) -> dict[str, Any]:
+    """Clear the message log for a trunking system.
+
+    Returns:
+        Number of messages cleared
+    """
+    manager = get_trunking_manager(request)
+    system = manager.get_system(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail=f"System {system_id} not found")
+
+    count = system.clear_messages()
+    return {"status": "ok", "cleared": count}
+
+
 @router.get("/recipes", response_model=list[TrunkingRecipeResponse])
 async def list_trunking_recipes(request: Request) -> list[TrunkingRecipeResponse]:
     """List available trunking system recipes/templates from config.
