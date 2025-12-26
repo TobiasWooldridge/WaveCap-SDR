@@ -59,7 +59,7 @@ class ControlChannelMonitor:
 
     protocol: TrunkingProtocol
     sample_rate: int = 48000  # Input IQ sample rate
-    modulation: P25Modulation = P25Modulation.LSM  # Default to LSM for simulcast systems
+    modulation: P25Modulation = P25Modulation.C4FM  # Default to C4FM (most common)
 
     # Demodulator - either C4FM or CQPSK based on modulation
     _demod: Any | None = None  # P25C4FMDemodulator or P25CQPSKDemodulator
@@ -562,9 +562,9 @@ def create_control_monitor(
     """
     # Determine modulation based on protocol if not specified
     if modulation is None:
-        # Phase 2 uses CQPSK/LSM, Phase 1 typically uses C4FM
-        # But many simulcast systems use LSM even for Phase 1
-        modulation = P25Modulation.LSM  # Default to LSM for compatibility
+        # Phase 1 typically uses C4FM (including SA-GRN)
+        # Phase 2 uses CQPSK/LSM
+        modulation = P25Modulation.C4FM  # Default to C4FM (most common for Phase 1)
 
     return ControlChannelMonitor(
         protocol=protocol,

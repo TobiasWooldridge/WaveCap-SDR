@@ -19,13 +19,35 @@ from enum import Enum
 from typing import Any, Callable, cast
 
 import numpy as np
+from scipy.signal import resample_poly
 
 from wavecapsdr.decoders.p25_tsbk import TSBKParser
 from wavecapsdr.decoders.p25_frames import extract_link_control
 from wavecapsdr.dsp.fec.bch import bch_decode
 from wavecapsdr.dsp.fec.trellis import TrellisDecoder
+from wavecapsdr.dsp.p25.c4fm import C4FMDemodulator as _WorkingC4FMDemodulator
 
 logger = logging.getLogger(__name__)
+
+
+class _C4FMDemodulatorWrapper:
+    """Wrapper around the working C4FM demodulator from dsp/p25/c4fm.py.
+
+    The wrapped demodulator returns (dibits, soft_symbols) tuple, but P25Decoder
+    expects just dibits. This wrapper adapts the interface.
+    """
+
+    def __init__(self, sample_rate: int):
+        self._demod = _WorkingC4FMDemodulator(sample_rate=sample_rate)
+
+    def demodulate(self, iq: np.ndarray) -> np.ndarray:
+        """Demodulate IQ to dibits."""
+        dibits, _ = self._demod.demodulate(iq)
+        return dibits
+
+    def reset(self) -> None:
+        """Reset demodulator state."""
+        self._demod.reset()
 
 
 class DibitRingBuffer:
@@ -147,7 +169,8 @@ class CQPSKDemodulator:
     """
     CQPSK (Compatible QPSK) / LSM (Linear Simulcast Modulation) demodulator for P25 Phase 1.
 
-    Used for P25 simulcast systems (like SA-GRN) that use phase modulation instead of C4FM.
+    Used for P25 simulcast systems that use phase modulation instead of C4FM.
+    NOTE: Most P25 systems (including SA-GRN) use C4FM. Only use this for true LSM systems.
 
     P25 CQPSK is π/4-DQPSK where the transmitted symbol is encoded as a phase CHANGE:
     - dibit 00 → +π/4 (+45°)   → symbol +1
@@ -357,7 +380,8 @@ class CQPSKDemodulator:
                 else:
                     h[i] = 0.0
 
-        h = h / np.sqrt(np.sum(h**2))
+        # Normalize to DC gain of 1.0 to preserve symbol amplitude
+        h = h / np.sum(h)
         return h.astype(np.float32)
 
     def demodulate(self, iq: np.ndarray) -> np.ndarray:
@@ -634,7 +658,8 @@ class C4FMDemodulator:
 
     Based on OP25's fsk4_demod_ff and SDRTrunk's P25P1DecoderC4FM.
 
-    NOTE: For simulcast/LSM systems (like SA-GRN), use CQPSKDemodulator instead.
+    NOTE: Most P25 systems use C4FM including SA-GRN. Only use CQPSKDemodulator
+    for systems explicitly using LSM (Linear Simulcast Modulation) with phase modulation.
     """
 
     # SDRTrunk equalizer gain - compensates for RRC filter constellation compression
@@ -801,7 +826,9 @@ class C4FMDemodulator:
                 else:
                     h[i] = 0.0
 
-        h = h / np.sqrt(np.sum(h**2))
+        # Normalize to DC gain of 1.0 to preserve symbol amplitude
+        # (Energy normalization amplifies symbols by ~3-4x and breaks slicing)
+        h = h / np.sum(h)
         return h.astype(np.float32)
 
     def demodulate(self, iq: np.ndarray) -> np.ndarray:
@@ -842,23 +869,16 @@ class C4FMDemodulator:
                 f"min={np.min(inst_freq):.2f}, max={np.max(inst_freq):.2f}"
             )
 
-        # DC removal (removes frequency offset)
-        for i in range(len(inst_freq)):
-            self._dc_estimate = self._dc_estimate * (1 - self._dc_alpha) + inst_freq[i] * self._dc_alpha
-            inst_freq[i] = inst_freq[i] - self._dc_estimate
+        # Skip DC removal for now - it's too aggressive and causes symbol level drift
+        # DC offset is better handled by the fine frequency correction loop
 
-        # Apply baseband low-pass filter (5200 Hz, matches SDRTrunk)
-        # This removes high-frequency noise before pulse shaping
+        # Apply RRC matched filter using lfilter (causal, streaming-friendly)
+        # Skip baseband filter - RRC already provides adequate pulse shaping
+        from scipy import signal as scipy_signal
         try:
-            baseband = np.convolve(inst_freq, self._baseband_taps, mode='same').astype(np.float32)
+            filtered = scipy_signal.lfilter(self._rrc_taps, 1.0, inst_freq).astype(np.float32)
         except Exception:
-            baseband = inst_freq
-
-        # Apply RRC pulse shaping filter
-        try:
-            filtered = np.convolve(baseband, self._rrc_taps, mode='same').astype(np.float32)
-        except Exception:
-            filtered = baseband
+            filtered = inst_freq.astype(np.float32)
 
         # Apply SDRTrunk equalizer gain (1.219x)
         # This compensates for RRC filter constellation compression
@@ -1414,6 +1434,14 @@ class P25FrameSync:
             - duid: 4-bit Data Unit ID
             - errors: Number of errors corrected (-1 if BCH failed)
         """
+        # Debug: log first 8 dibits (NAC + DUID) periodically
+        if not hasattr(self, '_nid_debug_count'):
+            self._nid_debug_count = 0
+        self._nid_debug_count += 1
+        if self._nid_debug_count <= 10 or self._nid_debug_count % 100 == 0:
+            dibit_str = ' '.join(str(int(d)) for d in nid_dibits[:8])
+            logger.info(f"NID decode #{self._nid_debug_count}: dibits[0:8]={dibit_str}")
+
         # Convert 32 dibits to 64 bits
         bits = np.zeros(64, dtype=np.uint8)
         for i, d in enumerate(nid_dibits):
@@ -1626,8 +1654,8 @@ class P25Decoder:
     Complete P25 Phase 1 decoder with trunking support.
 
     Supports both C4FM and LSM (CQPSK) modulation:
-    - C4FM: Standard 4-level FSK for non-simulcast systems
-    - LSM: CQPSK for simulcast systems (like SA-GRN with 240+ sites)
+    - C4FM: Standard 4-level FSK (most P25 systems including SA-GRN)
+    - LSM: CQPSK for simulcast systems using phase modulation
 
     Also supports discriminator audio input via process_discriminator() for:
     - Pre-recorded discriminator tap audio
@@ -1641,17 +1669,38 @@ class P25Decoder:
     MIN_FRAME_DIBITS = 150  # Minimum to attempt frame decode (sync + NID + some data)
     MAX_BUFFER_DIBITS = 4000  # ~2 frames worth, prevent unbounded growth
 
-    def __init__(self, sample_rate: int = 48000, modulation: P25Modulation = P25Modulation.LSM):
+    # Minimum sample rate for C4FM demodulation (10 samples/symbol at 4800 baud)
+    # Lower sample rates will be automatically upsampled for accurate symbol timing
+    MIN_DEMOD_SAMPLE_RATE = 48000
+
+    def __init__(self, sample_rate: int = 48000, modulation: P25Modulation = P25Modulation.C4FM):
         self.sample_rate = sample_rate
         self.modulation = modulation
 
-        # Select demodulator based on modulation type
-        if modulation == P25Modulation.LSM:
-            self.demodulator = CQPSKDemodulator(sample_rate)
-            logger.info(f"P25 decoder initialized with CQPSK/LSM demodulator (sample_rate={sample_rate})")
+        # Calculate upsampling ratio if input rate is too low
+        # C4FM needs 10 samples/symbol (48kHz) for accurate demodulation
+        if sample_rate < self.MIN_DEMOD_SAMPLE_RATE:
+            # Find rational upsampling ratio
+            from math import gcd
+            target_rate = self.MIN_DEMOD_SAMPLE_RATE
+            g = gcd(target_rate, sample_rate)
+            self._upsample_up = target_rate // g
+            self._upsample_down = sample_rate // g
+            self._demod_sample_rate = target_rate
+            logger.info(f"P25 decoder: input {sample_rate}Hz -> upsampling {self._upsample_up}/{self._upsample_down} -> {target_rate}Hz")
         else:
-            self.demodulator = C4FMDemodulator(sample_rate)
-            logger.info(f"P25 decoder initialized with C4FM demodulator (sample_rate={sample_rate})")
+            self._upsample_up = 1
+            self._upsample_down = 1
+            self._demod_sample_rate = sample_rate
+
+        # Select demodulator based on modulation type - always use demod sample rate
+        if modulation == P25Modulation.LSM:
+            self.demodulator = CQPSKDemodulator(self._demod_sample_rate)
+            logger.info(f"P25 decoder initialized with CQPSK/LSM demodulator (demod_rate={self._demod_sample_rate})")
+        else:
+            # Use working C4FM demodulator from dsp/p25/c4fm.py (with Gardner timing)
+            self.demodulator = _C4FMDemodulatorWrapper(self._demod_sample_rate)
+            logger.info(f"P25 decoder initialized with C4FM demodulator (demod_rate={self._demod_sample_rate})")
 
         # Discriminator demodulator (created on demand)
         self._discriminator_demod: DiscriminatorDemodulator | None = None
@@ -1696,6 +1745,11 @@ class P25Decoder:
             List of decoded P25 frames
         """
         self._process_count += 1
+
+        # Upsample IQ if input sample rate is below minimum for accurate demodulation
+        if self._upsample_up != 1 or self._upsample_down != 1:
+            # resample_poly handles complex arrays correctly (processes real/imag separately)
+            iq = resample_poly(iq, self._upsample_up, self._upsample_down)
 
         # Demodulate to dibits
         new_dibits = self.demodulator.demodulate(iq)

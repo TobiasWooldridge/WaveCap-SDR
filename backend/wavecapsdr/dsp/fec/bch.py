@@ -129,6 +129,10 @@ class BCH_63_16_23:
     def _compute_syndromes(self, msg: np.ndarray) -> np.ndarray:
         """Compute syndromes for error detection.
 
+        Uses SDRTrunk-compatible bit indexing: bit at position i contributes
+        with power (syndrome_idx + 1) * (N - 1 - i). This matches the Linux
+        BCH implementation and SDRTrunk's Java port.
+
         Args:
             msg: Binary message (63 bits)
 
@@ -136,12 +140,14 @@ class BCH_63_16_23:
             Syndrome array (2*T syndromes)
         """
         syndromes = np.zeros(2 * self.T, dtype=np.int32)
+        n_minus_1 = self.N - 1
 
         for i in range(2 * self.T):
             s = 0
             for j in range(self.N):
                 if j < len(msg) and msg[j]:
-                    s ^= self._a_pow((i + 1) * j)
+                    # SDRTrunk-compatible: reversed bit indexing
+                    s ^= self._a_pow((i + 1) * (n_minus_1 - j))
             syndromes[i] = s
 
         return syndromes
@@ -306,6 +312,11 @@ class BCH_63_16_23:
             # Could not find all roots
             logger.debug(f"BCH decode: root count mismatch ({len(error_positions)} != {degree})")
             return 0, self.MESSAGE_NOT_CORRECTED
+
+        # Invert error positions to match SDRTrunk's coordinate system
+        # Because we use reversed bit indexing in syndrome computation,
+        # the error positions need to be inverted to reference correct message indices
+        error_positions = np.array([(self.N - 1 - pos) % self.N for pos in error_positions])
 
         # Correct errors
         corrected = codeword.copy()

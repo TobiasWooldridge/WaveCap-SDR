@@ -621,7 +621,7 @@ trunking:
       id: sa_grn
       max_voice_recorders: 2
       min_call_duration: 1.0
-      modulation: lsm
+      modulation: c4fm
       name: SA GRN (South Australia Government Radio Network)
       protocol: p25_phase1
       record_unknown: true

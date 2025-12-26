@@ -406,6 +406,14 @@ def decode_nid(
         logger.debug(f"decode_nid: clean_dibits too short after skip: {len(clean_dibits)}")
         return None
 
+    # Debug: log first 8 dibits (NAC + DUID) periodically
+    if not hasattr(decode_nid, '_debug_count'):
+        decode_nid._debug_count = 0
+    decode_nid._debug_count += 1
+    if decode_nid._debug_count <= 10 or decode_nid._debug_count % 100 == 0:
+        dibit_str = ' '.join(str(d) for d in clean_dibits[:8])
+        logger.info(f"decode_nid #{decode_nid._debug_count}: dibits[0:8]={dibit_str}")
+
     # Convert dibits to bits for BCH decoder (32 dibits = 64 bits)
     bits = np.zeros(64, dtype=np.uint8)
     for i, d in enumerate(clean_dibits):
