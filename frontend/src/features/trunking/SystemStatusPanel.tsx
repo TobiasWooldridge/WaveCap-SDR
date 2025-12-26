@@ -1,4 +1,5 @@
-import { Radio, Activity, Signal, Lock, Unlock, Volume2, VolumeX } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Radio, Activity, Signal, Lock, Unlock, Volume2, VolumeX, Info } from "lucide-react";
 import type { TrunkingSystem } from "../../types/trunking";
 import Flex from "../../components/primitives/Flex.react";
 
@@ -79,6 +80,9 @@ function getChannelSnr(system: TrunkingSystem): number | null {
   return measurement ? measurement.snr_db : null;
 }
 
+// Channel hunt timeout in seconds (should match backend config)
+const HUNT_TIMEOUT_SECONDS = 5;
+
 export function SystemStatusPanel({
   system,
   onStart,
@@ -89,12 +93,28 @@ export function SystemStatusPanel({
   onPlayAudio,
   onStopAudio,
 }: SystemStatusPanelProps) {
+  // Countdown timer for channel hunting
+  const [countdown, setCountdown] = useState(HUNT_TIMEOUT_SECONDS);
+  const [showInfo, setShowInfo] = useState(false);
+
+  // Reset countdown when control channel changes
+  useEffect(() => {
+    if (system.controlChannelState === "searching") {
+      setCountdown(HUNT_TIMEOUT_SECONDS);
+      const timer = setInterval(() => {
+        setCountdown((prev) => Math.max(0, prev - 1));
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [system.controlChannelFreqHz, system.controlChannelState]);
+
   // Show Stop button for any active state
   const isRunning = system.state !== "stopped" && system.state !== "failed";
   const isStopped = system.state === "stopped" || system.state === "failed";
   const isBusy = isStarting || isStopping;
   // Show Listen button when system is actively decoding
   const canPlayAudio = isRunning && system.state !== "starting" && onPlayAudio && onStopAudio;
+  const isSearching = system.controlChannelState === "searching";
 
   return (
     <div className="card">
@@ -151,14 +171,24 @@ export function SystemStatusPanel({
         <div className="row g-2">
           {/* Control Channel */}
           <div className="col-6 col-md-3">
-            <div className="bg-body-secondary rounded p-2 text-center">
+            <div className="bg-body-secondary rounded p-2 text-center position-relative">
               <div className="d-flex align-items-center justify-content-center gap-1 mb-1">
                 {getControlChannelIcon(system.controlChannelState)}
                 <small className="text-muted">Control</small>
                 {system.stats.cc_scanner && system.stats.cc_scanner.channels_configured > 1 && (
-                  <small className="text-muted">
-                    ({getChannelIndex(system)} of {system.stats.cc_scanner.channels_configured})
-                  </small>
+                  <>
+                    <small className="text-muted">
+                      ({getChannelIndex(system)} of {system.stats.cc_scanner.channels_configured})
+                    </small>
+                    <button
+                      className="btn btn-link p-0 border-0"
+                      onClick={() => setShowInfo(!showInfo)}
+                      title="What do these numbers mean?"
+                      style={{ lineHeight: 1 }}
+                    >
+                      <Info size={12} className="text-muted" />
+                    </button>
+                  </>
                 )}
               </div>
               <div className="fw-semibold" style={{ fontSize: "0.9rem" }}>
@@ -168,12 +198,45 @@ export function SystemStatusPanel({
                 <small className="text-muted">
                   {system.controlChannelState.toUpperCase()}
                 </small>
+                {isSearching && (
+                  <small className="text-warning">
+                    ({countdown}s)
+                  </small>
+                )}
                 {system.stats.cc_scanner && getChannelSnr(system) !== null && (
                   <small className="text-success">
                     {getChannelSnr(system)!.toFixed(1)} dB
                   </small>
                 )}
               </div>
+              {/* Info tooltip */}
+              {showInfo && (
+                <div
+                  className="position-absolute bg-dark text-white rounded p-2 shadow"
+                  style={{
+                    top: "100%",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    zIndex: 1000,
+                    width: "220px",
+                    fontSize: "0.75rem",
+                    textAlign: "left",
+                    marginTop: "4px",
+                  }}
+                >
+                  <strong>Control Channel Hunting</strong>
+                  <div className="mt-1">
+                    <strong>{getChannelIndex(system)}</strong> = Current channel being tried
+                  </div>
+                  <div>
+                    <strong>{system.stats.cc_scanner?.channels_configured}</strong> = Total configured control channels
+                  </div>
+                  <div className="mt-1 text-muted">
+                    The system tries each channel for {HUNT_TIMEOUT_SECONDS}s until it finds
+                    a valid P25 control channel signal.
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

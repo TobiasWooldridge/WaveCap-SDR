@@ -1505,20 +1505,24 @@ class TrunkingSystem:
         )
 
         # Retune the SDR center frequency to the control channel for best reception
-        if self._capture is not None:
+        if self._capture is not None and self._event_loop is not None:
             try:
-                # Schedule the async reconfigure on the event loop
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.create_task(
-                        self._capture.reconfigure(center_hz=self.control_channel_freq_hz)
-                    )
-                    # Update config to match
-                    self.cfg.center_hz = self.control_channel_freq_hz
-                    logger.info(
-                        f"TrunkingSystem {self.cfg.id}: Retuned SDR center to "
-                        f"{self.control_channel_freq_hz/1e6:.4f} MHz"
-                    )
+                # Schedule the async reconfigure on the main event loop (thread-safe)
+                new_center_hz = self.control_channel_freq_hz
+
+                async def do_retune() -> None:
+                    if self._capture is not None:
+                        await self._capture.reconfigure(center_hz=new_center_hz)
+                        # Update config to match
+                        self.cfg.center_hz = new_center_hz
+                        logger.info(
+                            f"TrunkingSystem {self.cfg.id}: Retuned SDR center to "
+                            f"{new_center_hz/1e6:.4f} MHz"
+                        )
+
+                self._event_loop.call_soon_threadsafe(
+                    lambda: asyncio.create_task(do_retune())
+                )
             except Exception as e:
                 logger.warning(f"TrunkingSystem {self.cfg.id}: Failed to retune SDR: {e}")
 
@@ -1754,6 +1758,7 @@ class TrunkingSystem:
             "state": self.state.value,
             "controlChannelState": self.control_channel_state.value,
             "controlChannelFreqHz": self.control_channel_freq_hz,
+            "centerHz": self.cfg.center_hz,  # SDR center frequency (auto-managed)
             "nac": self.nac,
             "systemId": self.system_id,
             "rfssId": self.rfss_id,

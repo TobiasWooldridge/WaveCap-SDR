@@ -1,4 +1,6 @@
+import { Lock } from "lucide-react";
 import type { Capture, Device } from "../../types";
+import type { TrunkingSystem } from "../../types/trunking";
 import { useDebouncedMutation } from "../../hooks/useDebouncedMutation";
 import { useUpdateCapture } from "../../hooks/useCaptures";
 import { formatFrequencyMHz, formatSampleRate, formatBandwidth } from "../../utils/frequency";
@@ -11,6 +13,8 @@ import { SimpleAccordion } from "../../components/primitives/Accordion.react";
 interface TuningControlsProps {
   capture: Capture;
   device: Device | undefined;
+  /** Active trunking system that may be managing frequency */
+  trunkingSystem?: TrunkingSystem | null;
 }
 
 const GAIN_UNITS: UnitConfig[] = [
@@ -219,8 +223,13 @@ export function TuningControlsContent({ capture, device }: TuningControlsProps) 
 }
 
 // Individual accordions for each tuning parameter
-export function TuningAccordions({ capture, device }: TuningControlsProps) {
+export function TuningAccordions({ capture, device, trunkingSystem }: TuningControlsProps) {
   const updateCapture = useUpdateCapture();
+
+  // Check if trunking is actively managing the frequency
+  const isTrunkingManaged = trunkingSystem &&
+    trunkingSystem.state !== "stopped" &&
+    trunkingSystem.state !== "failed";
 
   // Debounced mutations
   const [freq, setFreq, freqPending] = useDebouncedMutation(
@@ -282,18 +291,39 @@ export function TuningAccordions({ capture, device }: TuningControlsProps) {
             <span className={freqPending ? "text-warning" : ""}>
               {formatFrequencyMHz(freq)} MHz
             </span>
+            {isTrunkingManaged && (
+              <span className="ms-1 text-info">
+                <Lock size={12} className="me-1" />
+                <span style={{ fontSize: "0.7rem" }}>Trunking</span>
+              </span>
+            )}
           </span>
         }
       >
-        <FrequencySelector
-          label="Center Frequency"
-          value={freq}
-          min={freqMin}
-          max={freqMax}
-          step={1000}
-          onChange={setFreq}
-          info="The center frequency your SDR will tune to. All channels are offset from this frequency."
-        />
+        {isTrunkingManaged ? (
+          <div className="alert alert-info py-2 mb-0" style={{ fontSize: "0.8rem" }}>
+            <div className="d-flex align-items-center gap-2">
+              <Lock size={16} />
+              <div>
+                <strong>Managed by Trunking System</strong>
+                <div className="text-muted" style={{ fontSize: "0.75rem" }}>
+                  {trunkingSystem?.name} is controlling the SDR frequency.
+                  Stop the trunking system to manually tune.
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <FrequencySelector
+            label="Center Frequency"
+            value={freq}
+            min={freqMin}
+            max={freqMax}
+            step={1000}
+            onChange={setFreq}
+            info="The center frequency your SDR will tune to. All channels are offset from this frequency."
+          />
+        )}
       </SimpleAccordion>
 
       {/* Gain */}

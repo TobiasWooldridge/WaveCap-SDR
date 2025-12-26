@@ -22,6 +22,7 @@ export interface TrunkingSystem {
   state: TrunkingSystemState;
   controlChannelState: ControlChannelState;
   controlChannelFreqHz: number | null;
+  centerHz: number;  // SDR center frequency (auto-managed by trunking)
   nac: number | null;
   systemId: number | null;
   rfssId: number | null;

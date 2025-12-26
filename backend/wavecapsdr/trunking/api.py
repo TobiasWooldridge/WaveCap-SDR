@@ -92,6 +92,7 @@ class SystemResponse(BaseModel):
     state: str
     controlChannelState: str
     controlChannelFreqHz: float | None
+    centerHz: float  # SDR center frequency (auto-managed by trunking)
     nac: int | None
     systemId: int | None
     rfssId: int | None
@@ -212,6 +213,7 @@ def system_to_response(system: TrunkingSystem) -> SystemResponse:
         state=d["state"],
         controlChannelState=d["controlChannelState"],
         controlChannelFreqHz=d["controlChannelFreqHz"],
+        centerHz=system.cfg.center_hz,  # SDR center frequency (auto-managed)
         nac=d["nac"],
         systemId=d["systemId"],
         rfssId=d["rfssId"],

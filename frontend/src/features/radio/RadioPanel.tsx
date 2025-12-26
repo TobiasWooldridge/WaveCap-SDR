@@ -4,6 +4,7 @@ import { useChannels } from "../../hooks/useChannels";
 import { useMemoryBanks } from "../../hooks/useMemoryBanks";
 import { useUpdateCapture } from "../../hooks/useCaptures";
 import { useCreateChannel } from "../../hooks/useChannels";
+import { useTrunkingSystems } from "../../hooks/useTrunking";
 import { formatFrequencyMHz } from "../../utils/frequency";
 import { getDeviceDisplayName } from "../../utils/device";
 import { AccordionGroup, AccordionItem } from "../../components/primitives/Accordion.react";
@@ -26,6 +27,15 @@ export function RadioPanel({ capture, device }: RadioPanelProps) {
   const { getMemoryBank } = useMemoryBanks();
   const updateCapture = useUpdateCapture();
   const createChannel = useCreateChannel();
+  const { data: trunkingSystems } = useTrunkingSystems();
+
+  // Find active trunking system using this capture's device
+  const activeTrunkingSystem = trunkingSystems?.find(
+    (sys) =>
+      sys.deviceId === capture.deviceId &&
+      sys.state !== "stopped" &&
+      sys.state !== "failed"
+  );
 
   // Handle loading a memory bank
   const handleLoadMemoryBank = (bankId: string) => {
@@ -124,7 +134,7 @@ export function RadioPanel({ capture, device }: RadioPanelProps) {
       </AccordionGroup>
 
       {/* Individual tuning accordions - each setting has its own */}
-      <TuningAccordions capture={capture} device={device} />
+      <TuningAccordions capture={capture} device={device} trunkingSystem={activeTrunkingSystem} />
 
       {/* Other accordions */}
       <AccordionGroup allowMultiple>
