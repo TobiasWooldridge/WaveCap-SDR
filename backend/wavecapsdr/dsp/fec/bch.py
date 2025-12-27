@@ -126,6 +126,15 @@ class BCH_63_16_23:
             return 0
         return self.a_pow_tab[(self.a_log_tab[a] + self.a_log_tab[b]) % self.N]
 
+    def _gf_mul_vec(self, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        """Vectorized GF multiply for arrays."""
+        result = np.zeros_like(a)
+        nonzero_mask = (a != 0) & (b != 0)
+        if np.any(nonzero_mask):
+            log_sum = (self.a_log_tab[a[nonzero_mask]] + self.a_log_tab[b[nonzero_mask]]) % self.N
+            result[nonzero_mask] = self.a_pow_tab[log_sum]
+        return result
+
     def _compute_syndromes(self, msg: np.ndarray) -> np.ndarray:
         """Compute syndromes for error detection.
 
@@ -139,18 +148,40 @@ class BCH_63_16_23:
         Returns:
             Syndrome array (2*T syndromes)
         """
-        syndromes = np.zeros(2 * self.T, dtype=np.int32)
+        return self._compute_syndromes_vectorized(msg)
+
+    def _compute_syndromes_vectorized(self, msg: np.ndarray) -> np.ndarray:
+        """Vectorized syndrome computation using precomputed power matrix.
+
+        This is ~10x faster than the scalar version by:
+        1. Precomputing all power indices
+        2. Using numpy advanced indexing
+        3. Using numpy reduce for XOR accumulation
+        """
+        # Find non-zero bit positions (only these contribute to syndromes)
+        nonzero_positions = np.nonzero(msg[:self.N])[0]
+
+        if len(nonzero_positions) == 0:
+            # No set bits = no syndromes
+            return np.zeros(2 * self.T, dtype=np.int32)
+
+        n_syndromes = 2 * self.T
         n_minus_1 = self.N - 1
 
-        for i in range(2 * self.T):
-            s = 0
-            for j in range(self.N):
-                if j < len(msg) and msg[j]:
-                    # SDRTrunk-compatible: reversed bit indexing
-                    s ^= self._a_pow((i + 1) * (n_minus_1 - j))
-            syndromes[i] = s
+        # Precompute power indices for all syndrome/position combinations
+        # power_idx[i, j] = (i + 1) * (n_minus_1 - positions[j]) % N
+        syndrome_multipliers = np.arange(1, n_syndromes + 1, dtype=np.int32)[:, np.newaxis]
+        position_values = (n_minus_1 - nonzero_positions).astype(np.int32)[np.newaxis, :]
 
-        return syndromes
+        power_indices = (syndrome_multipliers * position_values) % self.N
+
+        # Look up power values and XOR reduce
+        powers = self.a_pow_tab[power_indices]
+
+        # XOR reduce along axis 1 (positions)
+        syndromes = np.bitwise_xor.reduce(powers, axis=1)
+
+        return syndromes.astype(np.int32)
 
     def _find_error_locator_poly(self, syndromes: np.ndarray) -> tuple[np.ndarray, int]:
         """Find error locator polynomial using Berlekamp-Massey algorithm.
@@ -161,22 +192,41 @@ class BCH_63_16_23:
         Returns:
             Tuple of (error locator polynomial coefficients, degree)
         """
-        # Berlekamp-Massey algorithm
-        C = np.zeros(self.T + 1, dtype=np.int32)
-        B = np.zeros(self.T + 1, dtype=np.int32)
+        return self._berlekamp_massey_optimized(syndromes)
+
+    def _berlekamp_massey_optimized(self, syndromes: np.ndarray) -> tuple[np.ndarray, int]:
+        """Optimized Berlekamp-Massey with minimal Python/numpy overhead.
+
+        Uses direct array operations and avoids numpy.any() which has
+        significant overhead for small arrays.
+        """
+        T = self.T
+        N = self.N
+        a_pow = self.a_pow_tab
+        a_log = self.a_log_tab
+
+        # Initialize polynomials
+        C = np.zeros(T + 1, dtype=np.int32)
+        B = np.zeros(T + 1, dtype=np.int32)
         C[0] = 1
         B[0] = 1
         L = 0
         m = 1
         b = 1
+        log_b = 0  # log of b
 
-        for n in range(2 * self.T):
+        for n in range(2 * T):
             # Compute discrepancy
-            d = syndromes[n]
-            # Clamp loop to avoid accessing beyond array bounds
-            for i in range(1, min(L + 1, self.T + 1)):
-                if C[i] != 0 and n >= i and syndromes[n - i] != 0:
-                    d ^= self._gf_mul(C[i], syndromes[n - i])
+            d = int(syndromes[n])
+
+            # Compute discrepancy contribution from existing terms
+            # Avoid numpy operations for small arrays
+            for i in range(1, min(L + 1, T + 1)):
+                c_val = int(C[i])
+                if c_val != 0 and n >= i:
+                    s_val = int(syndromes[n - i])
+                    if s_val != 0:
+                        d ^= a_pow[(a_log[c_val] + a_log[s_val]) % N]
 
             if d == 0:
                 m += 1
@@ -184,15 +234,22 @@ class BCH_63_16_23:
                 T_poly = C.copy()
 
                 # C(x) = C(x) - (d/b) * x^m * B(x)
-                db = self._gf_mul(d, self._gf_inv(b))
-                for i in range(self.T + 1 - m):
-                    if B[i] != 0:
-                        C[i + m] ^= self._gf_mul(db, B[i])
+                log_d = a_log[d]
+                log_db = (log_d + N - log_b) % N
+
+                # Update C polynomial
+                limit = T + 1 - m
+                for i in range(limit):
+                    b_val = int(B[i])
+                    if b_val != 0:
+                        product = a_pow[(a_log[b_val] + log_db) % N]
+                        C[i + m] ^= product
 
                 if n >= 2 * L:
                     L = n + 1 - L
                     B = T_poly
                     b = d
+                    log_b = log_d
                     m = 1
                 else:
                     m += 1
@@ -215,21 +272,45 @@ class BCH_63_16_23:
         Returns:
             Array of error positions
         """
-        roots = []
+        return self._find_roots_chien_search_vectorized(poly, degree)
 
-        # Chien search: evaluate polynomial at alpha^(-i) for i=0..N-1
-        for i in range(self.N):
-            val = 0
-            for j in range(degree + 1):
-                if poly[j] != 0:
-                    val ^= self._a_pow((self.a_log_tab[poly[j]] + i * j) % self.N)
+    def _find_roots_chien_search_vectorized(self, poly: np.ndarray, degree: int) -> np.ndarray:
+        """Vectorized Chien search using numpy.
 
-            if val == 0:
-                # Root found at alpha^i corresponds to error at position (N-i) mod N
-                # because Berlekamp-Massey produces inverted locator polynomial
-                roots.append((self.N - i) % self.N)
+        Evaluates the polynomial at all field elements simultaneously.
+        """
+        # Get non-zero coefficient indices and their log values
+        nonzero_mask = poly[:degree + 1] != 0
+        nonzero_indices = np.where(nonzero_mask)[0]
 
-        return np.array(roots, dtype=np.int32)
+        if len(nonzero_indices) == 0:
+            return np.array([], dtype=np.int32)
+
+        nonzero_coeffs = poly[nonzero_indices]
+        log_coeffs = self.a_log_tab[nonzero_coeffs]
+
+        # Evaluate at all field elements: i = 0..N-1
+        # For each i, compute sum(alpha^(log[coeff[j]] + i*j) for j in nonzero_indices)
+        i_vals = np.arange(self.N, dtype=np.int32)[:, np.newaxis]  # (N, 1)
+        j_vals = nonzero_indices[np.newaxis, :]  # (1, num_nonzero)
+
+        # power_indices[i, j] = (log_coeffs[j] + i * j_vals[j]) % N
+        power_indices = (log_coeffs[np.newaxis, :] + i_vals * j_vals) % self.N
+
+        # Look up power values
+        powers = self.a_pow_tab[power_indices]
+
+        # XOR reduce along axis 1 to get polynomial value at each field element
+        poly_vals = np.bitwise_xor.reduce(powers, axis=1)
+
+        # Find roots (where polynomial value is 0)
+        root_indices = np.where(poly_vals == 0)[0]
+
+        # Convert to error positions
+        # Root at alpha^i corresponds to error at position (N-i) mod N
+        error_positions = (self.N - root_indices) % self.N
+
+        return error_positions.astype(np.int32)
 
     def decode(self, codeword: np.ndarray, tracked_nac: int | None = None) -> tuple[int, int]:
         """Decode BCH codeword with error correction.
