@@ -406,9 +406,11 @@ def decode_nid(
     decoded_data, errors = bch_decode(bch_codeword, tracked_nac)
 
     if errors < 0:
-        # BCH decode failed - use simple extraction as fallback
-        # This works because NAC/DUID are in the first 8 dibits before status symbol
-        logger.debug("decode_nid: BCH decode failed, using simple extraction")
+        # BCH decode failed - use simple extraction as fallback for message assembly
+        # This allows the decoder to continue processing the frame even if NID is corrupted.
+        # IMPORTANT: Do NOT track NACs from failed BCH decodes - this prevents corrupted
+        # NAC values from polluting the tracker (matching SDRTrunk's behavior).
+        logger.debug("decode_nid: BCH decode failed, using simple extraction (not tracking NAC)")
 
         # Extract NAC from first 6 dibits (12 bits)
         nac = 0
@@ -428,9 +430,9 @@ def decode_nid(
             logger.warning(f"Invalid DUID from simple extraction: 0x{duid_val:x}")
             return None
 
-        # Track NAC even from simple extraction
-        if nac_tracker is not None and 0x001 <= nac <= 0xFFE:
-            nac_tracker.track(nac)
+        # NOTE: Unlike successful BCH decodes, we do NOT track NACs from failed decodes.
+        # The nac_tracker.track() call is intentionally omitted here to prevent corrupted
+        # NAC values from affecting subsequent BCH second-pass corrections.
 
         # Return with high error count to indicate BCH failed
         return NID(nac=nac, duid=duid, errors=99)
