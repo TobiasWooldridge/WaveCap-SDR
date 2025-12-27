@@ -168,14 +168,14 @@ class ControlChannelMonitor:
         _verbose = self._process_iq_calls <= 5
 
         if _verbose:
-            logger.info(f"ControlChannelMonitor.process_iq: ENTRY call #{self._process_iq_calls}, iq.size={iq.size}")
+            logger.debug(f"ControlChannelMonitor.process_iq: ENTRY call #{self._process_iq_calls}, iq.size={iq.size}")
 
         # Demodulate to dibits using C4FM (control channels always use C4FM)
         soft: np.ndarray | None = None
         if self._demod:
             _start = _time_mod.perf_counter()
             if _verbose:
-                logger.info("ControlChannelMonitor.process_iq: calling demodulate")
+                logger.debug("ControlChannelMonitor.process_iq: calling demodulate")
             if isinstance(self._demod, DSPC4FMDemodulator):
                 dibits, soft = self._demod.demodulate(iq.astype(np.complex64))
             else:
@@ -183,18 +183,18 @@ class ControlChannelMonitor:
                 dibits = self._demod.demodulate(iq.astype(np.complex64))
             _elapsed = (_time_mod.perf_counter() - _start) * 1000
             if _verbose:
-                logger.info(f"ControlChannelMonitor.process_iq: demodulate returned {len(dibits)} dibits in {_elapsed:.1f}ms")
+                logger.debug(f"ControlChannelMonitor.process_iq: demodulate returned {len(dibits)} dibits in {_elapsed:.1f}ms")
         else:
             return []
 
         if len(dibits) == 0:
             return []
 
-        # Debug: log dibit count periodically
+        # Debug: log dibit count periodically (DEBUG level, less frequent)
         if hasattr(self, '_dibit_debug_count'):
             self._dibit_debug_count += len(dibits)
-            if self._dibit_debug_count >= 10000:
-                logger.info(
+            if self._dibit_debug_count >= 50000:  # Reduced frequency
+                logger.debug(
                     f"ControlChannelMonitor: Processed {self._dibit_debug_count} dibits, "
                     f"buffer={len(self._dibit_buffer)}, sync_state={self.sync_state.value}"
                 )
@@ -248,7 +248,7 @@ class ControlChannelMonitor:
                 self.sync_state = SyncState.SYNCED
                 self._last_sync_time = time.time()
 
-                logger.info("ControlChannelMonitor: Frame sync acquired")
+                logger.debug("ControlChannelMonitor: Frame sync acquired")
                 if self.on_sync_acquired:
                     self.on_sync_acquired()
 
@@ -257,8 +257,8 @@ class ControlChannelMonitor:
             if not hasattr(self, '_decode_attempts'):
                 self._decode_attempts = 0
             self._decode_attempts += 1
-            if self._decode_attempts % 100 == 1:
-                logger.info(f"ControlChannelMonitor: Frame decode attempt {self._decode_attempts}, buffer={len(self._dibit_buffer)}")
+            if self._decode_attempts % 500 == 1:  # Reduced frequency
+                logger.debug(f"ControlChannelMonitor: Frame decode attempt {self._decode_attempts}, buffer={len(self._dibit_buffer)}")
 
             if len(self._dibit_buffer) < self.TSDU_FRAME_DIBITS:
                 # Need more dibits
@@ -286,8 +286,8 @@ class ControlChannelMonitor:
             if not hasattr(self, '_verified_frames'):
                 self._verified_frames = 0
             self._verified_frames += 1
-            if self._verified_frames % 50 == 1:
-                logger.info(f"ControlChannelMonitor: Sync verified (frame {self._verified_frames}, score={sync_score:.1f})")
+            if self._verified_frames % 500 == 1:  # Reduced frequency
+                logger.debug(f"ControlChannelMonitor: Sync verified (frame {self._verified_frames}, score={sync_score:.1f})")
 
             # Decode NID (Network ID) after sync
             # NID is 32 dibits of data, but there's a status symbol at position 12
@@ -299,10 +299,10 @@ class ControlChannelMonitor:
                 self._frame_count = 0
             self._frame_count += 1
 
-            if self._frame_count <= 10:
+            if self._frame_count <= 3:  # Only first 3 frames at DEBUG
                 # Log DUID position dibits specifically
                 self.FRAME_SYNC_DIBITS + 6  # positions 30-31
-                logger.info(
+                logger.debug(
                     f"ControlChannelMonitor: Frame {self._frame_count}, "
                     f"frame_dibits[30:32]={list(frame_dibits[30:32])}, "
                     f"nid_dibits[6:8]={list(nid_dibits[6:8])}, "
@@ -311,21 +311,21 @@ class ControlChannelMonitor:
 
             nid = decode_nid(nid_dibits, skip_status_at_10=True)
 
-            # Debug: log every 10th frame for now (to see DUID distribution)
-            if self._frame_count <= 5 or self._frame_count % 10 == 1:
-                logger.info(
+            # Debug: log every 100th frame (less frequent)
+            if self._frame_count <= 3 or self._frame_count % 100 == 1:
+                logger.debug(
                     f"ControlChannelMonitor: Frame {self._frame_count}, NID={nid}, "
                     f"DUID={nid.duid if nid else 'None'}, TSDU={DUID.TSDU}"
                 )
 
             if nid is not None and nid.duid == DUID.TSDU:
                 # This is a TSDU frame - decode it
-                logger.info(f"ControlChannelMonitor: Calling decode_tsdu on TSDU frame, frame_len={len(frame_dibits)}")
+                logger.debug(f"ControlChannelMonitor: Calling decode_tsdu on TSDU frame, frame_len={len(frame_dibits)}")
                 tsdu = decode_tsdu(frame_dibits, frame_soft)
                 if tsdu:
-                    logger.info(f"ControlChannelMonitor: decode_tsdu returned {len(tsdu.tsbk_blocks) if tsdu.tsbk_blocks else 0} TSBK blocks")
+                    logger.debug(f"ControlChannelMonitor: decode_tsdu returned {len(tsdu.tsbk_blocks) if tsdu.tsbk_blocks else 0} TSBK blocks")
                 else:
-                    logger.info("ControlChannelMonitor: decode_tsdu returned None")
+                    logger.debug("ControlChannelMonitor: decode_tsdu returned None")
                 if tsdu and tsdu.tsbk_blocks:
                     self.frames_decoded += 1
 

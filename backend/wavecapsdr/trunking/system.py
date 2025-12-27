@@ -743,18 +743,16 @@ class TrunkingSystem:
             This receives raw wideband IQ samples, handles initial scanning,
             periodic roaming checks, and feeds decimated IQ to ControlChannelMonitor.
             """
-            # Debug: Track IQ flow
+            # Debug: Track IQ flow (reduced frequency, use logger instead of print)
             iq_debug_state["samples"] += len(iq)
             iq_debug_state["calls"] += 1
-            _verbose = iq_debug_state["calls"] <= 20 or iq_debug_state["calls"] % 50 == 0
+            _verbose = iq_debug_state["calls"] <= 5 or iq_debug_state["calls"] % 500 == 0
             if _verbose:
-                # Log raw IQ magnitude
+                # Log raw IQ magnitude at DEBUG level
                 raw_mag = np.abs(iq)
-                # Use print for guaranteed output
-                print(
+                logger.debug(
                     f"[RAW_IQ] TrunkingSystem call #{iq_debug_state['calls']}: "
-                    f"samples={len(iq)}, raw_mean={np.mean(raw_mag):.4f}, raw_max={np.max(raw_mag):.4f}",
-                    flush=True
+                    f"samples={len(iq)}, raw_mean={np.mean(raw_mag):.4f}, raw_max={np.max(raw_mag):.4f}"
                 )
 
             # ============================================================
@@ -887,7 +885,7 @@ class TrunkingSystem:
             centered_iq = phase_continuous_freq_shift(iq, cc_offset_hz, sample_rate)
             if _verbose:
                 centered_mag = np.abs(centered_iq)
-                logger.info(
+                logger.debug(
                     f"TrunkingSystem {self.cfg.id}: after freq_shift offset={cc_offset_hz/1e3:.1f}kHz, "
                     f"centered_mean={np.mean(centered_mag):.4f}"
                 )
@@ -922,7 +920,7 @@ class TrunkingSystem:
                 decimated_iq = centered_iq
             if _verbose:
                 decim_mag = np.abs(decimated_iq)
-                logger.info(
+                logger.debug(
                     f"TrunkingSystem {self.cfg.id}: after decim factor={decim_factor}, "
                     f"size={len(decimated_iq)}, decim_mean={np.mean(decim_mag):.4f}"
                 )
@@ -937,7 +935,7 @@ class TrunkingSystem:
                 system._cc_iq_buffer = np.array([], dtype=np.complex128)
 
                 if _verbose:
-                    logger.info(
+                    logger.debug(
                         f"TrunkingSystem {self.cfg.id}: Processing buffered IQ: "
                         f"{len(buffered_iq)} samples ({len(buffered_iq)/10:.0f} symbols)"
                     )
@@ -947,7 +945,7 @@ class TrunkingSystem:
                     try:
                         tsbk_results = self._control_monitor.process_iq(buffered_iq)
                         if _verbose:
-                            logger.info(f"TrunkingSystem {self.cfg.id}: process_iq returned {len(tsbk_results)} results")
+                            logger.debug(f"TrunkingSystem {self.cfg.id}: process_iq returned {len(tsbk_results)} results")
 
                         # Handle each TSBK result
                         for tsbk_data in tsbk_results:

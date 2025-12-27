@@ -276,7 +276,7 @@ class CQPSKDemodulator:
         # Diagnostic tracking
         self._symbol_values: list[float] = []
         self._symbol_count = 0
-        self._diag_interval = 1000
+        self._diag_interval = 50000  # Reduced logging frequency
         self._raw_phases: list[float] = []
         # Track raw symbol magnitudes and phases (before differential)
         self._symbol_mags: list[float] = []
@@ -637,14 +637,14 @@ class CQPSKDemodulator:
                     total_clustered = near_p45 + near_p135 + near_m45 + near_m135
                     cluster_pct = 100 * total_clustered / len(vals) if len(vals) > 0 else 0
 
-                    logger.info(
+                    logger.debug(
                         f"CQPSK MMSE: count={self._symbol_count}, "
                         f"dist=[d0:{q0}, d1:{q1}, d2:{q2}, d3:{q3}], "
                         f"freq_off={self._freq_offset*self.sample_rate/(2*np.pi):.1f}Hz, "
                         f"agc={self._agc_gain:.2f}, "
                         f"phase mean={vals.mean():.3f}, std={vals.std():.3f}"
                     )
-                    logger.info(
+                    logger.debug(
                         f"CQPSK phase clusters: +45°={near_p45}, +135°={near_p135}, "
                         f"-45°={near_m45}, -135°={near_m135}, wrap={near_wrap}, "
                         f"quality={cluster_pct:.1f}%, omega={self._omega:.2f}"
@@ -653,7 +653,7 @@ class CQPSKDemodulator:
                     if self._symbol_mags:
                         mags = np.array(self._symbol_mags[-500:])
                         phases = np.array(self._symbol_phases[-500:])
-                        logger.info(
+                        logger.debug(
                             f"CQPSK constellation: mag_mean={np.mean(mags):.3f}, "
                             f"mag_std={np.std(mags):.3f}, phase_std={np.std(phases):.3f}"
                         )
@@ -769,7 +769,7 @@ class C4FMDemodulator:
         # Diagnostic: symbol value tracking
         self._symbol_values: list[float] = []
         self._symbol_count = 0
-        self._diag_interval = 1000
+        self._diag_interval = 50000  # Reduced logging frequency
 
     def _generate_mmse_taps(self) -> np.ndarray:
         """
@@ -1023,7 +1023,7 @@ class C4FMDemodulator:
                     d2 = np.sum((vals >= -2.0) & (vals < 0.0))
                     d0 = np.sum((vals >= 0.0) & (vals < 2.0))
                     d1 = np.sum(vals >= 2.0)
-                    logger.info(
+                    logger.debug(
                         f"C4FM MMSE: count={self._symbol_count}, "
                         f"dist=[d0:{d0}, d1:{d1}, d2:{d2}, d3:{d3}], "
                         f"spread={self._symbol_spread:.3f}, "
@@ -1140,7 +1140,7 @@ class DiscriminatorDemodulator:
         # Diagnostics
         self._symbol_count = 0
         self._symbol_values: list[float] = []
-        self._diag_interval = 1000
+        self._diag_interval = 50000  # Reduced logging frequency
 
     def _generate_mmse_taps(self) -> np.ndarray:
         """Generate MMSE interpolation filter coefficients."""
