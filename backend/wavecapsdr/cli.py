@@ -373,6 +373,206 @@ def apply_freq_correction(iq: np.ndarray, offset_hz: float, sample_rate: int) ->
     return iq * correction
 
 
+def cmd_decode_audio(args: argparse.Namespace) -> int:
+    """Decode P25 IQ file to audio WAV using DSD-FME."""
+    import subprocess
+    import wave as wave_mod
+    from scipy import signal
+
+    input_path = Path(args.file)
+    output_path = Path(args.output)
+
+    if not input_path.exists():
+        print(f"Error: File not found: {input_path}")
+        return 1
+
+    # Check for DSD-FME
+    import shutil
+    if not shutil.which("dsd-fme"):
+        print("Error: DSD-FME not found in PATH")
+        print("Install with:")
+        print("  git clone https://github.com/lwvmobile/dsd-fme")
+        print("  cd dsd-fme && mkdir build && cd build && cmake .. && make && sudo make install")
+        return 1
+
+    print(f"Decoding P25 audio from: {input_path}")
+    print(f"Output: {output_path}")
+
+    # Load WAV file
+    with wave_mod.open(str(input_path), "rb") as wf:
+        sample_rate = wf.getframerate()
+        channels = wf.getnchannels()
+        width = wf.getsampwidth()
+        n_frames = wf.getnframes()
+
+        print(f"  Input sample rate: {sample_rate} Hz")
+        print(f"  Duration: {n_frames / sample_rate:.1f} seconds")
+
+        raw = wf.readframes(n_frames)
+
+    # Parse to complex IQ
+    if width == 2:
+        data = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    else:
+        print(f"Error: Unsupported sample width: {width}")
+        return 1
+
+    if channels == 2:
+        iq = data[::2] + 1j * data[1::2]
+    elif channels == 1:
+        from scipy.signal import hilbert
+        iq = hilbert(data).astype(np.complex64)
+    else:
+        print(f"Error: Unsupported channel count: {channels}")
+        return 1
+
+    print(f"  Loaded {len(iq)} complex samples")
+
+    # Frequency offset detection and correction
+    if args.freq_offset is not None:
+        offset_hz = args.freq_offset
+        print(f"  Manual frequency offset: {offset_hz:.1f} Hz")
+    else:
+        offset_hz = estimate_freq_offset(iq, sample_rate)
+        print(f"  Auto-detected frequency offset: {offset_hz:.1f} Hz")
+
+    if abs(offset_hz) > 100:
+        print(f"  Applying correction of {-offset_hz:.1f} Hz")
+        iq = apply_freq_correction(iq, offset_hz, sample_rate)
+
+    # FM demodulate to get discriminator audio
+    # DSD-FME expects the instantaneous frequency (FM discriminator output)
+    print("\n=== FM Discrimination ===")
+
+    # Lowpass filter before FM demod to reduce noise
+    from scipy.signal import butter, lfilter
+    nyq = sample_rate / 2
+    cutoff = 7500  # P25 C4FM bandwidth ~7.5 kHz
+    b, a = butter(4, cutoff / nyq, btype='low')
+    iq_filtered = lfilter(b, a, iq)
+
+    # Differential phase (FM demod) using complex multiplication
+    # This gives instantaneous frequency as phase change per sample
+    delayed = np.roll(iq_filtered, 1)
+    delayed[0] = iq_filtered[0]
+    product = iq_filtered * np.conj(delayed)
+    discriminator = np.angle(product)
+
+    # The discriminator output is now in radians per sample
+    # For 48kHz DSD-FME input, we need to scale appropriately
+    # C4FM has symbol levels at ±1, ±3 with 1800 Hz deviation per symbol unit
+    # At 50kHz: 1800 Hz = 2π * 1800 / 50000 = 0.226 radians/sample
+    # At symbol peak (±1800 Hz), discriminator ≈ ±0.226 radians
+
+    print(f"  Discriminator output: {len(discriminator)} samples")
+    print(f"  Discriminator range: [{np.min(discriminator):.4f}, {np.max(discriminator):.4f}] radians")
+
+    # DSD-FME expects 48kHz input
+    target_rate = 48000
+    if sample_rate != target_rate:
+        print(f"  Resampling from {sample_rate} Hz to {target_rate} Hz...")
+        # Compute resampling ratio
+        gcd = np.gcd(target_rate, sample_rate)
+        up = target_rate // gcd
+        down = sample_rate // gcd
+        discriminator = signal.resample_poly(discriminator, up, down).astype(np.float32)
+        print(f"  Resampled to {len(discriminator)} samples")
+
+    # Convert to int16 for DSD-FME
+    # DSD-FME expects discriminator audio scaled appropriately
+    # Use auto-scaling based on signal level to avoid clipping
+    max_val = np.max(np.abs(discriminator))
+    if max_val > 0:
+        # Scale to use ~80% of dynamic range
+        scale_factor = 26000 / max_val
+    else:
+        scale_factor = 10000
+    audio_int16 = np.clip(discriminator * scale_factor, -32767, 32767).astype(np.int16)
+    print(f"  Scale factor: {scale_factor:.1f}")
+    print(f"  Scaled audio range: [{np.min(audio_int16)}, {np.max(audio_int16)}]")
+
+    # Write discriminator to temp WAV file for DSD-FME
+    import tempfile
+    temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+    temp_wav_path = temp_wav.name
+    temp_wav.close()
+
+    with wave_mod.open(temp_wav_path, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(target_rate)
+        wf.writeframes(audio_int16.tobytes())
+
+    print(f"  Wrote temp discriminator: {temp_wav_path}")
+
+    print("\n=== DSD-FME Voice Decoding ===")
+    print("  Running DSD-FME...")
+
+    # Run DSD-FME with file input
+    # -f1 = force P25 Phase 1
+    # -i file.wav = read from wav file
+    # -w output.wav = write WAV output
+    dsd_args = [
+        "dsd-fme",
+        "-f1",           # Force P25 Phase 1 (not -fp which is ProVoice!)
+        "-mc",           # C4FM modulation
+        "-i", temp_wav_path,  # Read from WAV file
+        "-o", "null",    # No audio output device
+        "-w", str(output_path),  # Write WAV output
+    ]
+
+    try:
+        proc = subprocess.Popen(
+            dsd_args,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        stdout, stderr = proc.communicate(timeout=120)
+
+        # Clean up temp file
+        import os
+        os.unlink(temp_wav_path)
+
+        if proc.returncode != 0:
+            print(f"  DSD-FME error (code {proc.returncode})")
+            if stderr:
+                print(f"  stderr: {stderr.decode('utf-8', errors='replace')[:500]}")
+            return 1
+
+        # Check output
+        if output_path.exists():
+            output_size = output_path.stat().st_size
+            print(f"  Audio output: {output_path} ({output_size / 1024:.1f} KB)")
+
+            # Get duration
+            try:
+                with wave_mod.open(str(output_path), "rb") as wf:
+                    out_frames = wf.getnframes()
+                    out_rate = wf.getframerate()
+                    out_duration = out_frames / out_rate
+                    print(f"  Output duration: {out_duration:.1f} seconds at {out_rate} Hz")
+            except Exception as e:
+                print(f"  (Could not read output WAV: {e})")
+        else:
+            print("  Warning: Output file not created")
+            # DSD-FME may have printed to stdout instead
+            if stdout:
+                print(f"  stdout: {stdout[:200]}")
+
+        print("\nDone!")
+        return 0
+
+    except subprocess.TimeoutExpired:
+        print("  Error: DSD-FME timed out")
+        proc.kill()
+        return 1
+    except Exception as e:
+        print(f"  Error running DSD-FME: {e}")
+        return 1
+
+
 def cmd_decode_iq(args: argparse.Namespace) -> int:
     """Decode IQ file through P25 pipeline."""
     import wave as wave_mod
@@ -648,6 +848,14 @@ def main() -> int:
     p_decode.add_argument("--freq-offset", type=float, default=None,
                          help="Manual frequency offset in Hz (auto-detected if not specified)")
     p_decode.set_defaults(func=cmd_decode_iq)
+
+    # decode-audio
+    p_audio = subparsers.add_parser("decode-audio", help="Decode P25 IQ to audio WAV file")
+    p_audio.add_argument("-f", "--file", required=True, help="Input IQ WAV file")
+    p_audio.add_argument("-o", "--output", required=True, help="Output audio WAV file")
+    p_audio.add_argument("--freq-offset", type=float, default=None,
+                        help="Manual frequency offset in Hz (auto-detected if not specified)")
+    p_audio.set_defaults(func=cmd_decode_audio)
 
     args = parser.parse_args()
 
