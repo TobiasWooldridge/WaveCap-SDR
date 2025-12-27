@@ -2781,8 +2781,8 @@ class Capture:
         _capture_loop_counter = 0
         while not self._stop_event.is_set():
             _capture_loop_counter += 1
-            if _capture_loop_counter <= 30 or _capture_loop_counter % 1000 == 0:
-                logger.info(f"Capture {self.cfg.id}: loop iteration {_capture_loop_counter}, calling read()")
+            if _capture_loop_counter <= 5 or _capture_loop_counter % 100000 == 0:
+                logger.debug(f"Capture {self.cfg.id}: loop iteration {_capture_loop_counter}, calling read()")
             loop_start = time_module.perf_counter()
             try:
                 if self._stream is None:
@@ -2810,10 +2810,10 @@ class Capture:
             if not hasattr(self, '_iq_debug_counter'):
                 self._iq_debug_counter = 0
             self._iq_debug_counter += 1
-            # Verbose debug for first 30 iterations to trace where loop stops
-            _verbose_debug = _capture_loop_counter <= 30 or self._iq_debug_counter % 100 == 1
+            # Verbose debug for first few iterations to trace where loop stops
+            _verbose_debug = _capture_loop_counter <= 5 or self._iq_debug_counter % 10000 == 1
             if _verbose_debug:
-                logger.info(f"Capture {self.cfg.id}: iter={_capture_loop_counter} GOT DATA: {samples.size} IQ samples, chunk={chunk}")
+                logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} GOT DATA: {samples.size} IQ samples, chunk={chunk}")
             # Broadcast IQ to subscribers (schedule on their loops)
             # Reuse asyncio to schedule coroutine execution in a thread-safe manner
             # by using the same logic inside _broadcast_iq (which uses call_soon_threadsafe)

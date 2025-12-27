@@ -174,9 +174,9 @@ class SDRplayProxyStream(StreamHandle):
 
         write_idx, _, sample_count, _overflow_count, sample_rate, flags, _timestamp = header
 
-        # Debug logging for first 100 reads and then every 1000
-        if self._debug_counter <= 100 or self._debug_counter % 1000 == 0:
-            logger.info(
+        # Debug logging for first few reads and then very infrequently
+        if self._debug_counter <= 5 or self._debug_counter % 100000 == 0:
+            logger.debug(
                 f"SDRplayProxyStream.read()[{self._debug_counter}]: "
                 f"write_idx={write_idx}, _last_read_idx={self._last_read_idx}, "
                 f"requested={num_samples}, sample_count={sample_count}, flags={flags}, stream_id={id(self)}, shm={self.shm.name}"
@@ -315,9 +315,9 @@ class SDRplayProxyStream(StreamHandle):
         # Update read position
         self._last_read_idx += to_read
 
-        # Log successful reads for debugging
-        if self._debug_counter <= 100 or self._debug_counter % 1000 == 0:
-            logger.info(
+        # Log successful reads for debugging (very infrequently)
+        if self._debug_counter <= 5 or self._debug_counter % 100000 == 0:
+            logger.debug(
                 f"SDRplayProxyStream.read()[{self._debug_counter}]: "
                 f"returning {len(samples)} samples, new _last_read_idx={self._last_read_idx}"
             )
