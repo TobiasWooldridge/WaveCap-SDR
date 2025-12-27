@@ -2381,11 +2381,27 @@ class Capture:
             future.add_done_callback(_done)
             futures[future] = ch
 
+        # Wait for ALL futures simultaneously (not sequentially!)
+        # This is critical for multi-channel performance - waiting sequentially
+        # on N channels taking T ms each = N*T total blocking time
+        # Waiting in parallel = max(T) blocking time
+        from concurrent.futures import wait, FIRST_EXCEPTION
+        done, not_done = wait(futures.keys(), timeout=0.5, return_when=FIRST_EXCEPTION)
+
+        # Cancel any timed-out futures
+        for future in not_done:
+            ch = futures[future]
+            logger.warning(f"Channel {ch.cfg.id} DSP timeout (parallel wait)")
+            future.cancel()
+
         # Collect results and apply stateful processing
         results: list[tuple[Channel, np.ndarray | None]] = []
         for future, ch in futures.items():
+            if future in not_done:
+                results.append((ch, None))
+                continue
             try:
-                audio, metrics = future.result(timeout=2.0)
+                audio, metrics = future.result(timeout=0)  # Already done, no wait
 
                 # Update channel metrics from parallel processing
                 if 'rssi_db' in metrics:
@@ -2402,10 +2418,6 @@ class Capture:
 
                 results.append((ch, audio))
 
-            except TimeoutError:
-                logger.warning(f"Channel {ch.cfg.id} DSP timeout")
-                future.cancel()
-                results.append((ch, None))
             except Exception as e:
                 logger.error(f"Channel {ch.cfg.id} DSP error: {e}")
                 results.append((ch, None))
@@ -2440,6 +2452,10 @@ class Capture:
                     ch.on_raw_iq(iq, self.cfg.sample_rate)
                 except Exception as e:
                     logger.error(f"Channel {ch.cfg.id}: on_raw_iq callback error: {e}")
+                # OPTIMIZATION: If TrunkingSystem handles IQ via on_raw_iq,
+                # skip duplicate P25 decoding here. TrunkingSystem has its own
+                # control channel monitor and voice recorders.
+                return None
 
             # Get frequency-shifted IQ for P25 decoding
             base = freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate) if ch.cfg.offset_hz != 0.0 else iq

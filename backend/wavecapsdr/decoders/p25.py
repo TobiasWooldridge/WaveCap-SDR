@@ -1844,12 +1844,10 @@ class P25Decoder:
             logger.warning(f"P25: dibits out of range (max={dibits.max()}), clipping")
             dibits = np.clip(dibits, 0, 3).astype(np.uint8)
 
-        # Process symbols through streaming framer one at a time
-        for i in range(len(dibits)):
-            self._message_framer.process_with_soft_sync(
-                float(soft_symbols[i]),
-                int(dibits[i])
-            )
+        # Process symbols through streaming framer using BATCH method
+        # This is ~50-100x faster than the per-symbol loop because
+        # sync correlation is done vectorized with numpy
+        self._message_framer.process_batch(soft_symbols, dibits)
 
         # Convert framer messages to P25Frame objects
         frames = []
