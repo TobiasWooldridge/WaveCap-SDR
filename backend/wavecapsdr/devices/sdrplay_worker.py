@@ -181,13 +181,20 @@ def _write_header(
     )
 
 
-def _read_header(shm: SharedMemory) -> tuple[int, int, int, int, int, int, float]:
+def _read_header(shm: SharedMemory) -> tuple[int, int, int, int, int, int, float] | None:
     """Read header from shared memory.
 
     Returns: (write_idx, read_idx, sample_count, overflow_count, sample_rate, flags, timestamp)
+             or None if the shared memory buffer is not available
     """
-    header = bytes(shm.buf[:HEADER_SIZE])
-    return struct.unpack(HEADER_FORMAT, header)
+    if shm is None or shm.buf is None:
+        return None
+    try:
+        header = bytes(shm.buf[:HEADER_SIZE])
+        return struct.unpack(HEADER_FORMAT, header)
+    except (TypeError, ValueError):
+        # Buffer became invalid
+        return None
 
 
 def sdrplay_worker_main(

@@ -128,14 +128,14 @@ class SDRplayProxyStream(StreamHandle):
         """
         if self._data_ready:
             return True
-        try:
-            write_idx, _, sample_count, _, _, flags, _ = _read_header(self.shm)
-            logger.info(f"is_ready() check: write_idx={write_idx}, sample_count={sample_count}, flags={flags}, shm={self.shm.name}, stream_id={id(self)}")
-            if flags & FLAG_DATA_READY:
-                self._data_ready = True
-                return True
-        except Exception as e:
-            logger.error(f"is_ready() exception: {e}")
+        header = _read_header(self.shm)
+        if header is None:
+            return False
+        write_idx, _, sample_count, _, _, flags, _ = header
+        logger.info(f"is_ready() check: write_idx={write_idx}, sample_count={sample_count}, flags={flags}, shm={self.shm.name}, stream_id={id(self)}")
+        if flags & FLAG_DATA_READY:
+            self._data_ready = True
+            return True
         return False
 
     def read(self, num_samples: int) -> tuple[np.ndarray, bool]:
@@ -159,11 +159,20 @@ class SDRplayProxyStream(StreamHandle):
             return np.empty(0, dtype=np.complex64), False
 
         # Read header to get current write position
-        try:
-            write_idx, _, sample_count, _overflow_count, sample_rate, flags, _timestamp = _read_header(self.shm)
-        except Exception as e:
-            logger.error(f"SDRplayProxyStream.read()[{self._debug_counter}]: header read error: {e}")
+        header = _read_header(self.shm)
+        if header is None:
+            # Shared memory buffer not available - log only periodically
+            self._buf_none_count = getattr(self, '_buf_none_count', 0) + 1
+            if self._buf_none_count <= 5 or self._buf_none_count % 5000 == 0:
+                logger.warning(
+                    f"SDRplayProxyStream.read()[{self._debug_counter}]: "
+                    f"shared memory buffer unavailable (count={self._buf_none_count})"
+                )
             return np.empty(0, dtype=np.complex64), False
+        else:
+            self._buf_none_count = 0  # Reset counter on successful read
+
+        write_idx, _, sample_count, _overflow_count, sample_rate, flags, _timestamp = header
 
         # Debug logging for first 100 reads and then every 1000
         if self._debug_counter <= 100 or self._debug_counter % 1000 == 0:
@@ -232,7 +241,10 @@ class SDRplayProxyStream(StreamHandle):
                         logger.info(f"SDRplayProxyStream: Re-attached to {shm_name}")
                         # DON'T reset empty_reads here - we only reset when we get data
                         # Try reading again with fresh attachment
-                        write_idx, _, sample_count, _overflow_count, sample_rate, flags, _timestamp = _read_header(self.shm)
+                        header = _read_header(self.shm)
+                        if header is None:
+                            return np.empty(0, dtype=np.complex64), False
+                        write_idx, _, sample_count, _overflow_count, sample_rate, flags, _timestamp = header
                         available = write_idx - self._last_read_idx
                         if available > 0:
                             logger.info(f"SDRplayProxyStream: Re-attach successful! Now have {available} samples available")
