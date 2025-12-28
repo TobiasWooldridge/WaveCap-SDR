@@ -54,6 +54,32 @@ EQUALIZER_MAXIMUM_GAIN = 1.25
 EQUALIZER_INITIAL_GAIN = 1.219  # SDRTrunk's empirically determined initial gain
 
 
+def linear_interpolate(x1: float, x2: float, mu: float) -> float:
+    """SDRTrunk's LinearInterpolator.calculate() for symbol extraction.
+
+    SDRTrunk uses 8-tap polyphase for FM demod but 2-point linear
+    for symbol timing/extraction (P25P1DemodulatorC4FM.java:935).
+
+    This simple linear interpolation is used for symbol extraction because
+    at this stage the signal has already been demodulated to phase values,
+    and symbol timing requires only modest interpolation between two
+    adjacent phase samples.
+
+    Args:
+        x1: First sample value
+        x2: Second sample value
+        mu: Fractional position between samples (0.0 to 1.0)
+
+    Returns:
+        Interpolated value
+    """
+    if mu < 0:
+        return x1
+    elif mu > 1:
+        return x2
+    return x1 + ((x2 - x1) * mu)
+
+
 def design_baseband_lpf(
     sample_rate: float,
     passband_hz: float = 5200.0,  # SDRTrunk P25P1DecoderC4FM.getBasebandFilter()
@@ -196,21 +222,29 @@ class _Equalizer:
         offset: int,
         mu: float
     ) -> float:
-        """Equalize samples and interpolate at mu using 8-tap polyphase filter.
+        """Equalize samples and interpolate at mu using 2-point linear interpolation.
 
-        The interpolator uses 8 samples centered around the interpolation point.
-        The interpolated value falls between buffer[offset+3] and buffer[offset+4].
+        SDRTrunk uses 2-point linear interpolation for symbol extraction
+        (P25P1DemodulatorC4FM.java:935), NOT 8-tap polyphase.
+
+        The 8-tap polyphase is only used in FM demodulation.
 
         Args:
             buffer: Sample buffer
-            offset: Starting offset for 8-sample window
+            offset: Position of first sample (interpolates between offset and offset+1)
             mu: Fractional position (0.0 to 1.0)
 
         Returns:
             Equalized, interpolated sample value
         """
-        # Use polyphase interpolator
-        interpolated = _interpolator.filter(buffer, offset, mu)
+        # Use 2-point linear interpolation (matching SDRTrunk's LinearInterpolator)
+        if offset >= 0 and offset + 1 < len(buffer):
+            x1 = buffer[offset]
+            x2 = buffer[offset + 1]
+            interpolated = linear_interpolate(x1, x2, mu)
+        else:
+            # Fallback if out of bounds
+            interpolated = buffer[max(0, min(offset, len(buffer) - 1))]
         return self.equalize(interpolated)
 
     def apply_correction(self, pll_adj: float, gain_adj: float):
@@ -229,89 +263,124 @@ class _Equalizer:
 
 
 class _FMDemodulator:
-    """Symbol-spaced differential demodulator for C4FM.
+    """Symbol-spaced differential demodulator for C4FM with fractional interpolation.
 
-    Unlike sample-by-sample FM demodulation, this compares samples that are
-    approximately one symbol period apart. This gives full symbol phase values
-    (±π/4, ±3π/4 for C4FM) instead of tiny per-sample phase increments.
+    This is a direct port of SDRTrunk's DifferentialDemodulatorFloatScalar.java.
+    It compares samples that are exactly one symbol period apart using 8-tap
+    polyphase interpolation for sub-sample precision.
+
+    Key difference from integer delay: At 25 kHz sample rate with 4800 baud,
+    samples_per_symbol = 5.208. Using integer delay (5 or 6) causes phase
+    scaling errors. This implementation uses fractional delay via interpolation.
 
     Reference: SDRTrunk DifferentialDemodulatorFloatScalar.java
     """
 
-    def __init__(self, symbol_delay: int = 10):
-        """Initialize demodulator.
+    def __init__(self, samples_per_symbol: float = 10.0):
+        """Initialize demodulator with fractional samples per symbol.
 
         Args:
-            symbol_delay: Number of samples between compared I/Q pairs.
-                         Should be approximately samples_per_symbol.
+            samples_per_symbol: Exact samples per symbol (e.g., 5.208 at 25 kHz)
         """
-        self.symbol_delay = max(1, symbol_delay)
-        # Buffer to hold previous samples for delay line
-        self._i_buffer = np.zeros(self.symbol_delay, dtype=np.float32)
-        self._q_buffer = np.zeros(self.symbol_delay, dtype=np.float32)
-        self._buffer_pos = 0
-        self._buffer_filled = False
+        self.samples_per_symbol = samples_per_symbol
+
+        # SDRTrunk interpolation parameters
+        # mu is the fractional part for interpolator
+        self._mu = samples_per_symbol % 1.0
+
+        # Interpolation offset: we need 8 samples for the interpolator
+        # The interpolated sample falls between offset+3 and offset+4
+        # So offset = floor(sps) - 4 ensures the delay is approximately sps
+        self._interp_offset = max(0, int(np.floor(samples_per_symbol)) - 4)
+
+        # Buffer overlap: need enough samples from previous call
+        # to interpolate at the start of new samples
+        self._buffer_overlap = int(np.floor(samples_per_symbol)) + 4
+
+        # Ensure interp_offset is non-negative
+        while self._interp_offset < 0:
+            self._interp_offset += 1
+            self._buffer_overlap += 1
+
+        # Buffers for I and Q (will be resized on first call)
+        self._i_buffer = np.zeros(20, dtype=np.float32)
+        self._q_buffer = np.zeros(20, dtype=np.float32)
 
     def reset(self):
-        self._i_buffer.fill(0)
-        self._q_buffer.fill(0)
-        self._buffer_pos = 0
-        self._buffer_filled = False
+        """Reset demodulator state."""
+        self._i_buffer = np.zeros(20, dtype=np.float32)
+        self._q_buffer = np.zeros(20, dtype=np.float32)
 
     def demodulate(self, i: np.ndarray, q: np.ndarray) -> np.ndarray:
-        """Demodulate I/Q samples to phase values using symbol-spaced differential.
+        """Demodulate I/Q samples using fractional interpolated differential.
 
-        Computes phase = atan2(Im(s[n] * conj(s[n-delay])), Re(s[n] * conj(s[n-delay])))
-        where delay ≈ samples_per_symbol.
+        For each output sample x, computes:
+        - previous = sample at buffer position x
+        - current = interpolated sample at position (interp_offset + x) with mu
 
-        This gives symbol phase values in the range [-π, π], with C4FM symbols
-        appearing at ±π/4 and ±3π/4.
+        This gives phase difference over exactly one symbol period.
 
-        OPTIMIZED: Vectorized implementation using numpy operations instead of
-        per-sample Python loop. Provides ~10-20x speedup.
+        Reference: SDRTrunk DifferentialDemodulatorFloatScalar.demodulate()
         """
         n = len(i)
         if n == 0:
             return np.array([], dtype=np.float32)
 
-        delay = self.symbol_delay
+        overlap = self._buffer_overlap
 
-        # Build delayed signal by concatenating history buffer with current samples
-        # The delayed signal is the previous 'delay' samples shifted
-        i_extended = np.concatenate([self._i_buffer, i])
-        q_extended = np.concatenate([self._q_buffer, q])
-
-        # Delayed samples: samples from 0 to n (exclusive), which are delay samples behind
-        i_delayed = i_extended[:n]
-        q_delayed = q_extended[:n]
-
-        # Update circular buffer with last 'delay' samples for next call
-        # We need to preserve the circular buffer state properly
-        if n >= delay:
-            # Take the last 'delay' samples from current input
-            self._i_buffer[:] = i[-delay:]
-            self._q_buffer[:] = q[-delay:]
-            self._buffer_pos = 0
-            self._buffer_filled = True
+        # Copy previous buffer residual to beginning
+        old_len = len(self._i_buffer)
+        if old_len >= overlap:
+            residual_i = self._i_buffer[old_len - overlap:].copy()
+            residual_q = self._q_buffer[old_len - overlap:].copy()
         else:
-            # n < delay: need to shift buffer and add new samples
-            # Current buffer has samples at positions [buffer_pos, buffer_pos+1, ..., buffer_pos+delay-1] (mod delay)
-            # After processing n samples, we need buffer to contain the last 'delay' samples
-            # which are: buffer[n:delay] + i[0:n]
-            new_buf_i = np.concatenate([self._i_buffer[n:], i])
-            new_buf_q = np.concatenate([self._q_buffer[n:], q])
-            self._i_buffer[:len(new_buf_i)] = new_buf_i
-            self._q_buffer[:len(new_buf_q)] = new_buf_q
-            self._buffer_pos = 0
+            residual_i = self._i_buffer.copy()
+            residual_q = self._q_buffer.copy()
 
-        # Vectorized differential demodulation: s[n] * conj(s[n-delay])
-        # Real part: i_curr * i_prev + q_curr * q_prev
-        # Imag part: q_curr * i_prev - i_curr * q_prev
-        demod_i = i * i_delayed + q * q_delayed
-        demod_q = q * i_delayed - i * q_delayed
+        # Resize buffers if needed
+        required_len = n + overlap
+        if len(self._i_buffer) != required_len:
+            self._i_buffer = np.zeros(required_len, dtype=np.float32)
+            self._q_buffer = np.zeros(required_len, dtype=np.float32)
 
-        # Vectorized arctan2 - single call for entire array
-        demodulated = np.arctan2(demod_q, demod_i).astype(np.float32)
+        # Copy residual to start of buffer
+        copy_len = min(len(residual_i), overlap)
+        self._i_buffer[:copy_len] = residual_i[-copy_len:]
+        self._q_buffer[:copy_len] = residual_q[-copy_len:]
+
+        # Append new samples after residual
+        self._i_buffer[overlap:overlap + n] = i
+        self._q_buffer[overlap:overlap + n] = q
+
+        # Differential demodulation with interpolation
+        demodulated = np.zeros(n, dtype=np.float32)
+        mu = self._mu
+        interp_offset = self._interp_offset
+
+        # Use the global interpolator
+        global _interpolator
+
+        for x in range(n):
+            # Previous sample (no interpolation needed)
+            i_prev = self._i_buffer[x]
+            q_prev_conj = -self._q_buffer[x]  # Complex conjugate
+
+            # Current sample with interpolation
+            offset = interp_offset + x
+            if offset >= 0 and offset + 8 <= len(self._i_buffer):
+                i_curr = _interpolator.filter(self._i_buffer, offset, mu)
+                q_curr = _interpolator.filter(self._q_buffer, offset, mu)
+            else:
+                # Fallback: use nearest sample
+                idx = min(offset + 4, len(self._i_buffer) - 1)
+                i_curr = self._i_buffer[idx]
+                q_curr = self._q_buffer[idx]
+
+            # Multiply current by conjugate of previous: s[n] * conj(s[n-delay])
+            diff_i = (i_prev * i_curr) - (q_prev_conj * q_curr)
+            diff_q = (i_prev * q_curr) + (i_curr * q_prev_conj)
+
+            demodulated[x] = np.arctan2(diff_q, diff_i)
 
         return demodulated
 
@@ -555,16 +624,19 @@ def _symbol_recovery_jit(
     samples_per_symbol: float,
     pll: float,
     gain: float,
-    interpolator_taps: np.ndarray,  # Shape: (129, 8)
+    interpolator_taps: np.ndarray,  # Shape: (129, 8) - kept for API compatibility but unused
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int, float]:
-    """JIT-compiled symbol recovery loop.
+    """JIT-compiled symbol recovery loop with 2-point linear interpolation.
 
     Processes all phase samples through:
     1. Buffer management (circular buffer with shift)
     2. Symbol timing (sample_point countdown)
-    3. 8-tap polyphase interpolation
+    3. 2-point LINEAR interpolation (matching SDRTrunk's LinearInterpolator)
     4. Equalization (PLL + gain)
     5. Dibit decision (π/2 boundaries)
+
+    NOTE: SDRTrunk uses 8-tap polyphase for FM demod but 2-point linear
+    for symbol extraction (P25P1DemodulatorC4FM.java:935).
 
     Args:
         phases: FM-demodulated phase values
@@ -574,7 +646,7 @@ def _symbol_recovery_jit(
         samples_per_symbol: Samples per symbol (e.g., 10.4)
         pll: Current PLL offset
         gain: Current gain value
-        interpolator_taps: Polyphase filter coefficients (129 x 8)
+        interpolator_taps: Unused, kept for API compatibility
 
     Returns:
         Tuple of:
@@ -619,25 +691,21 @@ def _symbol_recovery_jit(
             idx = buffer_pointer
             mu = 1.0 - sample_point
 
-            # Compute interpolator offset
-            interp_offset = idx - 4
+            # 2-point LINEAR interpolation (SDRTrunk LinearInterpolator.java:45)
+            # Interpolate between buffer[idx-1] (previous) and buffer[idx] (current, just stored)
+            # mu = 1.0 - sample_point represents how far toward current sample
+            if idx - 1 >= 0 and idx < buffer_len:
+                # Simple 2-point linear: x1 + (x2 - x1) * mu
+                x1 = buffer[idx - 1]  # Previous sample
+                x2 = buffer[idx]       # Current sample (just stored)
 
-            # Ensure we have enough samples for interpolation (8-tap filter)
-            # interp_offset to interp_offset+7 must be valid, so interp_offset+8 <= buffer_len
-            if interp_offset >= 0 and interp_offset + 8 <= buffer_len:
-                # Convert mu to tap index (inverted for TAPS convention)
-                mu_inverted = 1.0 - mu
-                tap_idx = int(mu_inverted * 128.0 + 0.5)
-                if tap_idx < 0:
-                    tap_idx = 0
-                if tap_idx > 128:
-                    tap_idx = 128
-
-                # 8-tap interpolation
-                taps = interpolator_taps[tap_idx]
-                interpolated = 0.0
-                for i in range(8):
-                    interpolated += buffer[interp_offset + i] * taps[i]
+                # Clamp mu to [0, 1] range
+                if mu < 0.0:
+                    interpolated = x1
+                elif mu > 1.0:
+                    interpolated = x2
+                else:
+                    interpolated = x1 + (x2 - x1) * mu
 
                 # Equalization: (sample + pll) * gain
                 soft_symbol_rad = (interpolated + pll) * gain
@@ -899,7 +967,9 @@ class _SoftSyncDetector:
     # P25 sync pattern: 0x5575F5FF77FF (48 bits = 24 dibits)
     # Ideal symbol values: +3 for dibit 1, -3 for dibit 3
     SYNC_PATTERN = 0x5575F5FF77FF
-    SYNC_THRESHOLD = 60.0  # SDRTrunk P25P1MessageFramer threshold
+    # Sync threshold: SDRTrunk uses 80 with radians (max ~133), which is 60% of max
+    # For normalized ±3 scale (max correlation 216), equivalent is 130 (60% of 216)
+    SYNC_THRESHOLD = 130.0
 
     def __init__(self):
         # Pre-compute ideal symbol values for sync pattern
@@ -1021,9 +1091,13 @@ class C4FMDemodulator:
         dibits, soft = demod.demodulate(iq_samples)
     """
 
-    # Sync detection thresholds (from SDRTrunk)
-    SYNC_THRESHOLD_DETECTION = 60.0  # SDRTrunk P25P1MessageFramer SYNC_DETECTION_THRESHOLD
-    SYNC_THRESHOLD_OPTIMIZED = 60.0  # Match detection threshold
+    # Sync detection thresholds (from SDRTrunk P25P1DemodulatorC4FM.java:57-59)
+    # SDRTrunk uses 80/80/110 with radians (max correlation ~133), which is 60%/60%/82% of max
+    # WaveCap uses ±3 normalized range (max correlation 216)
+    # Equivalent thresholds: 80 × (216/133) ≈ 130, 110 × (216/133) ≈ 179
+    SYNC_THRESHOLD_DETECTION = 130.0  # 60% of max (SDRTrunk: 80)
+    SYNC_THRESHOLD_OPTIMIZED = 130.0  # 60% of max (SDRTrunk: 80)
+    SYNC_THRESHOLD_EQUALIZED = 179.0  # 82% of max (SDRTrunk: 110)
 
     def __init__(
         self,
@@ -1053,14 +1127,11 @@ class C4FMDemodulator:
         self._rrc_state_i = np.zeros(len(self._rrc_filter) - 1, dtype=np.float32)
         self._rrc_state_q = np.zeros(len(self._rrc_filter) - 1, dtype=np.float32)
 
-        # FM demodulator (symbol-spaced differential)
-        # Delay should be approximately 1 symbol period.
-        # CRITICAL: Use round() not ceil() - using ceil() causes 15% phase scaling error
-        # at 25 kHz (ceil(5.2)=6 vs correct delay of ~5.2). This matches SDRTrunk's
-        # approach in DifferentialDemodulatorFloat which uses fractional interpolation.
-        import math
-        symbol_delay = int(round(self.samples_per_symbol))
-        self._fm_demod = _FMDemodulator(symbol_delay=symbol_delay)
+        # FM demodulator (symbol-spaced differential with fractional interpolation)
+        # Uses 8-tap polyphase interpolation for sub-sample precision, matching
+        # SDRTrunk's DifferentialDemodulatorFloat. This avoids phase scaling errors
+        # that occur with integer delay (e.g., 5 vs 5.208 at 25 kHz).
+        self._fm_demod = _FMDemodulator(samples_per_symbol=self.samples_per_symbol)
 
         # Equalizer (PLL + gain AGC)
         self._equalizer = _Equalizer()

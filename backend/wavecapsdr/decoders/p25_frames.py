@@ -958,8 +958,21 @@ def extract_tsbk_blocks(dibits: np.ndarray, soft: np.ndarray | None = None) -> l
             logger.warning(f"TSBK block {block_idx}: not enough bits ({len(interleaved_bits)} < 196)")
             break
 
+        # DEBUG: Log raw dibits and bits before deinterleave (first block only)
+        if block_idx == 0 and not hasattr(extract_tsbk_blocks, '_debug_done'):
+            extract_tsbk_blocks._debug_done = True
+            dibit_hex = ''.join(f'{d:01x}' for d in tsbk_dibits[:24])
+            bit_str = ''.join(str(b) for b in interleaved_bits[:48])
+            logger.info(f"TSBK DEBUG: raw dibits[0:24]={dibit_hex}")
+            logger.info(f"TSBK DEBUG: interleaved bits[0:48]={bit_str}")
+
         # Step 1: Deinterleave using P25 data pattern (196 bits)
         deinterleaved_bits = deinterleave_data(interleaved_bits)
+
+        # DEBUG: Log after deinterleave
+        if block_idx == 0:
+            bit_str = ''.join(str(b) for b in deinterleaved_bits[:48])
+            logger.info(f"TSBK DEBUG: deinterleaved bits[0:48]={bit_str}")
 
         # Step 2: Trellis decode (1/2 rate: 196 bits → 98 bits)
         # Convert bits back to dibits for trellis decoder
@@ -967,19 +980,28 @@ def extract_tsbk_blocks(dibits: np.ndarray, soft: np.ndarray | None = None) -> l
         for i in range(98):
             trellis_dibits_in[i] = (deinterleaved_bits[i*2] << 1) | deinterleaved_bits[i*2 + 1]
 
+        # DEBUG: Log dibits going into trellis decoder
+        if block_idx == 0:
+            dibit_hex = ''.join(f'{d:01x}' for d in trellis_dibits_in[:24])
+            logger.info(f"TSBK DEBUG: trellis input dibits[0:24]={dibit_hex}")
+
         # Trellis decode with hard dibits only
         # Note: Soft decoding is disabled because the deinterleaving happens at the
         # bit level, but soft symbols are at the dibit level. This mismatch causes
         # incorrect soft values to be passed to the trellis decoder. SDRTrunk also
         # uses hard decoding for TSBK.
-        decoded_dibits, error_metric = trellis_decode(trellis_dibits_in)
+        decoded_dibits, error_metric = trellis_decode(trellis_dibits_in, debug=(block_idx == 0))
 
         if decoded_dibits is None:
             logger.warning(f"TSBK block {block_idx}: trellis decode failed")
             break
 
+        # DEBUG: Log decoded output
         if block_idx == 0:
-            logger.info(f"TSBK block 0: error_metric={error_metric}")
+            logger.info(f"TSBK block 0: error_metric={error_metric}, decoded_len={len(decoded_dibits)}")
+            if len(decoded_dibits) >= 24:
+                dibit_hex = ''.join(f'{d:01x}' for d in decoded_dibits[:24])
+                logger.info(f"TSBK DEBUG: decoded dibits[0:24]={dibit_hex}")
 
         # Convert decoded dibits to bits (49 dibits → 98 bits, but we only need 96)
         if len(decoded_dibits) < 48:
