@@ -52,8 +52,8 @@ EQUALIZER_INITIAL_GAIN = 1.219  # SDRTrunk's empirically determined initial gain
 
 def design_baseband_lpf(
     sample_rate: float,
-    passband_hz: float = 6000.0,
-    stopband_hz: float = 7500.0,
+    passband_hz: float = 5200.0,  # SDRTrunk P25P1DecoderC4FM.getBasebandFilter()
+    stopband_hz: float = 6500.0,  # SDRTrunk: tighter stopband for better rejection
     num_taps: int = 63,
 ) -> np.ndarray:
     """Design baseband low-pass filter for P25 C4FM.
@@ -61,10 +61,12 @@ def design_baseband_lpf(
     This filter removes out-of-band noise before FM demodulation.
     P25 C4FM signal bandwidth: ~5.8kHz (4800 baud * 1.2 excess BW).
 
+    Uses SDRTrunk's exact parameters: 5200 Hz passband, 6500 Hz stopband.
+
     Args:
         sample_rate: Sample rate in Hz
-        passband_hz: Passband edge frequency (5200 Hz for P25)
-        stopband_hz: Stopband edge frequency (6500 Hz for P25)
+        passband_hz: Passband edge frequency
+        stopband_hz: Stopband edge frequency
         num_taps: Filter length (odd number recommended)
 
     Returns:
@@ -549,7 +551,7 @@ class _SoftSyncDetector:
     # P25 sync pattern: 0x5575F5FF77FF (48 bits = 24 dibits)
     # Ideal symbol values: +3 for dibit 1, -3 for dibit 3
     SYNC_PATTERN = 0x5575F5FF77FF
-    SYNC_THRESHOLD = 80.0  # SDRTrunk threshold
+    SYNC_THRESHOLD = 60.0  # SDRTrunk P25P1MessageFramer threshold
 
     def __init__(self):
         # Pre-compute ideal symbol values for sync pattern
@@ -783,31 +785,31 @@ class C4FMDemodulator:
         -3       -3π/4      11 (3)
 
     Example usage:
-        demod = C4FMDemodulator(sample_rate=48000)
+        demod = C4FMDemodulator(sample_rate=19200)  # 4 SPS like SDRTrunk
         dibits, soft = demod.demodulate(iq_samples)
     """
 
     # Sync detection thresholds (from SDRTrunk)
-    SYNC_THRESHOLD_DETECTION = 80.0
-    SYNC_THRESHOLD_OPTIMIZED = 80.0
+    SYNC_THRESHOLD_DETECTION = 60.0  # SDRTrunk P25P1MessageFramer SYNC_DETECTION_THRESHOLD
+    SYNC_THRESHOLD_OPTIMIZED = 60.0  # Match detection threshold
 
     def __init__(
         self,
-        sample_rate: int = 48000,
+        sample_rate: int = 19200,  # SDRTrunk uses ~19.2 kHz (4 SPS)
         symbol_rate: int = 4800,
         **kwargs  # Accept but ignore other params for API compatibility
     ):
         """Initialize C4FM demodulator.
 
         Args:
-            sample_rate: Input sample rate in Hz
+            sample_rate: Input sample rate in Hz (~19200 for 4 SPS like SDRTrunk)
             symbol_rate: Symbol rate (4800 baud for P25)
         """
         self.sample_rate = sample_rate
         self.symbol_rate = symbol_rate
         self.samples_per_symbol = sample_rate / symbol_rate
 
-        # Baseband LPF (6kHz passband, 7.5kHz stopband)
+        # Baseband LPF (5.2kHz passband, 6.5kHz stopband - matches SDRTrunk)
         # Applied to I and Q before RRC for noise rejection
         self._baseband_lpf = design_baseband_lpf(sample_rate)
         self._lpf_state_i = np.zeros(len(self._baseband_lpf) - 1, dtype=np.float32)
@@ -902,6 +904,23 @@ class C4FMDemodulator:
             return (
                 np.array([], dtype=np.uint8),
                 np.array([], dtype=np.float32),
+            )
+
+        # [DIAG-STAGE4] C4FM demodulator input diagnostics
+        if not hasattr(self, '_diag_demod_calls'):
+            self._diag_demod_calls = 0
+            logger.info(f"[DIAG-STAGE4] FIRST CALL: C4FM demodulate() invoked, iq.shape={iq.shape}")
+        self._diag_demod_calls += 1
+
+        if self._diag_demod_calls % 50 == 0:
+            iq_mean = np.mean(iq)
+            iq_power = float(np.mean(np.abs(iq)**2))
+            iq_peak = float(np.max(np.abs(iq)))
+            dc_offset = float(np.abs(iq_mean) / iq_peak) if iq_peak > 0 else 0.0
+            logger.info(
+                f"[DIAG-STAGE4] C4FM input: calls={self._diag_demod_calls}, "
+                f"power={iq_power:.6f}, peak={iq_peak:.4f}, "
+                f"dc_offset={dc_offset:.4f}, samples={len(iq)}, rate={self.sample_rate}"
             )
 
         # Extract I/Q components
@@ -1062,6 +1081,29 @@ class C4FMDemodulator:
                 # Advance to next symbol
                 self._sample_point += self.samples_per_symbol
 
+        # [DIAG-STAGE5] Symbol output statistics
+        if len(soft_symbols) > 0 and self._diag_demod_calls % 100 == 0:
+            soft_arr = np.array(soft_symbols, dtype=np.float32)
+            # Symbol histogram - should show 4 peaks for good C4FM at ±1, ±3 (normalized)
+            # Random noise would show uniform distribution
+            hist, _ = np.histogram(soft_arr, bins=16, range=(-4, 4))
+            hist_str = ",".join([str(int(h)) for h in hist])
+            symbol_mean = float(np.mean(soft_arr))
+            symbol_std = float(np.std(soft_arr))
+            # Count symbols near ideal positions (±1, ±3)
+            near_p3 = np.sum(np.abs(soft_arr - 3.0) < 1.0)
+            near_p1 = np.sum(np.abs(soft_arr - 1.0) < 1.0)
+            near_m1 = np.sum(np.abs(soft_arr + 1.0) < 1.0)
+            near_m3 = np.sum(np.abs(soft_arr + 3.0) < 1.0)
+            in_constellation = near_p3 + near_p1 + near_m1 + near_m3
+            constellation_pct = 100.0 * in_constellation / len(soft_arr)
+            logger.info(
+                f"[DIAG-STAGE5] Symbols: count={len(soft_arr)}, "
+                f"mean={symbol_mean:.3f}, std={symbol_std:.3f}, "
+                f"constellation_pct={constellation_pct:.1f}%, "
+                f"histogram=[{hist_str}]"
+            )
+
         return (
             np.array(dibits, dtype=np.uint8),
             np.array(soft_symbols, dtype=np.float32),
@@ -1078,7 +1120,7 @@ class C4FMDemodulator:
 
 def c4fm_demod_simple(
     iq: np.ndarray,
-    sample_rate: int = 48000,
+    sample_rate: int = 19200,  # SDRTrunk uses ~19.2 kHz (4 SPS)
     symbol_rate: int = 4800,
 ) -> np.ndarray:
     """Simplified C4FM demodulator (no state, single-shot).
@@ -1088,7 +1130,7 @@ def c4fm_demod_simple(
 
     Args:
         iq: Complex IQ samples
-        sample_rate: Sample rate in Hz
+        sample_rate: Sample rate in Hz (~19200 for 4 SPS)
         symbol_rate: Symbol rate in baud
 
     Returns:

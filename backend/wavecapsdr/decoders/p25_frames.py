@@ -27,22 +27,22 @@ logger = logging.getLogger(__name__)
 
 
 # P25 Phase 1 data deinterleave pattern (196 bits)
-# Adapted from OP25 gr-op25_repeater/lib/p25p1_fdma.cc and Wireshark p25cai
+# From SDRTrunk P25P1Interleave.java DATA_DEINTERLEAVE array
 # For position i in deinterleaved output, read from DATA_DEINTERLEAVE[i] in input
 DATA_DEINTERLEAVE = [
-    0, 1, 2, 3, 52, 53, 54, 55, 100, 101, 102, 103, 148, 149, 150, 151,
-    4, 5, 6, 7, 56, 57, 58, 59, 104, 105, 106, 107, 152, 153, 154, 155,
-    8, 9, 10, 11, 60, 61, 62, 63, 108, 109, 110, 111, 156, 157, 158, 159,
-    12, 13, 14, 15, 64, 65, 66, 67, 112, 113, 114, 115, 160, 161, 162, 163,
-    16, 17, 18, 19, 68, 69, 70, 71, 116, 117, 118, 119, 164, 165, 166, 167,
-    20, 21, 22, 23, 72, 73, 74, 75, 120, 121, 122, 123, 168, 169, 170, 171,
-    24, 25, 26, 27, 76, 77, 78, 79, 124, 125, 126, 127, 172, 173, 174, 175,
-    28, 29, 30, 31, 80, 81, 82, 83, 128, 129, 130, 131, 176, 177, 178, 179,
-    32, 33, 34, 35, 84, 85, 86, 87, 132, 133, 134, 135, 180, 181, 182, 183,
-    36, 37, 38, 39, 88, 89, 90, 91, 136, 137, 138, 139, 184, 185, 186, 187,
-    40, 41, 42, 43, 92, 93, 94, 95, 140, 141, 142, 143, 188, 189, 190, 191,
-    44, 45, 46, 47, 96, 97, 98, 99, 144, 145, 146, 147, 192, 193, 194, 195,
-    48, 49, 50, 51,
+    0, 1, 2, 3, 16, 17, 18, 19, 32, 33, 34, 35, 48, 49, 50, 51,
+    64, 65, 66, 67, 80, 81, 82, 83, 96, 97, 98, 99, 112, 113, 114, 115,
+    128, 129, 130, 131, 144, 145, 146, 147, 160, 161, 162, 163, 176, 177, 178, 179,
+    192, 193, 194, 195,
+    4, 5, 6, 7, 20, 21, 22, 23, 36, 37, 38, 39, 52, 53, 54, 55,
+    68, 69, 70, 71, 84, 85, 86, 87, 100, 101, 102, 103, 116, 117, 118, 119,
+    132, 133, 134, 135, 148, 149, 150, 151, 164, 165, 166, 167, 180, 181, 182, 183,
+    8, 9, 10, 11, 24, 25, 26, 27, 40, 41, 42, 43, 56, 57, 58, 59,
+    72, 73, 74, 75, 88, 89, 90, 91, 104, 105, 106, 107, 120, 121, 122, 123,
+    136, 137, 138, 139, 152, 153, 154, 155, 168, 169, 170, 171, 184, 185, 186, 187,
+    12, 13, 14, 15, 28, 29, 30, 31, 44, 45, 46, 47, 60, 61, 62, 63,
+    76, 77, 78, 79, 92, 93, 94, 95, 108, 109, 110, 111, 124, 125, 126, 127,
+    140, 141, 142, 143, 156, 157, 158, 159, 172, 173, 174, 175, 188, 189, 190, 191,
 ]
 
 # Dibit-level deinterleave (98 dibits) derived from the bit-level mapping.
@@ -59,7 +59,10 @@ DATA_DEINTERLEAVE_DIBITS = np.array(
 #   CRCUtil.generate(80, 16, 0x11021, 0xFFFF, true)
 # Polynomial: x^16 + x^12 + x^5 + 1 (0x1021)
 # Initial value: 0xFFFF
+# Note: 96 entries total = 80 data bits + 16 CRC bits
+# The last 16 entries (0x0001-0x8000) allow detecting single-bit errors in the CRC itself
 CCITT_80_CHECKSUMS = [
+    # Data bits 0-79
     0x1BCB, 0x8DE5, 0xC6F2, 0x6B69, 0xB5B4, 0x52CA, 0x2175, 0x90BA, 0x404D,
     0xA026, 0x5803, 0xAC01, 0xD600, 0x6310, 0x3998, 0x14DC, 0x027E, 0x092F,
     0x8497, 0xC24B, 0xE125, 0xF092, 0x7059, 0xB82C, 0x5406, 0x2213, 0x9109,
@@ -69,6 +72,9 @@ CCITT_80_CHECKSUMS = [
     0x1297, 0x894B, 0xC4A5, 0xE252, 0x7939, 0xBC9C, 0x565E, 0x233F, 0x919F,
     0xC8CF, 0xE467, 0xF233, 0xF919, 0xFC8C, 0x7656, 0x333B, 0x999D, 0xCCCE,
     0x6E77, 0xB73B, 0xDB9D, 0xEDCE, 0x7EF7, 0xBF7B, 0xDFBD, 0xEFDE,
+    # CRC bits 80-95 (powers of 2 for detecting CRC bit errors)
+    0x0001, 0x0002, 0x0004, 0x0008, 0x0010, 0x0020, 0x0040, 0x0080,
+    0x0100, 0x0200, 0x0400, 0x0800, 0x1000, 0x2000, 0x4000, 0x8000,
 ]
 
 
@@ -243,6 +249,9 @@ def bits_to_int(bits: np.ndarray, start: int, length: int) -> int:
 def deinterleave_data(bits: np.ndarray) -> np.ndarray:
     """Deinterleave 196-bit block using P25 data deinterleave pattern.
 
+    Uses SDRTrunk's deinterleave logic: for each input position i,
+    its value goes to output position DATA_DEINTERLEAVE[i].
+
     Args:
         bits: Interleaved bit array (must be 196 bits)
 
@@ -253,9 +262,11 @@ def deinterleave_data(bits: np.ndarray) -> np.ndarray:
         logger.warning(f"deinterleave_data: expected 196 bits, got {len(bits)}")
         return bits
 
-    # Read FROM the deinterleave table positions (matches OP25/Wireshark)
-    # For each output position i, read from input position DATA_DEINTERLEAVE[i]
-    deinterleaved = np.array([bits[DATA_DEINTERLEAVE[i]] for i in range(196)], dtype=np.uint8)
+    # SDRTrunk deinterleave logic: output[DATA_DEINTERLEAVE[i]] = input[i]
+    # For each position i in the input, its value goes to DATA_DEINTERLEAVE[i] in output
+    deinterleaved = np.zeros(196, dtype=np.uint8)
+    for i in range(196):
+        deinterleaved[DATA_DEINTERLEAVE[i]] = bits[i]
 
     return deinterleaved
 

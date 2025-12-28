@@ -644,46 +644,77 @@ class TrunkingSystem:
         # Store reference to self for dynamic offset access in closure
         system = self
 
-        # Design anti-aliasing filter for decimation
-        # Target output rate is 48kHz for 10 samples/symbol (like SDRTrunk)
-        # OP25 uses 19.2kHz (4 sps) but SDRTrunk uses 48kHz
-        target_rate = 48000
-        decim_factor = max(1, self.cfg.sample_rate // target_rate)
+        # ================================================================
+        # TWO-STAGE DECIMATION to match SDRTrunk's 50 kHz (~10.4 SPS)
+        # ================================================================
+        # SDRTrunk uses ChannelSpecification(50000.0, 12500, 5750.0, 6500.0)
+        # This gives 10.4 samples per symbol (50000 / 4800 = 10.4 SPS).
+        #
+        # From 6 MHz: need 120x total decimation to get 50 kHz
+        # Two-stage approach: 30:1 → 4:1 = 120:1 total
+        #
+        # Stage 1: 6 MHz → 200 kHz (30:1 decimation)
+        # Stage 2: 200 kHz → 50 kHz (4:1 decimation)
+        # ================================================================
 
-        # Calculate ACTUAL decimated sample rate (may differ slightly from target)
-        actual_sample_rate = self.cfg.sample_rate // decim_factor
+        input_rate = self.cfg.sample_rate  # e.g., 6 MHz
 
-        # Create ControlChannelMonitor with ACTUAL sample rate for correct timing
+        # Stage 1: Coarse decimation to 200 kHz
+        stage1_factor = 30
+        stage1_rate = input_rate // stage1_factor  # 200 kHz
+
+        # Stage 2: Fine decimation to 50 kHz (10.4 SPS, matches SDRTrunk)
+        stage2_factor = 4
+        stage2_rate = stage1_rate // stage2_factor  # 50 kHz
+
+        # Final output rate
+        actual_sample_rate = stage2_rate
+        total_decim = stage1_factor * stage2_factor
+
+        # Create ControlChannelMonitor with actual sample rate for correct timing
         self._control_monitor = create_control_monitor(
             protocol=self.cfg.protocol,
-            sample_rate=actual_sample_rate,  # Use actual, not target
+            sample_rate=actual_sample_rate,  # Use actual ~19.2 kHz
             modulation=self.cfg.modulation,
         )
 
         mod_str = self.cfg.modulation.value if self.cfg.modulation else "auto"
         logger.info(
             f"TrunkingSystem {self.cfg.id}: Created ControlChannelMonitor "
-            f"for {self.cfg.protocol.value} (modulation: {mod_str}, rate={actual_sample_rate}Hz)"
+            f"for {self.cfg.protocol.value} (modulation: {mod_str}, rate={actual_sample_rate}Hz, "
+            f"SPS={actual_sample_rate/4800:.1f})"
         )
-        if decim_factor > 1:
-            # Design lowpass filter: cutoff at 0.8 * (target_rate/2) / (sample_rate/2)
-            # = 0.8 * target_rate / sample_rate
-            normalized_cutoff = 0.8 * target_rate / self.cfg.sample_rate
-            num_taps = 65  # Good tradeoff between quality and performance
-            anti_alias_taps = scipy_signal.firwin(num_taps, normalized_cutoff)
-            anti_alias_zi = scipy_signal.lfilter_zi(anti_alias_taps, 1.0)
 
-            logger.info(
-                f"TrunkingSystem {self.cfg.id}: Decimation filter: "
-                f"{self.cfg.sample_rate} -> {self.cfg.sample_rate // decim_factor} Hz "
-                f"(factor {decim_factor})"
-            )
-        else:
-            anti_alias_taps = None
-            anti_alias_zi = None
+        # Design Stage 1 anti-aliasing filter
+        # Cutoff at 0.8 * (stage1_rate/2) / (input_rate/2) = 0.8 / stage1_factor
+        # Use Kaiser window with beta=7.857 for 80 dB stopband attenuation (matches SDRTrunk)
+        stage1_normalized_cutoff = 0.8 / stage1_factor
+        stage1_taps = scipy_signal.firwin(
+            157, stage1_normalized_cutoff, window=("kaiser", 7.857)
+        )
+        stage1_zi = scipy_signal.lfilter_zi(stage1_taps, 1.0)
 
-        # Store filter state for streaming
-        filter_state = [anti_alias_zi.astype(np.complex128) if anti_alias_zi is not None else None]
+        # Design Stage 2 anti-aliasing filter
+        # Cutoff at 0.8 * (stage2_rate/2) / (stage1_rate/2) = 0.8 / stage2_factor
+        # Use Kaiser window with beta=7.857 for 80 dB stopband attenuation (matches SDRTrunk)
+        stage2_normalized_cutoff = 0.8 / stage2_factor
+        stage2_taps = scipy_signal.firwin(
+            73, stage2_normalized_cutoff, window=("kaiser", 7.857)
+        )
+        stage2_zi = scipy_signal.lfilter_zi(stage2_taps, 1.0)
+
+        logger.info(
+            f"TrunkingSystem {self.cfg.id}: Two-stage decimation: "
+            f"{input_rate/1e6:.1f} MHz → {stage1_rate/1e3:.1f} kHz ({stage1_factor}:1, {len(stage1_taps)} taps) → "
+            f"{stage2_rate/1e3:.1f} kHz ({stage2_factor}:1, {len(stage2_taps)} taps), "
+            f"total {total_decim}:1"
+        )
+
+        # Store filter states for streaming (mutable list to update in closure)
+        filter_state = {
+            "stage1_zi": stage1_zi.astype(np.complex128),
+            "stage2_zi": stage2_zi.astype(np.complex128),
+        }
 
         # Debug counter for IQ flow monitoring
         iq_debug_state = {"samples": 0, "calls": 0}
@@ -723,12 +754,75 @@ class TrunkingSystem:
             if freq_shift_state["sample_idx"] >= wrap_samples:
                 freq_shift_state["sample_idx"] %= wrap_samples
 
+            # [DIAG-STAGE2] Frequency shift diagnostics
+            if "call_count" not in freq_shift_state:
+                freq_shift_state["call_count"] = 0
+            freq_shift_state["call_count"] += 1
+
+            if freq_shift_state["call_count"] % 100 == 0:
+                # Check phase continuity
+                actual_start_phase = float(phase[0]) if len(phase) > 0 else 0.0
+                iq_power_before = float(np.mean(np.abs(iq)**2))
+                shifted_iq = (iq.astype(np.complex64, copy=False) * shift).astype(np.complex64)
+                iq_power_after = float(np.mean(np.abs(shifted_iq)**2))
+                logger.info(
+                    f"[DIAG-STAGE2] calls={freq_shift_state['call_count']}, "
+                    f"offset={offset_hz/1e3:.1f}kHz, sample_idx={freq_shift_state['sample_idx']}, "
+                    f"start_phase={actual_start_phase:.4f}rad, "
+                    f"power_before={iq_power_before:.6f}, power_after={iq_power_after:.6f}"
+                )
+                # [DIAG-STAGE2b] Check where signal power is in spectrum BEFORE and AFTER shift
+                if len(shifted_iq) >= 4096 and freq_shift_state["call_count"] == 100:
+                    freq_resolution = sample_rate / 4096
+
+                    # FFT BEFORE shift
+                    fft_before = np.fft.fft(iq[:4096])
+                    fft_power_before = np.abs(fft_before)**2
+                    peak_bin_before = np.argmax(fft_power_before)
+                    peak_freq_before = peak_bin_before * freq_resolution
+                    if peak_bin_before > 2048:
+                        peak_freq_before = peak_freq_before - sample_rate
+
+                    # FFT AFTER shift
+                    fft_after = np.fft.fft(shifted_iq[:4096])
+                    fft_power_after = np.abs(fft_after)**2
+                    peak_bin_after = np.argmax(fft_power_after)
+                    peak_freq_after = peak_bin_after * freq_resolution
+                    if peak_bin_after > 2048:
+                        peak_freq_after = peak_freq_after - sample_rate
+
+                    # Check power at expected signal location BEFORE shift (-2300 kHz = offset)
+                    expected_bin = int(offset_hz / freq_resolution)
+                    if expected_bin < 0:
+                        expected_bin += 4096
+                    expected_power = fft_power_before[expected_bin]
+                    noise_floor = np.median(fft_power_before)
+                    snr_at_expected = 10 * np.log10(expected_power / noise_floor) if noise_floor > 0 else 0
+
+                    # Check power in baseband (0 Hz ± 50 kHz) AFTER shift
+                    baseband_bins = int(50000 / freq_resolution)
+                    baseband_power = np.sum(fft_power_after[:baseband_bins]) + np.sum(fft_power_after[-baseband_bins:])
+                    total_power = np.sum(fft_power_after)
+                    baseband_ratio = baseband_power / total_power if total_power > 0 else 0
+
+                    logger.info(
+                        f"[DIAG-STAGE2b] BEFORE shift: peak_bin={peak_bin_before}, peak_freq={peak_freq_before/1e3:.1f}kHz, "
+                        f"SNR_at_{offset_hz/1e3:.0f}kHz={snr_at_expected:.1f}dB"
+                    )
+                    logger.info(
+                        f"[DIAG-STAGE2b] AFTER shift: peak_bin={peak_bin_after}, peak_freq={peak_freq_after/1e3:.1f}kHz, "
+                        f"baseband_power_ratio={baseband_ratio:.4f} (should be >0.8 if signal centered)"
+                    )
+                return shifted_iq
+
             return (iq.astype(np.complex64, copy=False) * shift).astype(np.complex64)
 
         # IQ buffer for control channel - accumulate decimated samples before processing
-        # SDRplay returns small chunks (~8192 samples), after decimation we get only ~65 samples
-        # C4FM demodulation needs ~1000+ samples for reliable timing recovery
-        IQ_BUFFER_MIN_SAMPLES = 4000  # ~400 symbols at 10 sps = ~83ms of audio
+        # SDRplay returns small chunks (~8192 samples), after decimation we get only ~26 samples
+        # C4FM demodulation needs sufficient samples for reliable sync detection and timing recovery.
+        # At 19.2kHz: 10000 samples = ~520ms = ~2083 symbols = ~12 P25 frames
+        # (Same time window as previous 25000 at 48kHz, proportionally scaled)
+        IQ_BUFFER_MIN_SAMPLES = 10000
         # Buffer is stored as self._cc_iq_buffer (instance variable) so it can be reset from hunting
 
         # Initial scan state - collect samples for 2 seconds then scan
@@ -737,12 +831,37 @@ class TrunkingSystem:
         INITIAL_SCAN_SAMPLES = capture_sample_rate * 2  # 2 seconds of samples
         ROAM_SCAN_SAMPLES = capture_sample_rate  # 1 second of samples for roaming check
 
-        def on_raw_iq_callback(iq: np.ndarray, sample_rate: int) -> None:
+        def on_raw_iq_callback(iq: np.ndarray, sample_rate: int, overflow: bool = False) -> None:
             """IQ callback for trunking system processing.
 
             This receives raw wideband IQ samples, handles initial scanning,
             periodic roaming checks, and feeds decimated IQ to ControlChannelMonitor.
+
+            Args:
+                iq: Raw IQ samples from SDR
+                sample_rate: Sample rate in Hz
+                overflow: True if ring buffer overrun occurred (samples were lost)
             """
+            # Handle overflow: reset all stateful processing when samples are lost
+            # Without this, the decimation filters, frequency shift phase, and demodulator
+            # will produce corrupted output because their state is now invalid
+            if overflow:
+                logger.warning(
+                    f"TrunkingSystem {self.cfg.id}: Ring buffer overflow detected, resetting filter states"
+                )
+                # Reset filter states (zi = zeros resets to initial conditions)
+                filter_state["stage1_zi"] = scipy_signal.lfilter_zi(stage1_taps, 1.0).astype(np.complex128)
+                filter_state["stage2_zi"] = scipy_signal.lfilter_zi(stage2_taps, 1.0).astype(np.complex128)
+                # Reset frequency shift phase (sample index back to 0)
+                freq_shift_state["sample_idx"] = 0
+                # Clear the IQ buffer (contains corrupted partial data)
+                system._cc_iq_buffer = np.array([], dtype=np.complex128)
+                # Reset the control channel monitor (demodulator, sync state)
+                if system._control_monitor is not None:
+                    system._control_monitor.reset()
+                # Skip processing this batch - let state stabilize
+                return
+
             # Debug: Track IQ flow (reduced frequency, use logger instead of print)
             iq_debug_state["samples"] += len(iq)
             iq_debug_state["calls"] += 1
@@ -873,8 +992,9 @@ class TrunkingSystem:
                                 )
 
                             # Reset control monitor and IQ buffer for new channel
+                            # Preserve polarity: same system = same polarity
                             if system._control_monitor is not None:
-                                system._control_monitor.reset()
+                                system._control_monitor.reset(preserve_polarity=True)
                             system._cc_iq_buffer = np.array([], dtype=np.complex128)
 
                     system._last_roam_check = now
@@ -890,38 +1010,48 @@ class TrunkingSystem:
                     f"centered_mean={np.mean(centered_mag):.4f}"
                 )
 
-            # Decimate to ~48 kHz for P25 processing
-            # IMPORTANT: Apply anti-aliasing filter before decimation to prevent
-            # noise from the full capture bandwidth from aliasing into the P25 signal.
-            # Without this filter, 6 MHz -> 48 kHz decimation causes severe noise aliasing.
-            if decim_factor > 1 and anti_alias_taps is not None:
-                # Apply anti-aliasing lowpass filter before decimation
-                # Use streaming filter with state preservation between calls
-                if filter_state[0] is not None:
-                    filtered_iq, filter_state[0] = scipy_signal.lfilter(
-                        anti_alias_taps, 1.0, centered_iq,
-                        zi=filter_state[0]  # Use saved state directly (not scaled by first sample)
+            # ================================================================
+            # TWO-STAGE DECIMATION: 6 MHz → 200 kHz → 50 kHz
+            # ================================================================
+            # Stage 1: Decimate by 30 (6 MHz → 200 kHz)
+            if len(centered_iq) > 0:
+                filtered1, filter_state["stage1_zi"] = scipy_signal.lfilter(
+                    stage1_taps, 1.0, centered_iq,
+                    zi=filter_state["stage1_zi"]
+                )
+                decimated1 = filtered1[::stage1_factor]
+
+                # Stage 2: Decimate by 4 (200 kHz → 50 kHz)
+                filtered2, filter_state["stage2_zi"] = scipy_signal.lfilter(
+                    stage2_taps, 1.0, decimated1,
+                    zi=filter_state["stage2_zi"]
+                )
+                decimated_iq = filtered2[::stage2_factor]
+
+                # [DIAG-STAGE3] Decimation diagnostics
+                if iq_debug_state["calls"] % 100 == 0:
+                    power_in = float(np.mean(np.abs(centered_iq)**2))
+                    power_stage1 = float(np.mean(np.abs(decimated1)**2))
+                    power_out = float(np.mean(np.abs(decimated_iq)**2))
+                    # Power ratio should be close to 1.0 if filters preserve signal
+                    ratio1 = power_stage1 / power_in if power_in > 0 else 0.0
+                    ratio2 = power_out / power_stage1 if power_stage1 > 0 else 0.0
+                    logger.info(
+                        f"[DIAG-STAGE3a] Stage1 decim ({stage1_factor}:1): "
+                        f"in={len(centered_iq)}, out={len(decimated1)}, "
+                        f"power_in={power_in:.6f}, power_out={power_stage1:.6f}, ratio={ratio1:.4f}"
                     )
-                else:
-                    # First call: initialize state for streaming
-                    # Scale the lfilter_zi output by first sample for smooth startup
-                    zi_init = scipy_signal.lfilter_zi(anti_alias_taps, 1.0) * centered_iq[0] if len(centered_iq) > 0 else None
-                    if zi_init is not None:
-                        filtered_iq, filter_state[0] = scipy_signal.lfilter(
-                            anti_alias_taps, 1.0, centered_iq, zi=zi_init
-                        )
-                    else:
-                        filtered_iq = scipy_signal.lfilter(anti_alias_taps, 1.0, centered_iq)
-                decimated_iq = filtered_iq[::decim_factor]
-            elif decim_factor > 1:
-                # Fallback to simple subsampling if no filter (shouldn't happen)
-                decimated_iq = centered_iq[::decim_factor]
+                    logger.info(
+                        f"[DIAG-STAGE3b] Stage2 decim ({stage2_factor}:1): "
+                        f"in={len(decimated1)}, out={len(decimated_iq)}, "
+                        f"power_in={power_stage1:.6f}, power_out={power_out:.6f}, ratio={ratio2:.4f}"
+                    )
             else:
                 decimated_iq = centered_iq
             if _verbose:
                 decim_mag = np.abs(decimated_iq)
                 logger.debug(
-                    f"TrunkingSystem {self.cfg.id}: after decim factor={decim_factor}, "
+                    f"TrunkingSystem {self.cfg.id}: after decim factor={total_decim}, "
                     f"size={len(decimated_iq)}, decim_mean={np.mean(decim_mag):.4f}"
                 )
 
@@ -1496,46 +1626,32 @@ class TrunkingSystem:
         self.control_channel_index = (self.control_channel_index + 1) % num_channels
         self.control_channel_freq_hz = self.cfg.control_channels[self.control_channel_index]
 
+        # Calculate offset from SDR center to the control channel
+        # NOTE: Do NOT retune the SDR - use frequency shifting instead.
+        # Retuning causes glitches and race conditions. The SDR stays at the
+        # configured center frequency, and we use offset-based frequency shifting
+        # to extract each control channel within the capture bandwidth.
+        new_offset_hz = self.control_channel_freq_hz - self.cfg.center_hz
+
         logger.info(
             f"TrunkingSystem {self.cfg.id}: Control channel hunt - "
             f"trying {self.control_channel_freq_hz/1e6:.4f} MHz "
-            f"(channel {self.control_channel_index + 1}/{num_channels})"
+            f"(channel {self.control_channel_index + 1}/{num_channels}, "
+            f"offset={new_offset_hz/1e3:.1f} kHz)"
         )
 
-        # Retune the SDR center frequency to the control channel for best reception
-        if self._capture is not None and self._event_loop is not None:
-            try:
-                # Schedule the async reconfigure on the main event loop (thread-safe)
-                new_center_hz = self.control_channel_freq_hz
-
-                async def do_retune() -> None:
-                    if self._capture is not None:
-                        await self._capture.reconfigure(center_hz=new_center_hz)
-                        # Update config to match
-                        self.cfg.center_hz = new_center_hz
-                        logger.info(
-                            f"TrunkingSystem {self.cfg.id}: Retuned SDR center to "
-                            f"{new_center_hz/1e6:.4f} MHz"
-                        )
-
-                self._event_loop.call_soon_threadsafe(
-                    lambda: asyncio.create_task(do_retune())
-                )
-            except Exception as e:
-                logger.warning(f"TrunkingSystem {self.cfg.id}: Failed to retune SDR: {e}")
-
-        # Update the control channel offset (now 0 since center = control channel)
+        # Update the control channel offset for frequency shifting
         if self._control_channel is not None:
-            new_offset = self.control_channel_freq_hz - self.cfg.center_hz
-            self._control_channel.cfg.offset_hz = new_offset
+            self._control_channel.cfg.offset_hz = new_offset_hz
 
         # Reset state tracking
         self._state_change_time = now
         self._last_tsbk_time = 0.0
 
         # Reset the control channel monitor and IQ buffer
+        # Preserve polarity: same system = same polarity
         if self._control_monitor is not None:
-            self._control_monitor.reset()
+            self._control_monitor.reset(preserve_polarity=True)
         self._cc_iq_buffer = np.array([], dtype=np.complex128)
 
     async def _hunt_check_loop(self) -> None:

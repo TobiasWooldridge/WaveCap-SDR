@@ -23,9 +23,18 @@ import numpy as np
 if TYPE_CHECKING:
     pass
 
+from scipy import signal as scipy_signal
+
 from wavecapsdr.capture import freq_shift
 
 logger = logging.getLogger(__name__)
+
+# Pre-computed anti-aliasing filter taps for scanner decimation
+# Design once for typical 6 MHz -> 48 kHz decimation (125:1)
+# Using Kaiser window with beta=6.0 for 60 dB stopband attenuation
+# Cutoff at 0.8 / 125 = 0.0064 (normalized)
+_SCANNER_DECIM_FILTER_TAPS: np.ndarray | None = None
+_SCANNER_DECIM_FACTOR: int = 0
 
 
 @dataclass
@@ -140,6 +149,17 @@ class ControlChannelScanner:
             self._measurements[freq_hz] = measurement
 
         self._last_scan_time = time.time()
+
+        # Log all measurements for debugging
+        logger.info(f"[SCANNER] Scanned {len(measurements)} channels:")
+        for freq_hz in sorted(measurements.keys()):
+            m = measurements[freq_hz]
+            sync_str = "SYNC" if m.sync_detected else "----"
+            logger.info(
+                f"[SCANNER]   {freq_hz/1e6:.4f} MHz: "
+                f"power={m.power_db:.1f} dB, SNR={m.snr_db:.1f} dB, {sync_str}"
+            )
+
         return measurements
 
     def _measure_channel(self, iq: np.ndarray, freq_hz: float) -> ChannelMeasurement:
@@ -156,13 +176,31 @@ class ControlChannelScanner:
         offset_hz = self.get_channel_offset(freq_hz)
         shifted_iq = freq_shift(iq, offset_hz, self.sample_rate)
 
-        # Decimate to P25 rate (~48 kHz) for analysis
+        # Decimate to P25 rate (~48 kHz) for analysis with anti-aliasing filter
         target_rate = 48000
         decim_factor = max(1, self.sample_rate // target_rate)
 
         if decim_factor > 1:
-            # Simple decimation (no filter needed for power measurement)
-            decimated_iq = shifted_iq[::decim_factor]
+            # Apply anti-aliasing lowpass filter before decimation
+            # This prevents aliasing which would cause all channels to measure same power
+            global _SCANNER_DECIM_FILTER_TAPS, _SCANNER_DECIM_FACTOR
+            if _SCANNER_DECIM_FILTER_TAPS is None or _SCANNER_DECIM_FACTOR != decim_factor:
+                # Design filter for this decimation factor
+                # Cutoff at 0.8 / decim_factor to leave margin before Nyquist
+                # Use 65 taps for reasonable stopband attenuation with low computational cost
+                cutoff = 0.8 / decim_factor
+                _SCANNER_DECIM_FILTER_TAPS = scipy_signal.firwin(
+                    65, cutoff, window=("kaiser", 6.0)
+                )
+                _SCANNER_DECIM_FACTOR = decim_factor
+                logger.info(
+                    f"ControlChannelScanner: Created decimation filter: "
+                    f"factor={decim_factor}, cutoff={cutoff:.4f}, taps={len(_SCANNER_DECIM_FILTER_TAPS)}"
+                )
+
+            # Apply lowpass filter then decimate
+            filtered = scipy_signal.lfilter(_SCANNER_DECIM_FILTER_TAPS, 1.0, shifted_iq)
+            decimated_iq = filtered[::decim_factor]
         else:
             decimated_iq = shifted_iq
 
@@ -201,8 +239,8 @@ class ControlChannelScanner:
     def _detect_sync_pattern(self, iq: np.ndarray) -> bool:
         """Detect P25 frame sync pattern in IQ samples.
 
-        Uses simplified detection - checks for correlation with
-        the expected sync pattern in the demodulated symbols.
+        Uses C4FM FM demodulation to detect the 24-dibit sync pattern.
+        P25 Phase 1 is 4-level FM (C4FM), NOT differential PSK.
 
         Args:
             iq: Decimated IQ samples (~48 kHz rate)
@@ -210,43 +248,68 @@ class ControlChannelScanner:
         Returns:
             True if sync pattern was detected
         """
-        # Demodulate to symbols using differential phase
         # P25 at 4800 symbols/sec, 48000 samples/sec = 10 samples/symbol
         samples_per_symbol = 10
-
-        if len(iq) < samples_per_symbol * len(self._sync_pattern):
-            return False
-
-        # Get phase
-        phase = np.angle(iq)
-
-        # Differential phase (like CQPSK demodulation)
-        phase_diff = np.diff(phase)
-        phase_diff = np.mod(phase_diff + np.pi, 2 * np.pi) - np.pi
-
-        # Sample at symbol rate
-        symbols_count = len(phase_diff) // samples_per_symbol
-        if symbols_count < len(self._sync_pattern):
-            return False
-
-        # Take middle sample of each symbol
-        symbol_phases = phase_diff[samples_per_symbol // 2::samples_per_symbol][:symbols_count]
-
-        # Map to dibits (0-3) based on phase quadrant
-        # CQPSK: +π/4 -> 0, +3π/4 -> 1, -3π/4 -> 3, -π/4 -> 2
-        half_pi = np.pi / 2
-        dibits = np.zeros(len(symbol_phases), dtype=np.uint8)
-        dibits[(symbol_phases >= 0) & (symbol_phases < half_pi)] = 0
-        dibits[symbol_phases >= half_pi] = 1
-        dibits[(symbol_phases >= -half_pi) & (symbol_phases < 0)] = 2
-        dibits[symbol_phases < -half_pi] = 3
-
-        # Search for sync pattern with tolerance
         sync_len = len(self._sync_pattern)
-        max_errors = 4  # Allow up to 4 dibit errors
+
+        if len(iq) < samples_per_symbol * sync_len + samples_per_symbol:
+            return False
+
+        # C4FM: FM demodulate by taking angle of product with conjugate of previous sample
+        # This gives instantaneous frequency deviation
+        fm_demod = np.angle(iq[1:] * np.conj(iq[:-1]))
+
+        # Normalize: P25 C4FM uses ±1.8 kHz (±3) and ±0.6 kHz (±1) deviation
+        # At 48 kHz sample rate, 4800 baud, max deviation = 1.8 kHz
+        # Phase per sample at 1.8 kHz = 2π * 1800 / 48000 = 0.2356 rad
+        # So fm_demod values should be approximately:
+        #   +3 symbol: +0.2356 rad
+        #   +1 symbol: +0.0785 rad
+        #   -1 symbol: -0.0785 rad
+        #   -3 symbol: -0.2356 rad
+
+        # Sample at symbol rate (take middle sample of each symbol)
+        symbols_count = len(fm_demod) // samples_per_symbol
+        if symbols_count < sync_len:
+            return False
+
+        symbol_samples = fm_demod[samples_per_symbol // 2::samples_per_symbol][:symbols_count]
+
+        # Map FM deviation to dibits using thresholds
+        # Thresholds at ±0.1178 rad (halfway between ±1 and ±3 levels)
+        # and 0 (halfway between +1 and -1)
+        threshold_high = 0.12  # Between +1 and +3
+        threshold_low = -0.12  # Between -1 and -3
+
+        # P25 sync uses +3 and -3 (dibits 1 and 3)
+        # +3 = dibit 01 = 1
+        # -3 = dibit 11 = 3
+        # Map: +3 (>+0.12) -> 1, +1 (0 to +0.12) -> 0, -1 (-0.12 to 0) -> 2, -3 (<-0.12) -> 3
+        dibits = np.zeros(len(symbol_samples), dtype=np.uint8)
+        dibits[symbol_samples > threshold_high] = 1   # +3 symbol
+        dibits[(symbol_samples > 0) & (symbol_samples <= threshold_high)] = 0   # +1 symbol
+        dibits[(symbol_samples <= 0) & (symbol_samples > threshold_low)] = 2   # -1 symbol
+        dibits[symbol_samples <= threshold_low] = 3   # -3 symbol
+
+        # Search for sync pattern with strict tolerance
+        # 24 dibits total, allow max 3 errors (12.5% error rate)
+        # This is stricter to avoid false positives on noise/interference
+        max_errors = 3
 
         for i in range(len(dibits) - sync_len):
             errors = np.sum(dibits[i:i + sync_len] != self._sync_pattern)
+            if errors <= max_errors:
+                return True
+
+        # Also try inverted polarity (180° phase offset inverts all symbols)
+        inverted_dibits = dibits.copy()
+        inverted_dibits[dibits == 0] = 2
+        inverted_dibits[dibits == 2] = 0
+        inverted_dibits[dibits == 1] = 3
+        inverted_dibits[dibits == 3] = 1
+
+        for i in range(len(inverted_dibits) - sync_len):
+            errors = np.sum(inverted_dibits[i:i + sync_len] != self._sync_pattern)
             if errors <= max_errors:
                 return True
 
@@ -257,8 +320,12 @@ class ControlChannelScanner:
 
         Prioritizes:
         1. Channels with detected P25 sync pattern
-        2. Channels with highest SNR
-        3. Channels with highest power
+        2. For sync channels: highest POWER (active CC has constant modulation = high power)
+        3. For non-sync channels: highest SNR (to find potential signals)
+
+        IMPORTANT: Active P25 control channels show LOW SNR because they're
+        constantly transmitting modulated data with no quiet periods. So we
+        prioritize POWER for channels with sync detected.
 
         Returns:
             Tuple of (frequency_hz, measurement) or None if no usable channel
@@ -266,33 +333,39 @@ class ControlChannelScanner:
         if not self._measurements:
             return None
 
-        # Filter to usable channels (above minimum SNR)
-        usable = [
-            (freq, m) for freq, m in self._measurements.items()
-            if m.snr_db >= self.min_snr_db
-        ]
-
-        if not usable:
-            # Fall back to all channels if none meet SNR threshold
-            usable = list(self._measurements.items())
-
+        usable = list(self._measurements.items())
         if not usable:
             return None
 
-        # Sort by: sync_detected (True first), then SNR, then power
-        usable.sort(
-            key=lambda x: (
-                x[1].sync_detected,  # True sorts after False, so negate
-                x[1].snr_db,
-                x[1].power_db
-            ),
-            reverse=True
-        )
+        # Separate channels with and without sync
+        with_sync = [(freq, m) for freq, m in usable if m.sync_detected]
+        without_sync = [(freq, m) for freq, m in usable if not m.sync_detected]
 
-        return usable[0]
+        if with_sync:
+            # For channels with sync: prioritize HIGHEST POWER
+            # Active control channels have constant modulation = high average power
+            with_sync.sort(key=lambda x: x[1].power_db, reverse=True)
+            best = with_sync[0]
+            logger.info(
+                f"[SCANNER] Best channel (sync): {best[0]/1e6:.4f} MHz, "
+                f"power={best[1].power_db:.1f} dB (highest power with sync)"
+            )
+            return best
+
+        # No sync detected - fall back to highest SNR
+        # This helps find potential signals that might have sync on next scan
+        without_sync.sort(key=lambda x: x[1].snr_db, reverse=True)
+        best = without_sync[0]
+        logger.info(
+            f"[SCANNER] Best channel (no sync): {best[0]/1e6:.4f} MHz, "
+            f"SNR={best[1].snr_db:.1f} dB (highest SNR without sync)"
+        )
+        return best
 
     def get_channel_ranking(self) -> list[tuple[float, ChannelMeasurement]]:
         """Get all channels ranked by signal quality.
+
+        Channels with sync are ranked first (by power), then without sync (by SNR).
 
         Returns:
             List of (frequency_hz, measurement) sorted best to worst
@@ -300,17 +373,16 @@ class ControlChannelScanner:
         if not self._measurements:
             return []
 
-        ranked = list(self._measurements.items())
-        ranked.sort(
-            key=lambda x: (
-                x[1].sync_detected,
-                x[1].snr_db,
-                x[1].power_db
-            ),
-            reverse=True
-        )
+        # Separate by sync status
+        with_sync = [(freq, m) for freq, m in self._measurements.items() if m.sync_detected]
+        without_sync = [(freq, m) for freq, m in self._measurements.items() if not m.sync_detected]
 
-        return ranked
+        # Sort sync channels by power (descending), non-sync by SNR (descending)
+        with_sync.sort(key=lambda x: x[1].power_db, reverse=True)
+        without_sync.sort(key=lambda x: x[1].snr_db, reverse=True)
+
+        # Combine: sync channels first (by power), then non-sync (by SNR)
+        return with_sync + without_sync
 
     def should_roam(
         self,

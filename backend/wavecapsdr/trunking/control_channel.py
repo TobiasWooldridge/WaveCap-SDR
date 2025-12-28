@@ -26,6 +26,7 @@ import numpy as np
 # Use demodulators from decoders/p25.py
 from wavecapsdr.decoders.p25 import CQPSKDemodulator as P25CQPSKDemodulator
 from wavecapsdr.dsp.p25.c4fm import C4FMDemodulator as DSPC4FMDemodulator
+from wavecapsdr.decoders.nac_tracker import NACTracker
 from wavecapsdr.decoders.p25_frames import (
     DUID,
     decode_nid,
@@ -58,7 +59,7 @@ class ControlChannelMonitor:
     """
 
     protocol: TrunkingProtocol
-    sample_rate: int = 48000  # Input IQ sample rate
+    sample_rate: int = 19200  # Input IQ sample rate (~4 SPS, matches SDRTrunk)
     modulation: P25Modulation = P25Modulation.C4FM  # Default to C4FM (most common)
 
     # Demodulator - either C4FM or CQPSK based on modulation
@@ -67,6 +68,9 @@ class ControlChannelMonitor:
 
     # TSBK parser
     _tsbk_parser: TSBKParser | None = None
+
+    # NAC tracker for intelligent NID recovery (port of SDRTrunk NACTracker)
+    _nac_tracker: NACTracker = field(default_factory=NACTracker)
 
     # Frame sync state
     sync_state: SyncState = SyncState.SEARCHING
@@ -136,14 +140,22 @@ class ControlChannelMonitor:
         # 0 = normal polarity, 2 = reversed (XOR mask to apply)
         self._reverse_p: int = 0
 
-    def reset(self) -> None:
-        """Reset monitor state."""
+    def reset(self, preserve_polarity: bool = False) -> None:
+        """Reset monitor state.
+
+        Args:
+            preserve_polarity: If True, keep the latched polarity setting.
+                              Use this when hunting/roaming within same system.
+                              If False (default), fully reset polarity detection.
+        """
         self.sync_state = SyncState.SEARCHING
         self._dibit_buffer.clear()
         self._soft_buffer.clear()
         self._sync_pattern_idx = 0
-        self._reverse_p = 0
-        self._polarity_latched = False
+        if not preserve_polarity:
+            self._reverse_p = 0
+            self._polarity_latched = False
+        self._nac_tracker.reset()  # Clear NAC tracking on reset
         # P25C4FMDemodulator doesn't have a reset method; it maintains
         # minimal state that resets naturally with new IQ blocks
 
@@ -309,7 +321,31 @@ class ControlChannelMonitor:
                     f"NID dibits (33): {list(nid_dibits[:15])}..."
                 )
 
-            nid = decode_nid(nid_dibits, skip_status_at_10=True)
+            # Decode NID with NAC tracking for intelligent BCH retry
+            nid = decode_nid(nid_dibits, skip_status_at_10=True, nac_tracker=self._nac_tracker)
+
+            # [DIAG-STAGE7] NID decode statistics
+            if not hasattr(self, '_diag_nid_count'):
+                self._diag_nid_count = 0
+                self._diag_nid_valid = 0
+                self._diag_last_nacs = []
+            self._diag_nid_count += 1
+            if nid is not None:
+                self._diag_nid_valid += 1
+                self._diag_last_nacs.append(nid.nac)
+                if len(self._diag_last_nacs) > 20:
+                    self._diag_last_nacs = self._diag_last_nacs[-20:]
+
+            if self._diag_nid_count % 20 == 0:
+                valid_rate = 100.0 * self._diag_nid_valid / self._diag_nid_count if self._diag_nid_count > 0 else 0.0
+                # Check NAC consistency - all same = good, all different = bad
+                unique_nacs = set(self._diag_last_nacs)
+                nac_str = ",".join([f"0x{n:03x}" for n in list(unique_nacs)[:5]])
+                logger.info(
+                    f"[DIAG-STAGE7] NID: count={self._diag_nid_count}, "
+                    f"valid={self._diag_nid_valid}, rate={valid_rate:.1f}%, "
+                    f"unique_nacs={len(unique_nacs)}, recent_nacs=[{nac_str}]"
+                )
 
             # Debug: log every 100th frame (less frequent)
             if self._frame_count <= 3 or self._frame_count % 100 == 1:
@@ -317,6 +353,14 @@ class ControlChannelMonitor:
                     f"ControlChannelMonitor: Frame {self._frame_count}, NID={nid}, "
                     f"DUID={nid.duid if nid else 'None'}, TSDU={DUID.TSDU}"
                 )
+
+            # Calculate actual frame length based on DUID
+            # Per P25P1DataUnitID.java:
+            #   TSBK1: 56 + 98 + 5 + 21 = 180 dibits
+            #   TSBK2: 56 + 196 + 8 + 28 = 288 dibits (2 blocks)
+            #   TSBK3: 56 + 294 + 10 + 0 = 360 dibits (3 blocks)
+            # We use a sync-search approach instead of fixed consumption
+            frame_consumed = 0
 
             if nid is not None and nid.duid == DUID.TSDU:
                 # This is a TSDU frame - decode it
@@ -328,6 +372,16 @@ class ControlChannelMonitor:
                     logger.debug("ControlChannelMonitor: decode_tsdu returned None")
                 if tsdu and tsdu.tsbk_blocks:
                     self.frames_decoded += 1
+                    num_blocks = len(tsdu.tsbk_blocks)
+
+                    # Calculate frame length based on number of TSBK blocks
+                    # sync(24) + nid(33 incl status) + data + status + null
+                    if num_blocks == 1:
+                        frame_consumed = 180
+                    elif num_blocks == 2:
+                        frame_consumed = 288
+                    else:
+                        frame_consumed = 360
 
                     # Parse each TSBK block in the frame
                     for tsbk_block in tsdu.tsbk_blocks:
@@ -346,6 +400,14 @@ class ControlChannelMonitor:
                         # CRC passed
                         self.tsbk_crc_pass += 1
 
+                        # [DIAG-STAGE7b] TSBK CRC statistics (every 20 attempts)
+                        if self.tsbk_attempts % 20 == 0:
+                            crc_rate = 100.0 * self.tsbk_crc_pass / self.tsbk_attempts
+                            logger.info(
+                                f"[DIAG-STAGE7b] TSBK: attempts={self.tsbk_attempts}, "
+                                f"crc_pass={self.tsbk_crc_pass}, rate={crc_rate:.1f}%"
+                            )
+
                         # Pass opcode and mfid from TSBKBlock to parser
                         result = self._parse_tsbk(tsbk_block.opcode, tsbk_block.mfid, tsbk_block.data)
                         if result:
@@ -356,11 +418,21 @@ class ControlChannelMonitor:
                         if self.on_tsbk:
                             self.on_tsbk(tsbk_block.data)
 
-            # Consume frame from buffer
-            self._dibit_buffer = self._dibit_buffer[self.TSDU_FRAME_DIBITS:]
+            # If we couldn't determine frame length (e.g., non-TSDU or decode failed),
+            # use minimum skip to avoid re-finding same sync
+            if frame_consumed == 0:
+                # Skip sync + NID to avoid re-detecting same frame
+                frame_consumed = 60  # 24 sync + 33 NID + 3 buffer
+
+            # Consume actual frame length from buffer
+            self._dibit_buffer = self._dibit_buffer[frame_consumed:]
             if self._soft_buffer:
-                self._soft_buffer = self._soft_buffer[self.TSDU_FRAME_DIBITS:]
+                self._soft_buffer = self._soft_buffer[frame_consumed:]
             self._last_sync_time = time.time()
+
+            # After processing a frame, go back to searching for next sync
+            # This is more robust than assuming fixed frame spacing
+            self.sync_state = SyncState.SEARCHING
 
         # Check for sync timeout
         if self.sync_state == SyncState.SYNCED:
@@ -441,6 +513,23 @@ class ControlChannelMonitor:
                 best_score = score
                 best_pos = i
                 best_is_reversed = is_reversed
+
+        # [DIAG-STAGE6] Sync detection statistics
+        if not hasattr(self, '_diag_sync_attempts'):
+            self._diag_sync_attempts = 0
+            self._diag_sync_found = 0
+        self._diag_sync_attempts += 1
+        if best_score >= self.SOFT_SYNC_THRESHOLD:
+            self._diag_sync_found += 1
+
+        if self._diag_sync_attempts % 50 == 0:
+            sync_rate = 100.0 * self._diag_sync_found / self._diag_sync_attempts if self._diag_sync_attempts > 0 else 0.0
+            logger.info(
+                f"[DIAG-STAGE6] Sync: attempts={self._diag_sync_attempts}, "
+                f"found={self._diag_sync_found}, rate={sync_rate:.1f}%, "
+                f"best_score={best_score:.1f}, threshold={self.SOFT_SYNC_THRESHOLD}, "
+                f"polarity={'reversed' if best_is_reversed else 'normal'}"
+            )
 
         if verbose:
             sample = self._dibit_buffer[:min(30, len(self._dibit_buffer))]
@@ -549,14 +638,14 @@ class ControlChannelMonitor:
 
 def create_control_monitor(
     protocol: TrunkingProtocol,
-    sample_rate: int = 48000,
+    sample_rate: int = 19200,  # ~4 SPS like SDRTrunk
     modulation: P25Modulation | None = None,
 ) -> ControlChannelMonitor:
     """Create a control channel monitor.
 
     Args:
         protocol: P25 protocol (Phase I or II)
-        sample_rate: Input sample rate in Hz
+        sample_rate: Input sample rate in Hz (~19200 for 4 SPS like SDRTrunk)
         modulation: Override modulation type (None = use default for protocol)
 
     Returns:
