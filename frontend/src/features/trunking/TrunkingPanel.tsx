@@ -9,6 +9,7 @@ import {
   XCircle,
   History,
   MessageSquare,
+  FileText,
 } from "lucide-react";
 import {
   useTrunkingSystem,
@@ -24,16 +25,17 @@ import { useToast } from "../../hooks/useToast";
 import { copyToClipboard } from "../../utils/clipboard";
 import type { ActiveCall } from "../../types/trunking";
 import { SystemStatusPanel } from "./SystemStatusPanel";
-import { ControlChannelPanel } from "./ControlChannelPanel";
+import { SystemConfigPanel } from "./SystemConfigPanel";
 import { ActiveCallsTable } from "./ActiveCallsTable";
 import { TalkgroupDirectory } from "./TalkgroupDirectory";
 import { CallEventLog, CallEvent } from "./CallEventLog";
 import { MessageLog } from "./MessageLog";
+import { ActivitySummary } from "./ActivitySummary";
 import { StreamLinks, TRUNKING_SYSTEM_STREAM_FORMATS } from "../../components/StreamLinks";
 import Flex from "../../components/primitives/Flex.react";
 import Spinner from "../../components/primitives/Spinner.react";
 
-type TabId = "active" | "talkgroups" | "messages" | "history";
+type TabId = "active" | "talkgroups" | "messages" | "history" | "summary";
 
 const MAX_EVENTS = 100; // Keep last 100 events
 
@@ -236,10 +238,8 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
         onStopAudio={stopAudio}
       />
 
-      {/* Control channel panel - shows hunt mode and channel controls */}
-      {system.controlChannels && system.controlChannels.length > 1 && (
-        <ControlChannelPanel system={system} />
-      )}
+      {/* System configuration panel - network info, site info, control channels */}
+      <SystemConfigPanel system={system} />
 
       {/* System-level stream links */}
       <StreamLinks
@@ -337,6 +337,15 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
                 )}
               </button>
             </li>
+            <li className="nav-item">
+              <button
+                className={`nav-link ${activeTab === "summary" ? "active" : ""}`}
+                onClick={() => setActiveTab("summary")}
+              >
+                <FileText size={14} className="me-1" />
+                Summary
+              </button>
+            </li>
           </ul>
         </div>
 
@@ -364,6 +373,14 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
 
           {activeTab === "history" && (
             <CallEventLog events={callEvents} maxHeight={400} />
+          )}
+
+          {activeTab === "summary" && system && (
+            <ActivitySummary
+              system={system}
+              activeCalls={displayCalls}
+              messages={wsMessages}
+            />
           )}
         </div>
       </div>
