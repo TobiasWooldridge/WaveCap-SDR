@@ -456,6 +456,10 @@ class TrunkingSystem:
     _message_log_max_size: int = 500  # Keep last 500 messages
     on_message: Callable[[dict[str, Any]], None] | None = None
 
+    # Call history buffer (ring buffer for ended calls)
+    _call_history: list[dict[str, Any]] = field(default_factory=list)
+    _call_history_max_size: int = 100  # Keep last 100 calls
+
     # Event callbacks
     on_call_start: Callable[[ActiveCall], None] | None = None
     on_call_update: Callable[[ActiveCall], None] | None = None
@@ -1967,6 +1971,14 @@ class TrunkingSystem:
                     self._schedule_coroutine(recorder.release(), "release recorder")
                     break
 
+        # Add to call history buffer
+        call_record = call.to_dict()
+        call_record["endReason"] = reason
+        call_record["endTime"] = time.time()
+        self._call_history.append(call_record)
+        if len(self._call_history) > self._call_history_max_size:
+            self._call_history = self._call_history[-self._call_history_max_size:]
+
         # Notify callback
         if self.on_call_end:
             self.on_call_end(call)
@@ -2543,4 +2555,28 @@ class TrunkingSystem:
         """
         count = len(self._message_log)
         self._message_log.clear()
+        return count
+
+    def get_call_history(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        """Get recent call history from the buffer.
+
+        Args:
+            limit: Maximum number of calls to return
+            offset: Number of calls to skip from the end
+
+        Returns:
+            List of call dictionaries, newest first
+        """
+        # Return calls in reverse order (newest first)
+        calls = list(reversed(self._call_history))
+        return calls[offset:offset + limit]
+
+    def clear_call_history(self) -> int:
+        """Clear the call history buffer.
+
+        Returns:
+            Number of calls cleared
+        """
+        count = len(self._call_history)
+        self._call_history.clear()
         return count

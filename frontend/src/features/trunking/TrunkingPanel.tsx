@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import {
   Radio,
   Phone,
@@ -89,12 +89,50 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
     isConnected: wsConnected,
     activeCalls: wsActiveCalls,
     messages: wsMessages,
+    callHistory: wsCallHistory,
   } = useTrunkingWebSocket({
     systemId,
     enabled: !!systemId,
     onCallStart: handleCallStart,
     onCallEnd: handleCallEnd,
   });
+
+  // Initialize call events from server-buffered call history on first load
+  useEffect(() => {
+    if (wsCallHistory.length > 0 && callEvents.length === 0) {
+      // Convert server call history to CallEvent format
+      // Each ended call becomes two events: start and end
+      const events: CallEvent[] = [];
+      for (const call of wsCallHistory) {
+        // Add start event
+        events.push({
+          id: call.id + "_start",
+          timestamp: call.startTime,
+          type: "start",
+          talkgroupId: call.talkgroupId,
+          talkgroupName: call.talkgroupName,
+          sourceId: call.sourceId,
+          frequencyHz: call.frequencyHz,
+          encrypted: call.encrypted,
+        });
+        // Add end event
+        events.push({
+          id: call.id + "_end",
+          timestamp: call.endTime || (call.startTime + (call.durationSeconds || 0)),
+          type: "end",
+          talkgroupId: call.talkgroupId,
+          talkgroupName: call.talkgroupName,
+          sourceId: call.sourceId,
+          frequencyHz: call.frequencyHz,
+          durationSeconds: call.durationSeconds,
+          encrypted: call.encrypted,
+        });
+      }
+      // Sort by timestamp and keep last MAX_EVENTS
+      events.sort((a, b) => a.timestamp - b.timestamp);
+      setCallEvents(events.slice(-MAX_EVENTS));
+    }
+  }, [wsCallHistory, callEvents.length]);
 
   // Audio playback for trunking system
   const {

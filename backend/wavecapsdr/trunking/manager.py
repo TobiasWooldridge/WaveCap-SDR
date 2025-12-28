@@ -354,11 +354,29 @@ class TrunkingManager:
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
         self._event_queues.add(queue)
 
-        # Send initial snapshot
+        # Send initial snapshot with buffered messages and call history
+        # Aggregate messages and call history from all systems
+        all_messages: list[dict[str, Any]] = []
+        all_call_history: list[dict[str, Any]] = []
+        for system in self._systems.values():
+            # Add system ID to each message/call for frontend routing
+            for msg in system.get_messages(limit=200):
+                msg["systemId"] = system.cfg.id
+                all_messages.append(msg)
+            for call in system.get_call_history(limit=50):
+                call["systemId"] = system.cfg.id
+                all_call_history.append(call)
+
+        # Sort by timestamp (newest first) and limit
+        all_messages.sort(key=lambda m: m.get("timestamp", 0), reverse=True)
+        all_call_history.sort(key=lambda c: c.get("endTime", c.get("startTime", 0)), reverse=True)
+
         snapshot = {
             "type": "snapshot",
             "systems": [s.to_dict() for s in self._systems.values()],
             "activeCalls": [c.to_dict() for c in self.get_active_calls()],
+            "messages": all_messages[:200],  # Last 200 messages across all systems
+            "callHistory": all_call_history[:100],  # Last 100 calls across all systems
         }
         with contextlib.suppress(asyncio.QueueFull):
             queue.put_nowait(snapshot)

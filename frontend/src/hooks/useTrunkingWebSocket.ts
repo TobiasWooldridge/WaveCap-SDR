@@ -5,6 +5,7 @@ import type {
   TrunkingSystem,
   ActiveCall,
   P25Message,
+  CallHistoryEntry,
 } from "../types/trunking";
 import { trunkingKeys } from "./useTrunking";
 
@@ -23,6 +24,7 @@ interface UseTrunkingWebSocketResult {
   systems: TrunkingSystem[];
   activeCalls: ActiveCall[];
   messages: P25Message[];
+  callHistory: CallHistoryEntry[];  // Buffered call history from server
   error: string | null;
 }
 
@@ -40,6 +42,7 @@ export function useTrunkingWebSocket(
   const [systems, setSystems] = useState<TrunkingSystem[]>([]);
   const [activeCalls, setActiveCalls] = useState<ActiveCall[]>([]);
   const [messages, setMessages] = useState<P25Message[]>([]);
+  const [callHistory, setCallHistory] = useState<CallHistoryEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const handleEvent = useCallback(
@@ -48,6 +51,15 @@ export function useTrunkingWebSocket(
         case "snapshot":
           setSystems(event.systems);
           setActiveCalls(event.activeCalls);
+          // Load buffered messages from server (newest first, so prepend to empty array)
+          if (event.messages && event.messages.length > 0) {
+            // Messages are already sorted newest-first from server, but we store oldest-first
+            setMessages(event.messages.slice().reverse());
+          }
+          // Load buffered call history from server
+          if (event.callHistory && event.callHistory.length > 0) {
+            setCallHistory(event.callHistory);
+          }
           // Update query cache
           queryClient.setQueryData(trunkingKeys.systems(), event.systems);
           break;
@@ -200,6 +212,7 @@ export function useTrunkingWebSocket(
     systems,
     activeCalls,
     messages,
+    callHistory,
     error,
   };
 }

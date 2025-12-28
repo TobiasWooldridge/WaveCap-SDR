@@ -182,10 +182,18 @@ export type TrunkingEventType =
   | "message"
   | "talkgroup_update";
 
+export interface CallHistoryEntry extends ActiveCall {
+  endReason?: string;
+  endTime?: number;
+  systemId?: string;
+}
+
 export interface TrunkingSnapshotEvent {
   type: "snapshot";
   systems: TrunkingSystem[];
   activeCalls: ActiveCall[];
+  messages?: P25Message[];  // Buffered messages from server
+  callHistory?: CallHistoryEntry[];  // Buffered call history from server
 }
 
 export interface TrunkingSystemUpdateEvent {

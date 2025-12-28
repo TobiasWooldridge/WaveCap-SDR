@@ -84,6 +84,18 @@ class CreateSystemRequest(BaseModel):
     )
 
 
+class ControlChannelResponse(BaseModel):
+    """Response containing control channel details."""
+    frequencyHz: float
+    enabled: bool
+    isCurrent: bool
+    isLocked: bool
+    snrDb: float | None
+    powerDb: float | None
+    syncDetected: bool
+    measurementTime: float | None
+
+
 class SystemResponse(BaseModel):
     """Response containing system details."""
     id: str
@@ -101,6 +113,10 @@ class SystemResponse(BaseModel):
     decodeRate: float
     activeCalls: int
     stats: dict[str, Any]
+    # Hunt mode fields
+    huntMode: str
+    lockedFrequencyHz: float | None
+    controlChannels: list[ControlChannelResponse]
 
 
 class ActiveCallResponse(BaseModel):
@@ -222,6 +238,10 @@ def system_to_response(system: TrunkingSystem) -> SystemResponse:
         decodeRate=d["decodeRate"],
         activeCalls=d["activeCalls"],
         stats=d["stats"],
+        # Hunt mode fields
+        huntMode=d["huntMode"],
+        lockedFrequencyHz=d["lockedFrequencyHz"],
+        controlChannels=d["controlChannels"],
     )
 
 
@@ -861,7 +881,15 @@ async def trunking_stream(websocket: WebSocket, system_id: str) -> None:
                     "systems": [s for s in event.get("systems", []) if s.get("id") == system_id],
                     "activeCalls": [
                         c for c in event.get("activeCalls", [])
-                        # Would need system_id in call, for now send all
+                        if c.get("systemId") == system_id or "systemId" not in c
+                    ],
+                    "messages": [
+                        m for m in event.get("messages", [])
+                        if m.get("systemId") == system_id
+                    ],
+                    "callHistory": [
+                        c for c in event.get("callHistory", [])
+                        if c.get("systemId") == system_id
                     ],
                 }
 
