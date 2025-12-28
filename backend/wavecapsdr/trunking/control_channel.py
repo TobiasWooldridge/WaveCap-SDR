@@ -33,6 +33,10 @@ from wavecapsdr.decoders.p25_frames import (
     decode_tsdu,
 )
 from wavecapsdr.decoders.p25_tsbk import TSBKParser
+from wavecapsdr.utils.profiler import get_profiler
+
+# Profiler for control channel processing
+_cc_profiler = get_profiler("ControlChannel", enabled=True)
 from wavecapsdr.trunking.config import TrunkingProtocol
 
 logger = logging.getLogger(__name__)
@@ -185,17 +189,16 @@ class ControlChannelMonitor:
         # Demodulate to dibits using C4FM (control channels always use C4FM)
         soft: np.ndarray | None = None
         if self._demod:
-            _start = _time_mod.perf_counter()
             if _verbose:
                 logger.debug("ControlChannelMonitor.process_iq: calling demodulate")
-            if isinstance(self._demod, DSPC4FMDemodulator):
-                dibits, soft = self._demod.demodulate(iq.astype(np.complex64))
-            else:
-                # CQPSK demodulator returns dibits only
-                dibits = self._demod.demodulate(iq.astype(np.complex64))
-            _elapsed = (_time_mod.perf_counter() - _start) * 1000
+            with _cc_profiler.measure("demodulate"):
+                if isinstance(self._demod, DSPC4FMDemodulator):
+                    dibits, soft = self._demod.demodulate(iq.astype(np.complex64))
+                else:
+                    # CQPSK demodulator returns dibits only
+                    dibits = self._demod.demodulate(iq.astype(np.complex64))
             if _verbose:
-                logger.debug(f"ControlChannelMonitor.process_iq: demodulate returned {len(dibits)} dibits in {_elapsed:.1f}ms")
+                logger.debug(f"ControlChannelMonitor.process_iq: demodulate returned {len(dibits)} dibits")
         else:
             return []
 
@@ -215,7 +218,12 @@ class ControlChannelMonitor:
             self._dibit_debug_count = len(dibits)
 
         # Process dibits
-        return self._process_dibits(dibits, soft)
+        with _cc_profiler.measure("process_dibits"):
+            results = self._process_dibits(dibits, soft)
+
+        # Report profiling periodically
+        _cc_profiler.report()
+        return results
 
     def _process_dibits(self, dibits: np.ndarray, soft: np.ndarray | None) -> list[dict[str, Any]]:
         """Process demodulated dibits and extract TSBK messages.

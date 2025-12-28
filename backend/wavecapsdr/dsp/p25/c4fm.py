@@ -39,6 +39,10 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# Import profiler for performance analysis
+from wavecapsdr.utils.profiler import get_profiler
+_c4fm_profiler = get_profiler("C4FM", enabled=True)
+
 
 # Constants from SDRTrunk P25P1DemodulatorC4FM.java
 SYMBOL_RATE = 4800
@@ -928,32 +932,37 @@ class C4FMDemodulator:
         q = iq.imag.astype(np.float32)
 
         # Apply baseband LPF to I and Q for noise rejection
-        i_lpf, self._lpf_state_i = signal.lfilter(
-            self._baseband_lpf, 1.0, i, zi=self._lpf_state_i
-        )
-        q_lpf, self._lpf_state_q = signal.lfilter(
-            self._baseband_lpf, 1.0, q, zi=self._lpf_state_q
-        )
+        with _c4fm_profiler.measure("baseband_lpf"):
+            i_lpf, self._lpf_state_i = signal.lfilter(
+                self._baseband_lpf, 1.0, i, zi=self._lpf_state_i
+            )
+            q_lpf, self._lpf_state_q = signal.lfilter(
+                self._baseband_lpf, 1.0, q, zi=self._lpf_state_q
+            )
 
         # Apply RRC pulse shaping filter (matches SDRTrunk pipeline)
-        i_rrc, self._rrc_state_i = signal.lfilter(
-            self._rrc_filter, 1.0, i_lpf, zi=self._rrc_state_i
-        )
-        q_rrc, self._rrc_state_q = signal.lfilter(
-            self._rrc_filter, 1.0, q_lpf, zi=self._rrc_state_q
-        )
+        with _c4fm_profiler.measure("rrc_filter"):
+            i_rrc, self._rrc_state_i = signal.lfilter(
+                self._rrc_filter, 1.0, i_lpf, zi=self._rrc_state_i
+            )
+            q_rrc, self._rrc_state_q = signal.lfilter(
+                self._rrc_filter, 1.0, q_lpf, zi=self._rrc_state_q
+            )
 
         # FM demodulate to phase values (per-sample)
-        phases = self._fm_demod.demodulate(
-            i_rrc.astype(np.float32),
-            q_rrc.astype(np.float32)
-        )
+        with _c4fm_profiler.measure("fm_demod"):
+            phases = self._fm_demod.demodulate(
+                i_rrc.astype(np.float32),
+                q_rrc.astype(np.float32)
+            )
 
         # Collect results
         dibits = []
         soft_symbols = []
 
         # Process phases through symbol recovery (sample-by-sample like SDRTrunk)
+        # NOTE: This Python loop is a known performance bottleneck - consider numba JIT
+        _c4fm_profiler.start("symbol_recovery")
         for phase in phases:
             self._buffer_pointer += 1
             self._sample_point -= 1.0
@@ -1081,6 +1090,8 @@ class C4FMDemodulator:
                 # Advance to next symbol
                 self._sample_point += self.samples_per_symbol
 
+        _c4fm_profiler.stop("symbol_recovery")
+
         # [DIAG-STAGE5] Symbol output statistics
         if len(soft_symbols) > 0 and self._diag_demod_calls % 100 == 0:
             soft_arr = np.array(soft_symbols, dtype=np.float32)
@@ -1103,6 +1114,9 @@ class C4FMDemodulator:
                 f"constellation_pct={constellation_pct:.1f}%, "
                 f"histogram=[{hist_str}]"
             )
+
+        # Report profiling periodically
+        _c4fm_profiler.report()
 
         return (
             np.array(dibits, dtype=np.uint8),

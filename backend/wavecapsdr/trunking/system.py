@@ -44,8 +44,12 @@ if TYPE_CHECKING:
 import contextlib
 
 from wavecapsdr.capture import freq_shift
+from wavecapsdr.utils.profiler import get_profiler
 
 logger = logging.getLogger(__name__)
+
+# Profiler for IQ processing performance analysis
+_iq_profiler = get_profiler("TrunkingIQ", enabled=True)
 
 
 class TrunkingSystemState(str, Enum):
@@ -1002,7 +1006,9 @@ class TrunkingSystem:
             # Shift frequency to center on control channel (dynamic offset for hunting)
             # Use phase-continuous freq shift to avoid phase jumps at chunk boundaries
             cc_offset_hz = system._control_channel.cfg.offset_hz if system._control_channel else 0
-            centered_iq = phase_continuous_freq_shift(iq, cc_offset_hz, sample_rate)
+            with _iq_profiler.measure("freq_shift"):
+                centered_iq = phase_continuous_freq_shift(iq, cc_offset_hz, sample_rate)
+            _iq_profiler.add_samples(len(iq))
             if _verbose:
                 centered_mag = np.abs(centered_iq)
                 logger.debug(
@@ -1015,18 +1021,20 @@ class TrunkingSystem:
             # ================================================================
             # Stage 1: Decimate by 30 (6 MHz → 200 kHz)
             if len(centered_iq) > 0:
-                filtered1, filter_state["stage1_zi"] = scipy_signal.lfilter(
-                    stage1_taps, 1.0, centered_iq,
-                    zi=filter_state["stage1_zi"]
-                )
-                decimated1 = filtered1[::stage1_factor]
+                with _iq_profiler.measure("decim_stage1"):
+                    filtered1, filter_state["stage1_zi"] = scipy_signal.lfilter(
+                        stage1_taps, 1.0, centered_iq,
+                        zi=filter_state["stage1_zi"]
+                    )
+                    decimated1 = filtered1[::stage1_factor]
 
                 # Stage 2: Decimate by 4 (200 kHz → 50 kHz)
-                filtered2, filter_state["stage2_zi"] = scipy_signal.lfilter(
-                    stage2_taps, 1.0, decimated1,
-                    zi=filter_state["stage2_zi"]
-                )
-                decimated_iq = filtered2[::stage2_factor]
+                with _iq_profiler.measure("decim_stage2"):
+                    filtered2, filter_state["stage2_zi"] = scipy_signal.lfilter(
+                        stage2_taps, 1.0, decimated1,
+                        zi=filter_state["stage2_zi"]
+                    )
+                    decimated_iq = filtered2[::stage2_factor]
 
                 # [DIAG-STAGE3] Decimation diagnostics
                 if iq_debug_state["calls"] % 100 == 0:
@@ -1073,7 +1081,8 @@ class TrunkingSystem:
                 # Feed to ControlChannelMonitor
                 if self._control_monitor is not None:
                     try:
-                        tsbk_results = self._control_monitor.process_iq(buffered_iq)
+                        with _iq_profiler.measure("control_monitor"):
+                            tsbk_results = self._control_monitor.process_iq(buffered_iq)
                         if _verbose:
                             logger.debug(f"TrunkingSystem {self.cfg.id}: process_iq returned {len(tsbk_results)} results")
 
@@ -1088,6 +1097,9 @@ class TrunkingSystem:
 
             # Check for control channel hunting (no TSBK received for too long)
             self._check_control_channel_hunt()
+
+            # Report profiling statistics periodically
+            _iq_profiler.report()
 
             # Route IQ to active voice recorders
             for recorder in self._voice_recorders:
