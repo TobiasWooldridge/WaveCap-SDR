@@ -29,7 +29,8 @@ function formatMillis(timestamp: number): string {
   return millis.toString().padStart(3, "0");
 }
 
-function getOpcodeColor(opcodeName: string): string {
+function getOpcodeColor(opcodeName: string | undefined): string {
+  if (!opcodeName) return "text-secondary";
   // Voice grants - green
   if (opcodeName.includes("GRANT")) {
     return "text-success";
@@ -50,7 +51,8 @@ function getOpcodeColor(opcodeName: string): string {
   return "text-secondary";
 }
 
-function getOpcodeBadgeClass(opcodeName: string): string {
+function getOpcodeBadgeClass(opcodeName: string | undefined): string {
+  if (!opcodeName) return "bg-secondary";
   if (opcodeName.includes("GRANT")) {
     return "bg-success";
   }

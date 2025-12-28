@@ -360,9 +360,16 @@ class TrunkingManager:
         all_call_history: list[dict[str, Any]] = []
         for system in self._systems.values():
             # Add system ID to each message/call for frontend routing
+            # Transform messages to match WebSocket format (camelCase)
             for msg in system.get_messages(limit=200):
-                msg["systemId"] = system.cfg.id
-                all_messages.append(msg)
+                all_messages.append({
+                    "systemId": system.cfg.id,
+                    "timestamp": msg.get("timestamp", 0),
+                    "opcode": msg.get("opcode", 0),
+                    "opcodeName": msg.get("opcode_name", ""),
+                    "nac": msg.get("nac"),
+                    "summary": msg.get("summary", ""),
+                })
             for call in system.get_call_history(limit=50):
                 call["systemId"] = system.cfg.id
                 all_call_history.append(call)
