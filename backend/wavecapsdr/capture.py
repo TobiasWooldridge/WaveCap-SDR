@@ -509,8 +509,9 @@ class Channel:
     # TSBK callback for trunking integration (called when P25 TSBK is decoded)
     on_tsbk: Callable[[dict[str, Any]], None] | None = None
     # Raw IQ callback for trunking/scanning (called with wideband IQ before P25 processing)
-    # Signature: (iq: np.ndarray, sample_rate: int) -> None
-    on_raw_iq: Callable[[np.ndarray, int], None] | None = None
+    # Signature: (iq: np.ndarray, sample_rate: int, overflow: bool) -> None
+    # overflow=True indicates ring buffer overrun - caller should reset filter/demod state
+    on_raw_iq: Callable[[np.ndarray, int, bool], None] | None = None
     # Voice channel factory for automatic voice following (called on P25 grants)
     # Signature: (tgid: int, freq_hz: float, source_id: Optional[int]) -> Optional[str]
     # Returns: channel_id of created voice channel, or None if not created
@@ -1714,6 +1715,7 @@ class Capture:
     _iq_overflow_count: int = 0
     _iq_overflow_batch: int = 0  # Batched count for rate-limited reporting
     _iq_overflow_last_report: float = 0.0
+    _iq_overflow_current: bool = False  # True if current read had overflow (for callbacks)
     # Performance timing metrics
     _perf_loop_times: list[float] = field(default_factory=list)  # Recent loop times in ms
     _perf_dsp_times: list[float] = field(default_factory=list)   # Recent DSP times in ms
@@ -2447,9 +2449,10 @@ class Capture:
         if ch.cfg.mode == "p25":
             # Call raw IQ callback for trunking/scanning integration
             # This is called with wideband IQ samples BEFORE frequency shifting
+            # Pass overflow flag so callback can reset filter/demod state after sample loss
             if ch.on_raw_iq is not None:
                 try:
-                    ch.on_raw_iq(iq, self.cfg.sample_rate)
+                    ch.on_raw_iq(iq, self.cfg.sample_rate, self._iq_overflow_current)
                 except Exception as e:
                     logger.error(f"Channel {ch.cfg.id}: on_raw_iq callback error: {e}")
                 # OPTIMIZATION: If TrunkingSystem handles IQ via on_raw_iq,
@@ -2788,6 +2791,8 @@ class Capture:
                 if self._stream is None:
                     break
                 samples, overflow = self._stream.read(chunk)
+                # Track overflow for this cycle (passed to callbacks for state reset)
+                self._iq_overflow_current = overflow
                 if overflow:
                     self._iq_overflow_count += 1
                     self._iq_overflow_batch += 1

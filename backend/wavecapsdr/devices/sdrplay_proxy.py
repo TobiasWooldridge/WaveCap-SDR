@@ -315,6 +315,28 @@ class SDRplayProxyStream(StreamHandle):
         # Update read position
         self._last_read_idx += to_read
 
+        # [DIAG-STAGE1] Ring buffer statistics for pipeline diagnosis
+        if not hasattr(self, '_diag_read_counter'):
+            self._diag_read_counter = 0
+            self._diag_total_samples = 0
+            self._diag_overflow_count = 0
+            self._diag_empty_streak = 0
+        self._diag_read_counter += 1
+        self._diag_total_samples += len(samples)
+        if overflow:
+            self._diag_overflow_count += 1
+
+        # Log every 100 reads
+        if self._diag_read_counter % 100 == 0:
+            iq_power = float(np.mean(np.abs(samples)**2)) if len(samples) > 0 else 0.0
+            iq_peak = float(np.max(np.abs(samples))) if len(samples) > 0 else 0.0
+            logger.info(
+                f"[DIAG-STAGE1] reads={self._diag_read_counter}, "
+                f"available={available}, returned={len(samples)}, "
+                f"overflow_total={self._diag_overflow_count}, "
+                f"iq_power={iq_power:.6f}, iq_peak={iq_peak:.4f}"
+            )
+
         # Log successful reads for debugging (very infrequently)
         if self._debug_counter <= 5 or self._debug_counter % 100000 == 0:
             logger.debug(

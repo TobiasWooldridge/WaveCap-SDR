@@ -55,9 +55,7 @@ class AppState:
                 try:
                     soapy_driver = SoapyDriver(cfg.device)
                     # Wrap SoapyDriver in CompositeDriver to handle fake device visibility
-                    # CompositeDriver will:
-                    # - Hide fake device when real devices exist (unless show_fake_device=True)
-                    # - Show fake device when no real devices are available (development fallback)
+                    # CompositeDriver only shows fake device when show_fake_device=True
                     driver = CompositeDriver(soapy_driver, cfg.device)
                 except Exception:
                     # If Soapy Python bindings are missing or initialization fails,

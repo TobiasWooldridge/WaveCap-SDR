@@ -817,6 +817,11 @@ def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_st
     # (devices in use may not show up in driver enumeration due to timeouts or being busy)
     for cap in state.captures.list_captures():
         device_id = cap.cfg.device_id
+
+        # Skip placeholder device IDs
+        if device_id in ("auto", "fake0", ""):
+            continue
+
         stable_id = _get_stable_device_id(device_id)
 
         # Skip if we've already seen this physical device (by stable ID)

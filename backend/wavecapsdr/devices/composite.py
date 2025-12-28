@@ -18,9 +18,7 @@ class CompositeDriver(DeviceDriver):
 
     Behavior:
     - Always enumerate real devices from the primary driver
-    - Include fake device only if:
-      1. show_fake_device is True in config (explicit enable), OR
-      2. No real devices are available (fallback for development)
+    - Include fake device only if show_fake_device is True in config (explicit enable)
     """
 
     name = "composite"
@@ -35,8 +33,8 @@ class CompositeDriver(DeviceDriver):
         # Get real devices from primary driver
         real_devices = list(self._primary.enumerate())
 
-        # Decide whether to include fake device
-        include_fake = self._show_fake_device or len(real_devices) == 0
+        # Decide whether to include fake device (only when explicitly enabled)
+        include_fake = self._show_fake_device
 
         if include_fake:
             # Include fake device(s)

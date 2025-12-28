@@ -7,16 +7,22 @@ Usage:
     python -m wavecapsdr.cli list-devices
     python -m wavecapsdr.cli capture-iq --device 240309F070 --antenna B --duration 60
     python -m wavecapsdr.cli decode-iq --file capture.wav --modulation c4fm
+    python -m wavecapsdr.cli trunking sa_grn
+    python -m wavecapsdr.cli trunking --list
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import signal
 import sys
 import time
 import wave
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -805,6 +811,264 @@ def decode_tsbks(dibits: np.ndarray, syncs: list) -> None:
         print(f"  Sync at {pos} ({score}/24): DUID≈{duid_approx} ({duid_names.get(duid_approx, 'Unknown')})")
 
 
+def cmd_trunking(args: argparse.Namespace) -> int:
+    """Run P25 trunking system with channel following."""
+    import asyncio
+    from pathlib import Path
+
+    from wavecapsdr.config import load_config, AppConfig, DeviceConfig
+    from wavecapsdr.trunking.config import TrunkingSystemConfig
+    from wavecapsdr.trunking.system import TrunkingSystem, TrunkingSystemState, ActiveCall
+    from wavecapsdr.devices.soapy import SoapyDriver
+    from wavecapsdr.capture import CaptureManager
+
+    # Default config path
+    config_path = args.config or "config/wavecapsdr.yaml"
+
+    # Load config
+    if not Path(config_path).exists():
+        print(f"Error: Config file not found: {config_path}")
+        return 1
+
+    config = load_config(config_path)
+
+    # List available systems
+    if args.list:
+        if not config.trunking_systems:
+            print("No trunking systems configured.")
+            print(f"Add systems to: {config_path}")
+            return 0
+
+        print("Available trunking systems:\n")
+        for sys_id, sys_data in config.trunking_systems.items():
+            name = sys_data.get("name", sys_id)
+            protocol = sys_data.get("protocol", "p25_phase1")
+            control_channels = sys_data.get("control_channels", [])
+            talkgroups = sys_data.get("talkgroups", {})
+            auto_start = sys_data.get("auto_start", False)
+
+            print(f"  {sys_id}:")
+            print(f"    Name: {name}")
+            print(f"    Protocol: {protocol}")
+            print(f"    Control Channels: {len(control_channels)}")
+            print(f"    Talkgroups: {len(talkgroups)}")
+            print(f"    Auto-start: {auto_start}")
+            print()
+        return 0
+
+    # Check if system ID is provided
+    if not args.system:
+        print("Error: System ID required. Use --list to see available systems.")
+        return 1
+
+    # Find the requested system
+    system_id = args.system
+    if system_id not in config.trunking_systems:
+        print(f"Error: Unknown system: {system_id}")
+        print(f"Available systems: {list(config.trunking_systems.keys())}")
+        return 1
+
+    # Parse system config
+    sys_data = config.trunking_systems[system_id]
+    sys_data["id"] = system_id  # Ensure ID is set
+    system_config = TrunkingSystemConfig.from_dict(sys_data)
+
+    # Apply CLI overrides
+    if args.output:
+        system_config.recording_path = args.output
+        print(f"Recording to: {args.output}")
+
+    if args.no_record:
+        # Mark all talkgroups as not recorded
+        for tg in system_config.talkgroups.values():
+            tg.record = False
+        system_config.record_unknown = False
+        print("Recording disabled")
+
+    # Parse talkgroup filter
+    allowed_tgs: set[int] | None = None
+    if args.tg:
+        try:
+            allowed_tgs = set(int(tg.strip()) for tg in args.tg.split(","))
+            print(f"Filtering talkgroups: {sorted(allowed_tgs)}")
+        except ValueError:
+            print(f"Error: Invalid talkgroup filter: {args.tg}")
+            return 1
+
+    print(f"\n=== Starting Trunking System: {system_config.name} ===")
+    print(f"  System ID: {system_id}")
+    print(f"  Protocol: {system_config.protocol.value}")
+    print(f"  Control Channels: {len(system_config.control_channels)}")
+    print(f"  Max Voice Recorders: {system_config.max_voice_recorders}")
+    print(f"  Recording Path: {system_config.recording_path}")
+    if system_config.device_id:
+        print(f"  Device: {system_config.device_id}")
+    print()
+
+    # Stats tracking
+    stats = {
+        "calls_started": 0,
+        "calls_ended": 0,
+        "total_call_duration": 0.0,
+        "tsbk_count": 0,
+        "last_nac": None,
+        "start_time": time.time(),
+    }
+
+    def format_call_event(event_type: str, call: ActiveCall) -> str:
+        """Format a call event for display."""
+        tg = call.talkgroup_id
+        tg_name = call.talkgroup_name or ""
+
+        if args.json:
+            return json.dumps({
+                "event": event_type,
+                "timestamp": datetime.now().isoformat(),
+                "talkgroup_id": tg,
+                "talkgroup_name": tg_name,
+                "source_id": call.source_id,
+                "frequency": call.frequency_hz,
+                "encrypted": call.encrypted,
+                "duration": call.duration if event_type == "call_end" else None,
+                "recording_path": getattr(call, "recording_path", None),
+            })
+        else:
+            if event_type == "call_start":
+                tg_display = f"{tg} ({tg_name})" if tg_name else str(tg)
+                return f"[CALL START] TG={tg_display} SRC={call.source_id} FREQ={call.frequency_hz/1e6:.4f} MHz"
+            elif event_type == "call_end":
+                return f"[CALL END] TG={tg} duration={call.duration:.1f}s"
+            elif event_type == "call_update":
+                return f"[CALL UPDATE] TG={tg} SRC={call.source_id}"
+            else:
+                return f"[{event_type.upper()}] TG={tg}"
+
+    def on_call_start(call: ActiveCall) -> None:
+        """Handle call start event."""
+        # Apply talkgroup filter
+        if allowed_tgs and call.talkgroup_id not in allowed_tgs:
+            return
+
+        stats["calls_started"] += 1
+        print(format_call_event("call_start", call))
+
+    def on_call_end(call: ActiveCall) -> None:
+        """Handle call end event."""
+        if allowed_tgs and call.talkgroup_id not in allowed_tgs:
+            return
+
+        stats["calls_ended"] += 1
+        stats["total_call_duration"] += call.duration
+        print(format_call_event("call_end", call))
+
+    def on_call_update(call: ActiveCall) -> None:
+        """Handle call update event."""
+        if allowed_tgs and call.talkgroup_id not in allowed_tgs:
+            return
+        if args.verbose:
+            print(format_call_event("call_update", call))
+
+    def on_message(message: dict[str, Any]) -> None:
+        """Handle TSBK message event."""
+        stats["tsbk_count"] += 1
+        if message.get("nac"):
+            stats["last_nac"] = message["nac"]
+
+        if args.verbose:
+            opcode = message.get("opcode_name", message.get("opcode", "?"))
+            summary = message.get("summary", "")
+            if args.json:
+                print(json.dumps({
+                    "event": "tsbk",
+                    "timestamp": datetime.now().isoformat(),
+                    "opcode": message.get("opcode"),
+                    "opcode_name": message.get("opcode_name"),
+                    "nac": message.get("nac"),
+                    "summary": summary,
+                }))
+            else:
+                print(f"[TSBK] {opcode}: {summary}")
+
+    def print_stats() -> None:
+        """Print current statistics."""
+        elapsed = time.time() - stats["start_time"]
+        print(f"\n--- Stats ({datetime.now().strftime('%H:%M:%S')}) ---")
+        print(f"Uptime: {elapsed:.0f}s")
+        print(f"Calls: {stats['calls_started']} started, {stats['calls_ended']} ended")
+        print(f"Total call duration: {stats['total_call_duration']:.1f}s")
+        print(f"TSBK messages: {stats['tsbk_count']}")
+        if stats["last_nac"]:
+            print(f"NAC: 0x{stats['last_nac']:03X}")
+        print()
+
+    async def run() -> int:
+        """Run the trunking system asynchronously."""
+        # Create SoapyDriver and CaptureManager
+        device_cfg = DeviceConfig(driver="soapy")
+        driver = SoapyDriver(device_cfg)
+        capture_manager = CaptureManager(config, driver)
+
+        # Create trunking system
+        system = TrunkingSystem(cfg=system_config)
+        system.on_call_start = on_call_start
+        system.on_call_end = on_call_end
+        system.on_call_update = on_call_update
+        system.on_message = on_message
+
+        # Handle Ctrl+C gracefully
+        stop_event = asyncio.Event()
+
+        def signal_handler(sig: int, frame: Any) -> None:
+            print("\nStopping...")
+            stop_event.set()
+
+        signal.signal(signal.SIGINT, signal_handler)
+        signal.signal(signal.SIGTERM, signal_handler)
+
+        try:
+            # Start the system
+            await system.start(capture_manager)
+
+            if system.state == TrunkingSystemState.FAILED:
+                print("Error: System failed to start")
+                return 1
+
+            print("Streaming... Press Ctrl+C to stop.\n")
+
+            # Stats timer
+            stats_interval = args.stats
+            last_stats_time = time.time()
+
+            # Main loop
+            while not stop_event.is_set():
+                await asyncio.sleep(0.5)
+
+                # Print stats if requested
+                if stats_interval and (time.time() - last_stats_time >= stats_interval):
+                    print_stats()
+                    last_stats_time = time.time()
+
+        except Exception as e:
+            logger.exception(f"Error running trunking system: {e}")
+            return 1
+        finally:
+            print("Stopping trunking system...")
+            await system.stop()
+
+            # Print final stats
+            if args.stats:
+                print_stats()
+
+        return 0
+
+    # Run the async event loop
+    try:
+        return asyncio.run(run())
+    except KeyboardInterrupt:
+        print("\nInterrupted")
+        return 0
+
+
 def main() -> int:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -856,6 +1120,18 @@ def main() -> int:
     p_audio.add_argument("--freq-offset", type=float, default=None,
                         help="Manual frequency offset in Hz (auto-detected if not specified)")
     p_audio.set_defaults(func=cmd_decode_audio)
+
+    # trunking - P25 trunking with channel following
+    p_trunking = subparsers.add_parser("trunking", help="Run P25 trunking system with channel following")
+    p_trunking.add_argument("system", nargs="?", help="System ID from config (e.g., 'sa_grn')")
+    p_trunking.add_argument("-c", "--config", help="Path to config file (default: config/wavecapsdr.yaml)")
+    p_trunking.add_argument("--list", action="store_true", help="List available trunking systems")
+    p_trunking.add_argument("--no-record", action="store_true", help="Disable WAV recording")
+    p_trunking.add_argument("--tg", type=str, help="Filter talkgroups (comma-separated, e.g., '100,101,200')")
+    p_trunking.add_argument("--json", action="store_true", help="Output call events as JSON (NDJSON)")
+    p_trunking.add_argument("--stats", type=int, metavar="SEC", help="Show stats every N seconds")
+    p_trunking.add_argument("-o", "--output", type=str, help="Recording output directory")
+    p_trunking.set_defaults(func=cmd_trunking)
 
     args = parser.parse_args()
 
