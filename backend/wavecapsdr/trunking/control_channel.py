@@ -100,7 +100,7 @@ class ControlChannelMonitor:
     # Constants
     FRAME_SYNC_DIBITS: int = 24  # 48-bit sync word = 24 dibits
     TSDU_FRAME_DIBITS: int = 360  # Total TSDU frame length in dibits
-    SYNC_TIMEOUT: float = 2.0  # Seconds before declaring sync lost
+    SYNC_TIMEOUT: float = 1.0  # Seconds before declaring sync lost (SDRTrunk: 4800 dibits = 1 sec)
 
     def __post_init__(self) -> None:
         """Initialize demodulators and parser."""
@@ -452,6 +452,24 @@ class ControlChannelMonitor:
                     self.on_sync_lost()
 
         return results
+
+    @property
+    def has_sync(self) -> bool:
+        """Check if we currently have sync (for lock decisions).
+
+        Returns True if sync was detected within the timeout period.
+        SDRTrunk uses sync + NID validation for lock, not TSBK CRC.
+        """
+        if self._last_sync_time == 0.0:
+            return False
+        return (time.time() - self._last_sync_time) < self.SYNC_TIMEOUT
+
+    @property
+    def last_sync_age(self) -> float:
+        """Get seconds since last sync detection."""
+        if self._last_sync_time == 0.0:
+            return float('inf')
+        return time.time() - self._last_sync_time
 
     # Soft correlation constants (same as P25FrameSync)
     SYNC_PATTERN_SYMBOLS = np.array([+3, +3, +3, +3, +3, -3, +3, +3, -3, -3, +3, +3,

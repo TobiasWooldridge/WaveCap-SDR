@@ -342,13 +342,13 @@ class ControlChannelScanner:
         without_sync = [(freq, m) for freq, m in usable if not m.sync_detected]
 
         if with_sync:
-            # For channels with sync: prioritize HIGHEST POWER
-            # Active control channels have constant modulation = high average power
-            with_sync.sort(key=lambda x: x[1].power_db, reverse=True)
+            # For channels with sync: prioritize HIGHEST SNR
+            # SNR is more important than power for reliable decoding
+            with_sync.sort(key=lambda x: x[1].snr_db, reverse=True)
             best = with_sync[0]
             logger.info(
                 f"[SCANNER] Best channel (sync): {best[0]/1e6:.4f} MHz, "
-                f"power={best[1].power_db:.1f} dB (highest power with sync)"
+                f"SNR={best[1].snr_db:.1f} dB, power={best[1].power_db:.1f} dB"
             )
             return best
 
@@ -365,7 +365,7 @@ class ControlChannelScanner:
     def get_channel_ranking(self) -> list[tuple[float, ChannelMeasurement]]:
         """Get all channels ranked by signal quality.
 
-        Channels with sync are ranked first (by power), then without sync (by SNR).
+        Channels with sync are ranked first (by SNR), then without sync (by SNR).
 
         Returns:
             List of (frequency_hz, measurement) sorted best to worst
@@ -377,11 +377,11 @@ class ControlChannelScanner:
         with_sync = [(freq, m) for freq, m in self._measurements.items() if m.sync_detected]
         without_sync = [(freq, m) for freq, m in self._measurements.items() if not m.sync_detected]
 
-        # Sort sync channels by power (descending), non-sync by SNR (descending)
-        with_sync.sort(key=lambda x: x[1].power_db, reverse=True)
+        # Sort all channels by SNR (descending) - SNR is the best quality indicator
+        with_sync.sort(key=lambda x: x[1].snr_db, reverse=True)
         without_sync.sort(key=lambda x: x[1].snr_db, reverse=True)
 
-        # Combine: sync channels first (by power), then non-sync (by SNR)
+        # Combine: sync channels first (by SNR), then non-sync (by SNR)
         return with_sync + without_sync
 
     def should_roam(

@@ -466,6 +466,7 @@ class TrunkingSystem:
     _state_change_time: float = field(default_factory=time.time)
     _control_channel_timeout: float = 10.0  # Seconds before trying next CC
     _hunt_check_task: asyncio.Task[None] | None = None
+    _has_ever_locked: bool = False  # Track if we've ever achieved lock (for dynamic timeouts)
 
     # IQ buffer for control channel - accumulates decimated samples before processing
     _cc_iq_buffer: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.complex128))
@@ -654,16 +655,17 @@ class TrunkingSystem:
         system = self
 
         # ================================================================
-        # TWO-STAGE DECIMATION to match SDRTrunk's 50 kHz (~10.4 SPS)
+        # THREE-STAGE DECIMATION to match SDRTrunk's ~25 kHz (~5.2 SPS)
         # ================================================================
-        # SDRTrunk uses ChannelSpecification(50000.0, 12500, 5750.0, 6500.0)
-        # This gives 10.4 samples per symbol (50000 / 4800 = 10.4 SPS).
+        # SDRTrunk's P25P1DecoderC4FM does power-of-2 decimation from polyphase
+        # output (~50 kHz) to reach ~25 kHz (5 samples per symbol).
         #
-        # From 6 MHz: need 120x total decimation to get 50 kHz
-        # Two-stage approach: 30:1 → 4:1 = 120:1 total
+        # From 6 MHz: need 240x total decimation to get 25 kHz
+        # Three-stage approach: 30:1 → 4:1 → 2:1 = 240:1 total
         #
         # Stage 1: 6 MHz → 200 kHz (30:1 decimation)
         # Stage 2: 200 kHz → 50 kHz (4:1 decimation)
+        # Stage 3: 50 kHz → 25 kHz (2:1 decimation) - matches SDRTrunk
         # ================================================================
 
         input_rate = self.cfg.sample_rate  # e.g., 6 MHz
@@ -672,13 +674,17 @@ class TrunkingSystem:
         stage1_factor = 30
         stage1_rate = input_rate // stage1_factor  # 200 kHz
 
-        # Stage 2: Fine decimation to 50 kHz (10.4 SPS, matches SDRTrunk)
+        # Stage 2: Intermediate decimation to 50 kHz
         stage2_factor = 4
         stage2_rate = stage1_rate // stage2_factor  # 50 kHz
 
+        # Stage 3: Final decimation to 25 kHz (5.2 SPS, matches SDRTrunk)
+        stage3_factor = 2
+        stage3_rate = stage2_rate // stage3_factor  # 25 kHz
+
         # Final output rate
-        actual_sample_rate = stage2_rate
-        total_decim = stage1_factor * stage2_factor
+        actual_sample_rate = stage3_rate
+        total_decim = stage1_factor * stage2_factor * stage3_factor
 
         # Create ControlChannelMonitor with actual sample rate for correct timing
         self._control_monitor = create_control_monitor(
@@ -686,6 +692,30 @@ class TrunkingSystem:
             sample_rate=actual_sample_rate,  # Use actual ~19.2 kHz
             modulation=self.cfg.modulation,
         )
+
+        # Wire up sync callbacks for SDRTrunk-compatible lock behavior
+        # Lock when sync is detected, not when TSBK is received
+        def on_sync_acquired():
+            if self.control_channel_state == ControlChannelState.SEARCHING:
+                self.control_channel_state = ControlChannelState.LOCKED
+                self._has_ever_locked = True  # Track for dynamic hunt timeouts
+                self._set_state(TrunkingSystemState.SYNCED)
+                logger.info(
+                    f"TrunkingSystem {self.cfg.id}: Sync acquired - "
+                    f"locked to {self.control_channel_freq_hz/1e6:.4f} MHz"
+                )
+
+        def on_sync_lost():
+            if self.control_channel_state == ControlChannelState.LOCKED:
+                logger.warning(
+                    f"TrunkingSystem {self.cfg.id}: Sync lost on "
+                    f"{self.control_channel_freq_hz/1e6:.4f} MHz"
+                )
+                # Don't immediately unlock - let _check_control_channel_hunt handle it
+                # This allows for brief sync drops without losing lock
+
+        self._control_monitor.on_sync_acquired = on_sync_acquired
+        self._control_monitor.on_sync_lost = on_sync_lost
 
         mod_str = self.cfg.modulation.value if self.cfg.modulation else "auto"
         logger.info(
@@ -714,10 +744,21 @@ class TrunkingSystem:
         # Store lfilter_zi as template - will be scaled by first sample
         stage2_zi_template = scipy_signal.lfilter_zi(stage2_taps, 1.0).astype(np.complex128)
 
+        # Design Stage 3 anti-aliasing filter (50 kHz → 25 kHz)
+        # Cutoff at 0.8 * (stage3_rate/2) / (stage2_rate/2) = 0.8 / stage3_factor
+        # Use Kaiser window with beta=7.857 for 80 dB stopband attenuation (matches SDRTrunk)
+        stage3_normalized_cutoff = 0.8 / stage3_factor
+        stage3_taps = scipy_signal.firwin(
+            41, stage3_normalized_cutoff, window=("kaiser", 7.857)
+        )
+        # Store lfilter_zi as template - will be scaled by first sample
+        stage3_zi_template = scipy_signal.lfilter_zi(stage3_taps, 1.0).astype(np.complex128)
+
         logger.info(
-            f"TrunkingSystem {self.cfg.id}: Two-stage decimation: "
+            f"TrunkingSystem {self.cfg.id}: Three-stage decimation: "
             f"{input_rate/1e6:.1f} MHz → {stage1_rate/1e3:.1f} kHz ({stage1_factor}:1, {len(stage1_taps)} taps) → "
-            f"{stage2_rate/1e3:.1f} kHz ({stage2_factor}:1, {len(stage2_taps)} taps), "
+            f"{stage2_rate/1e3:.1f} kHz ({stage2_factor}:1, {len(stage2_taps)} taps) → "
+            f"{stage3_rate/1e3:.1f} kHz ({stage3_factor}:1, {len(stage3_taps)} taps), "
             f"total {total_decim}:1"
         )
 
@@ -728,6 +769,7 @@ class TrunkingSystem:
         filter_state = {
             "stage1_zi": None,  # Initialized on first chunk
             "stage2_zi": None,  # Initialized on first chunk
+            "stage3_zi": None,  # Initialized on first chunk
         }
 
         # Debug counter for IQ flow monitoring
@@ -866,6 +908,7 @@ class TrunkingSystem:
                 # Reset filter states to None - will be re-initialized with first sample
                 filter_state["stage1_zi"] = None
                 filter_state["stage2_zi"] = None
+                filter_state["stage3_zi"] = None
                 # Reset frequency shift phase (sample index back to 0)
                 freq_shift_state["sample_idx"] = 0
                 # Clear the IQ buffer (contains corrupted partial data)
@@ -1027,7 +1070,7 @@ class TrunkingSystem:
                 )
 
             # ================================================================
-            # TWO-STAGE DECIMATION: 6 MHz → 200 kHz → 50 kHz
+            # THREE-STAGE DECIMATION: 6 MHz → 200 kHz → 50 kHz → 25 kHz
             # ================================================================
             # Stage 1: Decimate by 30 (6 MHz → 200 kHz)
             if len(centered_iq) > 0:
@@ -1050,25 +1093,37 @@ class TrunkingSystem:
                         stage2_taps, 1.0, decimated1,
                         zi=filter_state["stage2_zi"]
                     )
-                    decimated_iq = filtered2[::stage2_factor]
+                    decimated2 = filtered2[::stage2_factor]
 
-                # [DIAG-STAGE3] Decimation diagnostics
+                # Stage 3: Decimate by 2 (50 kHz → 25 kHz) - matches SDRTrunk
+                with _iq_profiler.measure("decim_stage3"):
+                    # Initialize stage3_zi with first sample to prevent transient
+                    if filter_state["stage3_zi"] is None:
+                        filter_state["stage3_zi"] = stage3_zi_template * decimated2[0]
+                    filtered3, filter_state["stage3_zi"] = scipy_signal.lfilter(
+                        stage3_taps, 1.0, decimated2,
+                        zi=filter_state["stage3_zi"]
+                    )
+                    decimated_iq = filtered3[::stage3_factor]
+
+                # [DIAG-DECIM] Decimation diagnostics
                 if iq_debug_state["calls"] % 100 == 0:
                     power_in = float(np.mean(np.abs(centered_iq)**2))
+                    power_filt1 = float(np.mean(np.abs(filtered1)**2))  # After filter, before decim
                     power_stage1 = float(np.mean(np.abs(decimated1)**2))
+                    power_filt2 = float(np.mean(np.abs(filtered2)**2))  # After filter, before decim
+                    power_stage2 = float(np.mean(np.abs(decimated2)**2))
+                    power_filt3 = float(np.mean(np.abs(filtered3)**2))  # After filter, before decim
                     power_out = float(np.mean(np.abs(decimated_iq)**2))
-                    # Power ratio should be close to 1.0 if filters preserve signal
-                    ratio1 = power_stage1 / power_in if power_in > 0 else 0.0
-                    ratio2 = power_out / power_stage1 if power_stage1 > 0 else 0.0
+                    # Use scientific notation to see actual values - show filter vs decim power loss
                     logger.info(
-                        f"[DIAG-STAGE3a] Stage1 decim ({stage1_factor}:1): "
-                        f"in={len(centered_iq)}, out={len(decimated1)}, "
-                        f"power_in={power_in:.6f}, power_out={power_stage1:.6f}, ratio={ratio1:.4f}"
+                        f"[DIAG-DECIM] Stage1: in={power_in:.2e}, filtered={power_filt1:.2e}, decim={power_stage1:.2e}"
                     )
                     logger.info(
-                        f"[DIAG-STAGE3b] Stage2 decim ({stage2_factor}:1): "
-                        f"in={len(decimated1)}, out={len(decimated_iq)}, "
-                        f"power_in={power_stage1:.6f}, power_out={power_out:.6f}, ratio={ratio2:.4f}"
+                        f"[DIAG-DECIM] Stage2: in={power_stage1:.2e}, filtered={power_filt2:.2e}, decim={power_stage2:.2e}"
+                    )
+                    logger.info(
+                        f"[DIAG-DECIM] Stage3: in={power_stage2:.2e}, filtered={power_filt3:.2e}, decim={power_out:.2e}"
                     )
             else:
                 decimated_iq = centered_iq
@@ -1610,13 +1665,33 @@ class TrunkingSystem:
     def _check_control_channel_hunt(self) -> None:
         """Check if we need to hunt for a different control channel.
 
-        If no TSBK has been received for too long, try the next control channel
-        in the configured list.
+        Uses SDRTrunk-compatible lock criteria:
+        - Lock is based on sync detection, not TSBK CRC
+        - Stay locked as long as sync is maintained
+        - Transition to SEARCHING when sync is lost (1 second without sync)
         """
-        # Check timeout
         now = time.time()
-        last_tsbk = self._last_tsbk_time if self._last_tsbk_time > 0 else self._state_change_time
-        elapsed = now - last_tsbk
+
+        # Get sync state from control monitor (SDRTrunk-style lock criteria)
+        has_sync = False
+        sync_age = float('inf')
+        if self._control_monitor is not None:
+            has_sync = self._control_monitor.has_sync
+            sync_age = self._control_monitor.last_sync_age
+
+        # Also track time on this channel (for hunt timing)
+        time_on_channel = now - self._state_change_time
+
+        # Dynamic hunt timeout based on state (WaveCap improvement over SDRTrunk)
+        # SDRTrunk doesn't hunt at all - it requires pre-configured frequency
+        # WaveCap scans to find the active control channel
+        if self.control_channel_state == ControlChannelState.SEARCHING:
+            if not self._has_ever_locked:
+                hunt_timeout = 3.0  # Fast scan during initial search
+            else:
+                hunt_timeout = 5.0  # Moderate for re-acquisition after lock loss
+        else:
+            hunt_timeout = 10.0  # Conservative when locked (shouldn't reach this path normally)
 
         # Debug: Log hunting status periodically
         if not hasattr(self, '_hunt_log_count'):
@@ -1626,23 +1701,27 @@ class TrunkingSystem:
             logger.info(
                 f"TrunkingSystem {self.cfg.id}: Hunt check - "
                 f"state={self.control_channel_state.value}, "
-                f"elapsed={elapsed:.1f}s, timeout={self._control_channel_timeout}s, "
+                f"has_sync={has_sync}, sync_age={sync_age:.1f}s, "
+                f"time_on_channel={time_on_channel:.1f}s, hunt_timeout={hunt_timeout:.1f}s, "
+                f"has_ever_locked={self._has_ever_locked}, "
                 f"num_channels={len(self.cfg.control_channels)}"
             )
 
-        # If we're locked but haven't received a TSBK in too long, transition to SEARCHING
+        # SDRTrunk-style lock: based on sync, not TSBK
         if self.control_channel_state == ControlChannelState.LOCKED:
-            if elapsed >= self._control_channel_timeout:
+            if not has_sync:
+                # Sync lost - transition to SEARCHING (SDRTrunk: 1 second without sync)
                 logger.warning(
                     f"TrunkingSystem {self.cfg.id}: Lost control channel lock "
-                    f"(no TSBK for {elapsed:.1f}s), starting hunt"
+                    f"(sync lost, age={sync_age:.1f}s), starting hunt"
                 )
                 self.control_channel_state = ControlChannelState.SEARCHING
             else:
-                # Still locked and within timeout, no hunting needed
+                # Still have sync, stay locked (even if TSBK CRC is failing)
                 return
 
-        if elapsed < self._control_channel_timeout:
+        # When searching, use dynamic timeout before rotating
+        if time_on_channel < hunt_timeout:
             return
 
         # Time to try the next control channel
@@ -1892,6 +1971,12 @@ class TrunkingSystem:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert system state to dictionary for API serialization."""
+        # Get channel measurements from scanner if available
+        channel_measurements = {}
+        if self._cc_scanner:
+            scanner_stats = self._cc_scanner.get_stats()
+            channel_measurements = scanner_stats.get("measurements", {})
+
         return {
             "id": self.cfg.id,
             "name": self.cfg.name,
@@ -1908,6 +1993,7 @@ class TrunkingSystem:
             "decodeRate": round(self.decode_rate, 2),
             "activeCalls": len(self._active_calls),
             "stats": self.get_stats(),
+            "channelMeasurements": channel_measurements,  # WaveCap improvement: show all channel strengths
         }
 
     def get_voice_channels(self) -> list[VoiceChannel]:
