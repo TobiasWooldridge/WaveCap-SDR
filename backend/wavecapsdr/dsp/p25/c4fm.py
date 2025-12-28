@@ -622,8 +622,9 @@ def _symbol_recovery_jit(
             # Compute interpolator offset
             interp_offset = idx - 4
 
-            # Ensure we have enough samples for interpolation
-            if interp_offset >= 0 and idx < buffer_len:
+            # Ensure we have enough samples for interpolation (8-tap filter)
+            # interp_offset to interp_offset+7 must be valid, so interp_offset+8 <= buffer_len
+            if interp_offset >= 0 and interp_offset + 8 <= buffer_len:
                 # Convert mu to tap index (inverted for TAPS convention)
                 mu_inverted = 1.0 - mu
                 tap_idx = int(mu_inverted * 128.0 + 0.5)

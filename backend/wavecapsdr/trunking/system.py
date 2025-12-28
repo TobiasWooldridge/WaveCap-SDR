@@ -289,10 +289,12 @@ class VoiceRecorder:
             normalized_cutoff = 0.8 * target_rate / sample_rate
             num_taps = 65
             self._decim_filter_taps = scipy_signal.firwin(num_taps, normalized_cutoff)
-            zi = scipy_signal.lfilter_zi(self._decim_filter_taps, 1.0)
-            self._decim_filter_zi = zi.astype(np.complex128)
+            # Store lfilter_zi as template - will be scaled by first sample
+            self._decim_filter_zi_template = scipy_signal.lfilter_zi(self._decim_filter_taps, 1.0).astype(np.complex128)
+            self._decim_filter_zi = None  # Initialized on first sample
         else:
             self._decim_filter_taps = None
+            self._decim_filter_zi_template = None
             self._decim_filter_zi = None
 
     def process_iq(self, iq: np.ndarray, sample_rate: int) -> None:
@@ -309,10 +311,13 @@ class VoiceRecorder:
 
         # Apply anti-aliasing filter and decimate
         if self._decim_factor > 1 and self._decim_filter_taps is not None:
+            # Initialize filter state with first sample to prevent transient
+            if self._decim_filter_zi is None and self._decim_filter_zi_template is not None:
+                self._decim_filter_zi = self._decim_filter_zi_template * centered_iq[0]
             if self._decim_filter_zi is not None:
                 filtered_iq, self._decim_filter_zi = scipy_signal.lfilter(
                     self._decim_filter_taps, 1.0, centered_iq,
-                    zi=self._decim_filter_zi * centered_iq[0]
+                    zi=self._decim_filter_zi
                 )
             else:
                 filtered_iq = scipy_signal.lfilter(self._decim_filter_taps, 1.0, centered_iq)
@@ -696,7 +701,8 @@ class TrunkingSystem:
         stage1_taps = scipy_signal.firwin(
             157, stage1_normalized_cutoff, window=("kaiser", 7.857)
         )
-        stage1_zi = scipy_signal.lfilter_zi(stage1_taps, 1.0)
+        # Store lfilter_zi as template - will be scaled by first sample
+        stage1_zi_template = scipy_signal.lfilter_zi(stage1_taps, 1.0).astype(np.complex128)
 
         # Design Stage 2 anti-aliasing filter
         # Cutoff at 0.8 * (stage2_rate/2) / (stage1_rate/2) = 0.8 / stage2_factor
@@ -705,7 +711,8 @@ class TrunkingSystem:
         stage2_taps = scipy_signal.firwin(
             73, stage2_normalized_cutoff, window=("kaiser", 7.857)
         )
-        stage2_zi = scipy_signal.lfilter_zi(stage2_taps, 1.0)
+        # Store lfilter_zi as template - will be scaled by first sample
+        stage2_zi_template = scipy_signal.lfilter_zi(stage2_taps, 1.0).astype(np.complex128)
 
         logger.info(
             f"TrunkingSystem {self.cfg.id}: Two-stage decimation: "
@@ -714,10 +721,13 @@ class TrunkingSystem:
             f"total {total_decim}:1"
         )
 
-        # Store filter states for streaming (mutable list to update in closure)
+        # Store filter states for streaming (mutable dict to update in closure)
+        # zi values start as None - will be initialized with first sample to prevent transient
+        # lfilter_zi returns step response initial conditions (~1.0), but signal is ~0.004
+        # Multiplying by first sample scales zi to match signal level
         filter_state = {
-            "stage1_zi": stage1_zi.astype(np.complex128),
-            "stage2_zi": stage2_zi.astype(np.complex128),
+            "stage1_zi": None,  # Initialized on first chunk
+            "stage2_zi": None,  # Initialized on first chunk
         }
 
         # Debug counter for IQ flow monitoring
@@ -853,9 +863,9 @@ class TrunkingSystem:
                 logger.warning(
                     f"TrunkingSystem {self.cfg.id}: Ring buffer overflow detected, resetting filter states"
                 )
-                # Reset filter states (zi = zeros resets to initial conditions)
-                filter_state["stage1_zi"] = scipy_signal.lfilter_zi(stage1_taps, 1.0).astype(np.complex128)
-                filter_state["stage2_zi"] = scipy_signal.lfilter_zi(stage2_taps, 1.0).astype(np.complex128)
+                # Reset filter states to None - will be re-initialized with first sample
+                filter_state["stage1_zi"] = None
+                filter_state["stage2_zi"] = None
                 # Reset frequency shift phase (sample index back to 0)
                 freq_shift_state["sample_idx"] = 0
                 # Clear the IQ buffer (contains corrupted partial data)
@@ -1022,6 +1032,9 @@ class TrunkingSystem:
             # Stage 1: Decimate by 30 (6 MHz → 200 kHz)
             if len(centered_iq) > 0:
                 with _iq_profiler.measure("decim_stage1"):
+                    # Initialize stage1_zi with first sample to prevent transient
+                    if filter_state["stage1_zi"] is None:
+                        filter_state["stage1_zi"] = stage1_zi_template * centered_iq[0]
                     filtered1, filter_state["stage1_zi"] = scipy_signal.lfilter(
                         stage1_taps, 1.0, centered_iq,
                         zi=filter_state["stage1_zi"]
@@ -1030,6 +1043,9 @@ class TrunkingSystem:
 
                 # Stage 2: Decimate by 4 (200 kHz → 50 kHz)
                 with _iq_profiler.measure("decim_stage2"):
+                    # Initialize stage2_zi with first sample to prevent transient
+                    if filter_state["stage2_zi"] is None:
+                        filter_state["stage2_zi"] = stage2_zi_template * decimated1[0]
                     filtered2, filter_state["stage2_zi"] = scipy_signal.lfilter(
                         stage2_taps, 1.0, decimated1,
                         zi=filter_state["stage2_zi"]
