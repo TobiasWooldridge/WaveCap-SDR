@@ -1055,9 +1055,11 @@ class C4FMDemodulator:
 
         # FM demodulator (symbol-spaced differential)
         # Delay should be approximately 1 symbol period.
-        # Use ceiling to avoid undersampling the phase change
+        # CRITICAL: Use round() not ceil() - using ceil() causes 15% phase scaling error
+        # at 25 kHz (ceil(5.2)=6 vs correct delay of ~5.2). This matches SDRTrunk's
+        # approach in DifferentialDemodulatorFloat which uses fractional interpolation.
         import math
-        symbol_delay = int(math.ceil(self.samples_per_symbol))
+        symbol_delay = int(round(self.samples_per_symbol))
         self._fm_demod = _FMDemodulator(symbol_delay=symbol_delay)
 
         # Equalizer (PLL + gain AGC)
