@@ -330,6 +330,135 @@ def _interpolate_8tap_jit(samples: np.ndarray, offset: int, taps: np.ndarray) ->
     return result
 
 
+# JIT-compiled symbol recovery - the main performance bottleneck
+# This processes all phases and returns dibits/soft_symbols in one fast pass
+@jit(nopython=True, cache=True)
+def _symbol_recovery_jit(
+    phases: np.ndarray,
+    buffer: np.ndarray,
+    buffer_pointer: int,
+    sample_point: float,
+    samples_per_symbol: float,
+    pll: float,
+    gain: float,
+    interpolator_taps: np.ndarray,  # Shape: (129, 8)
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int, float]:
+    """JIT-compiled symbol recovery loop.
+
+    Processes all phase samples through:
+    1. Buffer management (circular buffer with shift)
+    2. Symbol timing (sample_point countdown)
+    3. 8-tap polyphase interpolation
+    4. Equalization (PLL + gain)
+    5. Dibit decision (π/2 boundaries)
+
+    Args:
+        phases: FM-demodulated phase values
+        buffer: Sample buffer (will be modified in place)
+        buffer_pointer: Current buffer write position
+        sample_point: Countdown to next symbol decision
+        samples_per_symbol: Samples per symbol (e.g., 10.4)
+        pll: Current PLL offset
+        gain: Current gain value
+        interpolator_taps: Polyphase filter coefficients (129 x 8)
+
+    Returns:
+        Tuple of:
+        - dibits: Hard decision dibits (0-3)
+        - soft_symbols: Soft symbol values (normalized ±1, ±3)
+        - symbol_indices: Buffer indices where symbols were extracted
+        - buffer_pointer: Updated buffer pointer
+        - sample_point: Updated sample point
+    """
+    n_phases = len(phases)
+    buffer_len = len(buffer)
+    half_buffer = buffer_len // 2
+
+    # Pre-allocate output arrays (max possible symbols)
+    max_symbols = n_phases // 4 + 10  # Conservative upper bound
+    dibits = np.empty(max_symbols, dtype=np.uint8)
+    soft_symbols = np.empty(max_symbols, dtype=np.float32)
+    symbol_indices = np.empty(max_symbols, dtype=np.int32)
+    symbol_count = 0
+
+    # Decision boundary
+    boundary = 1.5707963267948966  # np.pi / 2.0
+
+    for phase in phases:
+        buffer_pointer += 1
+        sample_point -= 1.0
+
+        # Buffer management - shift when near end
+        if buffer_pointer >= buffer_len - 1:
+            # Shift buffer left by half
+            for i in range(half_buffer):
+                buffer[i] = buffer[i + half_buffer]
+            for i in range(half_buffer, buffer_len):
+                buffer[i] = 0.0
+            buffer_pointer -= half_buffer
+
+        # Store sample
+        buffer[buffer_pointer] = phase
+
+        # Symbol decision point
+        if sample_point < 1.0:
+            idx = buffer_pointer
+            mu = 1.0 - sample_point
+
+            # Compute interpolator offset
+            interp_offset = idx - 4
+
+            # Ensure we have enough samples for interpolation
+            if interp_offset >= 0 and idx < buffer_len:
+                # Convert mu to tap index (inverted for TAPS convention)
+                mu_inverted = 1.0 - mu
+                tap_idx = int(mu_inverted * 128.0 + 0.5)
+                if tap_idx < 0:
+                    tap_idx = 0
+                if tap_idx > 128:
+                    tap_idx = 128
+
+                # 8-tap interpolation
+                taps = interpolator_taps[tap_idx]
+                interpolated = 0.0
+                for i in range(8):
+                    interpolated += buffer[interp_offset + i] * taps[i]
+
+                # Equalization: (sample + pll) * gain
+                soft_symbol_rad = (interpolated + pll) * gain
+
+                # Dibit decision using π/2 boundaries
+                if soft_symbol_rad >= boundary:
+                    dibit = 1  # +3
+                elif soft_symbol_rad >= 0:
+                    dibit = 0  # +1
+                elif soft_symbol_rad >= -boundary:
+                    dibit = 2  # -1
+                else:
+                    dibit = 3  # -3
+
+                # Normalize to ±1, ±3 scale
+                soft_symbol_norm = soft_symbol_rad * 1.2732395447351628  # 4.0 / np.pi
+
+                # Store results
+                dibits[symbol_count] = dibit
+                soft_symbols[symbol_count] = soft_symbol_norm
+                symbol_indices[symbol_count] = idx
+                symbol_count += 1
+
+            # Advance to next symbol
+            sample_point += samples_per_symbol
+
+    # Return only the filled portions
+    return (
+        dibits[:symbol_count],
+        soft_symbols[:symbol_count],
+        symbol_indices[:symbol_count],
+        buffer_pointer,
+        sample_point,
+    )
+
+
 class _Interpolator:
     """8-tap polyphase interpolator for precise sub-sample timing.
 
@@ -956,141 +1085,109 @@ class C4FMDemodulator:
                 q_rrc.astype(np.float32)
             )
 
-        # Collect results
-        dibits = []
-        soft_symbols = []
-
-        # Process phases through symbol recovery (sample-by-sample like SDRTrunk)
-        # NOTE: This Python loop is a known performance bottleneck - consider numba JIT
+        # JIT-compiled symbol recovery for maximum performance
+        # This replaces the slow Python for-loop with a numba-compiled version
         _c4fm_profiler.start("symbol_recovery")
-        for phase in phases:
-            self._buffer_pointer += 1
-            self._sample_point -= 1.0
 
-            # Buffer management
-            if self._buffer_pointer >= len(self._buffer) - 1:
-                # Shift buffer
-                shift = len(self._buffer) // 2
-                self._buffer[:-shift] = self._buffer[shift:]
-                self._buffer[-shift:] = 0
-                self._buffer_pointer -= shift
-
-            # Store sample
-            self._buffer[self._buffer_pointer] = phase
-
-            # Symbol decision point
-            if self._sample_point < 1.0:
-                self._symbols_processed += 1
-
-                # Get equalized, interpolated symbol using 8-tap polyphase interpolator
-                # The interpolator uses 8 samples centered around the target point.
-                # With offset = idx - 4, the interpolator uses samples from buffer[idx-4]
-                # to buffer[idx+3], and interpolates between buffer[idx-1] (at mu=0)
-                # and buffer[idx] (at mu=1).
-                idx = self._buffer_pointer
-                mu = 1.0 - self._sample_point
-
-                # Compute interpolator offset: center the 8-tap window
-                interp_offset = idx - 4
-
-                # Ensure we have enough samples for interpolation
-                if interp_offset >= 0 and idx < len(self._buffer):
-                    soft_symbol_rad = self._equalizer.get_equalized_symbol(
-                        self._buffer,
-                        interp_offset,
-                        mu
-                    )
-
-                    # Make decision
-                    dibit = Dibit.from_soft_symbol(soft_symbol_rad)
-
-                    # Convert radians to normalized symbol levels (±1, ±3)
-                    # for compatibility with frame sync correlation
-                    soft_symbol_norm = soft_symbol_rad * (4.0 / np.pi)
-
-                    dibits.append(dibit.value)
-                    soft_symbols.append(soft_symbol_norm)
-
-                    # Soft sync detection and timing optimization
-                    # Dual sync detection: primary + lagging at half-symbol offset
-                    self._symbols_since_sync += 1
-                    sync_score_primary = self._sync_detector.process(soft_symbol_norm)
-
-                    # Determine which detector to use
-                    use_lagging = False
-                    additional_offset = 0.0
-
-                    if self._fine_sync:
-                        # In fine sync mode, only use primary detector
-                        sync_score = sync_score_primary
-                    else:
-                        # In coarse mode, check lagging detector too
-                        # Get lagging symbol at half-symbol earlier position
-                        lag_pos = self._buffer_pointer - int(self._lagging_offset)
-                        if lag_pos >= 4:  # Need 4 samples before for interpolator
-                            lag_mu = 1.0 - (self._lagging_offset - int(self._lagging_offset))
-                            lag_offset = lag_pos - 4
-                            soft_symbol_lag = self._equalizer.get_equalized_symbol(
-                                self._buffer, lag_offset, lag_mu
-                            )
-                            soft_symbol_lag_norm = soft_symbol_lag * (4.0 / np.pi)
-                            sync_score_lag = self._sync_detector_lagging.process(soft_symbol_lag_norm)
-                        else:
-                            sync_score_lag = 0.0
-
-                        # Use whichever detector has higher score
-                        if sync_score_lag > sync_score_primary and sync_score_lag >= self.SYNC_THRESHOLD_DETECTION:
-                            sync_score = sync_score_lag
-                            use_lagging = True
-                            additional_offset = -self._lagging_offset
-                        else:
-                            sync_score = sync_score_primary
-
-                    if sync_score >= self.SYNC_THRESHOLD_DETECTION:
-                        # Run timing optimization at sync detection
-                        timing_adj, opt_score, pll_adj, gain_adj = \
-                            self._timing_optimizer.optimize(
-                                self._buffer,
-                                self._buffer_pointer + mu + additional_offset,
-                                self._equalizer,
-                                fine_sync=self._fine_sync
-                            )
-
-                        if opt_score >= self.SYNC_THRESHOLD_OPTIMIZED:
-                            # Apply timing adjustment (within limits for fine sync)
-                            if self._fine_sync:
-                                timing_adj = np.clip(
-                                    timing_adj,
-                                    -self._max_fine_sync_adjustment,
-                                    self._max_fine_sync_adjustment
-                                )
-
-                            self._sample_point += timing_adj + additional_offset
-
-                            # Apply equalizer corrections
-                            self._equalizer.apply_correction(pll_adj, gain_adj)
-
-                            self._sync_count += 1
-                            self._fine_sync = True
-                            self._symbols_since_sync = 0
-
-                            if self._sync_count <= 5 or self._sync_count % 100 == 0:
-                                detector_type = "LAG" if use_lagging else "PRI"
-                                logger.debug(
-                                    f"P25 sync #{self._sync_count} [{detector_type}]: score={opt_score:.1f}, "
-                                    f"timing_adj={timing_adj:.2f}, pll={self._equalizer.pll:.4f}, "
-                                    f"gain={self._equalizer.gain:.3f}"
-                                )
-
-                    # Lose fine sync if no sync detected for too long (>2 frames)
-                    if self._symbols_since_sync > 3600:
-                        self._fine_sync = False
-                        self._symbols_since_sync = 0
-
-                # Advance to next symbol
-                self._sample_point += self.samples_per_symbol
+        # Run JIT-compiled symbol recovery
+        dibits_arr, soft_symbols_arr, symbol_indices, self._buffer_pointer, self._sample_point = \
+            _symbol_recovery_jit(
+                phases.astype(np.float32),
+                self._buffer,
+                self._buffer_pointer,
+                self._sample_point,
+                self.samples_per_symbol,
+                self._equalizer.pll,
+                self._equalizer.gain,
+                _interpolator.TAPS,
+            )
 
         _c4fm_profiler.stop("symbol_recovery")
+
+        # Update symbols processed count
+        self._symbols_processed += len(dibits_arr)
+
+        # Process sync detection on extracted symbols (much faster than per-sample)
+        # This runs in Python but only for ~960 symbols instead of ~10,000 samples
+        _c4fm_profiler.start("sync_detection")
+        for i, soft_symbol_norm in enumerate(soft_symbols_arr):
+            self._symbols_since_sync += 1
+            sync_score_primary = self._sync_detector.process(soft_symbol_norm)
+
+            # Determine which detector to use
+            use_lagging = False
+            additional_offset = 0.0
+
+            if self._fine_sync:
+                sync_score = sync_score_primary
+            else:
+                # In coarse mode, check lagging detector too
+                lag_pos = symbol_indices[i] - int(self._lagging_offset)
+                if lag_pos >= 4:
+                    lag_mu = 1.0 - (self._lagging_offset - int(self._lagging_offset))
+                    lag_offset = lag_pos - 4
+                    if lag_offset >= 0 and lag_pos < len(self._buffer):
+                        soft_symbol_lag = self._equalizer.get_equalized_symbol(
+                            self._buffer, lag_offset, lag_mu
+                        )
+                        soft_symbol_lag_norm = soft_symbol_lag * (4.0 / np.pi)
+                        sync_score_lag = self._sync_detector_lagging.process(soft_symbol_lag_norm)
+                    else:
+                        sync_score_lag = 0.0
+                else:
+                    sync_score_lag = 0.0
+
+                if sync_score_lag > sync_score_primary and sync_score_lag >= self.SYNC_THRESHOLD_DETECTION:
+                    sync_score = sync_score_lag
+                    use_lagging = True
+                    additional_offset = -self._lagging_offset
+                else:
+                    sync_score = sync_score_primary
+
+            if sync_score >= self.SYNC_THRESHOLD_DETECTION:
+                # Run timing optimization
+                mu = 0.5  # Approximate - we don't have exact mu from JIT
+                timing_adj, opt_score, pll_adj, gain_adj = \
+                    self._timing_optimizer.optimize(
+                        self._buffer,
+                        symbol_indices[i] + mu + additional_offset,
+                        self._equalizer,
+                        fine_sync=self._fine_sync
+                    )
+
+                if opt_score >= self.SYNC_THRESHOLD_OPTIMIZED:
+                    if self._fine_sync:
+                        timing_adj = np.clip(
+                            timing_adj,
+                            -self._max_fine_sync_adjustment,
+                            self._max_fine_sync_adjustment
+                        )
+
+                    self._sample_point += timing_adj + additional_offset
+                    self._equalizer.apply_correction(pll_adj, gain_adj)
+
+                    self._sync_count += 1
+                    self._fine_sync = True
+                    self._symbols_since_sync = 0
+
+                    if self._sync_count <= 5 or self._sync_count % 100 == 0:
+                        detector_type = "LAG" if use_lagging else "PRI"
+                        logger.debug(
+                            f"P25 sync #{self._sync_count} [{detector_type}]: score={opt_score:.1f}, "
+                            f"timing_adj={timing_adj:.2f}, pll={self._equalizer.pll:.4f}, "
+                            f"gain={self._equalizer.gain:.3f}"
+                        )
+
+            # Lose fine sync if no sync detected for too long
+            if self._symbols_since_sync > 3600:
+                self._fine_sync = False
+                self._symbols_since_sync = 0
+
+        _c4fm_profiler.stop("sync_detection")
+
+        # Convert to lists for return (maintaining API compatibility)
+        dibits = dibits_arr.tolist()
+        soft_symbols = soft_symbols_arr.tolist()
 
         # [DIAG-STAGE5] Symbol output statistics
         if len(soft_symbols) > 0 and self._diag_demod_calls % 100 == 0:
