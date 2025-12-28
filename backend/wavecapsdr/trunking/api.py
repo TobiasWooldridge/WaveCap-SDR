@@ -33,6 +33,7 @@ from starlette.responses import StreamingResponse
 
 from wavecapsdr.decoders.voice import VoiceDecoder
 from wavecapsdr.trunking import (
+    HuntMode,
     TalkgroupConfig,
     TrunkingManager,
     TrunkingProtocol,
@@ -623,6 +624,197 @@ async def list_trunking_recipes(request: Request) -> list[TrunkingRecipeResponse
         ))
 
     return recipes
+
+
+# ============================================================================
+# Hunt Mode Control Endpoints
+# ============================================================================
+
+class HuntModeRequest(BaseModel):
+    """Request to set hunt mode."""
+    mode: str = Field(..., description="Hunt mode: auto, manual, or scan_once")
+    lockedFrequency: float | None = Field(None, description="Frequency to lock to (for manual mode)")
+
+
+class ControlChannelResponse(BaseModel):
+    """Control channel info."""
+    frequencyHz: float
+    enabled: bool
+    isCurrent: bool
+    isLocked: bool
+    snrDb: float | None = None
+    powerDb: float | None = None
+    syncDetected: bool = False
+    measurementTime: float | None = None
+
+
+class ChannelEnabledRequest(BaseModel):
+    """Request to enable/disable a channel."""
+    enabled: bool = Field(..., description="Whether to enable the channel")
+
+
+@router.get("/systems/{system_id}/hunt-mode")
+async def get_hunt_mode(request: Request, system_id: str) -> dict[str, Any]:
+    """Get the current hunt mode for a trunking system."""
+    manager = get_trunking_manager(request)
+    system = manager.get_system(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail=f"System {system_id} not found")
+
+    return {
+        "mode": system.get_hunt_mode().value,
+        "lockedFrequencyHz": system.get_locked_frequency(),
+    }
+
+
+@router.patch("/systems/{system_id}/hunt-mode")
+async def set_hunt_mode(
+    request: Request,
+    system_id: str,
+    req: HuntModeRequest,
+) -> dict[str, Any]:
+    """Set the hunt mode for a trunking system.
+
+    Hunt modes:
+    - auto: Hunt continuously, roam if better channel found
+    - manual: Lock to specified channel, no hunting ever
+    - scan_once: Scan all channels once, lock to best, stay there
+    """
+    manager = get_trunking_manager(request)
+    system = manager.get_system(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail=f"System {system_id} not found")
+
+    try:
+        mode = HuntMode(req.mode)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid hunt mode: {req.mode}. Use 'auto', 'manual', or 'scan_once'"
+        )
+
+    try:
+        system.set_hunt_mode(mode, req.lockedFrequency)
+        return {
+            "status": "ok",
+            "mode": mode.value,
+            "lockedFrequencyHz": req.lockedFrequency,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/systems/{system_id}/channels", response_model=list[ControlChannelResponse])
+async def get_control_channels(request: Request, system_id: str) -> list[ControlChannelResponse]:
+    """Get all control channels with their current status."""
+    manager = get_trunking_manager(request)
+    system = manager.get_system(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail=f"System {system_id} not found")
+
+    channels = system.get_control_channels_info()
+    return [
+        ControlChannelResponse(
+            frequencyHz=ch["frequencyHz"],
+            enabled=ch["enabled"],
+            isCurrent=ch["isCurrent"],
+            isLocked=ch["isLocked"],
+            snrDb=ch["snrDb"],
+            powerDb=ch["powerDb"],
+            syncDetected=ch["syncDetected"],
+            measurementTime=ch["measurementTime"],
+        )
+        for ch in channels
+    ]
+
+
+@router.patch("/systems/{system_id}/channels/{freq_mhz}/enabled")
+async def set_channel_enabled(
+    request: Request,
+    system_id: str,
+    freq_mhz: float,
+    req: ChannelEnabledRequest,
+) -> dict[str, Any]:
+    """Enable or disable a control channel.
+
+    Args:
+        freq_mhz: Frequency in MHz (e.g., 413.45 for 413.45 MHz)
+    """
+    manager = get_trunking_manager(request)
+    system = manager.get_system(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail=f"System {system_id} not found")
+
+    freq_hz = freq_mhz * 1_000_000
+
+    try:
+        system.set_channel_enabled(freq_hz, req.enabled)
+        return {
+            "status": "ok",
+            "frequencyHz": freq_hz,
+            "enabled": req.enabled,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/systems/{system_id}/scan")
+async def trigger_scan(request: Request, system_id: str) -> dict[str, Any]:
+    """Trigger an immediate scan of all control channels.
+
+    Returns the current measurement results for all channels.
+    """
+    manager = get_trunking_manager(request)
+    system = manager.get_system(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail=f"System {system_id} not found")
+
+    measurements = system.trigger_scan()
+
+    # Find the best channel
+    best_freq = None
+    best_snr = float('-inf')
+    for freq, m in measurements.items():
+        if m.get("syncDetected") and m.get("snrDb", float('-inf')) > best_snr:
+            best_snr = m["snrDb"]
+            best_freq = freq
+
+    return {
+        "status": "ok",
+        "measurements": measurements,
+        "bestChannelHz": best_freq,
+    }
+
+
+@router.post("/systems/{system_id}/channels/{freq_mhz}/lock")
+async def lock_to_channel(
+    request: Request,
+    system_id: str,
+    freq_mhz: float,
+) -> dict[str, Any]:
+    """Lock to a specific control channel.
+
+    This sets the hunt mode to MANUAL and locks to the specified frequency.
+
+    Args:
+        freq_mhz: Frequency in MHz (e.g., 413.45 for 413.45 MHz)
+    """
+    manager = get_trunking_manager(request)
+    system = manager.get_system(system_id)
+    if system is None:
+        raise HTTPException(status_code=404, detail=f"System {system_id} not found")
+
+    freq_hz = freq_mhz * 1_000_000
+
+    try:
+        system.set_hunt_mode(HuntMode.MANUAL, freq_hz)
+        return {
+            "status": "ok",
+            "mode": "manual",
+            "lockedFrequencyHz": freq_hz,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ============================================================================

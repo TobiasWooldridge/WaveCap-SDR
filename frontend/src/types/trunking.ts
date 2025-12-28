@@ -12,6 +12,8 @@ export type TrunkingSystemState =
 
 export type ControlChannelState = "unlocked" | "searching" | "locked" | "lost";
 
+export type HuntMode = "auto" | "manual" | "scan_once";
+
 export type CallState = "starting" | "recording" | "hold" | "ended";
 
 export interface TrunkingSystem {
@@ -30,12 +32,27 @@ export interface TrunkingSystem {
   decodeRate: number;
   activeCalls: number;
   stats: TrunkingStats;
+  // Hunt mode control
+  huntMode: HuntMode;
+  lockedFrequencyHz: number | null;
+  controlChannels: ControlChannel[];
 }
 
 export interface ControlChannelMeasurement {
   power_db: number;
   snr_db: number;
   sync_detected: boolean;
+}
+
+export interface ControlChannel {
+  frequencyHz: number;
+  enabled: boolean;
+  isCurrent: boolean;
+  isLocked: boolean;
+  snrDb: number | null;
+  powerDb: number | null;
+  syncDetected: boolean;
+  measurementTime: number | null;
 }
 
 export interface ControlChannelScannerStats {

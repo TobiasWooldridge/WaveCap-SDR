@@ -24,6 +24,7 @@ import { useToast } from "../../hooks/useToast";
 import { copyToClipboard } from "../../utils/clipboard";
 import type { ActiveCall } from "../../types/trunking";
 import { SystemStatusPanel } from "./SystemStatusPanel";
+import { ControlChannelPanel } from "./ControlChannelPanel";
 import { ActiveCallsTable } from "./ActiveCallsTable";
 import { TalkgroupDirectory } from "./TalkgroupDirectory";
 import { CallEventLog, CallEvent } from "./CallEventLog";
@@ -196,6 +197,11 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
         onPlayAudio={playAudio}
         onStopAudio={stopAudio}
       />
+
+      {/* Control channel panel - shows hunt mode and channel controls */}
+      {system.controlChannels && system.controlChannels.length > 1 && (
+        <ControlChannelPanel system={system} />
+      )}
 
       {/* System-level stream links */}
       <StreamLinks

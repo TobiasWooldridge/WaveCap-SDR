@@ -19,6 +19,7 @@ Supports:
 """
 
 from wavecapsdr.trunking.config import (
+    HuntMode,
     TalkgroupConfig,
     TrunkingProtocol,
     TrunkingSystemConfig,
@@ -76,6 +77,8 @@ __all__ = [
     # Control Channel
     "ControlChannelMonitor",
     "ControlChannelState",
+    # Hunt Mode
+    "HuntMode",
     # Duplicate Detection (SDRTrunk pattern)
     "DuplicateCallDetector",
     "FrequencyBand",

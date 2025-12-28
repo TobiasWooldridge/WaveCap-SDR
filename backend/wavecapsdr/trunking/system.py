@@ -33,7 +33,7 @@ from wavecapsdr.decoders.p25 import P25Decoder
 from wavecapsdr.decoders.p25_tsbk import ChannelIdentifier, TSBKParser
 from wavecapsdr.decoders.voice import VocoderType
 from wavecapsdr.trunking.cc_scanner import ControlChannelScanner
-from wavecapsdr.trunking.config import TrunkingProtocol, TrunkingSystemConfig
+from wavecapsdr.trunking.config import HuntMode, TrunkingProtocol, TrunkingSystemConfig
 from wavecapsdr.trunking.control_channel import ControlChannelMonitor, create_control_monitor
 from wavecapsdr.trunking.voice_channel import RadioLocation, VoiceChannel, VoiceChannelConfig
 
@@ -481,6 +481,12 @@ class TrunkingSystem:
     _initial_scan_complete: bool = False
     _initial_scan_enabled: bool = True  # Whether to do initial scan (from config)
 
+    # Hunt mode control (for fixed stations)
+    _hunt_mode: HuntMode = HuntMode.AUTO
+    _enabled_channels: set[float] | None = None  # None = all enabled
+    _locked_frequency: float | None = None  # For manual mode
+    _scan_once_complete: bool = False  # Track if scan_once has completed
+
     def __post_init__(self) -> None:
         """Initialize after dataclass creation."""
         # Use config timeout if specified
@@ -490,6 +496,9 @@ class TrunkingSystem:
         self._roam_check_interval = self.cfg.roam_check_interval
         self._roam_threshold_db = self.cfg.roam_threshold_db
         self._initial_scan_enabled = self.cfg.initial_scan_enabled
+
+        # Use hunt mode from config
+        self._hunt_mode = self.cfg.default_hunt_mode
 
         # Create TSBK parser
         self._tsbk_parser = TSBKParser()
@@ -1665,12 +1674,25 @@ class TrunkingSystem:
     def _check_control_channel_hunt(self) -> None:
         """Check if we need to hunt for a different control channel.
 
+        Respects hunt mode settings:
+        - MANUAL: Never hunt, stay on locked frequency
+        - SCAN_ONCE: Scan once to find best channel, then lock permanently
+        - AUTO: Hunt continuously, respecting enabled/disabled channels
+
         Uses SDRTrunk-compatible lock criteria:
         - Lock is based on sync detection, not TSBK CRC
         - Stay locked as long as sync is maintained
         - Transition to SEARCHING when sync is lost (1 second without sync)
         """
         now = time.time()
+
+        # MANUAL mode: Never hunt, stay on current/locked channel
+        if self._hunt_mode == HuntMode.MANUAL:
+            return
+
+        # SCAN_ONCE mode: If scan is complete, don't hunt anymore
+        if self._hunt_mode == HuntMode.SCAN_ONCE and self._scan_once_complete:
+            return
 
         # Get sync state from control monitor (SDRTrunk-style lock criteria)
         has_sync = False
@@ -1704,7 +1726,8 @@ class TrunkingSystem:
                 f"has_sync={has_sync}, sync_age={sync_age:.1f}s, "
                 f"time_on_channel={time_on_channel:.1f}s, hunt_timeout={hunt_timeout:.1f}s, "
                 f"has_ever_locked={self._has_ever_locked}, "
-                f"num_channels={len(self.cfg.control_channels)}"
+                f"num_channels={len(self.cfg.control_channels)}, "
+                f"hunt_mode={self._hunt_mode.value}"
             )
 
         # SDRTrunk-style lock: based on sync, not TSBK
@@ -1718,20 +1741,54 @@ class TrunkingSystem:
                 self.control_channel_state = ControlChannelState.SEARCHING
             else:
                 # Still have sync, stay locked (even if TSBK CRC is failing)
+                # For SCAN_ONCE mode, mark scan as complete when we achieve lock
+                if self._hunt_mode == HuntMode.SCAN_ONCE and not self._scan_once_complete:
+                    self._scan_once_complete = True
+                    self._locked_frequency = self.control_channel_freq_hz
+                    logger.info(
+                        f"TrunkingSystem {self.cfg.id}: SCAN_ONCE complete, "
+                        f"locked to {self.control_channel_freq_hz/1e6:.4f} MHz"
+                    )
                 return
 
         # When searching, use dynamic timeout before rotating
         if time_on_channel < hunt_timeout:
             return
 
-        # Time to try the next control channel
-        num_channels = len(self.cfg.control_channels)
-        if num_channels <= 1:
+        # Get list of enabled channels only
+        enabled_channels = self.get_enabled_channels()
+        num_enabled = len(enabled_channels)
+        if num_enabled == 0:
+            logger.warning(f"TrunkingSystem {self.cfg.id}: No enabled control channels!")
+            return
+        if num_enabled == 1:
+            # Only one enabled channel, no hunting needed
             return
 
-        # Advance to next control channel
-        self.control_channel_index = (self.control_channel_index + 1) % num_channels
-        self.control_channel_freq_hz = self.cfg.control_channels[self.control_channel_index]
+        # Find next enabled channel
+        current_freq = self.control_channel_freq_hz or self.cfg.control_channels[0]
+
+        # Sort enabled channels and find the next one after current
+        sorted_channels = sorted(enabled_channels)
+        try:
+            current_idx = next(
+                i for i, f in enumerate(sorted_channels)
+                if abs(f - current_freq) < 1000
+            )
+            next_idx = (current_idx + 1) % len(sorted_channels)
+        except StopIteration:
+            # Current frequency not in enabled list, use first enabled
+            next_idx = 0
+
+        next_freq = sorted_channels[next_idx]
+
+        # Find the index in the original control_channels list
+        try:
+            self.control_channel_index = self.cfg.control_channels.index(next_freq)
+        except ValueError:
+            self.control_channel_index = 0
+
+        self.control_channel_freq_hz = next_freq
 
         # Calculate offset from SDR center to the control channel
         # NOTE: Do NOT retune the SDR - use frequency shifting instead.
@@ -1743,7 +1800,7 @@ class TrunkingSystem:
         logger.info(
             f"TrunkingSystem {self.cfg.id}: Control channel hunt - "
             f"trying {self.control_channel_freq_hz/1e6:.4f} MHz "
-            f"(channel {self.control_channel_index + 1}/{num_channels}, "
+            f"(channel {next_idx + 1}/{num_enabled} enabled, "
             f"offset={new_offset_hz/1e3:.1f} kHz)"
         )
 
@@ -1994,6 +2051,10 @@ class TrunkingSystem:
             "activeCalls": len(self._active_calls),
             "stats": self.get_stats(),
             "channelMeasurements": channel_measurements,  # WaveCap improvement: show all channel strengths
+            # Hunt mode control
+            "huntMode": self._hunt_mode.value,
+            "lockedFrequencyHz": self._locked_frequency,
+            "controlChannels": self.get_control_channels_info(),
         }
 
     def get_voice_channels(self) -> list[VoiceChannel]:
@@ -2017,6 +2078,210 @@ class TrunkingSystem:
             if recorder.id == recorder_id:
                 return recorder
         return None
+
+    # =========================================================================
+    # Hunt Mode Control (for fixed stations)
+    # =========================================================================
+
+    def get_hunt_mode(self) -> HuntMode:
+        """Get the current control channel hunting mode."""
+        return self._hunt_mode
+
+    def set_hunt_mode(
+        self,
+        mode: HuntMode,
+        locked_freq: float | None = None,
+    ) -> None:
+        """Set the control channel hunting mode.
+
+        Args:
+            mode: The hunting mode to set
+            locked_freq: For MANUAL mode, the frequency to lock to (optional)
+
+        Raises:
+            ValueError: If locked_freq is not a valid control channel
+        """
+        # Validate locked_freq if provided
+        if locked_freq is not None and locked_freq not in self.cfg.control_channels:
+            raise ValueError(
+                f"Frequency {locked_freq/1e6:.4f} MHz is not a configured control channel"
+            )
+
+        old_mode = self._hunt_mode
+        self._hunt_mode = mode
+        self._locked_frequency = locked_freq
+
+        # If switching to MANUAL with a specific frequency, tune to it now
+        if mode == HuntMode.MANUAL and locked_freq is not None:
+            self._tune_to_frequency(locked_freq)
+            logger.info(
+                f"TrunkingSystem {self.cfg.id}: Hunt mode set to MANUAL, "
+                f"locked to {locked_freq/1e6:.4f} MHz"
+            )
+        elif mode == HuntMode.SCAN_ONCE:
+            # Reset scan_once state to trigger a new scan
+            self._scan_once_complete = False
+            logger.info(
+                f"TrunkingSystem {self.cfg.id}: Hunt mode set to SCAN_ONCE, "
+                f"will scan and lock to best channel"
+            )
+        else:
+            logger.info(
+                f"TrunkingSystem {self.cfg.id}: Hunt mode changed from "
+                f"{old_mode.value} to {mode.value}"
+            )
+
+        # Notify observers
+        if self.on_system_update:
+            self.on_system_update(self)
+
+    def get_locked_frequency(self) -> float | None:
+        """Get the currently locked frequency (for MANUAL mode)."""
+        return self._locked_frequency
+
+    def get_enabled_channels(self) -> list[float]:
+        """Get list of enabled control channel frequencies.
+
+        Returns:
+            List of enabled frequencies, or all channels if none are disabled.
+        """
+        if self._enabled_channels is None:
+            return list(self.cfg.control_channels)
+        return [f for f in self.cfg.control_channels if f in self._enabled_channels]
+
+    def set_channel_enabled(self, freq_hz: float, enabled: bool) -> None:
+        """Enable or disable a specific control channel.
+
+        Args:
+            freq_hz: The control channel frequency in Hz
+            enabled: Whether to enable or disable the channel
+
+        Raises:
+            ValueError: If freq_hz is not a configured control channel
+        """
+        if freq_hz not in self.cfg.control_channels:
+            raise ValueError(
+                f"Frequency {freq_hz/1e6:.4f} MHz is not a configured control channel"
+            )
+
+        # Initialize enabled_channels set if needed
+        if self._enabled_channels is None:
+            self._enabled_channels = set(self.cfg.control_channels)
+
+        if enabled:
+            self._enabled_channels.add(freq_hz)
+            logger.info(f"TrunkingSystem {self.cfg.id}: Enabled channel {freq_hz/1e6:.4f} MHz")
+        else:
+            self._enabled_channels.discard(freq_hz)
+            logger.info(f"TrunkingSystem {self.cfg.id}: Disabled channel {freq_hz/1e6:.4f} MHz")
+
+        # Notify observers
+        if self.on_system_update:
+            self.on_system_update(self)
+
+    def is_channel_enabled(self, freq_hz: float) -> bool:
+        """Check if a control channel is enabled."""
+        if self._enabled_channels is None:
+            return True
+        return freq_hz in self._enabled_channels
+
+    def trigger_scan(self) -> dict[float, dict]:
+        """Trigger an immediate scan of all control channels.
+
+        Returns:
+            Dict mapping frequency to measurement results.
+        """
+        if self._cc_scanner is None:
+            logger.warning(f"TrunkingSystem {self.cfg.id}: No scanner available for trigger_scan")
+            return {}
+
+        # Get latest measurements from scanner
+        measurements = self._cc_scanner._measurements
+        result = {}
+
+        for freq, m in measurements.items():
+            result[freq] = {
+                "frequencyHz": freq,
+                "powerDb": m.power_db,
+                "snrDb": m.snr_db,
+                "syncDetected": m.sync_detected,
+                "measurementTime": m.measurement_time,
+            }
+
+        logger.info(f"TrunkingSystem {self.cfg.id}: Returning {len(result)} channel measurements")
+        return result
+
+    def get_control_channels_info(self) -> list[dict]:
+        """Get detailed info about all control channels.
+
+        Returns:
+            List of dicts with channel info including enable state, measurements,
+            and whether it's the current channel.
+        """
+        result = []
+        measurements = {}
+
+        if self._cc_scanner:
+            measurements = self._cc_scanner._measurements
+
+        for freq in self.cfg.control_channels:
+            m = measurements.get(freq)
+            is_current = (
+                self.control_channel_freq_hz is not None
+                and abs(freq - self.control_channel_freq_hz) < 1000
+            )
+
+            info = {
+                "frequencyHz": freq,
+                "enabled": self.is_channel_enabled(freq),
+                "isCurrent": is_current,
+                "isLocked": self._locked_frequency is not None and abs(freq - self._locked_frequency) < 1000,
+                "snrDb": m.snr_db if m else None,
+                "powerDb": m.power_db if m else None,
+                "syncDetected": m.sync_detected if m else False,
+                "measurementTime": m.measurement_time if m else None,
+            }
+            result.append(info)
+
+        return result
+
+    def _tune_to_frequency(self, freq_hz: float) -> None:
+        """Tune to a specific control channel frequency.
+
+        Internal method used by hunt mode control.
+        """
+        if freq_hz not in self.cfg.control_channels:
+            return
+
+        # Find the index of this frequency
+        try:
+            idx = self.cfg.control_channels.index(freq_hz)
+        except ValueError:
+            return
+
+        self.control_channel_index = idx
+        self.control_channel_freq_hz = freq_hz
+
+        # Calculate new offset
+        new_offset_hz = freq_hz - self.cfg.center_hz
+
+        logger.info(
+            f"TrunkingSystem {self.cfg.id}: Tuning to {freq_hz/1e6:.4f} MHz "
+            f"(offset={new_offset_hz/1e3:.1f} kHz)"
+        )
+
+        # Update the control channel offset
+        if self._control_channel is not None:
+            self._control_channel.cfg.offset_hz = new_offset_hz
+
+        # Reset state tracking
+        self._state_change_time = time.time()
+        self._last_tsbk_time = 0.0
+
+        # Reset the control channel monitor and IQ buffer
+        if self._control_monitor is not None:
+            self._control_monitor.reset(preserve_polarity=True)
+        self._cc_iq_buffer = np.array([], dtype=np.complex128)
 
     # =========================================================================
     # Location Cache (LRRP GPS data)

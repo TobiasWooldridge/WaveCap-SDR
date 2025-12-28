@@ -7,6 +7,8 @@ import type {
   VocoderStatus,
   CreateSystemRequest,
   AddTalkgroupRequest,
+  HuntMode,
+  ControlChannel,
 } from "../types/trunking";
 
 const API_BASE = "/api/v1/trunking";
@@ -270,5 +272,132 @@ export function useVocoderStatus() {
       return response.json();
     },
     staleTime: 60000, // Consider fresh for 1 minute
+  });
+}
+
+// ============================================================================
+// Hunt Mode Control
+// ============================================================================
+
+export function useControlChannels(systemId: string | null) {
+  return useQuery<ControlChannel[]>({
+    queryKey: [...trunkingKeys.system(systemId ?? ""), "channels"],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE}/systems/${systemId}/channels`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch control channels: ${response.status}`);
+      }
+      return response.json();
+    },
+    enabled: !!systemId,
+    refetchInterval: 2000, // Poll every 2 seconds to get signal measurements
+  });
+}
+
+export function useSetHuntMode() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    { status: string; mode: string; lockedFrequencyHz: number | null },
+    Error,
+    { systemId: string; mode: HuntMode; lockedFrequency?: number }
+  >({
+    mutationFn: async ({ systemId, mode, lockedFrequency }) => {
+      const response = await fetch(`${API_BASE}/systems/${systemId}/hunt-mode`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, lockedFrequency }),
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to set hunt mode");
+      }
+      return response.json();
+    },
+    onSuccess: (_, { systemId }) => {
+      queryClient.invalidateQueries({ queryKey: trunkingKeys.system(systemId) });
+      queryClient.invalidateQueries({ queryKey: trunkingKeys.systems() });
+    },
+  });
+}
+
+export function useSetChannelEnabled() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    { status: string; frequencyHz: number; enabled: boolean },
+    Error,
+    { systemId: string; frequencyHz: number; enabled: boolean }
+  >({
+    mutationFn: async ({ systemId, frequencyHz, enabled }) => {
+      const freqMhz = frequencyHz / 1_000_000;
+      const response = await fetch(
+        `${API_BASE}/systems/${systemId}/channels/${freqMhz}/enabled`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled }),
+        }
+      );
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to set channel enabled");
+      }
+      return response.json();
+    },
+    onSuccess: (_, { systemId }) => {
+      queryClient.invalidateQueries({ queryKey: trunkingKeys.system(systemId) });
+    },
+  });
+}
+
+export function useLockToChannel() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    { status: string; mode: string; lockedFrequencyHz: number },
+    Error,
+    { systemId: string; frequencyHz: number }
+  >({
+    mutationFn: async ({ systemId, frequencyHz }) => {
+      const freqMhz = frequencyHz / 1_000_000;
+      const response = await fetch(
+        `${API_BASE}/systems/${systemId}/channels/${freqMhz}/lock`,
+        { method: "POST" }
+      );
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to lock to channel");
+      }
+      return response.json();
+    },
+    onSuccess: (_, { systemId }) => {
+      queryClient.invalidateQueries({ queryKey: trunkingKeys.system(systemId) });
+      queryClient.invalidateQueries({ queryKey: trunkingKeys.systems() });
+    },
+  });
+}
+
+export function useTriggerScan() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    { status: string; measurements: Record<string, unknown>; bestChannelHz: number | null },
+    Error,
+    string
+  >({
+    mutationFn: async (systemId) => {
+      const response = await fetch(`${API_BASE}/systems/${systemId}/scan`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to trigger scan");
+      }
+      return response.json();
+    },
+    onSuccess: (_, systemId) => {
+      queryClient.invalidateQueries({ queryKey: trunkingKeys.system(systemId) });
+    },
   });
 }

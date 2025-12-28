@@ -66,6 +66,16 @@ class P25Modulation(str, Enum):
     LSM = "lsm"      # Linear Simulcast Modulation (CQPSK)
 
 
+class HuntMode(str, Enum):
+    """Control channel hunting mode.
+
+    Determines how the trunking system finds and maintains control channel lock.
+    """
+    AUTO = "auto"           # Default: hunt continuously, roam if better channel found
+    MANUAL = "manual"       # Lock to specified channel, no hunting ever
+    SCAN_ONCE = "scan_once" # Scan all channels once, lock to best, stay there
+
+
 @dataclass
 class TalkgroupConfig:
     """Configuration for a single talkgroup.
@@ -142,6 +152,7 @@ class TrunkingSystemConfig:
     roam_check_interval: float = 30.0  # Seconds between roaming checks
     roam_threshold_db: float = 6.0  # SNR improvement required to trigger roaming
     initial_scan_enabled: bool = True  # Whether to scan all channels at startup
+    default_hunt_mode: HuntMode = HuntMode.AUTO  # Default control channel hunting mode
 
     def get_talkgroup(self, tgid: int) -> TalkgroupConfig | None:
         """Get talkgroup config by ID."""
@@ -234,6 +245,7 @@ class TrunkingSystemConfig:
             roam_check_interval=float(data.get("roam_check_interval", 30.0)),
             roam_threshold_db=float(data.get("roam_threshold_db", 6.0)),
             initial_scan_enabled=data.get("initial_scan_enabled", True),
+            default_hunt_mode=HuntMode(data.get("default_hunt_mode", "auto")),
         )
 
     def to_dict(self) -> dict:
@@ -264,6 +276,7 @@ class TrunkingSystemConfig:
             "min_call_duration": self.min_call_duration,
             "squelch_db": self.squelch_db,
             "auto_start": self.auto_start,
+            "default_hunt_mode": self.default_hunt_mode.value,
         }
 
 
