@@ -27502,6 +27502,17 @@ const Filter = createLucideIcon("Filter", [
  * This source code is licensed under the ISC license.
  * See the LICENSE file in the root directory of this source tree.
  */
+const HelpCircle = createLucideIcon("HelpCircle", [
+  ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
+  ["path", { d: "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3", key: "1u773s" }],
+  ["path", { d: "M12 17h.01", key: "p32p05" }]
+]);
+/**
+ * @license lucide-react v0.294.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */
 const History = createLucideIcon("History", [
   ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
   ["path", { d: "M3 3v5h5", key: "1xhq8a" }],
@@ -27725,19 +27736,6 @@ const Settings = createLucideIcon("Settings", [
     }
   ],
   ["circle", { cx: "12", cy: "12", r: "3", key: "1v7zrd" }]
-]);
-/**
- * @license lucide-react v0.294.0 - ISC
- *
- * This source code is licensed under the ISC license.
- * See the LICENSE file in the root directory of this source tree.
- */
-const Signal = createLucideIcon("Signal", [
-  ["path", { d: "M2 20h.01", key: "4haj6o" }],
-  ["path", { d: "M7 20v-4", key: "j294jx" }],
-  ["path", { d: "M12 20v-8", key: "i3yub9" }],
-  ["path", { d: "M17 20V8", key: "1tkaf5" }],
-  ["path", { d: "M22 4v16", key: "sih9yq" }]
 ]);
 /**
  * @license lucide-react v0.294.0 - ISC
@@ -28646,6 +28644,90 @@ function useVocoderStatus() {
     },
     staleTime: 6e4
     // Consider fresh for 1 minute
+  });
+}
+function useSetHuntMode() {
+  const queryClient2 = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ systemId, mode, lockedFrequency }) => {
+      const response = await fetch(`${API_BASE$3}/systems/${systemId}/hunt-mode`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode, lockedFrequency })
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to set hunt mode");
+      }
+      return response.json();
+    },
+    onSuccess: (_, { systemId }) => {
+      queryClient2.invalidateQueries({ queryKey: trunkingKeys.system(systemId) });
+      queryClient2.invalidateQueries({ queryKey: trunkingKeys.systems() });
+    }
+  });
+}
+function useSetChannelEnabled() {
+  const queryClient2 = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ systemId, frequencyHz, enabled }) => {
+      const freqMhz = frequencyHz / 1e6;
+      const response = await fetch(
+        `${API_BASE$3}/systems/${systemId}/channels/${freqMhz}/enabled`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled })
+        }
+      );
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to set channel enabled");
+      }
+      return response.json();
+    },
+    onSuccess: (_, { systemId }) => {
+      queryClient2.invalidateQueries({ queryKey: trunkingKeys.system(systemId) });
+    }
+  });
+}
+function useLockToChannel() {
+  const queryClient2 = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ systemId, frequencyHz }) => {
+      const freqMhz = frequencyHz / 1e6;
+      const response = await fetch(
+        `${API_BASE$3}/systems/${systemId}/channels/${freqMhz}/lock`,
+        { method: "POST" }
+      );
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to lock to channel");
+      }
+      return response.json();
+    },
+    onSuccess: (_, { systemId }) => {
+      queryClient2.invalidateQueries({ queryKey: trunkingKeys.system(systemId) });
+      queryClient2.invalidateQueries({ queryKey: trunkingKeys.systems() });
+    }
+  });
+}
+function useTriggerScan() {
+  const queryClient2 = useQueryClient();
+  return useMutation({
+    mutationFn: async (systemId) => {
+      const response = await fetch(`${API_BASE$3}/systems/${systemId}/scan`, {
+        method: "POST"
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to trigger scan");
+      }
+      return response.json();
+    },
+    onSuccess: (_, systemId) => {
+      queryClient2.invalidateQueries({ queryKey: trunkingKeys.system(systemId) });
+    }
   });
 }
 function getStableDeviceId(deviceId) {
@@ -29883,6 +29965,78 @@ const Button = reactExports.forwardRef(
   }
 );
 Button.displayName = "Button";
+const variantStyles = {
+  success: { backgroundColor: "#198754", color: "#fff" },
+  // Bootstrap green
+  warning: { backgroundColor: "#ffc107", color: "#000" },
+  // Bootstrap yellow
+  danger: { backgroundColor: "#dc3545", color: "#fff" },
+  // Bootstrap red
+  secondary: { backgroundColor: "#6c757d", color: "#fff" },
+  // Bootstrap gray
+  info: { backgroundColor: "#0dcaf0", color: "#000" },
+  // Bootstrap cyan
+  primary: { backgroundColor: "#0d6efd", color: "#fff" }
+  // Bootstrap blue
+};
+function StatusPill({
+  label,
+  variant,
+  className = "",
+  size = "sm"
+}) {
+  const sizeStyles = size === "sm" ? { fontSize: "0.6rem" } : { fontSize: "0.75rem" };
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "span",
+    {
+      className: `badge ${className}`,
+      style: {
+        ...variantStyles[variant],
+        ...sizeStyles
+      },
+      children: label
+    }
+  );
+}
+function getCaptureStatusProps(state) {
+  switch (state) {
+    case "running":
+      return { label: "ON", variant: "success" };
+    case "stopped":
+      return { label: "OFF", variant: "secondary" };
+    case "starting":
+      return { label: "STARTING", variant: "warning" };
+    case "stopping":
+      return { label: "STOPPING", variant: "warning" };
+    case "failed":
+    case "error":
+      return { label: "FAILED", variant: "danger" };
+    default:
+      return { label: state.toUpperCase(), variant: "secondary" };
+  }
+}
+function getTrunkingStatusProps(state) {
+  switch (state) {
+    case "running":
+    case "synced":
+      return { label: "SYNCED", variant: "success" };
+    case "stopped":
+      return { label: "OFF", variant: "secondary" };
+    case "starting":
+      return { label: "STARTING", variant: "warning" };
+    case "searching":
+      return { label: "SEARCH", variant: "warning" };
+    case "syncing":
+      return { label: "SYNCING", variant: "warning" };
+    case "failed":
+      return { label: "FAILED", variant: "danger" };
+    default:
+      return { label: state.toUpperCase(), variant: "secondary" };
+  }
+}
+function getRadioTabStatusProps(state, type) {
+  return type === "trunking" ? getTrunkingStatusProps(state) : getCaptureStatusProps(state);
+}
 function RadioTabBar({
   tabs,
   selectedType,
@@ -30071,12 +30225,10 @@ function TabItem({
   isLastInGroup,
   hasMultipleTabs
 }) {
-  const isRunning = tab.state === "running";
+  const isRunning = tab.state === "running" || tab.state === "synced";
   const isFailed = tab.state === "failed" || tab.state === "error";
   const isTrunking = tab.type === "trunking";
-  const trunkingStateLabel = getTrunkingStateLabel(tab.state);
-  const stateLabel = isTrunking ? trunkingStateLabel : getCaptureStateLabel(tab.state);
-  const stateBadgeClass = getStateBadgeClass(tab.state, isTrunking);
+  const statusProps = getRadioTabStatusProps(tab.state, tab.type);
   const Icon = isTrunking ? Antenna : Radio;
   const groupStyle = hasMultipleTabs ? {
     // Smaller gap between grouped tabs
@@ -30125,14 +30277,7 @@ function TabItem({
           )
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "ms-auto d-flex align-items-center gap-1", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "span",
-            {
-              className: `badge ${stateBadgeClass}`,
-              style: { fontSize: "0.6rem" },
-              children: stateLabel
-            }
-          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(StatusPill, { label: statusProps.label, variant: statusProps.variant }),
           isSelected && /* @__PURE__ */ jsxRuntimeExports.jsx(
             "button",
             {
@@ -30149,74 +30294,6 @@ function TabItem({
       ]
     }
   );
-}
-function getCaptureStateLabel(state) {
-  switch (state) {
-    case "running":
-      return "ON";
-    case "stopped":
-      return "OFF";
-    case "starting":
-      return "STARTING";
-    case "stopping":
-      return "STOPPING";
-    case "failed":
-    case "error":
-      return "FAILED";
-    default:
-      return state.toUpperCase();
-  }
-}
-function getTrunkingStateLabel(state) {
-  switch (state) {
-    case "running":
-      return "SYNCED";
-    case "stopped":
-      return "OFF";
-    case "starting":
-      return "STARTING";
-    case "searching":
-      return "SEARCH";
-    case "syncing":
-      return "SYNCING";
-    case "failed":
-      return "FAILED";
-    default:
-      return state.toUpperCase();
-  }
-}
-function getStateBadgeClass(state, isTrunking) {
-  if (isTrunking) {
-    switch (state) {
-      case "running":
-        return "bg-success";
-      case "stopped":
-        return "bg-secondary";
-      case "searching":
-      case "syncing":
-      case "starting":
-        return "bg-warning text-dark";
-      case "failed":
-        return "bg-danger";
-      default:
-        return "bg-secondary";
-    }
-  } else {
-    switch (state) {
-      case "running":
-        return "bg-success";
-      case "stopped":
-        return "bg-secondary";
-      case "starting":
-      case "stopping":
-        return "bg-warning text-dark";
-      case "failed":
-      case "error":
-        return "bg-danger";
-      default:
-        return "bg-secondary";
-    }
-  }
 }
 const MEMORY_BANKS_KEY = "wavecapsdr_memory_banks";
 const MAX_MEMORY_BANKS = 50;
@@ -36676,46 +36753,54 @@ function useTrunkingWebSocket(options = {}) {
     error
   };
 }
-function formatFrequency$2(hz) {
+function formatFrequency$3(hz) {
   if (hz === null)
     return "---";
-  return (hz / 1e6).toFixed(4) + " MHz";
+  return (hz / 1e6).toFixed(4);
 }
-function getStateColor(state) {
-  switch (state) {
-    case "running":
-      return "success";
-    case "syncing":
-    case "searching":
-    case "starting":
-      return "warning";
-    case "failed":
-      return "danger";
-    default:
-      return "secondary";
+function getUnifiedStatus(system) {
+  if (system.state === "stopped") {
+    return { label: "Stopped", color: "secondary", description: "System is not running" };
   }
-}
-function getControlChannelIcon(state) {
-  switch (state) {
+  if (system.state === "failed") {
+    return { label: "Failed", color: "danger", description: "System encountered an error" };
+  }
+  if (system.state === "starting") {
+    return { label: "Starting", color: "warning", description: "System is initializing..." };
+  }
+  if (system.huntMode === "manual" && system.lockedFrequencyHz) {
+    return {
+      label: "Locked",
+      color: "info",
+      description: `Locked to ${formatFrequency$3(system.lockedFrequencyHz)} MHz`
+    };
+  }
+  switch (system.controlChannelState) {
     case "locked":
-      return /* @__PURE__ */ jsxRuntimeExports.jsx(Lock, { size: 14, className: "text-success" });
+      return {
+        label: "Synced",
+        color: "success",
+        description: `Receiving on ${formatFrequency$3(system.controlChannelFreqHz)} MHz`
+      };
     case "searching":
-      return /* @__PURE__ */ jsxRuntimeExports.jsx(Activity, { size: 14, className: "text-warning" });
+      return {
+        label: "Searching",
+        color: "warning",
+        description: "Looking for control channel..."
+      };
     case "lost":
-      return /* @__PURE__ */ jsxRuntimeExports.jsx(Unlock, { size: 14, className: "text-danger" });
+      return {
+        label: "Lost",
+        color: "danger",
+        description: "Signal lost, hunting for new channel..."
+      };
     default:
-      return /* @__PURE__ */ jsxRuntimeExports.jsx(Unlock, { size: 14, className: "text-muted" });
+      return {
+        label: "Running",
+        color: "primary",
+        description: "System is active"
+      };
   }
-}
-function getChannelIndex(system) {
-  const scanner = system.stats.cc_scanner;
-  if (!scanner || !scanner.current_channel_hz || !scanner.measurements) {
-    return 1;
-  }
-  const freqs = Object.keys(scanner.measurements).map((key) => parseFloat(key.replace("_MHz", "")) * 1e6).sort((a, b) => a - b);
-  const currentHz = scanner.current_channel_hz;
-  const index2 = freqs.findIndex((f) => Math.abs(f - currentHz) < 1e3);
-  return index2 >= 0 ? index2 + 1 : 1;
 }
 function getChannelSnr(system) {
   const scanner = system.stats.cc_scanner;
@@ -36728,6 +36813,15 @@ function getChannelSnr(system) {
   return measurement ? measurement.snr_db : null;
 }
 const HUNT_TIMEOUT_SECONDS = 5;
+function StatBox({ label, value, unit, highlight }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `rounded p-2 text-center ${highlight ? "bg-success bg-opacity-25" : "bg-body-tertiary"}`, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted d-block", style: { fontSize: "0.65rem" }, children: label }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fw-semibold", style: { fontSize: "0.95rem" }, children: [
+      value,
+      unit && /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted ms-1", children: unit })
+    ] })
+  ] });
+}
 function SystemStatusPanel({
   system,
   onStart,
@@ -36738,9 +36832,7 @@ function SystemStatusPanel({
   onPlayAudio,
   onStopAudio
 }) {
-  var _a2;
   const [countdown, setCountdown] = reactExports.useState(HUNT_TIMEOUT_SECONDS);
-  const [showInfo, setShowInfo] = reactExports.useState(false);
   reactExports.useEffect(() => {
     if (system.controlChannelState === "searching") {
       setCountdown(HUNT_TIMEOUT_SECONDS);
@@ -36755,17 +36847,23 @@ function SystemStatusPanel({
   const isBusy = isStarting || isStopping;
   const canPlayAudio = isRunning && system.state !== "starting" && onPlayAudio && onStopAudio;
   const isSearching = system.controlChannelState === "searching";
+  const status = getUnifiedStatus(system);
+  const snr = getChannelSnr(system);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card-header d-flex align-items-center justify-content-between py-2", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 2, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(Radio, { size: 18, className: "text-primary" }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "fw-semibold", children: system.name }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(
           "span",
           {
-            className: `badge bg-${getStateColor(system.state)}`,
-            style: { fontSize: "0.65rem" },
-            children: system.state.toUpperCase()
+            className: `badge bg-${status.color}`,
+            style: { fontSize: "0.7rem" },
+            title: status.description,
+            children: [
+              status.label.toUpperCase(),
+              isSearching && ` (${countdown}s)`
+            ]
           }
         )
       ] }),
@@ -36804,127 +36902,387 @@ function SystemStatusPanel({
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card-body py-2", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "row g-2", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-3", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "bg-body-secondary rounded p-2 text-center position-relative", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center justify-content-center gap-1 mb-1", children: [
-            getControlChannelIcon(system.controlChannelState),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: "Control" }),
-            system.stats.cc_scanner && system.stats.cc_scanner.channels_configured > 1 && /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-              /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { className: "text-muted", children: [
-                "(",
-                getChannelIndex(system),
-                " of ",
-                system.stats.cc_scanner.channels_configured,
-                ")"
-              ] }),
-              /* @__PURE__ */ jsxRuntimeExports.jsx(
-                "button",
-                {
-                  className: "btn btn-link p-0 border-0",
-                  onClick: () => setShowInfo(!showInfo),
-                  title: "What do these numbers mean?",
-                  style: { lineHeight: 1 },
-                  children: /* @__PURE__ */ jsxRuntimeExports.jsx(Info, { size: 12, className: "text-muted" })
-                }
-              )
-            ] })
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "fw-semibold", style: { fontSize: "0.9rem" }, children: formatFrequency$2(system.controlChannelFreqHz) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center justify-content-center gap-1", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: system.controlChannelState.toUpperCase() }),
-            isSearching && /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { className: "text-warning", children: [
-              "(",
-              countdown,
-              "s)"
-            ] }),
-            system.stats.cc_scanner && getChannelSnr(system) !== null && /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { className: "text-success", children: [
-              getChannelSnr(system).toFixed(1),
-              " dB"
-            ] })
-          ] }),
-          showInfo && /* @__PURE__ */ jsxRuntimeExports.jsxs(
-            "div",
-            {
-              className: "position-absolute bg-dark text-white rounded p-2 shadow",
-              style: {
-                top: "100%",
-                left: "50%",
-                transform: "translateX(-50%)",
-                zIndex: 1e3,
-                width: "220px",
-                fontSize: "0.75rem",
-                textAlign: "left",
-                marginTop: "4px"
-              },
-              children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Control Channel Hunting" }),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mt-1", children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: getChannelIndex(system) }),
-                  " = Current channel being tried"
-                ] }),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: (_a2 = system.stats.cc_scanner) == null ? void 0 : _a2.channels_configured }),
-                  " = Total configured control channels"
-                ] }),
-                /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "mt-1 text-muted", children: [
-                  "The system tries each channel for ",
-                  HUNT_TIMEOUT_SECONDS,
-                  "s until it finds a valid P25 control channel signal."
-                ] })
-              ]
-            }
-          )
-        ] }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-3", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "bg-body-secondary rounded p-2 text-center", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted d-block mb-1", children: "NAC" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "fw-semibold", style: { fontSize: "1.1rem" }, children: system.nac !== null ? system.nac.toString(16).toUpperCase().padStart(3, "0") : "---" })
-        ] }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-3", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "bg-body-secondary rounded p-2 text-center", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted d-block mb-1", children: "Site" }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "fw-semibold", style: { fontSize: "1.1rem" }, children: system.siteId !== null ? `${system.siteId}` : "---" })
-        ] }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-3", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "bg-body-secondary rounded p-2 text-center", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center justify-content-center gap-1 mb-1", children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Signal, { size: 14 }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: "Decode" })
-          ] }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fw-semibold", style: { fontSize: "1.1rem" }, children: [
-            system.decodeRate.toFixed(1),
-            /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted", children: " fps" })
-          ] })
-        ] }) })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          StatBox,
+          {
+            label: "Control Freq",
+            value: system.controlChannelFreqHz ? formatFrequency$3(system.controlChannelFreqHz) : "---",
+            unit: "MHz",
+            highlight: system.controlChannelState === "locked"
+          }
+        ) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          StatBox,
+          {
+            label: "SNR",
+            value: snr !== null ? snr.toFixed(1) : "---",
+            unit: snr !== null ? "dB" : void 0
+          }
+        ) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          StatBox,
+          {
+            label: "NAC",
+            value: system.nac !== null ? system.nac.toString(16).toUpperCase().padStart(3, "0") : "---"
+          }
+        ) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          StatBox,
+          {
+            label: "Site",
+            value: system.siteId !== null ? system.siteId : "---"
+          }
+        ) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          StatBox,
+          {
+            label: "Decode",
+            value: system.decodeRate.toFixed(1),
+            unit: "fps"
+          }
+        ) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          StatBox,
+          {
+            label: "Active",
+            value: system.activeCalls,
+            unit: "calls",
+            highlight: system.activeCalls > 0
+          }
+        ) })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex gap-3 mt-2 small text-muted flex-wrap", children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: system.stats.tsbk_count }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex gap-3 mt-2 flex-wrap", style: { fontSize: "0.75rem" }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "text-body", children: system.stats.tsbk_count }),
           " TSBKs"
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: system.stats.grant_count }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "text-body", children: system.stats.grant_count }),
           " Grants"
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: system.stats.calls_total }),
-          " Calls"
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "text-body", children: system.stats.calls_total }),
+          " Total calls"
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: system.stats.recorders_active }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "text-body", children: system.stats.recorders_active }),
           "/",
           system.stats.recorders_active + system.stats.recorders_idle,
-          " ",
-          "Recorders"
+          " Recorders"
         ] }),
         system.stats.initial_scan_complete === false && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-warning", children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(Activity, { size: 12, className: "me-1", style: { animation: "pulse 1s infinite" } }),
           "Scanning channels..."
         ] })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mt-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "span",
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center gap-2 mt-2", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "span",
+          {
+            className: `badge ${system.protocol === "p25_phase2" ? "bg-info text-dark" : "bg-primary"}`,
+            style: { fontSize: "0.65rem" },
+            children: system.protocol === "p25_phase2" ? "P25 Phase II" : "P25 Phase I"
+          }
+        ),
+        system.stats.cc_scanner && system.stats.cc_scanner.channels_configured > 1 && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", style: { fontSize: "0.7rem" }, children: [
+          system.controlChannels.filter((c) => c.enabled).length,
+          " of",
+          " ",
+          system.stats.cc_scanner.channels_configured,
+          " control channels enabled"
+        ] })
+      ] })
+    ] })
+  ] });
+}
+function formatFrequency$2(hz) {
+  return (hz / 1e6).toFixed(4) + " MHz";
+}
+function formatFrequencyShort(hz) {
+  return (hz / 1e6).toFixed(3);
+}
+function SignalBar({ snrDb, maxDb = 30 }) {
+  if (snrDb === null)
+    return /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "text-muted", children: "---" });
+  const percent = Math.min(100, Math.max(0, snrDb / maxDb * 100));
+  let color = "bg-danger";
+  if (percent > 60)
+    color = "bg-success";
+  else if (percent > 30)
+    color = "bg-warning";
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center gap-1", style: { width: "80px" }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "div",
+      {
+        className: "progress",
+        style: { height: "8px", width: "50px", backgroundColor: "#333" },
+        children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "div",
+          {
+            className: `progress-bar ${color}`,
+            style: { width: `${percent}%` }
+          }
+        )
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { className: "text-muted", style: { fontSize: "0.7rem", minWidth: "35px" }, children: [
+      snrDb.toFixed(0),
+      " dB"
+    ] })
+  ] });
+}
+function ChannelRow({
+  channel,
+  systemId,
+  isLocking,
+  huntMode
+}) {
+  const lockMutation = useLockToChannel();
+  const enabledMutation = useSetChannelEnabled();
+  const setHuntModeMutation = useSetHuntMode();
+  const handleLock = () => {
+    if (channel.isLocked) {
+      setHuntModeMutation.mutate({ systemId, mode: "auto" });
+    } else {
+      lockMutation.mutate({ systemId, frequencyHz: channel.frequencyHz });
+    }
+  };
+  const handleToggleEnabled = () => {
+    enabledMutation.mutate({
+      systemId,
+      frequencyHz: channel.frequencyHz,
+      enabled: !channel.enabled
+    });
+  };
+  const isCurrentChannel = channel.isCurrent;
+  const isLockedChannel = channel.isLocked;
+  const isPending = lockMutation.isPending || setHuntModeMutation.isPending;
+  let lockButtonClass = "btn-outline-secondary";
+  let lockTitle = "Lock to this channel (manual mode)";
+  let LockIcon = Lock;
+  if (isLockedChannel) {
+    lockButtonClass = "btn-warning";
+    lockTitle = "Unlock (switch to auto mode)";
+    LockIcon = Lock;
+  } else if (isCurrentChannel && huntMode === "auto") {
+    lockButtonClass = "btn-outline-success";
+    lockTitle = "Currently active (click to lock)";
+    LockIcon = Unlock;
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      className: `d-flex align-items-center gap-2 py-1 px-2 rounded ${isCurrentChannel ? "bg-success bg-opacity-25" : ""} ${isLockedChannel ? "border border-warning" : ""}`,
+      style: { fontSize: "0.8rem" },
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            type: "checkbox",
+            checked: channel.enabled,
+            onChange: handleToggleEnabled,
+            disabled: enabledMutation.isPending,
+            className: "form-check-input m-0",
+            style: { cursor: "pointer", width: "14px", height: "14px" },
+            title: channel.enabled ? "Disable channel from scan" : "Enable channel for scan"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "span",
+          {
+            className: `font-monospace ${!channel.enabled ? "text-muted" : ""}`,
+            style: { minWidth: "90px", fontSize: "0.75rem" },
+            children: formatFrequency$2(channel.frequencyHz)
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(SignalBar, { snrDb: channel.snrDb }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "span",
+          {
+            className: `badge ${channel.syncDetected ? "bg-success" : "bg-secondary"}`,
+            style: { fontSize: "0.6rem", minWidth: "32px", padding: "2px 4px" },
+            title: channel.syncDetected ? "P25 sync detected" : "No sync",
+            children: channel.syncDetected ? "SYNC" : "----"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            className: `btn btn-sm ${lockButtonClass}`,
+            onClick: handleLock,
+            disabled: isLocking || isPending || !channel.enabled,
+            title: lockTitle,
+            style: { padding: "1px 4px", lineHeight: 1 },
+            children: /* @__PURE__ */ jsxRuntimeExports.jsx(LockIcon, { size: 10 })
+          }
+        )
+      ]
+    }
+  );
+}
+function getStatusBadge(system) {
+  if (system.lockedFrequencyHz) {
+    return { text: "LOCKED", color: "warning" };
+  }
+  switch (system.controlChannelState) {
+    case "locked":
+      return { text: "LOCKED", color: "success" };
+    case "searching":
+      return { text: "HUNTING", color: "warning" };
+    case "lost":
+      return { text: "LOST", color: "danger" };
+    default:
+      return { text: "IDLE", color: "secondary" };
+  }
+}
+function HuntModeHelp() {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "text-muted small mb-2 px-1", style: { fontSize: "0.7rem", lineHeight: 1.3 }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "mb-1", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Control channels" }),
+      " carry P25 trunking signaling. The system hunts for the best channel based on signal quality."
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "mb-1", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "Modes:" }),
+      " ",
+      /* @__PURE__ */ jsxRuntimeExports.jsx("em", { children: "Auto" }),
+      " switches channels if signal degrades.",
+      " ",
+      /* @__PURE__ */ jsxRuntimeExports.jsx("em", { children: "Manual" }),
+      " locks to one channel.",
+      " ",
+      /* @__PURE__ */ jsxRuntimeExports.jsx("em", { children: "Scan Once" }),
+      " finds the best channel then stays."
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { className: "mb-0", children: [
+      "Use the ",
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Lock, { size: 10, className: "mx-1" }),
+      " button to lock/unlock a specific channel."
+    ] })
+  ] });
+}
+function ControlChannelPanel({ system }) {
+  const [isExpanded, setIsExpanded] = reactExports.useState(false);
+  const [showHelp, setShowHelp] = reactExports.useState(false);
+  const setHuntModeMutation = useSetHuntMode();
+  const triggerScanMutation = useTriggerScan();
+  const handleModeChange = (e) => {
+    e.stopPropagation();
+    const mode = e.target.value;
+    setHuntModeMutation.mutate({ systemId: system.id, mode });
+  };
+  const handleScanNow = (e) => {
+    e.stopPropagation();
+    triggerScanMutation.mutate(system.id);
+  };
+  const handleHelpClick = (e) => {
+    e.stopPropagation();
+    setShowHelp(!showHelp);
+  };
+  const channels = system.controlChannels || [];
+  if (channels.length === 0) {
+    return null;
+  }
+  const status = getStatusBadge(system);
+  const currentFreq = system.controlChannelFreqHz;
+  const enabledCount = channels.filter((c) => c.enabled).length;
+  const lockedChannel = channels.find((c) => c.isLocked);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card mt-2", children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
+      {
+        className: "card-header py-1 px-2 d-flex align-items-center justify-content-between",
+        style: { cursor: "pointer", minHeight: "32px" },
+        onClick: () => setIsExpanded(!isExpanded),
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, children: [
+            isExpanded ? /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronDown, { size: 14, className: "text-muted" }) : /* @__PURE__ */ jsxRuntimeExports.jsx(ChevronRight, { size: 14, className: "text-muted" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Radio, { size: 12, className: "text-info" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: "0.8rem" }, children: "Control Channel" }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                className: `badge bg-${status.color}`,
+                style: { fontSize: "0.6rem", padding: "2px 4px" },
+                title: status.text === "LOCKED" && lockedChannel ? `Locked to ${formatFrequency$2(lockedChannel.frequencyHz)}` : status.text === "HUNTING" ? "Searching for best control channel" : status.text === "LOST" ? "Control channel signal lost, hunting..." : "Connected to control channel",
+                children: status.text
+              }
+            ),
+            currentFreq && /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "font-monospace text-muted", style: { fontSize: "0.75rem" }, children: formatFrequencyShort(currentFreq) }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", style: { fontSize: "0.7rem" }, children: [
+              "(",
+              enabledCount,
+              "/",
+              channels.length,
+              ")"
+            ] })
+          ] }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(Flex, { align: "center", gap: 1, onClick: (e) => e.stopPropagation(), children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                className: `btn btn-sm ${showHelp ? "btn-info" : "btn-outline-secondary"} d-flex align-items-center`,
+                onClick: handleHelpClick,
+                style: { padding: "1px 4px", height: "22px" },
+                title: "Show help",
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(HelpCircle, { size: 10 })
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs(
+              "select",
+              {
+                className: "form-select form-select-sm",
+                value: system.huntMode,
+                onChange: handleModeChange,
+                disabled: setHuntModeMutation.isPending,
+                style: { width: "auto", fontSize: "0.7rem", padding: "1px 20px 1px 4px", height: "22px" },
+                title: "Hunt mode: Auto switches channels automatically, Manual locks to current, Scan Once finds best then stays",
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "auto", children: "Auto" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "manual", children: "Manual" }),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("option", { value: "scan_once", children: "Scan Once" })
+                ]
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                className: "btn btn-sm btn-outline-primary d-flex align-items-center",
+                onClick: handleScanNow,
+                disabled: triggerScanMutation.isPending,
+                style: { fontSize: "0.7rem", padding: "1px 4px", height: "22px" },
+                title: "Scan all enabled channels and measure signal quality",
+                children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  RefreshCw,
+                  {
+                    size: 10,
+                    className: triggerScanMutation.isPending ? "spin" : ""
+                  }
+                )
+              }
+            )
+          ] })
+        ]
+      }
+    ),
+    isExpanded && /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "card-body py-1 px-2", children: [
+      showHelp && /* @__PURE__ */ jsxRuntimeExports.jsx(HuntModeHelp, {}),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center gap-2 py-1 px-2 text-muted border-bottom mb-1", style: { fontSize: "0.65rem" }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: "14px" }, title: "Enable/disable channel for scanning", children: "En" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { minWidth: "90px" }, children: "Frequency" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: "80px" }, children: "SNR" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { minWidth: "32px" }, children: "Sync" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: "24px" }, title: "Lock to channel", children: "Lock" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "d-flex flex-column", children: channels.map((channel) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+        ChannelRow,
         {
-          className: `badge ${system.protocol === "p25_phase2" ? "bg-info text-dark" : "bg-primary"}`,
-          children: system.protocol === "p25_phase2" ? "P25 Phase II" : "P25 Phase I"
-        }
-      ) })
+          channel,
+          systemId: system.id,
+          isLocking: setHuntModeMutation.isPending,
+          huntMode: system.huntMode
+        },
+        channel.frequencyHz
+      )) })
     ] })
   ] });
 }
@@ -37600,6 +37958,7 @@ function TrunkingPanel({ systemId, onCreateSystem }) {
         onStopAudio: stopAudio
       }
     ),
+    system.controlChannels && system.controlChannels.length > 1 && /* @__PURE__ */ jsxRuntimeExports.jsx(ControlChannelPanel, { system }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       StreamLinks,
       {
@@ -38795,4 +39154,4 @@ logger.init();
 client.createRoot(document.getElementById("root")).render(
   /* @__PURE__ */ jsxRuntimeExports.jsx(React.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(App, {}) })
 );
-//# sourceMappingURL=index-bfb0848f.js.map
+//# sourceMappingURL=index-83a68ddb.js.map

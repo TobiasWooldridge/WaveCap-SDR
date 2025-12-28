@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Radio, Activity, Signal, Lock, Unlock, Volume2, VolumeX, Info } from "lucide-react";
+import { Radio, Volume2, VolumeX, Activity } from "lucide-react";
 import type { TrunkingSystem } from "../../types/trunking";
 import Flex from "../../components/primitives/Flex.react";
 
@@ -17,52 +17,65 @@ interface SystemStatusPanelProps {
 
 function formatFrequency(hz: number | null): string {
   if (hz === null) return "---";
-  return (hz / 1_000_000).toFixed(4) + " MHz";
+  return (hz / 1_000_000).toFixed(4);
 }
 
-function getStateColor(state: string): string {
-  switch (state) {
-    case "running":
-      return "success";
-    case "syncing":
-    case "searching":
-    case "starting":
-      return "warning";
-    case "failed":
-      return "danger";
-    default:
-      return "secondary";
+/**
+ * Get a single unified status from the system and control channel states.
+ * This provides a clear, non-redundant status to the user.
+ */
+function getUnifiedStatus(system: TrunkingSystem): {
+  label: string;
+  color: string;
+  description: string;
+} {
+  // Check system-level states first
+  if (system.state === "stopped") {
+    return { label: "Stopped", color: "secondary", description: "System is not running" };
   }
-}
+  if (system.state === "failed") {
+    return { label: "Failed", color: "danger", description: "System encountered an error" };
+  }
+  if (system.state === "starting") {
+    return { label: "Starting", color: "warning", description: "System is initializing..." };
+  }
 
-function getControlChannelIcon(state: string) {
-  switch (state) {
+  // Check if manually locked (huntMode is manual with a locked frequency)
+  if (system.huntMode === "manual" && system.lockedFrequencyHz) {
+    return {
+      label: "Locked",
+      color: "info",
+      description: `Locked to ${formatFrequency(system.lockedFrequencyHz)} MHz`,
+    };
+  }
+
+  // Check control channel state for running system
+  switch (system.controlChannelState) {
     case "locked":
-      return <Lock size={14} className="text-success" />;
+      return {
+        label: "Synced",
+        color: "success",
+        description: `Receiving on ${formatFrequency(system.controlChannelFreqHz)} MHz`,
+      };
     case "searching":
-      return <Activity size={14} className="text-warning" />;
+      return {
+        label: "Searching",
+        color: "warning",
+        description: "Looking for control channel...",
+      };
     case "lost":
-      return <Unlock size={14} className="text-danger" />;
+      return {
+        label: "Lost",
+        color: "danger",
+        description: "Signal lost, hunting for new channel...",
+      };
     default:
-      return <Unlock size={14} className="text-muted" />;
+      return {
+        label: "Running",
+        color: "primary",
+        description: "System is active",
+      };
   }
-}
-
-// Get the 1-based index of the current control channel in the scanner measurements
-function getChannelIndex(system: TrunkingSystem): number {
-  const scanner = system.stats.cc_scanner;
-  if (!scanner || !scanner.current_channel_hz || !scanner.measurements) {
-    return 1;
-  }
-
-  // Get sorted list of measured frequencies
-  const freqs = Object.keys(scanner.measurements)
-    .map(key => parseFloat(key.replace("_MHz", "")) * 1e6)
-    .sort((a, b) => a - b);
-
-  const currentHz = scanner.current_channel_hz;
-  const index = freqs.findIndex(f => Math.abs(f - currentHz) < 1000); // 1 kHz tolerance
-  return index >= 0 ? index + 1 : 1;
 }
 
 // Get SNR for current control channel
@@ -72,7 +85,6 @@ function getChannelSnr(system: TrunkingSystem): number | null {
     return null;
   }
 
-  // Find measurement matching current channel
   const currentMHz = (scanner.current_channel_hz / 1e6).toFixed(4);
   const key = `${currentMHz}_MHz`;
   const measurement = scanner.measurements[key];
@@ -82,6 +94,27 @@ function getChannelSnr(system: TrunkingSystem): number | null {
 
 // Channel hunt timeout in seconds (should match backend config)
 const HUNT_TIMEOUT_SECONDS = 5;
+
+interface StatBoxProps {
+  label: string;
+  value: string | number;
+  unit?: string;
+  highlight?: boolean;
+}
+
+function StatBox({ label, value, unit, highlight }: StatBoxProps) {
+  return (
+    <div className={`rounded p-2 text-center ${highlight ? "bg-success bg-opacity-25" : "bg-body-tertiary"}`}>
+      <small className="text-muted d-block" style={{ fontSize: "0.65rem" }}>
+        {label}
+      </small>
+      <div className="fw-semibold" style={{ fontSize: "0.95rem" }}>
+        {value}
+        {unit && <small className="text-muted ms-1">{unit}</small>}
+      </div>
+    </div>
+  );
+}
 
 export function SystemStatusPanel({
   system,
@@ -95,7 +128,6 @@ export function SystemStatusPanel({
 }: SystemStatusPanelProps) {
   // Countdown timer for channel hunting
   const [countdown, setCountdown] = useState(HUNT_TIMEOUT_SECONDS);
-  const [showInfo, setShowInfo] = useState(false);
 
   // Reset countdown when control channel changes
   useEffect(() => {
@@ -116,6 +148,9 @@ export function SystemStatusPanel({
   const canPlayAudio = isRunning && system.state !== "starting" && onPlayAudio && onStopAudio;
   const isSearching = system.controlChannelState === "searching";
 
+  const status = getUnifiedStatus(system);
+  const snr = getChannelSnr(system);
+
   return (
     <div className="card">
       <div className="card-header d-flex align-items-center justify-content-between py-2">
@@ -123,10 +158,12 @@ export function SystemStatusPanel({
           <Radio size={18} className="text-primary" />
           <span className="fw-semibold">{system.name}</span>
           <span
-            className={`badge bg-${getStateColor(system.state)}`}
-            style={{ fontSize: "0.65rem" }}
+            className={`badge bg-${status.color}`}
+            style={{ fontSize: "0.7rem" }}
+            title={status.description}
           >
-            {system.state.toUpperCase()}
+            {status.label.toUpperCase()}
+            {isSearching && ` (${countdown}s)`}
           </span>
         </Flex>
         <Flex gap={1}>
@@ -167,131 +204,81 @@ export function SystemStatusPanel({
       </div>
 
       <div className="card-body py-2">
-        {/* Status Grid */}
+        {/* Stats Grid - All stats in consistent boxes */}
         <div className="row g-2">
-          {/* Control Channel */}
-          <div className="col-6 col-md-3">
-            <div className="bg-body-secondary rounded p-2 text-center position-relative">
-              <div className="d-flex align-items-center justify-content-center gap-1 mb-1">
-                {getControlChannelIcon(system.controlChannelState)}
-                <small className="text-muted">Control</small>
-                {system.stats.cc_scanner && system.stats.cc_scanner.channels_configured > 1 && (
-                  <>
-                    <small className="text-muted">
-                      ({getChannelIndex(system)} of {system.stats.cc_scanner.channels_configured})
-                    </small>
-                    <button
-                      className="btn btn-link p-0 border-0"
-                      onClick={() => setShowInfo(!showInfo)}
-                      title="What do these numbers mean?"
-                      style={{ lineHeight: 1 }}
-                    >
-                      <Info size={12} className="text-muted" />
-                    </button>
-                  </>
-                )}
-              </div>
-              <div className="fw-semibold" style={{ fontSize: "0.9rem" }}>
-                {formatFrequency(system.controlChannelFreqHz)}
-              </div>
-              <div className="d-flex align-items-center justify-content-center gap-1">
-                <small className="text-muted">
-                  {system.controlChannelState.toUpperCase()}
-                </small>
-                {isSearching && (
-                  <small className="text-warning">
-                    ({countdown}s)
-                  </small>
-                )}
-                {system.stats.cc_scanner && getChannelSnr(system) !== null && (
-                  <small className="text-success">
-                    {getChannelSnr(system)!.toFixed(1)} dB
-                  </small>
-                )}
-              </div>
-              {/* Info tooltip */}
-              {showInfo && (
-                <div
-                  className="position-absolute bg-dark text-white rounded p-2 shadow"
-                  style={{
-                    top: "100%",
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    zIndex: 1000,
-                    width: "220px",
-                    fontSize: "0.75rem",
-                    textAlign: "left",
-                    marginTop: "4px",
-                  }}
-                >
-                  <strong>Control Channel Hunting</strong>
-                  <div className="mt-1">
-                    <strong>{getChannelIndex(system)}</strong> = Current channel being tried
-                  </div>
-                  <div>
-                    <strong>{system.stats.cc_scanner?.channels_configured}</strong> = Total configured control channels
-                  </div>
-                  <div className="mt-1 text-muted">
-                    The system tries each channel for {HUNT_TIMEOUT_SECONDS}s until it finds
-                    a valid P25 control channel signal.
-                  </div>
-                </div>
-              )}
-            </div>
+          {/* Control Channel Frequency */}
+          <div className="col-6 col-md-2">
+            <StatBox
+              label="Control Freq"
+              value={system.controlChannelFreqHz ? formatFrequency(system.controlChannelFreqHz) : "---"}
+              unit="MHz"
+              highlight={system.controlChannelState === "locked"}
+            />
+          </div>
+
+          {/* SNR */}
+          <div className="col-6 col-md-2">
+            <StatBox
+              label="SNR"
+              value={snr !== null ? snr.toFixed(1) : "---"}
+              unit={snr !== null ? "dB" : undefined}
+            />
           </div>
 
           {/* NAC */}
-          <div className="col-6 col-md-3">
-            <div className="bg-body-secondary rounded p-2 text-center">
-              <small className="text-muted d-block mb-1">NAC</small>
-              <div className="fw-semibold" style={{ fontSize: "1.1rem" }}>
-                {system.nac !== null
+          <div className="col-6 col-md-2">
+            <StatBox
+              label="NAC"
+              value={
+                system.nac !== null
                   ? system.nac.toString(16).toUpperCase().padStart(3, "0")
-                  : "---"}
-              </div>
-            </div>
+                  : "---"
+              }
+            />
           </div>
 
           {/* Site ID */}
-          <div className="col-6 col-md-3">
-            <div className="bg-body-secondary rounded p-2 text-center">
-              <small className="text-muted d-block mb-1">Site</small>
-              <div className="fw-semibold" style={{ fontSize: "1.1rem" }}>
-                {system.siteId !== null ? `${system.siteId}` : "---"}
-              </div>
-            </div>
+          <div className="col-6 col-md-2">
+            <StatBox
+              label="Site"
+              value={system.siteId !== null ? system.siteId : "---"}
+            />
           </div>
 
           {/* Decode Rate */}
-          <div className="col-6 col-md-3">
-            <div className="bg-body-secondary rounded p-2 text-center">
-              <div className="d-flex align-items-center justify-content-center gap-1 mb-1">
-                <Signal size={14} />
-                <small className="text-muted">Decode</small>
-              </div>
-              <div className="fw-semibold" style={{ fontSize: "1.1rem" }}>
-                {system.decodeRate.toFixed(1)}
-                <small className="text-muted"> fps</small>
-              </div>
-            </div>
+          <div className="col-6 col-md-2">
+            <StatBox
+              label="Decode"
+              value={system.decodeRate.toFixed(1)}
+              unit="fps"
+            />
+          </div>
+
+          {/* Active Calls */}
+          <div className="col-6 col-md-2">
+            <StatBox
+              label="Active"
+              value={system.activeCalls}
+              unit="calls"
+              highlight={system.activeCalls > 0}
+            />
           </div>
         </div>
 
-        {/* Stats Row */}
-        <div className="d-flex gap-3 mt-2 small text-muted flex-wrap">
-          <span>
-            <strong>{system.stats.tsbk_count}</strong> TSBKs
+        {/* Secondary Stats Row - smaller, less prominent */}
+        <div className="d-flex gap-3 mt-2 flex-wrap" style={{ fontSize: "0.75rem" }}>
+          <span className="text-muted">
+            <strong className="text-body">{system.stats.tsbk_count}</strong> TSBKs
           </span>
-          <span>
-            <strong>{system.stats.grant_count}</strong> Grants
+          <span className="text-muted">
+            <strong className="text-body">{system.stats.grant_count}</strong> Grants
           </span>
-          <span>
-            <strong>{system.stats.calls_total}</strong> Calls
+          <span className="text-muted">
+            <strong className="text-body">{system.stats.calls_total}</strong> Total calls
           </span>
-          <span>
-            <strong>{system.stats.recorders_active}</strong>/
-            {system.stats.recorders_active + system.stats.recorders_idle}{" "}
-            Recorders
+          <span className="text-muted">
+            <strong className="text-body">{system.stats.recorders_active}</strong>/
+            {system.stats.recorders_active + system.stats.recorders_idle} Recorders
           </span>
           {system.stats.initial_scan_complete === false && (
             <span className="text-warning">
@@ -301,17 +288,24 @@ export function SystemStatusPanel({
           )}
         </div>
 
-        {/* Protocol Badge */}
-        <div className="mt-2">
+        {/* Protocol and Channel Info */}
+        <div className="d-flex align-items-center gap-2 mt-2">
           <span
             className={`badge ${
               system.protocol === "p25_phase2"
                 ? "bg-info text-dark"
                 : "bg-primary"
             }`}
+            style={{ fontSize: "0.65rem" }}
           >
             {system.protocol === "p25_phase2" ? "P25 Phase II" : "P25 Phase I"}
           </span>
+          {system.stats.cc_scanner && system.stats.cc_scanner.channels_configured > 1 && (
+            <span className="text-muted" style={{ fontSize: "0.7rem" }}>
+              {system.controlChannels.filter(c => c.enabled).length} of{" "}
+              {system.stats.cc_scanner.channels_configured} control channels enabled
+            </span>
+          )}
         </div>
       </div>
     </div>
