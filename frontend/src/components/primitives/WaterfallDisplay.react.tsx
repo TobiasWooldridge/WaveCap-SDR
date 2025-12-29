@@ -1,8 +1,11 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { ChevronUp, ChevronDown, Minus, Plus } from "lucide-react";
 import type { Capture, Channel } from "../../types";
 import { useSpectrumData } from "../../hooks/useSpectrumData";
-import { getCaptureStatusMessage, drawCaptureStatusOnCanvas } from "../../utils/captureStatus";
+import {
+  getCaptureStatusMessage,
+  drawCaptureStatusOnCanvas,
+} from "../../utils/captureStatus";
 
 export interface WaterfallDisplayProps {
   capture: Capture;
@@ -21,22 +24,22 @@ const STORAGE_KEY = "waterfallDisplayHeight";
 // Color schemes for waterfall
 const COLOR_SCHEMES = {
   heat: [
-    { pos: 0.0, r: 0, g: 0, b: 128 },      // Dark blue (low power)
-    { pos: 0.25, r: 0, g: 0, b: 255 },    // Blue
-    { pos: 0.5, r: 0, g: 255, b: 255 },   // Cyan
-    { pos: 0.75, r: 255, g: 255, b: 0 },  // Yellow
-    { pos: 1.0, r: 255, g: 0, b: 0 },     // Red (high power)
+    { pos: 0.0, r: 0, g: 0, b: 128 }, // Dark blue (low power)
+    { pos: 0.25, r: 0, g: 0, b: 255 }, // Blue
+    { pos: 0.5, r: 0, g: 255, b: 255 }, // Cyan
+    { pos: 0.75, r: 255, g: 255, b: 0 }, // Yellow
+    { pos: 1.0, r: 255, g: 0, b: 0 }, // Red (high power)
   ],
   grayscale: [
-    { pos: 0.0, r: 0, g: 0, b: 0 },       // Black (low power)
+    { pos: 0.0, r: 0, g: 0, b: 0 }, // Black (low power)
     { pos: 1.0, r: 255, g: 255, b: 255 }, // White (high power)
   ],
   viridis: [
-    { pos: 0.0, r: 68, g: 1, b: 84 },     // Dark purple
-    { pos: 0.25, r: 59, g: 82, b: 139 },  // Blue
-    { pos: 0.5, r: 33, g: 145, b: 140 },  // Teal
-    { pos: 0.75, r: 94, g: 201, b: 98 },  // Green
-    { pos: 1.0, r: 253, g: 231, b: 37 },  // Yellow
+    { pos: 0.0, r: 68, g: 1, b: 84 }, // Dark purple
+    { pos: 0.25, r: 59, g: 82, b: 139 }, // Blue
+    { pos: 0.5, r: 33, g: 145, b: 140 }, // Teal
+    { pos: 0.75, r: 94, g: 201, b: 98 }, // Green
+    { pos: 1.0, r: 253, g: 231, b: 37 }, // Yellow
   ],
 };
 
@@ -65,15 +68,18 @@ export default function WaterfallDisplay({
   }, [height]);
 
   const increaseHeight = () => {
-    setHeight(prev => Math.min(MAX_HEIGHT, prev + HEIGHT_STEP));
+    setHeight((prev) => Math.min(MAX_HEIGHT, prev + HEIGHT_STEP));
   };
 
   const decreaseHeight = () => {
-    setHeight(prev => Math.max(MIN_HEIGHT, prev - HEIGHT_STEP));
+    setHeight((prev) => Math.max(MIN_HEIGHT, prev - HEIGHT_STEP));
   };
 
   // Use shared WebSocket connection - paused when collapsed
-  const { spectrumData, isConnected, isIdle } = useSpectrumData(capture, isCollapsed);
+  const { spectrumData, isConnected, isIdle } = useSpectrumData(
+    capture,
+    isCollapsed,
+  );
 
   // Waterfall history buffer (circular buffer)
   const historyRef = useRef<number[][]>([]);
@@ -89,7 +95,11 @@ export default function WaterfallDisplay({
   const needsRenderRef = useRef(false);
 
   // Track global min/max incrementally for performance
-  const globalMinMaxRef = useRef<{ min: number; max: number; needsRecalc: boolean }>({
+  const globalMinMaxRef = useRef<{
+    min: number;
+    max: number;
+    needsRecalc: boolean;
+  }>({
     min: Infinity,
     max: -Infinity,
     needsRecalc: false,
@@ -113,7 +123,11 @@ export default function WaterfallDisplay({
   useEffect(() => {
     historyRef.current = [];
     setSpectrumInfo(null);
-    globalMinMaxRef.current = { min: Infinity, max: -Infinity, needsRecalc: false };
+    globalMinMaxRef.current = {
+      min: Infinity,
+      max: -Infinity,
+      needsRecalc: false,
+    };
     needsRenderRef.current = true;
   }, [capture.id]);
 
@@ -123,7 +137,11 @@ export default function WaterfallDisplay({
       if (capture.state !== "running") {
         historyRef.current = []; // Clear history when stopped
         setSpectrumInfo(null);
-        globalMinMaxRef.current = { min: Infinity, max: -Infinity, needsRecalc: false };
+        globalMinMaxRef.current = {
+          min: Infinity,
+          max: -Infinity,
+          needsRecalc: false,
+        };
         needsRenderRef.current = true;
       }
       return;
@@ -163,36 +181,55 @@ export default function WaterfallDisplay({
     needsRenderRef.current = true;
   }, [spectrumData, capture.state, maxHistoryLines]);
 
-  // Helper function to interpolate color from gradient - memoized for performance
-  const getColor = useCallback((normalizedValue: number): [number, number, number] => {
-    // Apply intensity adjustment
-    const adjustedValue = Math.pow(normalizedValue, 1 / intensity);
-    const clampedValue = Math.max(0, Math.min(1, adjustedValue));
-
+  // Pre-computed 256-entry color look-up table for fast pixel rendering
+  // Avoids calling interpolation function per-pixel (480k calls/frame -> 1 lookup/pixel)
+  const colorLUT = useMemo(() => {
+    const lut = new Uint8Array(256 * 3); // 256 RGB triplets
     const gradient = COLOR_SCHEMES[colorScheme];
 
-    // Find the two color stops to interpolate between
-    let lowerStop = gradient[0];
-    let upperStop = gradient[gradient.length - 1];
+    for (let i = 0; i < 256; i++) {
+      const normalizedValue = i / 255;
+      // Apply intensity adjustment
+      const adjustedValue = Math.pow(normalizedValue, 1 / intensity);
+      const clampedValue = Math.max(0, Math.min(1, adjustedValue));
 
-    for (let i = 0; i < gradient.length - 1; i++) {
-      if (clampedValue >= gradient[i].pos && clampedValue <= gradient[i + 1].pos) {
-        lowerStop = gradient[i];
-        upperStop = gradient[i + 1];
-        break;
+      // Find the two color stops to interpolate between
+      let lowerStop = gradient[0];
+      let upperStop = gradient[gradient.length - 1];
+
+      for (let j = 0; j < gradient.length - 1; j++) {
+        if (
+          clampedValue >= gradient[j].pos &&
+          clampedValue <= gradient[j + 1].pos
+        ) {
+          lowerStop = gradient[j];
+          upperStop = gradient[j + 1];
+          break;
+        }
       }
+
+      // Interpolate between the two stops
+      const range = upperStop.pos - lowerStop.pos;
+      const t = range === 0 ? 0 : (clampedValue - lowerStop.pos) / range;
+
+      const idx = i * 3;
+      lut[idx] = Math.round(lowerStop.r + t * (upperStop.r - lowerStop.r));
+      lut[idx + 1] = Math.round(lowerStop.g + t * (upperStop.g - lowerStop.g));
+      lut[idx + 2] = Math.round(lowerStop.b + t * (upperStop.b - lowerStop.b));
     }
 
-    // Interpolate between the two stops
-    const range = upperStop.pos - lowerStop.pos;
-    const t = range === 0 ? 0 : (clampedValue - lowerStop.pos) / range;
-
-    const r = Math.round(lowerStop.r + t * (upperStop.r - lowerStop.r));
-    const g = Math.round(lowerStop.g + t * (upperStop.g - lowerStop.g));
-    const b = Math.round(lowerStop.b + t * (upperStop.b - lowerStop.b));
-
-    return [r, g, b];
+    return lut;
   }, [colorScheme, intensity]);
+
+  // Fast color lookup using pre-computed LUT
+  const getColorFromLUT = useCallback(
+    (normalizedValue: number): [number, number, number] => {
+      const idx =
+        Math.max(0, Math.min(255, Math.round(normalizedValue * 255))) * 3;
+      return [colorLUT[idx], colorLUT[idx + 1], colorLUT[idx + 2]];
+    },
+    [colorLUT],
+  );
 
   // Render loop using requestAnimationFrame for smooth updates
   useEffect(() => {
@@ -269,8 +306,8 @@ export default function WaterfallDisplay({
           // Normalize power to 0-1 range
           const normalized = (power - globalMin) / powerRange;
 
-          // Get color from gradient
-          const [r, g, b] = getColor(normalized);
+          // Get color from pre-computed LUT (fast lookup vs. per-pixel interpolation)
+          const [r, g, b] = getColorFromLUT(normalized);
 
           // Set pixel in image data
           const pixelIdx = (y * width + x) * 4;
@@ -318,7 +355,12 @@ export default function WaterfallDisplay({
 
         // Draw white background for text
         ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-        ctx.fillRect(sampleRateTextX - 2, sampleRateY + 2, sampleRateTextWidth + 4, 11);
+        ctx.fillRect(
+          sampleRateTextX - 2,
+          sampleRateY + 2,
+          sampleRateTextWidth + 4,
+          11,
+        );
 
         // Draw text
         ctx.fillStyle = "#007bff";
@@ -350,7 +392,12 @@ export default function WaterfallDisplay({
 
           // Draw white background for text
           ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-          ctx.fillRect(bandwidthTextX - 2, bandwidthY + 2, bandwidthTextWidth + 4, 11);
+          ctx.fillRect(
+            bandwidthTextX - 2,
+            bandwidthY + 2,
+            bandwidthTextWidth + 4,
+            11,
+          );
 
           // Draw text
           ctx.fillStyle = "#28a745";
@@ -372,7 +419,8 @@ export default function WaterfallDisplay({
 
           if (x >= 0 && x <= width) {
             // Draw channel marker line
-            ctx.strokeStyle = channel.state === "running" ? "#00ff00" : "#808080";
+            ctx.strokeStyle =
+              channel.state === "running" ? "#00ff00" : "#808080";
             ctx.lineWidth = 1;
             ctx.setLineDash([3, 2]);
             ctx.beginPath();
@@ -458,7 +506,7 @@ export default function WaterfallDisplay({
     capture.bandwidth,
     capture.errorMessage,
     isConnected,
-    getColor,
+    getColorFromLUT,
   ]);
 
   // Determine badge status
@@ -480,7 +528,9 @@ export default function WaterfallDisplay({
     <div className="card shadow-sm">
       <div className="card-header bg-body-tertiary py-1 px-2">
         <div className="d-flex justify-content-between align-items-center">
-          <small className="fw-semibold mb-0">Waterfall Display ({timeSpanSeconds}s)</small>
+          <small className="fw-semibold mb-0">
+            Waterfall Display ({timeSpanSeconds}s)
+          </small>
           <div className="d-flex align-items-center gap-2">
             <span
               className={`badge ${badgeStatus.className} text-white`}
@@ -499,7 +549,14 @@ export default function WaterfallDisplay({
                 >
                   <Minus size={12} />
                 </button>
-                <span className="small text-muted" style={{ fontSize: "10px", minWidth: "35px", textAlign: "center" }}>
+                <span
+                  className="small text-muted"
+                  style={{
+                    fontSize: "10px",
+                    minWidth: "35px",
+                    textAlign: "center",
+                  }}
+                >
                   {height}px
                 </span>
                 <button
@@ -519,12 +576,20 @@ export default function WaterfallDisplay({
               onClick={() => setIsCollapsed(!isCollapsed)}
               title={isCollapsed ? "Expand" : "Collapse"}
             >
-              {isCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+              {isCollapsed ? (
+                <ChevronDown size={14} />
+              ) : (
+                <ChevronUp size={14} />
+              )}
             </button>
           </div>
         </div>
       </div>
-      <div className="card-body" ref={containerRef} style={{ padding: "0.5rem", display: isCollapsed ? "none" : "block" }}>
+      <div
+        className="card-body"
+        ref={containerRef}
+        style={{ padding: "0.5rem", display: isCollapsed ? "none" : "block" }}
+      >
         <div style={{ position: "relative" }}>
           <canvas
             ref={canvasRef}

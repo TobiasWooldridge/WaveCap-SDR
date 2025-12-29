@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronUp, ChevronDown, Minus, Plus } from "lucide-react";
 import type { Capture, Channel } from "../../types";
 import { useSpectrumData } from "../../hooks/useSpectrumData";
-import { getCaptureStatusMessage, drawCaptureStatusOnCanvas } from "../../utils/captureStatus";
+import {
+  getCaptureStatusMessage,
+  drawCaptureStatusOnCanvas,
+} from "../../utils/captureStatus";
 
 export interface SpectrumAnalyzerProps {
   capture: Capture;
@@ -21,44 +24,182 @@ interface FrequencyBand {
   name: string;
   startHz: number;
   endHz: number;
-  color: string;
+  color: string; // Fill color (0.2 alpha)
+  strokeColor: string; // Border color (0.5 alpha)
+  textColor: string; // Label text color (solid)
 }
 
+/**
+ * Fast min/max calculation using single-pass loop.
+ * Avoids spread operator overhead on large arrays (1000+ elements).
+ */
+function getMinMax(arr: number[]): { min: number; max: number } {
+  if (arr.length === 0) return { min: 0, max: 0 };
+  let min = arr[0];
+  let max = arr[0];
+  for (let i = 1; i < arr.length; i++) {
+    const val = arr[i];
+    if (val < min) min = val;
+    if (val > max) max = val;
+  }
+  return { min, max };
+}
+
+// Pre-computed color variants to avoid string manipulation every frame
 const BAND_PLAN: FrequencyBand[] = [
   // AM Broadcast
-  { name: "AM Broadcast", startHz: 530e3, endHz: 1700e3, color: "rgba(255, 193, 7, 0.2)" },
+  {
+    name: "AM Broadcast",
+    startHz: 530e3,
+    endHz: 1700e3,
+    color: "rgba(255, 193, 7, 0.2)",
+    strokeColor: "rgba(255, 193, 7, 0.5)",
+    textColor: "rgb(255, 193, 7)",
+  },
   // Shortwave Broadcast
-  { name: "Shortwave", startHz: 3e6, endHz: 30e6, color: "rgba(111, 66, 193, 0.2)" },
+  {
+    name: "Shortwave",
+    startHz: 3e6,
+    endHz: 30e6,
+    color: "rgba(111, 66, 193, 0.2)",
+    strokeColor: "rgba(111, 66, 193, 0.5)",
+    textColor: "rgb(111, 66, 193)",
+  },
   // Citizens Band (CB)
-  { name: "CB Radio", startHz: 26.965e6, endHz: 27.405e6, color: "rgba(255, 87, 34, 0.2)" },
+  {
+    name: "CB Radio",
+    startHz: 26.965e6,
+    endHz: 27.405e6,
+    color: "rgba(255, 87, 34, 0.2)",
+    strokeColor: "rgba(255, 87, 34, 0.5)",
+    textColor: "rgb(255, 87, 34)",
+  },
   // 10m Ham Band
-  { name: "10m Ham", startHz: 28e6, endHz: 29.7e6, color: "rgba(0, 150, 136, 0.2)" },
+  {
+    name: "10m Ham",
+    startHz: 28e6,
+    endHz: 29.7e6,
+    color: "rgba(0, 150, 136, 0.2)",
+    strokeColor: "rgba(0, 150, 136, 0.5)",
+    textColor: "rgb(0, 150, 136)",
+  },
   // 6m Ham Band
-  { name: "6m Ham", startHz: 50e6, endHz: 54e6, color: "rgba(0, 150, 136, 0.2)" },
+  {
+    name: "6m Ham",
+    startHz: 50e6,
+    endHz: 54e6,
+    color: "rgba(0, 150, 136, 0.2)",
+    strokeColor: "rgba(0, 150, 136, 0.5)",
+    textColor: "rgb(0, 150, 136)",
+  },
   // FM Broadcast
-  { name: "FM Broadcast", startHz: 88e6, endHz: 108e6, color: "rgba(33, 150, 243, 0.2)" },
+  {
+    name: "FM Broadcast",
+    startHz: 88e6,
+    endHz: 108e6,
+    color: "rgba(33, 150, 243, 0.2)",
+    strokeColor: "rgba(33, 150, 243, 0.5)",
+    textColor: "rgb(33, 150, 243)",
+  },
   // Aircraft
-  { name: "Aircraft", startHz: 108e6, endHz: 137e6, color: "rgba(76, 175, 80, 0.2)" },
+  {
+    name: "Aircraft",
+    startHz: 108e6,
+    endHz: 137e6,
+    color: "rgba(76, 175, 80, 0.2)",
+    strokeColor: "rgba(76, 175, 80, 0.5)",
+    textColor: "rgb(76, 175, 80)",
+  },
   // 2m Ham Band
-  { name: "2m Ham", startHz: 144e6, endHz: 148e6, color: "rgba(0, 150, 136, 0.2)" },
+  {
+    name: "2m Ham",
+    startHz: 144e6,
+    endHz: 148e6,
+    color: "rgba(0, 150, 136, 0.2)",
+    strokeColor: "rgba(0, 150, 136, 0.5)",
+    textColor: "rgb(0, 150, 136)",
+  },
   // Marine VHF
-  { name: "Marine VHF", startHz: 156e6, endHz: 163e6, color: "rgba(3, 169, 244, 0.2)" },
+  {
+    name: "Marine VHF",
+    startHz: 156e6,
+    endHz: 163e6,
+    color: "rgba(3, 169, 244, 0.2)",
+    strokeColor: "rgba(3, 169, 244, 0.5)",
+    textColor: "rgb(3, 169, 244)",
+  },
   // Weather Radio (NOAA)
-  { name: "NOAA Weather", startHz: 162.4e6, endHz: 162.55e6, color: "rgba(255, 152, 0, 0.2)" },
+  {
+    name: "NOAA Weather",
+    startHz: 162.4e6,
+    endHz: 162.55e6,
+    color: "rgba(255, 152, 0, 0.2)",
+    strokeColor: "rgba(255, 152, 0, 0.5)",
+    textColor: "rgb(255, 152, 0)",
+  },
   // Railroad
-  { name: "Railroad", startHz: 159.81e6, endHz: 161.565e6, color: "rgba(121, 85, 72, 0.2)" },
+  {
+    name: "Railroad",
+    startHz: 159.81e6,
+    endHz: 161.565e6,
+    color: "rgba(121, 85, 72, 0.2)",
+    strokeColor: "rgba(121, 85, 72, 0.5)",
+    textColor: "rgb(121, 85, 72)",
+  },
   // Business/Public Safety
-  { name: "Business", startHz: 150e6, endHz: 156e6, color: "rgba(158, 158, 158, 0.2)" },
+  {
+    name: "Business",
+    startHz: 150e6,
+    endHz: 156e6,
+    color: "rgba(158, 158, 158, 0.2)",
+    strokeColor: "rgba(158, 158, 158, 0.5)",
+    textColor: "rgb(158, 158, 158)",
+  },
   // 1.25m Ham Band
-  { name: "1.25m Ham", startHz: 222e6, endHz: 225e6, color: "rgba(0, 150, 136, 0.2)" },
+  {
+    name: "1.25m Ham",
+    startHz: 222e6,
+    endHz: 225e6,
+    color: "rgba(0, 150, 136, 0.2)",
+    strokeColor: "rgba(0, 150, 136, 0.5)",
+    textColor: "rgb(0, 150, 136)",
+  },
   // 70cm Ham Band
-  { name: "70cm Ham", startHz: 420e6, endHz: 450e6, color: "rgba(0, 150, 136, 0.2)" },
+  {
+    name: "70cm Ham",
+    startHz: 420e6,
+    endHz: 450e6,
+    color: "rgba(0, 150, 136, 0.2)",
+    strokeColor: "rgba(0, 150, 136, 0.5)",
+    textColor: "rgb(0, 150, 136)",
+  },
   // FRS/GMRS
-  { name: "FRS/GMRS", startHz: 462.5625e6, endHz: 467.7125e6, color: "rgba(233, 30, 99, 0.2)" },
+  {
+    name: "FRS/GMRS",
+    startHz: 462.5625e6,
+    endHz: 467.7125e6,
+    color: "rgba(233, 30, 99, 0.2)",
+    strokeColor: "rgba(233, 30, 99, 0.5)",
+    textColor: "rgb(233, 30, 99)",
+  },
   // Weather Satellites (NOAA APT)
-  { name: "Weather Sats", startHz: 137e6, endHz: 138e6, color: "rgba(103, 58, 183, 0.2)" },
+  {
+    name: "Weather Sats",
+    startHz: 137e6,
+    endHz: 138e6,
+    color: "rgba(103, 58, 183, 0.2)",
+    strokeColor: "rgba(103, 58, 183, 0.5)",
+    textColor: "rgb(103, 58, 183)",
+  },
   // ISS/Amateur Satellites
-  { name: "Sat Downlink", startHz: 145.8e6, endHz: 146e6, color: "rgba(63, 81, 181, 0.2)" },
+  {
+    name: "Sat Downlink",
+    startHz: 145.8e6,
+    endHz: 146e6,
+    color: "rgba(63, 81, 181, 0.2)",
+    strokeColor: "rgba(63, 81, 181, 0.5)",
+    textColor: "rgb(63, 81, 181)",
+  },
 ];
 
 export default function SpectrumAnalyzer({
@@ -72,7 +213,10 @@ export default function SpectrumAnalyzer({
   const [width, setWidth] = useState(800);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [hoverFrequency, setHoverFrequency] = useState<number | null>(null);
-  const [hoverPosition, setHoverPosition] = useState<{ x: number; y: number } | null>(null);
+  const [hoverPosition, setHoverPosition] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   // Load height from localStorage or use initial value
   const [height, setHeight] = useState(() => {
@@ -95,15 +239,18 @@ export default function SpectrumAnalyzer({
   }, [height]);
 
   const increaseHeight = () => {
-    setHeight(prev => Math.min(MAX_HEIGHT, prev + HEIGHT_STEP));
+    setHeight((prev) => Math.min(MAX_HEIGHT, prev + HEIGHT_STEP));
   };
 
   const decreaseHeight = () => {
-    setHeight(prev => Math.max(MIN_HEIGHT, prev - HEIGHT_STEP));
+    setHeight((prev) => Math.max(MIN_HEIGHT, prev - HEIGHT_STEP));
   };
 
   // Use shared WebSocket connection - paused when collapsed
-  const { spectrumData, isConnected, isIdle } = useSpectrumData(capture, isCollapsed);
+  const { spectrumData, isConnected, isIdle } = useSpectrumData(
+    capture,
+    isCollapsed,
+  );
 
   // Update canvas width when container resizes
   useEffect(() => {
@@ -170,7 +317,10 @@ export default function SpectrumAnalyzer({
       // Calculate average
       if (avgHistory.current.length > 0) {
         displayPower = power.map((_, i) => {
-          const sum = avgHistory.current.reduce((acc, frame) => acc + frame[i], 0);
+          const sum = avgHistory.current.reduce(
+            (acc, frame) => acc + frame[i],
+            0,
+          );
           return sum / avgHistory.current.length;
         });
       }
@@ -195,9 +345,8 @@ export default function SpectrumAnalyzer({
       peakHoldData.current = [];
     }
 
-    // Find min/max for scaling
-    const minPower = Math.min(...displayPower);
-    const maxPower = Math.max(...displayPower);
+    // Find min/max for scaling (single-pass, avoids spread operator overhead)
+    const { min: minPower, max: maxPower } = getMinMax(displayPower);
     const powerRange = maxPower - minPower;
 
     // Draw spectrum with primary blue color
@@ -229,7 +378,8 @@ export default function SpectrumAnalyzer({
 
       for (let i = 0; i < peakHoldData.current.length; i++) {
         const x = (i / peakHoldData.current.length) * width;
-        const normalized = (peakHoldData.current[i] - minPower) / (powerRange || 1);
+        const normalized =
+          (peakHoldData.current[i] - minPower) / (powerRange || 1);
         const y = height - normalized * height;
 
         if (i === 0) {
@@ -296,15 +446,14 @@ export default function SpectrumAnalyzer({
             ctx.fillStyle = band.color;
             ctx.fillRect(x1, 0, bandWidth, height);
 
-            // Draw border
-            ctx.strokeStyle = band.color.replace("0.2)", "0.5)");
+            // Draw border (use pre-computed strokeColor)
+            ctx.strokeStyle = band.strokeColor;
             ctx.lineWidth = 1;
             ctx.strokeRect(x1, 0, bandWidth, height);
 
             // Draw label if there's enough space (at least 40 pixels)
             if (bandWidth >= 40) {
               ctx.font = "bold 10px sans-serif";
-              ctx.fillStyle = band.color.replace("0.2)", "0.9)").replace("rgba", "rgb").replace(/, 0\.9\)/, ")");
               ctx.textAlign = "center";
               ctx.textBaseline = "top";
 
@@ -376,7 +525,7 @@ export default function SpectrumAnalyzer({
     };
 
     // Draw Sample Rate overlay (full width)
-    const sampleRateY = height * 0.10;
+    const sampleRateY = height * 0.1;
     const overlayHeight = 15;
 
     ctx.fillStyle = "rgba(0, 123, 255, 0.15)";
@@ -393,7 +542,12 @@ export default function SpectrumAnalyzer({
 
     // Draw white background for text
     ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-    ctx.fillRect(sampleRateTextX - 2, sampleRateY + 2, sampleRateTextWidth + 4, 11);
+    ctx.fillRect(
+      sampleRateTextX - 2,
+      sampleRateY + 2,
+      sampleRateTextWidth + 4,
+      11,
+    );
 
     // Draw text
     ctx.fillStyle = "#007bff";
@@ -422,7 +576,12 @@ export default function SpectrumAnalyzer({
 
       // Draw white background for text
       ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-      ctx.fillRect(bandwidthTextX - 2, bandwidthY + 2, bandwidthTextWidth + 4, 11);
+      ctx.fillRect(
+        bandwidthTextX - 2,
+        bandwidthY + 2,
+        bandwidthTextWidth + 4,
+        11,
+      );
 
       // Draw text
       ctx.fillStyle = "#28a745";
@@ -522,7 +681,9 @@ export default function SpectrumAnalyzer({
   };
 
   // Handle mouse move to show frequency tooltip
-  const handleCanvasMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
+  const handleCanvasMouseMove = (
+    event: React.MouseEvent<HTMLCanvasElement>,
+  ) => {
     if (!spectrumData) return;
 
     const canvas = canvasRef.current;
@@ -562,25 +723,33 @@ export default function SpectrumAnalyzer({
             >
               {badgeStatus.text}
             </span>
-            {spectrumData?.actualFps !== undefined && isConnected && !isIdle && (
-              <span
-                className="badge bg-info text-white"
-                style={{
-                  fontSize: "8px",
-                  padding: "2px 6px",
-                  minWidth: "42px",
-                  textAlign: "center",
-                  fontVariantNumeric: "tabular-nums",
-                }}
-                title={`FFT: ${spectrumData.fftSize || 'N/A'} bins`}
-              >
-                {spectrumData.actualFps.toFixed(0)} FPS
-              </span>
-            )}
+            {spectrumData?.actualFps !== undefined &&
+              isConnected &&
+              !isIdle && (
+                <span
+                  className="badge bg-info text-white"
+                  style={{
+                    fontSize: "8px",
+                    padding: "2px 6px",
+                    minWidth: "42px",
+                    textAlign: "center",
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                  title={`FFT: ${spectrumData.fftSize || "N/A"} bins`}
+                >
+                  {spectrumData.actualFps.toFixed(0)} FPS
+                </span>
+              )}
             {!isCollapsed && (
               <>
-                <div className="d-flex align-items-center gap-1" style={{ fontSize: "10px" }}>
-                  <label className="d-flex align-items-center gap-1 mb-0" style={{ cursor: "pointer" }}>
+                <div
+                  className="d-flex align-items-center gap-1"
+                  style={{ fontSize: "10px" }}
+                >
+                  <label
+                    className="d-flex align-items-center gap-1 mb-0"
+                    style={{ cursor: "pointer" }}
+                  >
                     <input
                       type="checkbox"
                       checked={peakHoldEnabled}
@@ -589,7 +758,10 @@ export default function SpectrumAnalyzer({
                     />
                     <span className="text-muted">Peak</span>
                   </label>
-                  <label className="d-flex align-items-center gap-1 mb-0" style={{ cursor: "pointer" }}>
+                  <label
+                    className="d-flex align-items-center gap-1 mb-0"
+                    style={{ cursor: "pointer" }}
+                  >
                     <input
                       type="checkbox"
                       checked={averagingEnabled}
@@ -598,7 +770,10 @@ export default function SpectrumAnalyzer({
                     />
                     <span className="text-muted">Avg</span>
                   </label>
-                  <label className="d-flex align-items-center gap-1 mb-0" style={{ cursor: "pointer" }}>
+                  <label
+                    className="d-flex align-items-center gap-1 mb-0"
+                    style={{ cursor: "pointer" }}
+                  >
                     <input
                       type="checkbox"
                       checked={bandPlanEnabled}
@@ -617,7 +792,14 @@ export default function SpectrumAnalyzer({
                 >
                   <Minus size={12} />
                 </button>
-                <span className="small text-muted" style={{ fontSize: "10px", minWidth: "35px", textAlign: "center" }}>
+                <span
+                  className="small text-muted"
+                  style={{
+                    fontSize: "10px",
+                    minWidth: "35px",
+                    textAlign: "center",
+                  }}
+                >
                   {height}px
                 </span>
                 <button
@@ -637,12 +819,24 @@ export default function SpectrumAnalyzer({
               onClick={() => setIsCollapsed(!isCollapsed)}
               title={isCollapsed ? "Expand" : "Collapse"}
             >
-              {isCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+              {isCollapsed ? (
+                <ChevronDown size={14} />
+              ) : (
+                <ChevronUp size={14} />
+              )}
             </button>
           </div>
         </div>
       </div>
-      <div className="card-body" ref={containerRef} style={{ padding: "0.5rem", position: "relative", display: isCollapsed ? "none" : "block" }}>
+      <div
+        className="card-body"
+        ref={containerRef}
+        style={{
+          padding: "0.5rem",
+          position: "relative",
+          display: isCollapsed ? "none" : "block",
+        }}
+      >
         <div style={{ position: "relative" }}>
           <canvas
             ref={canvasRef}
