@@ -2,6 +2,9 @@ import { useState, useEffect } from "react";
 import { Radio, Volume2, VolumeX, Activity } from "lucide-react";
 import type { TrunkingSystem } from "../../types/trunking";
 import Flex from "../../components/primitives/Flex.react";
+import { formatFrequencyMHz } from "../../utils/frequency";
+import { formatHex } from "../../utils/formatting";
+import { getUnifiedSystemStatus, getChannelSnr } from "../../utils/trunkingStatus";
 
 interface SystemStatusPanelProps {
   system: TrunkingSystem;
@@ -13,83 +16,6 @@ interface SystemStatusPanelProps {
   isPlayingAudio?: boolean;
   onPlayAudio?: () => void;
   onStopAudio?: () => void;
-}
-
-function formatFrequency(hz: number | null): string {
-  if (hz === null) return "---";
-  return (hz / 1_000_000).toFixed(4);
-}
-
-/**
- * Get a single unified status from the system and control channel states.
- * This provides a clear, non-redundant status to the user.
- */
-function getUnifiedStatus(system: TrunkingSystem): {
-  label: string;
-  color: string;
-  description: string;
-} {
-  // Check system-level states first
-  if (system.state === "stopped") {
-    return { label: "Stopped", color: "secondary", description: "System is not running" };
-  }
-  if (system.state === "failed") {
-    return { label: "Failed", color: "danger", description: "System encountered an error" };
-  }
-  if (system.state === "starting") {
-    return { label: "Starting", color: "warning", description: "System is initializing..." };
-  }
-
-  // Check if manually locked (huntMode is manual with a locked frequency)
-  if (system.huntMode === "manual" && system.lockedFrequencyHz) {
-    return {
-      label: "Locked",
-      color: "info",
-      description: `Locked to ${formatFrequency(system.lockedFrequencyHz)} MHz`,
-    };
-  }
-
-  // Check control channel state for running system
-  switch (system.controlChannelState) {
-    case "locked":
-      return {
-        label: "Synced",
-        color: "success",
-        description: `Receiving on ${formatFrequency(system.controlChannelFreqHz)} MHz`,
-      };
-    case "searching":
-      return {
-        label: "Searching",
-        color: "warning",
-        description: "Looking for control channel...",
-      };
-    case "lost":
-      return {
-        label: "Lost",
-        color: "danger",
-        description: "Signal lost, hunting for new channel...",
-      };
-    default:
-      return {
-        label: "Running",
-        color: "primary",
-        description: "System is active",
-      };
-  }
-}
-
-// Get SNR for current control channel
-function getChannelSnr(system: TrunkingSystem): number | null {
-  const scanner = system.stats.cc_scanner;
-  if (!scanner || !scanner.current_channel_hz || !scanner.measurements) {
-    return null;
-  }
-
-  const currentMHz = (scanner.current_channel_hz / 1e6).toFixed(4);
-  const key = `${currentMHz}_MHz`;
-  const measurement = scanner.measurements[key];
-
-  return measurement ? measurement.snr_db : null;
 }
 
 // Channel hunt timeout in seconds (should match backend config)
@@ -148,7 +74,7 @@ export function SystemStatusPanel({
   const canPlayAudio = isRunning && system.state !== "starting" && onPlayAudio && onStopAudio;
   const isSearching = system.controlChannelState === "searching";
 
-  const status = getUnifiedStatus(system);
+  const status = getUnifiedSystemStatus(system);
   const snr = getChannelSnr(system);
 
   return (
@@ -210,7 +136,7 @@ export function SystemStatusPanel({
           <div className="col-6 col-md-2">
             <StatBox
               label="Control Freq"
-              value={system.controlChannelFreqHz ? formatFrequency(system.controlChannelFreqHz) : "---"}
+              value={system.controlChannelFreqHz ? formatFrequencyMHz(system.controlChannelFreqHz, 4) : "---"}
               unit="MHz"
               highlight={system.controlChannelState === "locked"}
             />
@@ -229,11 +155,7 @@ export function SystemStatusPanel({
           <div className="col-6 col-md-2">
             <StatBox
               label="NAC"
-              value={
-                system.nac !== null
-                  ? system.nac.toString(16).toUpperCase().padStart(3, "0")
-                  : "---"
-              }
+              value={formatHex(system.nac, 3, false)}
             />
           </div>
 

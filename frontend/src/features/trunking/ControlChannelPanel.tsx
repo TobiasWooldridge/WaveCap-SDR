@@ -1,177 +1,14 @@
 import { useState } from "react";
-import { Lock, Unlock, Radio, RefreshCw, ChevronDown, ChevronRight, HelpCircle } from "lucide-react";
-import type { TrunkingSystem, HuntMode, ControlChannel } from "../../types/trunking";
-import { useSetHuntMode, useLockToChannel, useSetChannelEnabled, useTriggerScan } from "../../hooks/useTrunking";
+import { Radio, RefreshCw, ChevronDown, ChevronRight, HelpCircle } from "lucide-react";
+import type { TrunkingSystem, HuntMode } from "../../types/trunking";
+import { useSetHuntMode, useTriggerScan } from "../../hooks/useTrunking";
 import Flex from "../../components/primitives/Flex.react";
+import { formatFrequencyMHz, formatFrequencyWithUnit } from "../../utils/frequency";
+import { getControlChannelStatusBadge } from "../../utils/trunkingStatus";
+import { ControlChannelRow, ControlChannelHeaders, HuntModeHelp } from "../../components/trunking";
 
 interface ControlChannelPanelProps {
   system: TrunkingSystem;
-}
-
-function formatFrequency(hz: number): string {
-  return (hz / 1_000_000).toFixed(4) + " MHz";
-}
-
-function formatFrequencyShort(hz: number): string {
-  return (hz / 1_000_000).toFixed(3);
-}
-
-function SignalBar({ snrDb, maxDb = 30 }: { snrDb: number | null; maxDb?: number }) {
-  if (snrDb === null) return <span className="text-muted">---</span>;
-
-  const percent = Math.min(100, Math.max(0, (snrDb / maxDb) * 100));
-
-  let color = "bg-danger";
-  if (percent > 60) color = "bg-success";
-  else if (percent > 30) color = "bg-warning";
-
-  return (
-    <div className="d-flex align-items-center gap-1" style={{ width: "80px" }}>
-      <div
-        className="progress"
-        style={{ height: "8px", width: "50px", backgroundColor: "#333" }}
-      >
-        <div
-          className={`progress-bar ${color}`}
-          style={{ width: `${percent}%` }}
-        />
-      </div>
-      <small className="text-muted" style={{ fontSize: "0.7rem", minWidth: "35px" }}>
-        {snrDb.toFixed(0)} dB
-      </small>
-    </div>
-  );
-}
-
-function ChannelRow({
-  channel,
-  systemId,
-  isLocking,
-  huntMode,
-}: {
-  channel: ControlChannel;
-  systemId: string;
-  isLocking: boolean;
-  huntMode: HuntMode;
-}) {
-  const lockMutation = useLockToChannel();
-  const enabledMutation = useSetChannelEnabled();
-  const setHuntModeMutation = useSetHuntMode();
-
-  const handleLock = () => {
-    if (channel.isLocked) {
-      // Unlock by switching to auto mode
-      setHuntModeMutation.mutate({ systemId, mode: "auto" });
-    } else {
-      // Lock to this channel
-      lockMutation.mutate({ systemId, frequencyHz: channel.frequencyHz });
-    }
-  };
-
-  const handleToggleEnabled = () => {
-    enabledMutation.mutate({
-      systemId,
-      frequencyHz: channel.frequencyHz,
-      enabled: !channel.enabled,
-    });
-  };
-
-  const isCurrentChannel = channel.isCurrent;
-  const isLockedChannel = channel.isLocked;
-  const isPending = lockMutation.isPending || setHuntModeMutation.isPending;
-
-  // Determine lock button state and tooltip
-  let lockButtonClass = "btn-outline-secondary";
-  let lockTitle = "Lock to this channel (manual mode)";
-  let LockIcon = Lock;
-
-  if (isLockedChannel) {
-    lockButtonClass = "btn-warning";
-    lockTitle = "Unlock (switch to auto mode)";
-    LockIcon = Lock;
-  } else if (isCurrentChannel && huntMode === "auto") {
-    lockButtonClass = "btn-outline-success";
-    lockTitle = "Currently active (click to lock)";
-    LockIcon = Unlock;
-  }
-
-  return (
-    <div
-      className={`d-flex align-items-center gap-2 py-1 px-2 rounded ${
-        isCurrentChannel ? "bg-success bg-opacity-25" : ""
-      } ${isLockedChannel ? "border border-warning" : ""}`}
-      style={{ fontSize: "0.8rem" }}
-    >
-      <input
-        type="checkbox"
-        checked={channel.enabled}
-        onChange={handleToggleEnabled}
-        disabled={enabledMutation.isPending}
-        className="form-check-input m-0"
-        style={{ cursor: "pointer", width: "14px", height: "14px" }}
-        title={channel.enabled ? "Disable channel from scan" : "Enable channel for scan"}
-      />
-      <span
-        className={`font-monospace ${!channel.enabled ? "text-muted" : ""}`}
-        style={{ minWidth: "90px", fontSize: "0.75rem" }}
-      >
-        {formatFrequency(channel.frequencyHz)}
-      </span>
-      <SignalBar snrDb={channel.snrDb} />
-      <span
-        className={`badge ${channel.syncDetected ? "bg-success" : "bg-secondary"}`}
-        style={{ fontSize: "0.6rem", minWidth: "32px", padding: "2px 4px" }}
-        title={channel.syncDetected ? "P25 sync detected" : "No sync"}
-      >
-        {channel.syncDetected ? "SYNC" : "----"}
-      </span>
-      <button
-        className={`btn btn-sm ${lockButtonClass}`}
-        onClick={handleLock}
-        disabled={isLocking || isPending || !channel.enabled}
-        title={lockTitle}
-        style={{ padding: "1px 4px", lineHeight: 1 }}
-      >
-        <LockIcon size={10} />
-      </button>
-    </div>
-  );
-}
-
-function getStatusBadge(system: TrunkingSystem): { text: string; color: string } {
-  if (system.lockedFrequencyHz) {
-    return { text: "LOCKED", color: "warning" };
-  }
-  switch (system.controlChannelState) {
-    case "locked":
-      return { text: "LOCKED", color: "success" };
-    case "searching":
-      return { text: "HUNTING", color: "warning" };
-    case "lost":
-      return { text: "LOST", color: "danger" };
-    default:
-      return { text: "IDLE", color: "secondary" };
-  }
-}
-
-function HuntModeHelp() {
-  return (
-    <div className="text-muted small mb-2 px-1" style={{ fontSize: "0.7rem", lineHeight: 1.3 }}>
-      <p className="mb-1">
-        <strong>Control channels</strong> carry P25 trunking signaling. The system hunts for
-        the best channel based on signal quality.
-      </p>
-      <p className="mb-1">
-        <strong>Modes:</strong>{" "}
-        <em>Auto</em> switches channels if signal degrades.{" "}
-        <em>Manual</em> locks to one channel.{" "}
-        <em>Scan Once</em> finds the best channel then stays.
-      </p>
-      <p className="mb-0">
-        Use the <Lock size={10} className="mx-1" /> button to lock/unlock a specific channel.
-      </p>
-    </div>
-  );
 }
 
 export function ControlChannelPanel({ system }: ControlChannelPanelProps) {
@@ -201,7 +38,7 @@ export function ControlChannelPanel({ system }: ControlChannelPanelProps) {
     return null;
   }
 
-  const status = getStatusBadge(system);
+  const status = getControlChannelStatusBadge(system);
   const currentFreq = system.controlChannelFreqHz;
   const enabledCount = channels.filter(c => c.enabled).length;
   const lockedChannel = channels.find(c => c.isLocked);
@@ -226,7 +63,7 @@ export function ControlChannelPanel({ system }: ControlChannelPanelProps) {
             style={{ fontSize: "0.6rem", padding: "2px 4px" }}
             title={
               status.text === "LOCKED" && lockedChannel
-                ? `Locked to ${formatFrequency(lockedChannel.frequencyHz)}`
+                ? `Locked to ${formatFrequencyWithUnit(lockedChannel.frequencyHz)}`
                 : status.text === "HUNTING"
                 ? "Searching for best control channel"
                 : status.text === "LOST"
@@ -238,7 +75,7 @@ export function ControlChannelPanel({ system }: ControlChannelPanelProps) {
           </span>
           {currentFreq && (
             <span className="font-monospace text-muted" style={{ fontSize: "0.75rem" }}>
-              {formatFrequencyShort(currentFreq)}
+              {formatFrequencyMHz(currentFreq)}
             </span>
           )}
           <span className="text-muted" style={{ fontSize: "0.7rem" }}>
@@ -286,18 +123,11 @@ export function ControlChannelPanel({ system }: ControlChannelPanelProps) {
         <div className="card-body py-1 px-2">
           {showHelp && <HuntModeHelp />}
 
-          {/* Column headers */}
-          <div className="d-flex align-items-center gap-2 py-1 px-2 text-muted border-bottom mb-1" style={{ fontSize: "0.65rem" }}>
-            <span style={{ width: "14px" }} title="Enable/disable channel for scanning">En</span>
-            <span style={{ minWidth: "90px" }}>Frequency</span>
-            <span style={{ width: "80px" }}>SNR</span>
-            <span style={{ minWidth: "32px" }}>Sync</span>
-            <span style={{ width: "24px" }} title="Lock to channel">Lock</span>
-          </div>
+          <ControlChannelHeaders />
 
           <div className="d-flex flex-column">
             {channels.map((channel) => (
-              <ChannelRow
+              <ControlChannelRow
                 key={channel.frequencyHz}
                 channel={channel}
                 systemId={system.id}

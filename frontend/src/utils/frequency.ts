@@ -1,9 +1,17 @@
 /**
  * Format frequency in Hz to MHz with proper precision
  */
-export function formatFrequencyMHz(hz: number): string {
+export function formatFrequencyMHz(hz: number, decimals: number = 3): string {
   const mhz = hz / 1_000_000;
-  return mhz.toFixed(3);
+  return mhz.toFixed(decimals);
+}
+
+/**
+ * Format frequency in Hz to MHz with unit suffix (e.g., "415.3750 MHz")
+ */
+export function formatFrequencyWithUnit(hz: number | null, decimals: number = 4): string {
+  if (hz === null) return "---";
+  return `${(hz / 1_000_000).toFixed(decimals)} MHz`;
 }
 
 /**
