@@ -3,6 +3,7 @@ import { Radio, Antenna, Plus, X, Settings } from "lucide-react";
 import type { RadioTab, RadioTabType } from "../../types";
 import { formatFrequencyMHz } from "../../utils/frequency";
 import Button from "../../components/primitives/Button.react";
+import { StatusPill, getRadioTabStatusProps } from "../../components/primitives/StatusPill.react";
 
 interface RadioTabBarProps {
   tabs: RadioTab[];
@@ -241,14 +242,12 @@ function TabItem({
   isLastInGroup,
   hasMultipleTabs,
 }: TabItemProps) {
-  const isRunning = tab.state === "running";
+  const isRunning = tab.state === "running" || tab.state === "synced";
   const isFailed = tab.state === "failed" || tab.state === "error";
   const isTrunking = tab.type === "trunking";
 
-  // Trunking states have different semantics
-  const trunkingStateLabel = getTrunkingStateLabel(tab.state);
-  const stateLabel = isTrunking ? trunkingStateLabel : getCaptureStateLabel(tab.state);
-  const stateBadgeClass = getStateBadgeClass(tab.state, isTrunking);
+  // Get status pill props from the shared helper
+  const statusProps = getRadioTabStatusProps(tab.state, tab.type);
 
   const Icon = isTrunking ? Antenna : Radio;
 
@@ -297,12 +296,7 @@ function TabItem({
       </div>
 
       <div className="ms-auto d-flex align-items-center gap-1">
-        <span
-          className={`badge ${stateBadgeClass}`}
-          style={{ fontSize: "0.6rem" }}
-        >
-          {stateLabel}
-        </span>
+        <StatusPill label={statusProps.label} variant={statusProps.variant} />
 
         {isSelected && (
           <button
@@ -321,74 +315,5 @@ function TabItem({
   );
 }
 
-function getCaptureStateLabel(state: string): string {
-  switch (state) {
-    case "running":
-      return "ON";
-    case "stopped":
-      return "OFF";
-    case "starting":
-      return "STARTING";
-    case "stopping":
-      return "STOPPING";
-    case "failed":
-    case "error":
-      return "FAILED";
-    default:
-      return state.toUpperCase();
-  }
-}
-
-function getTrunkingStateLabel(state: string): string {
-  switch (state) {
-    case "running":
-      return "SYNCED";
-    case "stopped":
-      return "OFF";
-    case "starting":
-      return "STARTING";
-    case "searching":
-      return "SEARCH";
-    case "syncing":
-      return "SYNCING";
-    case "failed":
-      return "FAILED";
-    default:
-      return state.toUpperCase();
-  }
-}
-
-function getStateBadgeClass(state: string, isTrunking: boolean): string {
-  if (isTrunking) {
-    switch (state) {
-      case "running":
-        return "bg-success";
-      case "stopped":
-        return "bg-secondary";
-      case "searching":
-      case "syncing":
-      case "starting":
-        return "bg-warning text-dark";
-      case "failed":
-        return "bg-danger";
-      default:
-        return "bg-secondary";
-    }
-  } else {
-    // Capture states
-    switch (state) {
-      case "running":
-        return "bg-success";
-      case "stopped":
-        return "bg-secondary";
-      case "starting":
-      case "stopping":
-        return "bg-warning text-dark";
-      case "failed":
-      case "error":
-        return "bg-danger";
-      default:
-        return "bg-secondary";
-    }
-  }
-}
+// Note: State mapping logic has been moved to StatusPill.react.tsx
+// Use getRadioTabStatusProps, getCaptureStatusProps, or getTrunkingStatusProps
