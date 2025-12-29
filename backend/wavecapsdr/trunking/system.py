@@ -2106,10 +2106,17 @@ class TrunkingSystem:
         """
         now = time.time()
         hold_timeout = self.cfg.voice_hold_time
+        # Calls in TUNING state (no recorder assigned) should timeout quickly
+        tuning_timeout = 10.0  # 10 seconds without a recorder = end call
 
         for call_id, call in list(self._active_calls.items()):
+            # Check for calls in tuning state without a recorder
+            if call.state == CallState.TUNING:
+                if now - call.start_time > tuning_timeout:
+                    self._end_call(call_id, "no_recorder")
+
             # Check for calls in hold state past timeout
-            if call.state == CallState.HOLD:
+            elif call.state == CallState.HOLD:
                 if now - call.last_activity_time > hold_timeout:
                     self._end_call(call_id, "timeout")
 
