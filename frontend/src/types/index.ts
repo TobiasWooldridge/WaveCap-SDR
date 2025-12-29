@@ -1,3 +1,5 @@
+import type { TrunkingSystem } from "./trunking";
+
 export interface Device {
   id: string;
   driver: string;
@@ -385,4 +387,45 @@ export interface RadioTab {
   deviceName: string;
   state: string;
   frequencyHz: number;
+}
+
+// ==============================================================================
+// Device-centric tab types (Level 1 navigation)
+// ==============================================================================
+
+/** Overall device status derived from capture + trunking states */
+export type DeviceStatus = "running" | "starting" | "stopped" | "failed";
+
+/** Control channel state for trunking systems */
+export type ControlChannelState = "searching" | "locked" | "lost";
+
+/**
+ * A device tab represents one physical SDR device.
+ * Used for Level 1 navigation - one tab per device.
+ */
+export interface DeviceTab {
+  /** Stable device ID (used for URL routing and selection) */
+  deviceId: string;
+  /** Display name for the device (nickname > shorthand > label) */
+  deviceName: string;
+  /** The capture associated with this device (if any) */
+  capture: Capture | null;
+  /** The trunking system associated with this device (if any) */
+  trunkingSystem: TrunkingSystem | null;
+  /** Overall device status - running if either capture or trunking is running */
+  status: DeviceStatus;
+  /** Whether this device has a capture configured */
+  hasRadio: boolean;
+  /** Whether this device has a trunking system configured */
+  hasTrunking: boolean;
+  /** Primary display frequency (from capture or trunking control channel) */
+  frequencyHz: number;
+
+  // Trunking-specific status fields for expressive display
+  /** Control channel state (for trunking systems) */
+  controlChannelState?: ControlChannelState;
+  /** Number of active calls (for trunking systems) */
+  activeCalls?: number;
+  /** Whether manually locked to a frequency */
+  isManuallyLocked?: boolean;
 }

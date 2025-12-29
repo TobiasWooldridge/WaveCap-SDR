@@ -9,16 +9,17 @@ import { useDeleteCapture } from "./hooks/useCaptures";
 import { useDeleteTrunkingSystem } from "./hooks/useTrunking";
 import { useStateWebSocket } from "./hooks/useStateWebSocket";
 import { useAudio } from "./hooks/useAudio";
-import { RadioTabBar, RadioPanel } from "./features/radio";
+import { RadioPanel } from "./features/radio";
 import { ChannelList } from "./features/channel";
 import { SpectrumPanel } from "./features/spectrum";
 import { TrunkingPanel } from "./features/trunking";
+import { DeviceTabBar } from "./components/DeviceTabBar";
+import { ModeTabBar } from "./components/ModeTabBar";
 import { CreateCaptureWizard } from "./components/CreateCaptureWizard.react";
 import { CreateTrunkingWizard } from "./components/CreateTrunkingWizard.react";
 import { DeviceSettingsModal } from "./components/DeviceSettingsModal.react";
 import ErrorBoundary from "./components/ErrorBoundary.react";
 import Spinner from "./components/primitives/Spinner.react";
-import type { RadioTabType } from "./types";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,12 +36,20 @@ function AppContent() {
   useStateWebSocket();
 
   const {
-    selectedType,
-    selectedId,
+    // Device-centric selection
+    deviceTabs,
+    selectedDeviceId,
+    selectedDeviceTab,
+    selectDevice,
+    // Selected items
     selectedCapture,
     selectedDevice,
-    selectTab,
-    tabs,
+    // View mode
+    viewMode,
+    setViewMode,
+    hasTrunkingForDevice,
+    trunkingSystemForDevice,
+    // Loading state
     isLoading,
   } = useSelectedRadio();
 
@@ -49,38 +58,34 @@ function AppContent() {
   const deleteTrunkingSystem = useDeleteTrunkingSystem();
   const { stopAll } = useAudio();
 
-  // Stop all audio when changing tabs
-  const handleSelectTab = useCallback((type: RadioTabType, id: string) => {
-    if (type !== selectedType || id !== selectedId) {
+  // Stop all audio when changing devices
+  const handleSelectDevice = useCallback((deviceId: string) => {
+    if (deviceId !== selectedDeviceId) {
       stopAll();
     }
-    selectTab(type, id);
-  }, [selectTab, selectedType, selectedId, stopAll]);
+    selectDevice(deviceId);
+  }, [selectDevice, selectedDeviceId, stopAll]);
 
   const [showWizard, setShowWizard] = useState(false);
   const [showTrunkingWizard, setShowTrunkingWizard] = useState(false);
   const [showDeviceSettings, setShowDeviceSettings] = useState(false);
 
   const handleDeleteCapture = (captureId: string) => {
-    if (confirm("Delete this capture and all its channels?")) {
-      deleteCapture.mutate(captureId);
-    }
+    deleteCapture.mutate(captureId);
   };
 
   const handleDeleteTrunkingSystem = (systemId: string) => {
-    if (confirm("Delete this trunking system?")) {
-      deleteTrunkingSystem.mutate(systemId);
-    }
+    deleteTrunkingSystem.mutate(systemId);
   };
 
-  const handleCreateSuccess = (captureId: string) => {
-    selectTab("capture", captureId);
+  const handleCreateSuccess = () => {
     setShowWizard(false);
+    // The new capture will auto-select via the hook
   };
 
-  const handleTrunkingCreateSuccess = (systemId: string) => {
-    selectTab("trunking", systemId);
+  const handleTrunkingCreateSuccess = () => {
     setShowTrunkingWizard(false);
+    // The new trunking system will auto-select via the hook
   };
 
   if (isLoading) {
@@ -91,32 +96,47 @@ function AppContent() {
     );
   }
 
+  // Determine if we should show the mode tab bar
+  // Show it when we have a selected device that has any content
+  const showModeBar = selectedDeviceTab && (selectedDeviceTab.hasRadio || selectedDeviceTab.hasTrunking);
+
   return (
     <div className="d-flex flex-column" style={{ minHeight: "100vh" }}>
       {/* Top Navigation - sticky at top */}
-      <div className="sticky-top bg-body border-bottom" style={{ zIndex: 1020 }}>
-        {/* Unified Tab Bar - shows both captures and trunking systems */}
-        <RadioTabBar
-          tabs={tabs}
-          selectedType={selectedType}
-          selectedId={selectedId}
-          onSelectTab={handleSelectTab}
-          onCreateCapture={() => setShowWizard(true)}
-          onCreateTrunkingSystem={() => setShowTrunkingWizard(true)}
-          onDeleteCapture={handleDeleteCapture}
-          onDeleteTrunkingSystem={handleDeleteTrunkingSystem}
-          onOpenSettings={() => setShowDeviceSettings(true)}
-        />
+      <div className="sticky-top bg-body" style={{ zIndex: 1020 }}>
+        {/* Level 1: Device Tab Bar */}
+        <div className="border-bottom">
+          <DeviceTabBar
+            deviceTabs={deviceTabs}
+            selectedDeviceId={selectedDeviceId}
+            onSelectDevice={handleSelectDevice}
+            onCreateCapture={() => setShowWizard(true)}
+            onCreateTrunkingSystem={() => setShowTrunkingWizard(true)}
+            onDeleteCapture={handleDeleteCapture}
+            onDeleteTrunkingSystem={handleDeleteTrunkingSystem}
+            onOpenSettings={() => setShowDeviceSettings(true)}
+          />
+        </div>
+
+        {/* Level 2: Mode Tab Bar (Radio | Trunking | Digital) */}
+        {showModeBar && (
+          <ModeTabBar
+            activeMode={viewMode}
+            onModeChange={setViewMode}
+            hasTrunking={hasTrunkingForDevice}
+            hasDigital={false}
+          />
+        )}
       </div>
 
-      {/* Main Content - depends on selection type */}
-      {selectedType === "trunking" && selectedId ? (
-        /* Trunking System Selected */
+      {/* Main Content - depends on view mode */}
+      {viewMode === "trunking" && trunkingSystemForDevice ? (
+        /* Trunking Mode */
         <div className="flex-grow-1">
-          <TrunkingPanel systemId={selectedId} />
+          <TrunkingPanel systemId={trunkingSystemForDevice.id} />
         </div>
-      ) : selectedType === "capture" && selectedCapture ? (
-        /* Capture Selected */
+      ) : viewMode === "radio" && selectedCapture ? (
+        /* Radio Mode */
         <div className="d-flex flex-column flex-lg-row">
           {/* Spectrum Panel - self-sizing based on internal state */}
           <div className="d-flex flex-column border-end" style={{ flex: "1 1 33%", minWidth: 0 }}>
@@ -133,6 +153,15 @@ function AppContent() {
             <div className="p-2">
               <ChannelList capture={selectedCapture} />
             </div>
+          </div>
+        </div>
+      ) : selectedDeviceTab ? (
+        /* Device selected but no content for current mode */
+        <div className="flex-grow-1 d-flex justify-content-center align-items-center">
+          <div className="text-center text-muted">
+            <Wand2 size={48} className="mb-3 opacity-50" />
+            <h5>Select a Mode</h5>
+            <p className="small">Choose Radio or Trunking from the tabs above</p>
           </div>
         </div>
       ) : (

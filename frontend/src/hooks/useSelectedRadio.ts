@@ -4,45 +4,364 @@ import { useDevices } from "./useDevices";
 import { useTrunkingSystems } from "./useTrunking";
 import { findDeviceForCapture, getStableDeviceId } from "../utils/deviceId";
 import { getDeviceDisplayName } from "../utils/device";
-import type { Capture, Device, RadioTab, RadioTabType } from "../types";
-import type { TrunkingSystem } from "../types/trunking";
+import type { Capture, Device, DeviceTab, DeviceStatus, ControlChannelState, RadioTab, RadioTabType } from "../types";
+import type { TrunkingSystem, ControlChannelState as TrunkingCCState } from "../types/trunking";
+
+export type ViewMode = "radio" | "trunking" | "digital";
 
 /**
- * Unified selection hook for both captures and trunking systems.
+ * Map trunking control channel state to our simplified type.
+ * The trunking type includes "unlocked" which we treat as "searching".
+ */
+function mapControlChannelState(ccState: TrunkingCCState | undefined): ControlChannelState | undefined {
+  if (!ccState) return undefined;
+  switch (ccState) {
+    case "locked":
+      return "locked";
+    case "searching":
+    case "unlocked":
+      return "searching";
+    case "lost":
+      return "lost";
+    default:
+      return "searching";
+  }
+}
+
+/**
+ * Compute the overall status for a device based on its capture and trunking states.
+ */
+function computeDeviceStatus(capture: Capture | null, trunking: TrunkingSystem | null): DeviceStatus {
+  // Check for running state first (either capture or trunking running = device running)
+  if (capture?.state === "running" || trunking?.state === "running") {
+    return "running";
+  }
+  // Check for starting/syncing states
+  if (capture?.state === "starting" || trunking?.state === "starting" || trunking?.state === "searching") {
+    return "starting";
+  }
+  // Check for failed states
+  if (capture?.state === "failed" || capture?.state === "error" || trunking?.state === "failed") {
+    return "failed";
+  }
+  // Default to stopped
+  return "stopped";
+}
+
+/**
+ * Device-centric selection hook for unified radio/trunking UI.
+ *
+ * Architecture:
+ * - Level 1 (DeviceTabBar): One tab per physical SDR device
+ * - Level 2 (ModeTabBar): Radio | Trunking | Digital modes for the selected device
+ *
+ * URL format: ?device=<deviceId>&mode=<radio|trunking|digital>
  *
  * Features:
- * - Syncs selection to URL query parameter (?radio=capture:c1 or ?radio=trunking:psern)
- * - Auto-selects first running item if none selected
- * - Returns unified RadioTab[] array for the tab bar
+ * - Syncs device selection to URL query parameter
+ * - Auto-selects first running device if none selected
+ * - Returns DeviceTab[] for Level 1 tab bar
+ * - Returns capture/trunking for the selected device
  */
 export function useSelectedRadio() {
   const { data: captures, isLoading: capturesLoading } = useCaptures();
   const { data: devices, isLoading: devicesLoading } = useDevices();
   const { data: trunkingSystems, isLoading: trunkingLoading } = useTrunkingSystems();
 
-  // Parse selection from URL (format: "capture:c1" or "trunking:psern")
-  const [urlSelection, setUrlSelection] = useState<{ type: RadioTabType; id: string } | null>(() => {
+  const isLoading = capturesLoading || devicesLoading || trunkingLoading;
+
+  // =========================================================================
+  // Build device tabs (Level 1)
+  // =========================================================================
+
+  const deviceTabs: DeviceTab[] = useMemo(() => {
+    const deviceMap = new Map<string, DeviceTab>();
+
+    // First pass: add devices from captures
+    if (captures) {
+      for (const capture of captures) {
+        const stableDeviceId = getStableDeviceId(capture.deviceId);
+        const device = findDeviceForCapture(devices, capture);
+        const deviceName = device ? getDeviceDisplayName(device) : "Unknown Device";
+
+        if (!deviceMap.has(stableDeviceId)) {
+          deviceMap.set(stableDeviceId, {
+            deviceId: stableDeviceId,
+            deviceName,
+            capture,
+            trunkingSystem: null,
+            status: "stopped",
+            hasRadio: true,
+            hasTrunking: false,
+            frequencyHz: capture.centerHz,
+          });
+        } else {
+          // Device already exists, add/update capture
+          const existing = deviceMap.get(stableDeviceId)!;
+          existing.capture = capture;
+          existing.hasRadio = true;
+          existing.frequencyHz = capture.centerHz;
+        }
+      }
+    }
+
+    // Second pass: add/update devices from trunking systems
+    if (trunkingSystems) {
+      for (const system of trunkingSystems) {
+        if (!system.deviceId) continue;
+        const stableDeviceId = getStableDeviceId(system.deviceId);
+
+        // Map control channel state to our simplified type
+        const ccState = mapControlChannelState(system.controlChannelState);
+
+        if (!deviceMap.has(stableDeviceId)) {
+          // Device only has trunking, no capture
+          let deviceName = "Trunking";
+          if (devices) {
+            const device = devices.find((d) => getStableDeviceId(d.id) === stableDeviceId);
+            if (device) deviceName = getDeviceDisplayName(device);
+          }
+
+          deviceMap.set(stableDeviceId, {
+            deviceId: stableDeviceId,
+            deviceName,
+            capture: null,
+            trunkingSystem: system,
+            status: "stopped",
+            hasRadio: false,
+            hasTrunking: true,
+            frequencyHz: system.controlChannelFreqHz ?? 0,
+            // Trunking-specific status fields
+            controlChannelState: ccState,
+            activeCalls: system.activeCalls,
+            isManuallyLocked: system.lockedFrequencyHz !== null,
+          });
+        } else {
+          // Device already exists, add trunking
+          const existing = deviceMap.get(stableDeviceId)!;
+          existing.trunkingSystem = system;
+          existing.hasTrunking = true;
+          // Add trunking-specific status
+          existing.controlChannelState = ccState;
+          existing.activeCalls = system.activeCalls;
+          existing.isManuallyLocked = system.lockedFrequencyHz !== null;
+        }
+      }
+    }
+
+    // Third pass: compute status for each device
+    for (const tab of deviceMap.values()) {
+      tab.status = computeDeviceStatus(tab.capture, tab.trunkingSystem);
+    }
+
+    // Sort: running devices first, then by device name
+    return Array.from(deviceMap.values()).sort((a, b) => {
+      if (a.status === "running" && b.status !== "running") return -1;
+      if (a.status !== "running" && b.status === "running") return 1;
+      return a.deviceName.localeCompare(b.deviceName);
+    });
+  }, [captures, devices, trunkingSystems]);
+
+  // =========================================================================
+  // Device Selection (Level 1)
+  // =========================================================================
+
+  // Parse device selection from URL
+  const [urlDeviceId, setUrlDeviceId] = useState<string | null>(() => {
     const params = new URLSearchParams(window.location.search);
+    // New format: ?device=xxx
+    const deviceParam = params.get("device");
+    if (deviceParam) return deviceParam;
+
+    // Legacy format: ?radio=capture:c1 or ?radio=trunking:psern
+    // Convert to device ID by looking up the capture/trunking
     const radioParam = params.get("radio");
     if (radioParam) {
       const [type, id] = radioParam.split(":");
-      if ((type === "capture" || type === "trunking") && id) {
-        return { type, id };
-      }
+      // We'll resolve this to a device ID after data loads
+      return `legacy:${type}:${id}`;
     }
-    // Fallback: check legacy ?capture= param
-    const legacyCapture = params.get("capture");
-    if (legacyCapture) {
-      return { type: "capture", id: legacyCapture };
+
+    // Very legacy: ?capture=c1
+    const captureParam = params.get("capture");
+    if (captureParam) {
+      return `legacy:capture:${captureParam}`;
     }
+
     return null;
   });
 
-  // Build unified tabs array
+  // Resolve legacy URL format to device ID
+  const resolvedDeviceId = useMemo(() => {
+    if (!urlDeviceId) return null;
+    if (!urlDeviceId.startsWith("legacy:")) return urlDeviceId;
+
+    // Parse legacy format
+    const [, type, id] = urlDeviceId.split(":");
+
+    if (type === "capture" && captures) {
+      const capture = captures.find((c) => c.id === id);
+      if (capture) return getStableDeviceId(capture.deviceId);
+    } else if (type === "trunking" && trunkingSystems) {
+      const system = trunkingSystems.find((s) => s.id === id);
+      if (system?.deviceId) return getStableDeviceId(system.deviceId);
+    }
+
+    // Can't resolve yet (still loading) - return null to trigger auto-select
+    if (isLoading) return urlDeviceId; // Keep legacy format while loading
+    return null;
+  }, [urlDeviceId, captures, trunkingSystems, isLoading]);
+
+  // Determine selected device
+  const selectedDeviceId = useMemo(() => {
+    // If we have a resolved device ID from URL, use it
+    if (resolvedDeviceId && !resolvedDeviceId.startsWith("legacy:")) {
+      // Verify device exists
+      const exists = deviceTabs.some((t) => t.deviceId === resolvedDeviceId);
+      if (exists) return resolvedDeviceId;
+      // If still loading, trust the URL
+      if (isLoading) return resolvedDeviceId;
+    }
+
+    // Still loading - don't auto-select yet
+    if (isLoading) return null;
+
+    // Auto-select first running device
+    const runningDevice = deviceTabs.find((t) => t.status === "running");
+    if (runningDevice) return runningDevice.deviceId;
+
+    // Or first device
+    return deviceTabs[0]?.deviceId ?? null;
+  }, [deviceTabs, resolvedDeviceId, isLoading]);
+
+  // Track if user has explicitly selected
+  const [userHasSelected, setUserHasSelected] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.has("device") || params.has("radio") || params.has("capture");
+  });
+
+  // Update URL when selection changes (for auto-selection)
+  useEffect(() => {
+    if (isLoading) return;
+    if (userHasSelected && urlDeviceId) return;
+
+    if (selectedDeviceId) {
+      const url = new URL(window.location.href);
+      // Remove legacy params
+      url.searchParams.delete("radio");
+      url.searchParams.delete("capture");
+      // Set new format
+      url.searchParams.set("device", selectedDeviceId);
+      window.history.replaceState({}, "", url.toString());
+      setUrlDeviceId(selectedDeviceId);
+    }
+  }, [selectedDeviceId, urlDeviceId, isLoading, userHasSelected]);
+
+  // Get selected device tab
+  const selectedDeviceTab = useMemo(() => {
+    return deviceTabs.find((t) => t.deviceId === selectedDeviceId) ?? null;
+  }, [deviceTabs, selectedDeviceId]);
+
+  // Convenience accessors for selected device's capture and trunking
+  const selectedCapture = selectedDeviceTab?.capture ?? null;
+  const selectedTrunkingSystem = selectedDeviceTab?.trunkingSystem ?? null;
+
+  // Get the Device object for the selected device
+  const selectedDevice: Device | null = useMemo(() => {
+    if (!selectedDeviceId || !devices) return null;
+    return devices.find((d) => getStableDeviceId(d.id) === selectedDeviceId) ?? null;
+  }, [selectedDeviceId, devices]);
+
+  // Select a device
+  const selectDevice = useCallback((deviceId: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("radio");
+    url.searchParams.delete("capture");
+    url.searchParams.set("device", deviceId);
+    window.history.replaceState({}, "", url.toString());
+    setUrlDeviceId(deviceId);
+    setUserHasSelected(true);
+    // Dispatch custom event for sync
+    window.dispatchEvent(new CustomEvent("deviceselectionchange", { detail: { deviceId } }));
+  }, []);
+
+  // Listen for browser back/forward navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const deviceParam = params.get("device");
+      if (deviceParam) {
+        setUrlDeviceId(deviceParam);
+        return;
+      }
+      // Handle legacy formats on back navigation
+      const radioParam = params.get("radio");
+      if (radioParam) {
+        setUrlDeviceId(`legacy:${radioParam.replace(":", ":")}`);
+        return;
+      }
+      setUrlDeviceId(null);
+    };
+
+    const handleDeviceChange = (event: Event) => {
+      const { deviceId } = (event as CustomEvent).detail;
+      if (deviceId) {
+        setUrlDeviceId(deviceId);
+        setUserHasSelected(true);
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    window.addEventListener("deviceselectionchange", handleDeviceChange);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("deviceselectionchange", handleDeviceChange);
+    };
+  }, []);
+
+  // =========================================================================
+  // View Mode (Level 2 tabs: Radio | Trunking | Digital)
+  // =========================================================================
+
+  const [viewMode, setViewModeState] = useState<ViewMode>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const modeParam = params.get("mode");
+    if (modeParam === "radio" || modeParam === "trunking" || modeParam === "digital") {
+      return modeParam;
+    }
+    return "radio";
+  });
+
+  // Set view mode and update URL
+  const setViewMode = useCallback((mode: ViewMode) => {
+    setViewModeState(mode);
+    const url = new URL(window.location.href);
+    url.searchParams.set("mode", mode);
+    window.history.replaceState({}, "", url.toString());
+  }, []);
+
+  // Auto-switch mode based on what's available for selected device
+  useEffect(() => {
+    if (!selectedDeviceTab) return;
+
+    // If viewing trunking but device doesn't have it, switch to radio
+    if (viewMode === "trunking" && !selectedDeviceTab.hasTrunking) {
+      setViewModeState("radio");
+    }
+    // If viewing radio but device doesn't have it, switch to trunking if available
+    else if (viewMode === "radio" && !selectedDeviceTab.hasRadio && selectedDeviceTab.hasTrunking) {
+      setViewModeState("trunking");
+    }
+  }, [selectedDeviceTab, viewMode]);
+
+  // =========================================================================
+  // Legacy compatibility: RadioTab[] and selectTab for old RadioTabBar
+  // These can be removed once DeviceTabBar is fully implemented
+  // =========================================================================
+
   const tabs: RadioTab[] = useMemo(() => {
     const result: RadioTab[] = [];
 
-    // Add capture tabs
     if (captures) {
       for (const capture of captures) {
         const device = findDeviceForCapture(devices, capture);
@@ -59,21 +378,14 @@ export function useSelectedRadio() {
       }
     }
 
-    // Add trunking system tabs
     if (trunkingSystems) {
       for (const system of trunkingSystems) {
-        // Look up device name from deviceId
         const stableDeviceId = system.deviceId ? getStableDeviceId(system.deviceId) : "";
         let deviceName = "Trunking";
         if (system.deviceId && devices) {
-          const device = devices.find(
-            (d) => getStableDeviceId(d.id) === stableDeviceId
-          );
-          if (device) {
-            deviceName = getDeviceDisplayName(device);
-          }
+          const device = devices.find((d) => getStableDeviceId(d.id) === stableDeviceId);
+          if (device) deviceName = getDeviceDisplayName(device);
         }
-
         result.push({
           type: "trunking",
           id: system.id,
@@ -89,147 +401,55 @@ export function useSelectedRadio() {
     return result;
   }, [captures, devices, trunkingSystems]);
 
-  const isLoading = capturesLoading || devicesLoading || trunkingLoading;
-
-  // Determine selected tab
-  const selectedTab = useMemo(() => {
-    // If URL has a valid selection, use it (even if tab not found yet - might still be loading)
-    if (urlSelection) {
-      const tab = tabs.find(
-        (t) => t.type === urlSelection.type && t.id === urlSelection.id
-      );
-      if (tab) return { type: urlSelection.type, id: urlSelection.id };
-      // If still loading, trust the URL selection - don't fall through to auto-select
-      if (isLoading) return { type: urlSelection.type, id: urlSelection.id };
-    }
-
-    // Don't auto-select while still loading - wait for data
-    if (isLoading) return null;
-
-    // Auto-select first running capture
-    const runningCapture = tabs.find(
-      (t) => t.type === "capture" && t.state === "running"
-    );
-    if (runningCapture) {
-      return { type: runningCapture.type, id: runningCapture.id };
-    }
-
-    // Or first running trunking system
-    const runningSys = tabs.find(
-      (t) => t.type === "trunking" && t.state === "running"
-    );
-    if (runningSys) {
-      return { type: runningSys.type, id: runningSys.id };
-    }
-
-    // Or just the first tab
-    const first = tabs[0];
-    return first ? { type: first.type, id: first.id } : null;
-  }, [tabs, urlSelection, isLoading]);
-
-  // Track if user has explicitly selected (vs auto-selection)
-  const [userHasSelected, setUserHasSelected] = useState(() => {
-    // If URL has a selection on mount, user has "selected"
-    const params = new URLSearchParams(window.location.search);
-    return params.has("radio") || params.has("capture");
-  });
-
-  // Auto-update URL when selection changes, but only after initial load
-  // and only when user hasn't explicitly selected something
-  useEffect(() => {
-    // Don't update URL while loading
-    if (isLoading) return;
-    // Don't update URL if user has an explicit selection from URL
-    if (userHasSelected && urlSelection) return;
-
-    if (selectedTab) {
-      const urlKey = `${selectedTab.type}:${selectedTab.id}`;
-      const currentParam = urlSelection
-        ? `${urlSelection.type}:${urlSelection.id}`
-        : null;
-      if (urlKey !== currentParam) {
-        const url = new URL(window.location.href);
-        url.searchParams.delete("capture"); // Remove legacy param
-        url.searchParams.set("radio", urlKey);
-        window.history.replaceState({}, "", url.toString());
-        setUrlSelection(selectedTab);
-      }
-    }
-  }, [selectedTab, urlSelection, isLoading, userHasSelected]);
-
-  // Get the selected capture (if type is capture)
-  const selectedCapture: Capture | null = useMemo(() => {
-    if (!selectedTab || selectedTab.type !== "capture" || !captures) return null;
-    return captures.find((c) => c.id === selectedTab.id) ?? null;
-  }, [selectedTab, captures]);
-
-  // Get the device for the selected capture
-  const selectedDevice: Device | null = useMemo(() => {
-    if (!selectedCapture) return null;
-    return findDeviceForCapture(devices, selectedCapture) ?? null;
-  }, [selectedCapture, devices]);
-
-  // Get the selected trunking system (if type is trunking)
-  const selectedTrunkingSystem: TrunkingSystem | null = useMemo(() => {
-    if (!selectedTab || selectedTab.type !== "trunking" || !trunkingSystems)
-      return null;
-    return trunkingSystems.find((s) => s.id === selectedTab.id) ?? null;
-  }, [selectedTab, trunkingSystems]);
-
-  // Select a tab by type and ID
+  // Legacy: selectTab (converts to selectDevice + setViewMode)
   const selectTab = useCallback((type: RadioTabType, id: string) => {
-    const urlKey = `${type}:${id}`;
-    const url = new URL(window.location.href);
-    url.searchParams.delete("capture"); // Remove legacy param
-    url.searchParams.set("radio", urlKey);
-    window.history.replaceState({}, "", url.toString());
-    setUrlSelection({ type, id });
-    setUserHasSelected(true);
-    // Dispatch custom event so other hook instances can sync
-    window.dispatchEvent(new CustomEvent("radioselectionchange", { detail: { type, id } }));
-  }, []);
+    // Find the device for this tab
+    let deviceId: string | null = null;
 
-  // Listen for browser back/forward navigation and custom selection events
-  useEffect(() => {
-    const handlePopState = () => {
-      const params = new URLSearchParams(window.location.search);
-      const radioParam = params.get("radio");
-      if (radioParam) {
-        const [type, id] = radioParam.split(":");
-        if ((type === "capture" || type === "trunking") && id) {
-          setUrlSelection({ type, id });
-          return;
-        }
-      }
-      const legacyCapture = params.get("capture");
-      if (legacyCapture) {
-        setUrlSelection({ type: "capture", id: legacyCapture });
-        return;
-      }
-      setUrlSelection(null);
-    };
+    if (type === "capture" && captures) {
+      const capture = captures.find((c) => c.id === id);
+      if (capture) deviceId = getStableDeviceId(capture.deviceId);
+    } else if (type === "trunking" && trunkingSystems) {
+      const system = trunkingSystems.find((s) => s.id === id);
+      if (system?.deviceId) deviceId = getStableDeviceId(system.deviceId);
+    }
 
-    // Listen for custom selection change events from other hook instances
-    const handleSelectionChange = (event: Event) => {
-      const { type, id } = (event as CustomEvent).detail;
-      if ((type === "capture" || type === "trunking") && id) {
-        setUrlSelection({ type, id });
-        setUserHasSelected(true);
-      }
-    };
+    if (deviceId) {
+      selectDevice(deviceId);
+      setViewMode(type === "trunking" ? "trunking" : "radio");
+    }
+  }, [captures, trunkingSystems, selectDevice, setViewMode]);
 
-    window.addEventListener("popstate", handlePopState);
-    window.addEventListener("radioselectionchange", handleSelectionChange);
-    return () => {
-      window.removeEventListener("popstate", handlePopState);
-      window.removeEventListener("radioselectionchange", handleSelectionChange);
-    };
-  }, []);
+  // Legacy: selectedType and selectedId (derived from device + mode)
+  const selectedType: RadioTabType | null = useMemo(() => {
+    if (!selectedDeviceTab) return null;
+    return viewMode === "trunking" ? "trunking" : "capture";
+  }, [selectedDeviceTab, viewMode]);
+
+  const selectedId: string | null = useMemo(() => {
+    if (!selectedDeviceTab) return null;
+    if (viewMode === "trunking") {
+      return selectedDeviceTab.trunkingSystem?.id ?? null;
+    }
+    return selectedDeviceTab.capture?.id ?? null;
+  }, [selectedDeviceTab, viewMode]);
 
   return {
-    // Selection state
-    selectedType: selectedTab?.type ?? null,
-    selectedId: selectedTab?.id ?? null,
+    // =========================================================================
+    // New device-centric API
+    // =========================================================================
+
+    // Device tabs for Level 1
+    deviceTabs,
+
+    // Selected device
+    selectedDeviceId,
+    selectedDeviceTab,
+    selectDevice,
+
+    // =========================================================================
+    // Common API (used by both old and new UI)
+    // =========================================================================
 
     // For captures
     selectedCapture,
@@ -238,15 +458,29 @@ export function useSelectedRadio() {
     // For trunking
     selectedTrunkingSystem,
 
-    // Actions
-    selectTab,
+    // View mode (Level 2 tabs)
+    viewMode,
+    setViewMode,
+
+    // Convenience: does selected device have trunking?
+    hasTrunkingForDevice: selectedDeviceTab?.hasTrunking ?? false,
+    trunkingSystemForDevice: selectedDeviceTab?.trunkingSystem ?? null,
 
     // All data
-    tabs,
     captures: captures ?? [],
     trunkingSystems: trunkingSystems ?? [],
     devices: devices ?? [],
-    isLoading: capturesLoading || devicesLoading || trunkingLoading,
+    isLoading,
+
+    // =========================================================================
+    // Legacy API (for backwards compatibility with RadioTabBar)
+    // TODO: Remove once DeviceTabBar is fully implemented
+    // =========================================================================
+
+    selectedType,
+    selectedId,
+    selectTab,
+    tabs,
   };
 }
 
