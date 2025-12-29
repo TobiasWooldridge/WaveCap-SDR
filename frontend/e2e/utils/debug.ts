@@ -9,9 +9,19 @@
  */
 
 import type { Page } from "@playwright/test";
+import { config } from "dotenv";
+import { resolve, dirname } from "path";
+import { fileURLToPath } from "url";
 
-// Debug API configuration
-const BACKEND_URL = process.env["BACKEND_URL"] ?? "http://localhost:8087";
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Load .env from frontend root
+config({ path: resolve(__dirname, "../../.env") });
+
+// Debug API configuration - defaults to 8088 for development
+const BACKEND_PORT = process.env["BACKEND_PORT"] ?? "8088";
+const BACKEND_URL =
+  process.env["BACKEND_URL"] ?? `http://localhost:${BACKEND_PORT}`;
 
 /**
  * Get the DEBUG_SECRET from environment or .env file

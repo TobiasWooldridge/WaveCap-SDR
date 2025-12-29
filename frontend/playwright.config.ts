@@ -10,15 +10,15 @@ config({ path: resolve(__dirname, ".env.local") });
 config({ path: resolve(__dirname, ".env") });
 
 // Port configuration with defaults
-const FRONTEND_PORT = parseInt(process.env["FRONTEND_PORT"] || "5173", 10);
-const _BACKEND_PORT = parseInt(process.env["BACKEND_PORT"] || "8087", 10);
+const FRONTEND_PORT = parseInt(process.env["FRONTEND_PORT"] || "5174", 10);
+const _BACKEND_PORT = parseInt(process.env["BACKEND_PORT"] || "8088", 10);
 
 /**
  * Playwright configuration for WaveCap-SDR e2e testing
  *
  * Tests run against:
- * - Frontend dev server on port 5173 (proxies to backend)
- * - Backend API server on port 8087
+ * - Frontend dev server on port 5174 (proxies to backend)
+ * - Backend API server on port 8088
  *
  * @see https://playwright.dev/docs/test-configuration
  */
@@ -64,7 +64,7 @@ export default defineConfig({
   // Start dev server before running tests
   webServer: [
     {
-      command: "npm run dev",
+      command: "npm run dev -- --port 5174",
       url: `http://localhost:${FRONTEND_PORT}`,
       reuseExistingServer: !process.env.CI,
       timeout: 120 * 1000,

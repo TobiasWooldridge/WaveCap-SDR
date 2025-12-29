@@ -9,7 +9,12 @@ export default defineConfig({
     preprocessorOptions: {
       scss: {
         quietDeps: true,
-        silenceDeprecations: ["legacy-js-api", "import", "global-builtin", "color-functions"],
+        silenceDeprecations: [
+          "legacy-js-api",
+          "import",
+          "global-builtin",
+          "color-functions",
+        ],
       },
     },
   },
@@ -24,8 +29,9 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "http://localhost:8087",
+        target: "http://localhost:8088",
         changeOrigin: true,
+        ws: true,
       },
     },
   },
