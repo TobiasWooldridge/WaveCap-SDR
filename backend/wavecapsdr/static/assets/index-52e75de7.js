@@ -36856,14 +36856,23 @@ function getChannelSnr(system) {
   return measurement ? measurement.snr_db : null;
 }
 const HUNT_TIMEOUT_SECONDS = 5;
-function StatBox({ label, value, unit, highlight }) {
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: `rounded p-2 text-center ${highlight ? "bg-success bg-opacity-25" : "bg-body-tertiary"}`, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted d-block", style: { fontSize: "0.65rem" }, children: label }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fw-semibold", style: { fontSize: "0.95rem" }, children: [
-      value,
-      unit && /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted ms-1", children: unit })
-    ] })
-  ] });
+function StatBox({ label, value, unit, highlight, info }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      className: `rounded p-2 text-center ${highlight ? "bg-success bg-opacity-25" : "bg-body-tertiary"}`,
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("small", { className: "text-muted d-block", style: { fontSize: "0.65rem" }, children: [
+          label,
+          info && /* @__PURE__ */ jsxRuntimeExports.jsx(InfoTooltip, { content: info })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "fw-semibold", style: { fontSize: "0.95rem" }, children: [
+          value,
+          unit && /* @__PURE__ */ jsxRuntimeExports.jsx("small", { className: "text-muted ms-1", children: unit })
+        ] })
+      ]
+    }
+  );
 }
 function SystemStatusPanel({
   system,
@@ -36951,7 +36960,8 @@ function SystemStatusPanel({
             label: "Control Freq",
             value: system.controlChannelFreqHz ? formatFrequencyMHz(system.controlChannelFreqHz, 4) : "---",
             unit: "MHz",
-            highlight: system.controlChannelState === "locked"
+            highlight: system.controlChannelState === "locked",
+            info: "The current control channel frequency. P25 systems broadcast call setup and system info on this channel."
           }
         ) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -36959,21 +36969,24 @@ function SystemStatusPanel({
           {
             label: "SNR",
             value: snr !== null ? snr.toFixed(1) : "---",
-            unit: snr !== null ? "dB" : void 0
+            unit: snr !== null ? "dB" : void 0,
+            info: "Signal-to-Noise Ratio in decibels. Higher is better. Above 10 dB is good, above 15 dB is excellent."
           }
         ) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
           StatBox,
           {
             label: "NAC",
-            value: formatHex$1(system.nac, 3, false)
+            value: formatHex$1(system.nac, 3, false),
+            info: "Network Access Code - a 3-digit hex identifier unique to this P25 system. Used to distinguish between overlapping systems."
           }
         ) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
           StatBox,
           {
             label: "Site",
-            value: system.siteId !== null ? system.siteId : "---"
+            value: system.siteId !== null ? system.siteId : "---",
+            info: "Site ID within the trunking system. Large systems have multiple sites (towers) for coverage."
           }
         ) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -36981,7 +36994,8 @@ function SystemStatusPanel({
           {
             label: "Decode",
             value: system.decodeRate.toFixed(1),
-            unit: "fps"
+            unit: "fps",
+            info: "Control channel decode rate in frames per second. Expect 10,000-20,000 fps when locked to a strong signal. Low values indicate weak signal or interference."
           }
         ) }),
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "col-6 col-md-2", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -36990,34 +37004,57 @@ function SystemStatusPanel({
             label: "Active",
             value: system.activeCalls,
             unit: "calls",
-            highlight: system.activeCalls > 0
+            highlight: system.activeCalls > 0,
+            info: "Number of voice calls currently in progress on this system."
           }
         ) })
       ] }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex gap-3 mt-2 flex-wrap", style: { fontSize: "0.75rem" }, children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "text-body", children: system.stats.tsbk_count }),
-          " TSBKs"
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "text-body", children: system.stats.grant_count }),
-          " Grants"
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "text-body", children: system.stats.calls_total }),
-          " Total calls"
-        ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "text-body", children: system.stats.recorders_active }),
-          "/",
-          system.stats.recorders_active + system.stats.recorders_idle,
-          " Recorders"
-        ] }),
-        system.stats.initial_scan_complete === false && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-warning", children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Activity, { size: 12, className: "me-1", style: { animation: "pulse 1s infinite" } }),
-          "Scanning channels..."
-        ] })
-      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "div",
+        {
+          className: "d-flex gap-3 mt-2 flex-wrap",
+          style: { fontSize: "0.75rem" },
+          children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "text-body", children: system.stats.tsbk_count }),
+              " ",
+              "TSBKs",
+              /* @__PURE__ */ jsxRuntimeExports.jsx(InfoTooltip, { content: "Trunking Signaling Blocks - control channel messages received. Includes channel grants, affiliations, and system info." })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "text-body", children: system.stats.grant_count }),
+              " ",
+              "Grants",
+              /* @__PURE__ */ jsxRuntimeExports.jsx(InfoTooltip, { content: "Voice channel grants - messages that assign a talkgroup to a voice frequency for a call." })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "text-body", children: system.stats.calls_total }),
+              " ",
+              "Total calls",
+              /* @__PURE__ */ jsxRuntimeExports.jsx(InfoTooltip, { content: "Total voice calls detected since the system started." })
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-muted", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { className: "text-body", children: system.stats.recorders_active }),
+              "/",
+              system.stats.recorders_active + system.stats.recorders_idle,
+              " ",
+              "Recorders",
+              /* @__PURE__ */ jsxRuntimeExports.jsx(InfoTooltip, { content: "Voice recorders: active/total. Each recorder can capture one voice call at a time." })
+            ] }),
+            system.stats.initial_scan_complete === false && /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "text-warning", children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                Activity,
+                {
+                  size: 12,
+                  className: "me-1",
+                  style: { animation: "pulse 1s infinite" }
+                }
+              ),
+              "Scanning channels..."
+            ] })
+          ]
+        }
+      ),
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "d-flex align-items-center gap-2 mt-2", children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           "span",
@@ -40110,4 +40147,4 @@ logger.init();
 client.createRoot(document.getElementById("root")).render(
   /* @__PURE__ */ jsxRuntimeExports.jsx(React.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(App, {}) })
 );
-//# sourceMappingURL=index-0d3f6eb1.js.map
+//# sourceMappingURL=index-52e75de7.js.map
