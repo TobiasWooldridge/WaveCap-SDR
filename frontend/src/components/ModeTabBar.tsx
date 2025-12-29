@@ -1,12 +1,12 @@
-import { Radio, Antenna, Binary } from "lucide-react";
+import { Radio, Antenna, Binary, Activity } from "lucide-react";
 
-export type ViewMode = "radio" | "trunking" | "digital";
+export type ViewMode = "radio" | "trunking" | "digital" | "system";
 
 interface ModeTabBarProps {
   activeMode: ViewMode;
   onModeChange: (mode: ViewMode) => void;
-  hasTrunking: boolean;  // Whether trunking is configured for this device
-  hasDigital?: boolean;  // Whether digital modes are available (future)
+  hasTrunking: boolean; // Whether trunking is configured for this device
+  hasDigital?: boolean; // Whether digital modes are available (future)
 }
 
 interface ModeTab {
@@ -48,6 +48,13 @@ export function ModeTabBar({
       tooltip: hasDigital
         ? "Digital mode decoders (POCSAG, DMR, etc.)"
         : "Digital decoders not yet available",
+    },
+    {
+      id: "system",
+      label: "System",
+      icon: <Activity size={14} />,
+      enabled: true,
+      tooltip: "System metrics, logs, and diagnostics",
     },
   ];
 

@@ -2687,6 +2687,139 @@ async def stream_state(websocket: WebSocket) -> None:
 
 
 # ==============================================================================
+# System Metrics and Log Stream
+# ==============================================================================
+
+
+@router.websocket("/stream/system")
+async def stream_system(websocket: WebSocket) -> None:
+    """Real-time system metrics and log stream.
+
+    Sends JSON messages:
+    - {"type": "metrics", "system": {...}, "captures": [...]} - Every 1 second
+    - {"type": "log", "entry": {...}} - When log entries occur
+    - {"type": "logs_snapshot", "entries": [...]} - Initial snapshot on connect
+    - {"type": "error", "event": {...}} - When errors occur
+
+    System metrics format:
+    {
+        "type": "metrics",
+        "system": {
+            "timestamp": 1234567890.123,
+            "cpuPercent": 45.2,
+            "cpuPerCore": [40.0, 50.0, 45.0, 46.0],
+            "memoryUsedMb": 4096.5,
+            "memoryTotalMb": 16384.0,
+            "memoryPercent": 25.0,
+            "temperatures": {"CPU": 65.0}
+        },
+        "captures": [
+            {
+                "captureId": "c1",
+                "deviceId": "...",
+                "state": "running",
+                "iqOverflowCount": 0,
+                "iqOverflowRate": 0.0,
+                "channelCount": 3,
+                "totalSubscribers": 2,
+                "totalDrops": 0,
+                "perfLoopMs": 5.2,
+                "perfDspMs": 2.1,
+                "perfFftMs": 1.5
+            }
+        ]
+    }
+
+    Log entry format:
+    {
+        "type": "log",
+        "entry": {
+            "timestamp": 1234567890.123,
+            "level": "INFO",
+            "loggerName": "wavecapsdr.capture",
+            "message": "Capture c1 started"
+        }
+    }
+    """
+    from .error_tracker import get_error_tracker
+    from .log_streamer import LogEntry, get_log_streamer
+    from .system_metrics import get_capture_metrics, get_system_metrics
+
+    # System stream is diagnostic data - no auth required
+    await websocket.accept()
+
+    state: AppState = websocket.app.state.app_state
+    tracker = get_error_tracker()
+    log_streamer = get_log_streamer()
+
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=500)
+
+    # Subscribe to errors
+    def on_error(event: Any) -> None:
+        try:
+            queue.put_nowait({"type": "error", "event": event.to_dict()})
+        except asyncio.QueueFull:
+            pass
+
+    # Subscribe to logs
+    def on_log(entry: LogEntry) -> None:
+        try:
+            queue.put_nowait({"type": "log", "entry": entry.to_dict()})
+        except asyncio.QueueFull:
+            pass
+
+    unsubscribe_error = tracker.subscribe(on_error)
+    unsubscribe_log = log_streamer.subscribe(on_log)
+
+    try:
+        # Send initial snapshot of recent logs
+        recent_logs = log_streamer.get_recent(100)
+        await websocket.send_json({
+            "type": "logs_snapshot",
+            "entries": [e.to_dict() for e in recent_logs],
+        })
+
+        while True:
+            # Drain queue with 1 second timeout for metrics
+            try:
+                msg = await asyncio.wait_for(queue.get(), timeout=1.0)
+                await websocket.send_json(msg)
+            except asyncio.TimeoutError:
+                # Send periodic metrics every second
+                system = get_system_metrics()
+                captures = get_capture_metrics(state)
+                await websocket.send_json({
+                    "type": "metrics",
+                    "system": system.to_dict(),
+                    "captures": [c.to_dict() for c in captures],
+                })
+    except WebSocketDisconnect:
+        logger.info("WebSocket /api/v1/stream/system disconnected")
+    except asyncio.CancelledError:
+        raise
+    finally:
+        unsubscribe_error()
+        unsubscribe_log()
+
+
+@router.get("/system/metrics")
+def get_system_metrics_endpoint(
+    request: Request,
+) -> dict[str, Any]:
+    """Get current system and capture metrics (one-time fetch)."""
+    from .system_metrics import get_capture_metrics, get_system_metrics
+
+    state: AppState = request.app.state.app_state
+    system = get_system_metrics()
+    captures = get_capture_metrics(state)
+
+    return {
+        "system": system.to_dict(),
+        "captures": [c.to_dict() for c in captures],
+    }
+
+
+# ==============================================================================
 # Scanner endpoints
 # ==============================================================================
 

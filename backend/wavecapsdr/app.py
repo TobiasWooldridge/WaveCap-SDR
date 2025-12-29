@@ -137,6 +137,11 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
     # Setup file logging before anything else
     setup_file_logging()
 
+    # Install log streamer handler for real-time log streaming
+    from .log_streamer import get_log_streamer
+
+    get_log_streamer().install_handler()
+
     app = FastAPI(title="WaveCap-SDR", version="0.1.0")
 
     # Configure CORS middleware

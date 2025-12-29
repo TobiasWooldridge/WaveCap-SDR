@@ -14,6 +14,7 @@ import { RadioPanel } from "./features/radio";
 import { ChannelList } from "./features/channel";
 import { SpectrumPanel } from "./features/spectrum";
 import { TrunkingPanel } from "./features/trunking";
+import { SystemPanel } from "./features/system";
 import { DeviceTabBar } from "./components/DeviceTabBar";
 import { ModeTabBar } from "./components/ModeTabBar";
 import { CreateCaptureWizard } from "./components/CreateCaptureWizard.react";
@@ -63,12 +64,15 @@ function AppContent() {
   const { stopAll } = useAudio();
 
   // Stop all audio when changing devices
-  const handleSelectDevice = useCallback((deviceId: string) => {
-    if (deviceId !== selectedDeviceId) {
-      stopAll();
-    }
-    selectDevice(deviceId);
-  }, [selectDevice, selectedDeviceId, stopAll]);
+  const handleSelectDevice = useCallback(
+    (deviceId: string) => {
+      if (deviceId !== selectedDeviceId) {
+        stopAll();
+      }
+      selectDevice(deviceId);
+    },
+    [selectDevice, selectedDeviceId, stopAll],
+  );
 
   const [showWizard, setShowWizard] = useState(false);
   const [showTrunkingWizard, setShowTrunkingWizard] = useState(false);
@@ -94,15 +98,18 @@ function AppContent() {
 
   if (isLoading) {
     return (
-      <div className="d-flex justify-content-center align-items-center" style={{ height: "100vh" }}>
+      <div
+        className="d-flex justify-content-center align-items-center"
+        style={{ height: "100vh" }}
+      >
         <Spinner size="md" />
       </div>
     );
   }
 
   // Determine if we should show the mode tab bar
-  // Show it when we have a selected device that has any content
-  const showModeBar = selectedDeviceTab && (selectedDeviceTab.hasRadio || selectedDeviceTab.hasTrunking);
+  // Always show it so users can access the System tab for global metrics
+  const showModeBar = true;
 
   return (
     <div className="d-flex flex-column" style={{ minHeight: "100vh" }}>
@@ -134,7 +141,12 @@ function AppContent() {
       </div>
 
       {/* Main Content - depends on view mode */}
-      {viewMode === "trunking" && trunkingSystemForDevice ? (
+      {viewMode === "system" ? (
+        /* System Mode - Global system metrics and logs */
+        <div className="flex-grow-1">
+          <SystemPanel />
+        </div>
+      ) : viewMode === "trunking" && trunkingSystemForDevice ? (
         /* Trunking Mode */
         <div className="flex-grow-1">
           <TrunkingPanel systemId={trunkingSystemForDevice.id} />
@@ -143,13 +155,19 @@ function AppContent() {
         /* Radio Mode */
         <div className="d-flex flex-column flex-lg-row">
           {/* Spectrum Panel - self-sizing based on internal state */}
-          <div className="d-flex flex-column border-end" style={{ flex: "1 1 33%", minWidth: 0 }}>
+          <div
+            className="d-flex flex-column border-end"
+            style={{ flex: "1 1 33%", minWidth: 0 }}
+          >
             <SpectrumPanel capture={selectedCapture} channels={channels} />
           </div>
 
           {/* Radio Panel */}
           <div className="border-end" style={{ flex: "1 1 33%", minWidth: 0 }}>
-            <RadioPanel capture={selectedCapture} device={selectedDevice ?? undefined} />
+            <RadioPanel
+              capture={selectedCapture}
+              device={selectedDevice ?? undefined}
+            />
           </div>
 
           {/* Channel List */}
@@ -165,7 +183,9 @@ function AppContent() {
           <div className="text-center text-muted">
             <Wand2 size={48} className="mb-3 opacity-50" />
             <h5>Select a Mode</h5>
-            <p className="small">Choose Radio or Trunking from the tabs above</p>
+            <p className="small">
+              Choose Radio or Trunking from the tabs above
+            </p>
           </div>
         </div>
       ) : (
@@ -174,8 +194,13 @@ function AppContent() {
           <div className="text-center text-muted">
             <Wand2 size={48} className="mb-3 opacity-50" />
             <h5>No Radio Selected</h5>
-            <p className="small">Click the + button to add a radio or trunking system</p>
-            <button className="btn btn-primary" onClick={() => setShowWizard(true)}>
+            <p className="small">
+              Click the + button to add a radio or trunking system
+            </p>
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowWizard(true)}
+            >
               Add Radio
             </button>
           </div>

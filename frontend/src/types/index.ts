@@ -15,20 +15,27 @@ export interface Device {
   ppmMin: number | null;
   ppmMax: number | null;
   antennas: string[];
-  nickname?: string | null;  // User-provided nickname
-  shorthand?: string | null;  // Auto-generated shorthand name (e.g., "RTL-SDR", "SDRplay RSPdx")
+  nickname?: string | null; // User-provided nickname
+  shorthand?: string | null; // Auto-generated shorthand name (e.g., "RTL-SDR", "SDRplay RSPdx")
 }
 
 export interface ConfigWarning {
-  code: string;  // Machine-readable code (e.g., "rtl_unstable_sample_rate")
+  code: string; // Machine-readable code (e.g., "rtl_unstable_sample_rate")
   severity: "warning" | "info";
-  message: string;  // Human-readable message
+  message: string; // Human-readable message
 }
 
 export interface Capture {
   id: string;
   deviceId: string;
-  state: "created" | "starting" | "running" | "stopping" | "stopped" | "failed" | "error";
+  state:
+    | "created"
+    | "starting"
+    | "running"
+    | "stopping"
+    | "stopped"
+    | "failed"
+    | "error";
   centerHz: number;
   sampleRate: number;
   gain: number | null;
@@ -41,22 +48,22 @@ export interface Capture {
   dcOffsetAuto?: boolean;
   iqBalanceAuto?: boolean;
   errorMessage: string | null;
-  name: string | null;  // User-provided name
-  autoName: string | null;  // Auto-generated contextual name
+  name: string | null; // User-provided name
+  autoName: string | null; // Auto-generated contextual name
   // FFT/Spectrum settings
-  fftFps: number;  // Target FFT frames per second
-  fftMaxFps: number;  // Maximum FFT frames per second (hard cap)
-  fftSize: number;  // FFT bin count (512, 1024, 2048, 4096)
+  fftFps: number; // Target FFT frames per second
+  fftMaxFps: number; // Maximum FFT frames per second (hard cap)
+  fftSize: number; // FFT bin count (512, 1024, 2048, 4096)
   // Error indicators
   iqOverflowCount: number;
-  iqOverflowRate: number;  // Overflows per second
-  retryAttempt: number | null;  // Current retry attempt (null if not retrying)
+  iqOverflowRate: number; // Overflows per second
+  retryAttempt: number | null; // Current retry attempt (null if not retrying)
   retryMaxAttempts: number | null;
-  retryDelay: number | null;  // Delay in seconds before next retry
+  retryDelay: number | null; // Delay in seconds before next retry
   // Configuration warnings
-  configWarnings?: ConfigWarning[];  // Lint warnings about configuration
+  configWarnings?: ConfigWarning[]; // Lint warnings about configuration
   // Trunking system ownership
-  trunkingSystemId?: string | null;  // Set if this capture is managed by a trunking system
+  trunkingSystemId?: string | null; // Set if this capture is managed by a trunking system
 }
 
 export interface Channel {
@@ -67,11 +74,11 @@ export interface Channel {
   offsetHz: number;
   audioRate: number;
   squelchDb: number | null;
-  name: string | null;  // User-provided name
-  autoName: string | null;  // Auto-generated contextual name (e.g., "Marine Ch 16")
+  name: string | null; // User-provided name
+  autoName: string | null; // Auto-generated contextual name (e.g., "Marine Ch 16")
   signalPowerDb: number | null;
-  rssiDb: number | null;  // Server-side RSSI from IQ
-  snrDb: number | null;   // Server-side SNR estimate
+  rssiDb: number | null; // Server-side RSSI from IQ
+  snrDb: number | null; // Server-side SNR estimate
 
   // Filter configuration
   // FM filters
@@ -105,7 +112,7 @@ export interface Channel {
   noiseBlankerThresholdDb: number;
 
   // Notch filters
-  notchFrequencies: number[];  // List of frequencies to notch out (Hz)
+  notchFrequencies: number[]; // List of frequencies to notch out (Hz)
 
   // Spectral noise reduction
   enableNoiseReduction: boolean;
@@ -121,29 +128,29 @@ export interface Channel {
 
   // Error indicators
   audioDropCount: number;
-  audioDropRate: number;  // Drops per second
+  audioDropRate: number; // Drops per second
 }
 
 // RDS (Radio Data System) data for FM broadcast
 export interface RDSData {
-  piCode: string | null;  // Program Identification (hex string like "A1B2")
-  psName: string | null;  // Program Service name (8 chars, station name)
-  radioText: string | null;  // Radio Text (up to 64 chars)
-  pty: number;  // Program Type code
-  ptyName: string;  // Program Type name (e.g., "Rock", "News")
-  ta: boolean;  // Traffic Announcement flag
-  tp: boolean;  // Traffic Program flag
-  ms: boolean;  // Music/Speech switch (true = Music)
+  piCode: string | null; // Program Identification (hex string like "A1B2")
+  psName: string | null; // Program Service name (8 chars, station name)
+  radioText: string | null; // Radio Text (up to 64 chars)
+  pty: number; // Program Type code
+  ptyName: string; // Program Type name (e.g., "Rock", "News")
+  ta: boolean; // Traffic Announcement flag
+  tp: boolean; // Traffic Program flag
+  ms: boolean; // Music/Speech switch (true = Music)
 }
 
 // POCSAG pager message
 export interface POCSAGMessage {
-  address: number;  // 21-bit capcode
-  function: number;  // Function code (0-3)
+  address: number; // 21-bit capcode
+  function: number; // Function code (0-3)
   messageType: "numeric" | "alpha" | "alert_only" | "alpha_2";
-  message: string;  // Decoded message content
-  timestamp: number;  // Unix timestamp
-  baudRate: number;  // 512, 1200, or 2400
+  message: string; // Decoded message content
+  timestamp: number; // Unix timestamp
+  baudRate: number; // 512, 1200, or 2400
 }
 
 export interface UpdateCaptureRequest {
@@ -161,9 +168,9 @@ export interface UpdateCaptureRequest {
   iqBalanceAuto?: boolean;
   name?: string | null;
   // FFT/Spectrum settings
-  fftFps?: number;  // Target FPS (1-60)
-  fftMaxFps?: number;  // Max FPS cap (1-120)
-  fftSize?: number;  // 512, 1024, 2048, 4096
+  fftFps?: number; // Target FPS (1-60)
+  fftMaxFps?: number; // Max FPS cap (1-120)
+  fftSize?: number; // 512, 1024, 2048, 4096
 }
 
 export interface CreateCaptureRequest {
@@ -181,9 +188,9 @@ export interface CreateCaptureRequest {
   iqBalanceAuto?: boolean;
   createDefaultChannel?: boolean;
   // FFT/Spectrum settings
-  fftFps?: number;  // Target FPS (1-60)
-  fftMaxFps?: number;  // Max FPS cap (1-120)
-  fftSize?: number;  // 512, 1024, 2048, 4096
+  fftFps?: number; // Target FPS (1-60)
+  fftMaxFps?: number; // Max FPS cap (1-120)
+  fftSize?: number; // 512, 1024, 2048, 4096
 }
 
 export interface CreateChannelRequest {
@@ -348,7 +355,12 @@ export type HealthMessage = HealthStatsMessage | HealthErrorMessage;
 // State stream types for real-time capture/channel updates
 // ==============================================================================
 
-export type StateChangeAction = "created" | "updated" | "deleted" | "started" | "stopped";
+export type StateChangeAction =
+  | "created"
+  | "updated"
+  | "deleted"
+  | "started"
+  | "stopped";
 export type StateChangeType = "capture" | "channel" | "scanner";
 
 export interface StateChangeMessage {
@@ -371,7 +383,10 @@ export interface StatePingMessage {
   timestamp: number;
 }
 
-export type StateMessage = StateChangeMessage | StateSnapshotMessage | StatePingMessage;
+export type StateMessage =
+  | StateChangeMessage
+  | StateSnapshotMessage
+  | StatePingMessage;
 
 // ==============================================================================
 // Unified Radio Tab types (captures + trunking systems)
@@ -383,7 +398,7 @@ export interface RadioTab {
   type: RadioTabType;
   id: string;
   name: string;
-  deviceId: string;  // Stable device ID for grouping
+  deviceId: string; // Stable device ID for grouping
   deviceName: string;
   state: string;
   frequencyHz: number;
@@ -429,3 +444,78 @@ export interface DeviceTab {
   /** Whether manually locked to a frequency */
   isManuallyLocked?: boolean;
 }
+
+// ==============================================================================
+// System Metrics Types (for System tab)
+// ==============================================================================
+
+/**
+ * System-wide metrics from psutil.
+ */
+export interface SystemMetrics {
+  timestamp: number;
+  cpuPercent: number;
+  cpuPerCore: number[];
+  memoryUsedMb: number;
+  memoryTotalMb: number;
+  memoryPercent: number;
+  temperatures: Record<string, number>;
+}
+
+/**
+ * Per-capture metrics for monitoring.
+ */
+export interface CaptureMetrics {
+  captureId: string;
+  deviceId: string;
+  state: string;
+  iqOverflowCount: number;
+  iqOverflowRate: number;
+  channelCount: number;
+  totalSubscribers: number;
+  totalDrops: number;
+  perfLoopMs: number;
+  perfDspMs: number;
+  perfFftMs: number;
+}
+
+/**
+ * Log entry from backend.
+ */
+export interface LogEntry {
+  timestamp: number;
+  level: "DEBUG" | "INFO" | "WARNING" | "ERROR" | "CRITICAL";
+  loggerName: string;
+  message: string;
+}
+
+/**
+ * WebSocket message types for /stream/system.
+ * Note: ErrorEvent is already defined above in the error tracking types section.
+ */
+export interface SystemMetricsMessage {
+  type: "metrics";
+  system: SystemMetrics;
+  captures: CaptureMetrics[];
+}
+
+export interface LogMessage {
+  type: "log";
+  entry: LogEntry;
+}
+
+export interface LogsSnapshotMessage {
+  type: "logs_snapshot";
+  entries: LogEntry[];
+}
+
+export interface ErrorMessage {
+  type: "error";
+  event: ErrorEvent;
+}
+
+export type SystemStreamMessage =
+  | SystemMetricsMessage
+  | LogMessage
+  | LogsSnapshotMessage
+  | ErrorMessage;

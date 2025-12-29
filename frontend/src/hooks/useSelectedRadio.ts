@@ -4,16 +4,29 @@ import { useDevices } from "./useDevices";
 import { useTrunkingSystems } from "./useTrunking";
 import { findDeviceForCapture, getStableDeviceId } from "../utils/deviceId";
 import { getDeviceDisplayName } from "../utils/device";
-import type { Capture, Device, DeviceTab, DeviceStatus, ControlChannelState, RadioTab, RadioTabType } from "../types";
-import type { TrunkingSystem, ControlChannelState as TrunkingCCState } from "../types/trunking";
+import type {
+  Capture,
+  Device,
+  DeviceTab,
+  DeviceStatus,
+  ControlChannelState,
+  RadioTab,
+  RadioTabType,
+} from "../types";
+import type {
+  TrunkingSystem,
+  ControlChannelState as TrunkingCCState,
+} from "../types/trunking";
 
-export type ViewMode = "radio" | "trunking" | "digital";
+export type ViewMode = "radio" | "trunking" | "digital" | "system";
 
 /**
  * Map trunking control channel state to our simplified type.
  * The trunking type includes "unlocked" which we treat as "searching".
  */
-function mapControlChannelState(ccState: TrunkingCCState | undefined): ControlChannelState | undefined {
+function mapControlChannelState(
+  ccState: TrunkingCCState | undefined,
+): ControlChannelState | undefined {
   if (!ccState) return undefined;
   switch (ccState) {
     case "locked":
@@ -31,17 +44,28 @@ function mapControlChannelState(ccState: TrunkingCCState | undefined): ControlCh
 /**
  * Compute the overall status for a device based on its capture and trunking states.
  */
-function computeDeviceStatus(capture: Capture | null, trunking: TrunkingSystem | null): DeviceStatus {
+function computeDeviceStatus(
+  capture: Capture | null,
+  trunking: TrunkingSystem | null,
+): DeviceStatus {
   // Check for running state first (either capture or trunking running = device running)
   if (capture?.state === "running" || trunking?.state === "running") {
     return "running";
   }
   // Check for starting/syncing states
-  if (capture?.state === "starting" || trunking?.state === "starting" || trunking?.state === "searching") {
+  if (
+    capture?.state === "starting" ||
+    trunking?.state === "starting" ||
+    trunking?.state === "searching"
+  ) {
     return "starting";
   }
   // Check for failed states
-  if (capture?.state === "failed" || capture?.state === "error" || trunking?.state === "failed") {
+  if (
+    capture?.state === "failed" ||
+    capture?.state === "error" ||
+    trunking?.state === "failed"
+  ) {
     return "failed";
   }
   // Default to stopped
@@ -66,7 +90,8 @@ function computeDeviceStatus(capture: Capture | null, trunking: TrunkingSystem |
 export function useSelectedRadio() {
   const { data: captures, isLoading: capturesLoading } = useCaptures();
   const { data: devices, isLoading: devicesLoading } = useDevices();
-  const { data: trunkingSystems, isLoading: trunkingLoading } = useTrunkingSystems();
+  const { data: trunkingSystems, isLoading: trunkingLoading } =
+    useTrunkingSystems();
 
   const isLoading = capturesLoading || devicesLoading || trunkingLoading;
 
@@ -82,7 +107,9 @@ export function useSelectedRadio() {
       for (const capture of captures) {
         const stableDeviceId = getStableDeviceId(capture.deviceId);
         const device = findDeviceForCapture(devices, capture);
-        const deviceName = device ? getDeviceDisplayName(device) : "Unknown Device";
+        const deviceName = device
+          ? getDeviceDisplayName(device)
+          : "Unknown Device";
 
         if (!deviceMap.has(stableDeviceId)) {
           deviceMap.set(stableDeviceId, {
@@ -118,7 +145,9 @@ export function useSelectedRadio() {
           // Device only has trunking, no capture
           let deviceName = "Trunking";
           if (devices) {
-            const device = devices.find((d) => getStableDeviceId(d.id) === stableDeviceId);
+            const device = devices.find(
+              (d) => getStableDeviceId(d.id) === stableDeviceId,
+            );
             if (device) deviceName = getDeviceDisplayName(device);
           }
 
@@ -269,7 +298,9 @@ export function useSelectedRadio() {
   // Get the Device object for the selected device
   const selectedDevice: Device | null = useMemo(() => {
     if (!selectedDeviceId || !devices) return null;
-    return devices.find((d) => getStableDeviceId(d.id) === selectedDeviceId) ?? null;
+    return (
+      devices.find((d) => getStableDeviceId(d.id) === selectedDeviceId) ?? null
+    );
   }, [selectedDeviceId, devices]);
 
   // Select a device
@@ -282,7 +313,9 @@ export function useSelectedRadio() {
     setUrlDeviceId(deviceId);
     setUserHasSelected(true);
     // Dispatch custom event for sync
-    window.dispatchEvent(new CustomEvent("deviceselectionchange", { detail: { deviceId } }));
+    window.dispatchEvent(
+      new CustomEvent("deviceselectionchange", { detail: { deviceId } }),
+    );
   }, []);
 
   // Listen for browser back/forward navigation
@@ -326,7 +359,12 @@ export function useSelectedRadio() {
   const [viewMode, setViewModeState] = useState<ViewMode>(() => {
     const params = new URLSearchParams(window.location.search);
     const modeParam = params.get("mode");
-    if (modeParam === "radio" || modeParam === "trunking" || modeParam === "digital") {
+    if (
+      modeParam === "radio" ||
+      modeParam === "trunking" ||
+      modeParam === "digital" ||
+      modeParam === "system"
+    ) {
       return modeParam;
     }
     return "radio";
@@ -349,7 +387,11 @@ export function useSelectedRadio() {
       setViewModeState("radio");
     }
     // If viewing radio but device doesn't have it, switch to trunking if available
-    else if (viewMode === "radio" && !selectedDeviceTab.hasRadio && selectedDeviceTab.hasTrunking) {
+    else if (
+      viewMode === "radio" &&
+      !selectedDeviceTab.hasRadio &&
+      selectedDeviceTab.hasTrunking
+    ) {
       setViewModeState("trunking");
     }
   }, [selectedDeviceTab, viewMode]);
@@ -380,10 +422,14 @@ export function useSelectedRadio() {
 
     if (trunkingSystems) {
       for (const system of trunkingSystems) {
-        const stableDeviceId = system.deviceId ? getStableDeviceId(system.deviceId) : "";
+        const stableDeviceId = system.deviceId
+          ? getStableDeviceId(system.deviceId)
+          : "";
         let deviceName = "Trunking";
         if (system.deviceId && devices) {
-          const device = devices.find((d) => getStableDeviceId(d.id) === stableDeviceId);
+          const device = devices.find(
+            (d) => getStableDeviceId(d.id) === stableDeviceId,
+          );
           if (device) deviceName = getDeviceDisplayName(device);
         }
         result.push({
@@ -402,23 +448,26 @@ export function useSelectedRadio() {
   }, [captures, devices, trunkingSystems]);
 
   // Legacy: selectTab (converts to selectDevice + setViewMode)
-  const selectTab = useCallback((type: RadioTabType, id: string) => {
-    // Find the device for this tab
-    let deviceId: string | null = null;
+  const selectTab = useCallback(
+    (type: RadioTabType, id: string) => {
+      // Find the device for this tab
+      let deviceId: string | null = null;
 
-    if (type === "capture" && captures) {
-      const capture = captures.find((c) => c.id === id);
-      if (capture) deviceId = getStableDeviceId(capture.deviceId);
-    } else if (type === "trunking" && trunkingSystems) {
-      const system = trunkingSystems.find((s) => s.id === id);
-      if (system?.deviceId) deviceId = getStableDeviceId(system.deviceId);
-    }
+      if (type === "capture" && captures) {
+        const capture = captures.find((c) => c.id === id);
+        if (capture) deviceId = getStableDeviceId(capture.deviceId);
+      } else if (type === "trunking" && trunkingSystems) {
+        const system = trunkingSystems.find((s) => s.id === id);
+        if (system?.deviceId) deviceId = getStableDeviceId(system.deviceId);
+      }
 
-    if (deviceId) {
-      selectDevice(deviceId);
-      setViewMode(type === "trunking" ? "trunking" : "radio");
-    }
-  }, [captures, trunkingSystems, selectDevice, setViewMode]);
+      if (deviceId) {
+        selectDevice(deviceId);
+        setViewMode(type === "trunking" ? "trunking" : "radio");
+      }
+    },
+    [captures, trunkingSystems, selectDevice, setViewMode],
+  );
 
   // Legacy: selectedType and selectedId (derived from device + mode)
   const selectedType: RadioTabType | null = useMemo(() => {
