@@ -97,7 +97,7 @@ export function ControlChannelPanel({ system }: ControlChannelPanelProps) {
             value={system.huntMode}
             onChange={handleModeChange}
             disabled={setHuntModeMutation.isPending}
-            style={{ width: "auto", fontSize: "0.7rem", padding: "1px 20px 1px 4px", height: "22px" }}
+            style={{ width: "auto", minWidth: "75px", fontSize: "0.7rem", padding: "1px 22px 1px 6px", height: "22px" }}
             title="Hunt mode: Auto switches channels automatically, Manual locks to current, Scan Once finds best then stays"
           >
             <option value="auto">Auto</option>
