@@ -67,7 +67,7 @@ function getEventIcon(type: string, encrypted?: boolean) {
     case "start":
       return <PhoneIncoming size={12} className="text-success" />;
     case "end":
-      return <PhoneOff size={12} className="text-muted" />;
+      return <PhoneOff size={12} className="text-body-secondary" />;
     default:
       return <Phone size={12} className="text-info" />;
   }
@@ -281,12 +281,12 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
       {/* Event list */}
       <div
         ref={scrollRef}
-        className="bg-body-secondary rounded overflow-auto flex-grow-1"
+        className="bg-body-tertiary rounded overflow-auto flex-grow-1"
         style={{ maxHeight, fontSize: "0.75rem" }}
         onScroll={handleScroll}
       >
         {filteredEvents.length === 0 ? (
-          <div className="text-center text-muted py-3">
+          <div className="text-center text-body-secondary py-3">
             No events match the current filter
           </div>
         ) : (
@@ -298,9 +298,9 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
                 style={{ borderBottom: "1px solid var(--bs-border-color)" }}
               >
                 {/* Time with milliseconds */}
-                <span className="text-muted font-monospace" style={{ width: "75px" }}>
+                <span className="text-body-secondary font-monospace" style={{ width: "75px" }}>
                   {formatTime(event.timestamp)}
-                  <span className="text-secondary">.{formatMillis(event.timestamp)}</span>
+                  <span className="opacity-75">.{formatMillis(event.timestamp)}</span>
                 </span>
 
                 {/* Icon */}
@@ -328,7 +328,7 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
                     {event.talkgroupName || `TG ${event.talkgroupId}`}
                   </span>
                   {event.talkgroupName && (
-                    <span className="badge bg-dark text-muted" style={{ fontSize: "0.55rem" }}>
+                    <span className="badge bg-secondary" style={{ fontSize: "0.55rem" }}>
                       {event.talkgroupId}
                     </span>
                   )}
@@ -341,12 +341,12 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
                       RU {event.sourceId}
                     </span>
                   ) : (
-                    <span className="text-muted">---</span>
+                    <span className="text-body-tertiary">---</span>
                   )}
                 </span>
 
                 {/* Frequency */}
-                <span className="font-monospace text-muted" style={{ width: "65px" }} title="Voice Channel Frequency">
+                <span className="font-monospace text-body-secondary" style={{ width: "65px" }} title="Voice Channel Frequency">
                   {formatFrequency(event.frequencyHz)}
                 </span>
 

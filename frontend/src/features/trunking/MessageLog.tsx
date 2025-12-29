@@ -50,12 +50,12 @@ function formatFullTimestamp(timestamp: number): string {
 }
 
 function getOpcodeColor(opcodeName: string | undefined): string {
-  if (!opcodeName) return "text-secondary";
+  if (!opcodeName) return "text-body-secondary";
   if (opcodeName.includes("GRANT")) return "text-success";
   if (opcodeName.includes("IDEN")) return "text-info";
   if (opcodeName.includes("STS") || opcodeName.includes("BCAST")) return "text-warning";
   if (opcodeName.includes("REG") || opcodeName.includes("AFF")) return "text-primary";
-  return "text-secondary";
+  return "text-body-secondary";
 }
 
 function getOpcodeBadgeClass(opcodeName: string | undefined): string {
@@ -254,12 +254,12 @@ export function MessageLog({ messages, maxHeight = 400 }: MessageLogProps) {
       {/* Message list */}
       <div
         ref={scrollRef}
-        className="bg-dark text-light rounded overflow-auto font-monospace flex-grow-1"
+        className="bg-body-tertiary rounded overflow-auto font-monospace flex-grow-1"
         style={{ maxHeight, fontSize: "0.7rem" }}
         onScroll={handleScroll}
       >
         {filteredMessages.length === 0 ? (
-          <div className="text-center text-muted py-3">
+          <div className="text-center text-body-secondary py-3">
             No messages match the current filter
           </div>
         ) : (
@@ -267,12 +267,12 @@ export function MessageLog({ messages, maxHeight = 400 }: MessageLogProps) {
             {filteredMessages.map((msg, idx) => (
               <div
                 key={`${msg.timestamp}-${idx}`}
-                className="d-flex align-items-start gap-2 px-2 py-1 border-bottom border-secondary"
+                className="d-flex align-items-start gap-2 px-2 py-1 border-bottom"
               >
                 {/* Timestamp with milliseconds */}
-                <span className="text-muted" style={{ minWidth: "85px" }}>
+                <span className="text-body-secondary" style={{ minWidth: "85px" }}>
                   {formatTime(msg.timestamp)}
-                  <span className="text-secondary">.{formatMillis(msg.timestamp)}</span>
+                  <span className="opacity-75">.{formatMillis(msg.timestamp)}</span>
                 </span>
 
                 {/* NAC if available */}
