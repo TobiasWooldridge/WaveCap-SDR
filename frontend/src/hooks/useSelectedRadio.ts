@@ -183,10 +183,9 @@ export function useSelectedRadio() {
       tab.status = computeDeviceStatus(tab.capture, tab.trunkingSystem);
     }
 
-    // Sort: running devices first, then by device name
+    // Sort by device name for stable ordering (don't sort by running status
+    // as that causes tabs to jump around when devices start/stop)
     return Array.from(deviceMap.values()).sort((a, b) => {
-      if (a.status === "running" && b.status !== "running") return -1;
-      if (a.status !== "running" && b.status === "running") return 1;
       return a.deviceName.localeCompare(b.deviceName);
     });
   }, [captures, devices, trunkingSystems]);
