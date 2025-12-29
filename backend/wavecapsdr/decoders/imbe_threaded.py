@@ -291,9 +291,15 @@ class IMBEDecoderThreaded:
             return
 
         try:
-            # Scale to int16 range
-            # DSD-FME expects ~±32767 for full C4FM deviation (±1800 Hz)
-            scaled = np.clip(audio * 18.0, -32767, 32767).astype(np.int16)
+            # Scale discriminator audio to int16 range for DSD-FME
+            # The discriminator output is in radians per sample from phase differentiation
+            # C4FM at 48kHz: ±1800 Hz = ±0.236 radians/sample for full deviation
+            # DSD-FME works best with ~±20000 amplitude for clear C4FM
+            #
+            # Use fixed scale factor optimized for C4FM at 48kHz:
+            # 20000 / 0.236 ≈ 85000, but real signals have margin, so use lower
+            # Scale factor of 50000 works well with typical signal levels
+            scaled = np.clip(audio * 50000.0, -32767, 32767).astype(np.int16)
             audio_bytes = scaled.tobytes()
 
             self.process.stdin.write(audio_bytes)
