@@ -9,6 +9,7 @@ import { useDeleteCapture } from "./hooks/useCaptures";
 import { useDeleteTrunkingSystem } from "./hooks/useTrunking";
 import { useStateWebSocket } from "./hooks/useStateWebSocket";
 import { useAudio } from "./hooks/useAudio";
+import { useOverflowDetector } from "./lib/overflow-detector";
 import { RadioPanel } from "./features/radio";
 import { ChannelList } from "./features/channel";
 import { SpectrumPanel } from "./features/spectrum";
@@ -34,6 +35,9 @@ function AppContent() {
   // Subscribe to real-time state updates via WebSocket
   // This updates React Query cache when captures/channels change
   useStateWebSocket();
+
+  // Enable visual overflow detection when ?debugOverflow=true is in URL
+  useOverflowDetector();
 
   const {
     // Device-centric selection
