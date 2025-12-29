@@ -21,7 +21,7 @@ import numpy as np
 from scipy import signal
 
 from wavecapsdr.decoders.mbelib_neo import IMBEDecoderNeo, MbelibNeoError, is_available
-from wavecapsdr.decoders.p25_frames import DUID, decode_ldu1, decode_ldu2, decode_nid
+from wavecapsdr.decoders.p25_frames import DUID, FRAME_SYNC_DIBITS, decode_ldu1, decode_ldu2, decode_nid
 from wavecapsdr.decoders.nac_tracker import NACTracker
 from wavecapsdr.dsp.p25.c4fm import C4FMDemodulator
 
@@ -285,13 +285,11 @@ class IMBEDecoderNative:
 
     def _process_dibits(self, dibits: np.ndarray) -> None:
         """Process dibits through P25 frame detection and IMBE extraction."""
-        # Add to buffer
         if self._dibit_buffer is None:
             return
 
-        # Simple approach: slide through looking for frame sync
+        # Add dibits to buffer
         for dibit in dibits:
-            # Add to circular buffer
             if self._frame_position < len(self._dibit_buffer):
                 self._dibit_buffer[self._frame_position] = dibit
                 self._frame_position += 1
@@ -300,36 +298,142 @@ class IMBEDecoderNative:
                 self._dibit_buffer[:-1] = self._dibit_buffer[1:]
                 self._dibit_buffer[-1] = dibit
 
-            # Check for frame sync every N dibits
-            if self._frame_position >= 32 and self._frame_position % 10 == 0:
-                self._check_for_frame()
+        # Check for frames when we have enough dibits
+        self._check_for_frame()
+
+    def _find_frame_sync(self, dibits: np.ndarray) -> int:
+        """Find frame sync pattern in dibits.
+
+        Returns position of sync start, or -1 if not found.
+        Uses correlation-based matching with threshold.
+        """
+        sync_len = len(FRAME_SYNC_DIBITS)
+        if len(dibits) < sync_len:
+            return -1
+
+        best_pos = -1
+        best_score = 0
+        best_is_reversed = False
+        threshold = sync_len - 6  # Allow up to 6 errors (18/24 = 75%)
+
+        for i in range(len(dibits) - sync_len + 1):
+            window = dibits[i:i + sync_len]
+            # Count matching dibits (normal polarity)
+            score_normal = int(np.sum(window == FRAME_SYNC_DIBITS))
+            # Check reversed polarity (XOR with 2)
+            score_reversed = int(np.sum((window ^ 2) == FRAME_SYNC_DIBITS))
+
+            if score_normal >= score_reversed:
+                score = score_normal
+                is_rev = False
+            else:
+                score = score_reversed
+                is_rev = True
+
+            if score > best_score:
+                best_score = score
+                best_pos = i
+                best_is_reversed = is_rev
+
+        # Diagnostic: log best score periodically
+        if not hasattr(self, '_sync_search_count'):
+            self._sync_search_count = 0
+        self._sync_search_count += 1
+        if self._sync_search_count <= 10 or self._sync_search_count % 50 == 0:
+            logger.info(
+                f"IMBEDecoderNative: sync search #{self._sync_search_count}, "
+                f"best_score={best_score}/{sync_len}, threshold={threshold}, "
+                f"best_pos={best_pos}, reversed={best_is_reversed}"
+            )
+
+        if best_score >= threshold:
+            return best_pos
+        return -1
 
     def _check_for_frame(self) -> None:
         """Check if we have a complete P25 frame."""
-        if self._dibit_buffer is None or self._frame_position < 32:
+        if self._dibit_buffer is None or self._frame_position < 60:
+            return  # Need at least 60 dibits (24 sync + 33 NID + buffer)
+
+        # Diagnostic logging
+        if not hasattr(self, '_check_frame_count'):
+            self._check_frame_count = 0
+        self._check_frame_count += 1
+        if self._check_frame_count <= 5 or self._check_frame_count % 100 == 0:
+            logger.info(
+                f"IMBEDecoderNative: _check_for_frame #{self._check_frame_count}, "
+                f"frame_position={self._frame_position}"
+            )
+
+        # Search for frame sync in the buffer
+        buffer_view = self._dibit_buffer[:self._frame_position]
+        sync_pos = self._find_frame_sync(buffer_view)
+
+        if sync_pos < 0:
+            # Log periodically for diagnostics
+            if self._check_frame_count <= 10:
+                logger.debug(f"IMBEDecoderNative: No sync found in {self._frame_position} dibits")
+            return  # No sync found
+
+        # Need enough dibits after sync for NID (24 sync + 33 NID = 57)
+        if sync_pos + 57 > self._frame_position:
             return
 
-        # Get last ~900 dibits (LDU frame size)
-        frame_start = max(0, self._frame_position - 900)
-        frame_dibits = self._dibit_buffer[frame_start:self._frame_position]
+        # Extract NID (starts after 24-dibit sync)
+        nid_start = sync_pos + 24
+        nid_dibits = buffer_view[nid_start:nid_start + 33]
 
-        if len(frame_dibits) < 32:
-            return
-
-        # Try to decode NID to identify frame type
-        nid = decode_nid(frame_dibits[:32], nac_tracker=self._nac_tracker)
+        nid = decode_nid(nid_dibits, skip_status_at_10=True, nac_tracker=self._nac_tracker)
         if nid is None:
+            # Shift buffer past this position and continue
+            self._consume_dibits(sync_pos + 24)
             return
+
+        # Diagnostic logging
+        if not hasattr(self, '_nid_found_count'):
+            self._nid_found_count = 0
+        self._nid_found_count += 1
+        if self._nid_found_count <= 10 or self._nid_found_count % 100 == 0:
+            logger.info(
+                f"IMBEDecoderNative: Found NID #{self._nid_found_count} at pos {sync_pos}, "
+                f"DUID={nid.duid}, NAC=0x{nid.nac:03x}"
+            )
 
         # Track NAC
         if self._nac_tracker and nid.nac != 0:
-            self._nac_tracker.update(nid.nac)
+            self._nac_tracker.track(nid.nac)
+
+        # LDU frames are about 360 dibits total
+        ldu_frame_len = 360
+        frame_end = sync_pos + ldu_frame_len
 
         # Process based on DUID
         if nid.duid == DUID.LDU1:
-            self._process_ldu(frame_dibits, is_ldu1=True)
+            if frame_end <= self._frame_position:
+                frame_dibits = buffer_view[sync_pos:frame_end]
+                self._process_ldu(frame_dibits, is_ldu1=True)
+                self._consume_dibits(frame_end)
+            # else: wait for more dibits
         elif nid.duid == DUID.LDU2:
-            self._process_ldu(frame_dibits, is_ldu1=False)
+            if frame_end <= self._frame_position:
+                frame_dibits = buffer_view[sync_pos:frame_end]
+                self._process_ldu(frame_dibits, is_ldu1=False)
+                self._consume_dibits(frame_end)
+        else:
+            # Other frame types (TDU, HDU, etc.) - skip past
+            self._consume_dibits(sync_pos + 24)
+
+    def _consume_dibits(self, count: int) -> None:
+        """Remove processed dibits from start of buffer."""
+        if self._dibit_buffer is None or count <= 0:
+            return
+        if count >= self._frame_position:
+            self._frame_position = 0
+        else:
+            # Shift remaining dibits to start
+            remaining = self._frame_position - count
+            self._dibit_buffer[:remaining] = self._dibit_buffer[count:self._frame_position]
+            self._frame_position = remaining
 
     def _process_ldu(self, dibits: np.ndarray, is_ldu1: bool) -> None:
         """Process an LDU frame and extract IMBE voice."""
