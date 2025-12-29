@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Phone, PhoneOff, Lock, Volume2, Link, Copy, CheckCircle } from "lucide-react";
 import type { ActiveCall } from "../../types/trunking";
 import { TRUNKING_VOICE_STREAM_FORMATS } from "../../components/StreamLinks";
@@ -19,6 +19,21 @@ function formatDuration(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+/**
+ * Calculate call duration dynamically.
+ * For active calls (not ended), compute from startTime to now.
+ * For ended calls, use the server-provided durationSeconds.
+ */
+function getCallDuration(call: ActiveCall): number {
+  if (call.state === "ended") {
+    // Use server-provided duration for ended calls
+    return call.durationSeconds;
+  }
+  // Calculate live duration for active calls
+  const now = Date.now() / 1000; // Current time in seconds
+  return Math.max(0, now - call.startTime);
 }
 
 function getCallStateIcon(state: string, encrypted: boolean) {
@@ -57,6 +72,19 @@ export function ActiveCallsTable({
 }: ActiveCallsTableProps) {
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
   const [copiedFormat, setCopiedFormat] = useState<string | null>(null);
+  const [, setTick] = useState(0);
+
+  // Refresh every second to update live durations for active calls
+  useEffect(() => {
+    const hasActiveCalls = calls.some(c => c.state !== "ended");
+    if (!hasActiveCalls) return;
+
+    const interval = setInterval(() => {
+      setTick(t => t + 1);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [calls]);
 
   if (calls.length === 0) {
     return (
@@ -127,7 +155,7 @@ export function ActiveCallsTable({
                   {formatFrequency(call.frequencyHz)}
                 </td>
                 <td className="text-end font-monospace">
-                  {formatDuration(call.durationSeconds)}
+                  {formatDuration(getCallDuration(call))}
                 </td>
                 <td className="text-center">
                   <div className="btn-group btn-group-sm">

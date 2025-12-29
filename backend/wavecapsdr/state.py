@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -72,6 +73,9 @@ class AppState:
         if config_path:
             trunking_manager.set_config_path(config_path)
 
+        # Get config directory for resolving relative paths (e.g., talkgroups_file)
+        config_dir = os.path.dirname(config_path) if config_path else None
+
         # Register trunking systems from config (loaded during manager.start())
         for sys_id, sys_data in cfg.trunking_systems.items():
             try:
@@ -79,7 +83,7 @@ class AppState:
                 sys_data_with_id = dict(sys_data)
                 if "id" not in sys_data_with_id:
                     sys_data_with_id["id"] = sys_id
-                trunking_config = TrunkingSystemConfig.from_dict(sys_data_with_id)
+                trunking_config = TrunkingSystemConfig.from_dict(sys_data_with_id, config_dir=config_dir)
                 trunking_manager.register_config(trunking_config)
             except Exception as e:
                 print(f"Warning: Failed to parse trunking system '{sys_id}': {e}", flush=True)

@@ -135,6 +135,7 @@ class TrunkingSystemConfig:
     device_settings: dict[str, str] = field(default_factory=dict)  # Device-specific settings (e.g., rfnotch_ctrl, dabnotch_ctrl)
     max_voice_recorders: int = 4
     talkgroups: dict[int, TalkgroupConfig] = field(default_factory=dict)
+    talkgroups_file: str | None = None  # External YAML file for talkgroup definitions
     recording_path: str = "./recordings"
     record_unknown: bool = False
     min_call_duration: float = 1.0
@@ -180,10 +181,22 @@ class TrunkingSystemConfig:
         return 10  # Lowest priority for unknown
 
     @classmethod
-    def from_dict(cls, data: dict) -> TrunkingSystemConfig:
-        """Create config from dictionary (e.g., from YAML)."""
-        # Parse talkgroups
+    def from_dict(cls, data: dict, config_dir: str | None = None) -> TrunkingSystemConfig:
+        """Create config from dictionary (e.g., from YAML).
+
+        Args:
+            data: Configuration dictionary
+            config_dir: Base directory for resolving relative paths (e.g., talkgroups_file)
+        """
+        # Parse talkgroups from external file if specified
+        talkgroups_file = data.get("talkgroups_file")
         talkgroups = {}
+
+        if talkgroups_file:
+            # Load from external YAML file
+            talkgroups = load_talkgroups_yaml(talkgroups_file, config_dir)
+
+        # Parse inline talkgroups (can supplement or override file-based ones)
         for tgid, tg_data in data.get("talkgroups", {}).items():
             if isinstance(tg_data, dict):
                 talkgroups[int(tgid)] = TalkgroupConfig(
@@ -236,6 +249,7 @@ class TrunkingSystemConfig:
             device_settings=data.get("device_settings", {}),
             max_voice_recorders=int(data.get("max_voice_recorders", 4)),
             talkgroups=talkgroups,
+            talkgroups_file=talkgroups_file,
             recording_path=data.get("recording_path", "./recordings"),
             record_unknown=data.get("record_unknown", False),
             min_call_duration=float(data.get("min_call_duration", 1.0)),
@@ -319,5 +333,75 @@ def load_talkgroups_csv(csv_path: str) -> dict[int, TalkgroupConfig]:
 
     except FileNotFoundError:
         pass
+
+    return talkgroups
+
+
+def load_talkgroups_yaml(yaml_path: str, config_dir: str | None = None) -> dict[int, TalkgroupConfig]:
+    """Load talkgroups from YAML file.
+
+    Expected YAML format:
+    ```yaml
+    talkgroups:
+      100:
+        name: 'CFS State Dispatch'
+        category: 'Fire'
+        priority: 1
+      101:
+        name: 'CFS Adelaide Metro'
+        category: 'Fire'
+        priority: 2
+    ```
+
+    Args:
+        yaml_path: Path to YAML file (absolute or relative to config_dir)
+        config_dir: Base directory for resolving relative paths
+
+    Returns:
+        Dict mapping TGID to TalkgroupConfig
+    """
+    import os
+    import yaml
+
+    talkgroups = {}
+
+    # Resolve path relative to config directory if not absolute
+    if config_dir and not os.path.isabs(yaml_path):
+        yaml_path = os.path.join(config_dir, yaml_path)
+
+    try:
+        with open(yaml_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+
+        tg_data = data.get("talkgroups", data)  # Support both root-level and nested
+
+        for tgid, tg in tg_data.items():
+            try:
+                tgid_int = int(tgid)
+                if isinstance(tg, dict):
+                    talkgroups[tgid_int] = TalkgroupConfig(
+                        tgid=tgid_int,
+                        name=tg.get("name", f"TG {tgid}"),
+                        alpha_tag=tg.get("alpha_tag", ""),
+                        category=tg.get("category", ""),
+                        priority=int(tg.get("priority", 5)),
+                        record=tg.get("record", True),
+                        monitor=tg.get("monitor", True),
+                    )
+                elif isinstance(tg, str):
+                    # Simple format: just the name
+                    talkgroups[tgid_int] = TalkgroupConfig(
+                        tgid=tgid_int,
+                        name=tg,
+                    )
+            except (ValueError, KeyError):
+                continue  # Skip invalid entries
+
+    except FileNotFoundError:
+        import logging
+        logging.getLogger(__name__).warning(f"Talkgroups file not found: {yaml_path}")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error loading talkgroups from {yaml_path}: {e}")
 
     return talkgroups
