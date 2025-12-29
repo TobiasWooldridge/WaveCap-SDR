@@ -1,0 +1,50 @@
+#!/bin/sh
+
+# WaveCap-SDR pre-commit hook
+# Runs linting, type checking, and code quality checks before committing
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Get the repository root directory
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# ============================================
+# Frontend checks
+# ============================================
+
+echo ""
+echo "=== Frontend Checks ==="
+
+cd "$REPO_ROOT/frontend"
+
+# Run lint-staged (ESLint + Prettier on staged files only)
+echo "Running lint-staged..."
+npx lint-staged
+
+# Run TypeScript type checking
+echo "Running TypeScript type check..."
+npm run type-check
+
+# ============================================
+# Backend checks
+# ============================================
+
+echo ""
+echo "=== Backend Checks ==="
+
+cd "$REPO_ROOT/backend"
+
+# Check if virtual environment exists and mypy is available
+if [ -d ".venv" ] && [ -f ".venv/bin/mypy" ]; then
+    echo "Running mypy type check..."
+    PYTHONPATH=. .venv/bin/mypy wavecapsdr --ignore-missing-imports 2>/dev/null || {
+        echo "Warning: mypy found issues (non-blocking for now)"
+    }
+else
+    echo "Skipping mypy (virtual environment or mypy not found)"
+fi
+
+echo ""
+echo "Pre-commit checks passed!"

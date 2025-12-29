@@ -1,0 +1,29 @@
+#!/bin/sh
+
+# WaveCap-SDR post-merge hook
+# Rebuilds frontend after pulling/merging changes to keep static files in sync
+
+echo "Running post-merge: rebuilding frontend..."
+
+# Get the repository root directory
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+cd "$REPO_ROOT/frontend"
+
+# Check if node_modules exists
+if [ ! -d "node_modules" ]; then
+    echo "Installing frontend dependencies..."
+    npm install
+fi
+
+# Build frontend
+echo "Building frontend..."
+if npm run build > /tmp/wavecap-build.log 2>&1; then
+    echo "Copying built files to backend static directory..."
+    cp -r dist/* "$REPO_ROOT/backend/wavecapsdr/static/"
+    echo "Frontend rebuilt successfully!"
+else
+    echo "Frontend build failed. Output:"
+    cat /tmp/wavecap-build.log
+    exit 1
+fi

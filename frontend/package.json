@@ -12,7 +12,17 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0 --cache --cache-location node_modules/.cache/eslint",
-    "type-check": "tsc --noEmit --incremental"
+    "type-check": "tsc --noEmit --incremental",
+    "prepare": "cd .. && husky frontend/.husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --cache --cache-location node_modules/.cache/eslint",
+      "prettier --check"
+    ],
+    "*.{js,jsx,json,md,css,html}": [
+      "prettier --check"
+    ]
   },
   "dependencies": {
     "@tanstack/react-query": "^5.56.2",
@@ -32,6 +42,8 @@
     "eslint": "^8.53.0",
     "eslint-plugin-react-hooks": "^4.6.0",
     "eslint-plugin-react-refresh": "^0.4.4",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
     "prettier": "^3.6.2",
     "sass": "^1.70.0",
     "typescript": "^5.2.2",

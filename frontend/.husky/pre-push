@@ -1,0 +1,65 @@
+#!/bin/sh
+
+# WaveCap-SDR pre-push hook
+# Runs tests and quality checks before pushing to remote
+
+set -e
+
+echo "Running pre-push checks..."
+
+# Get the repository root directory
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# ============================================
+# Frontend checks
+# ============================================
+
+echo ""
+echo "=== Frontend Checks ==="
+
+cd "$REPO_ROOT/frontend"
+
+# Run TypeScript type checking
+echo "Running TypeScript type check..."
+npm run type-check
+
+# Run ESLint
+echo "Running ESLint..."
+npm run lint
+
+# ============================================
+# Backend tests
+# ============================================
+
+echo ""
+echo "=== Backend Tests ==="
+
+cd "$REPO_ROOT/backend"
+
+# Check if virtual environment exists
+if [ -d ".venv" ] && [ -f ".venv/bin/pytest" ]; then
+    echo "Running pytest (with 120s timeout)..."
+
+    # Run tests with timeout to prevent hanging
+    if [ -f "$REPO_ROOT/scripts/run-with-timeout.sh" ]; then
+        PYTHONPATH=. "$REPO_ROOT/scripts/run-with-timeout.sh" --seconds 120 -- \
+            .venv/bin/pytest tests/ -x --tb=short -q 2>&1 || {
+            echo ""
+            echo "Tests failed! Push aborted."
+            exit 1
+        }
+    else
+        # Fallback if timeout script doesn't exist
+        PYTHONPATH=. timeout 120 .venv/bin/pytest tests/ -x --tb=short -q 2>&1 || {
+            echo ""
+            echo "Tests failed! Push aborted."
+            exit 1
+        }
+    fi
+else
+    echo "Warning: Backend virtual environment or pytest not found, skipping tests"
+    echo "Run 'cd backend && python -m venv .venv && source .venv/bin/activate && pip install -e .[dev]' to set up"
+fi
+
+echo ""
+echo "All pre-push checks passed!"
