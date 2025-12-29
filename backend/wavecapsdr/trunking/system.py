@@ -1170,10 +1170,23 @@ class TrunkingSystem:
                         if _verbose:
                             logger.debug(f"TrunkingSystem {self.cfg.id}: process_iq returned {len(tsbk_results)} results")
 
-                        # Handle each TSBK result
+                        # Handle each TSBK result and update decode rate at batch level
+                        valid_tsbk_count = 0
                         for tsbk_data in tsbk_results:
                             if tsbk_data:
-                                self._handle_parsed_tsbk(tsbk_data)
+                                self._handle_parsed_tsbk(tsbk_data, update_rate=False)
+                                valid_tsbk_count += 1
+
+                        # Update decode rate based on batch timing (not individual TSBKs)
+                        if valid_tsbk_count > 0:
+                            now = time.time()
+                            if self._last_tsbk_time > 0:
+                                elapsed = now - self._last_tsbk_time
+                                if elapsed > 0.001:  # Minimum 1ms between rate updates
+                                    # Rate = TSBKs per second
+                                    instant_rate = valid_tsbk_count / elapsed
+                                    self.decode_rate = 0.9 * self.decode_rate + 0.1 * instant_rate
+                            self._last_tsbk_time = now
 
                     except Exception as e:
                         import traceback
@@ -1216,20 +1229,28 @@ class TrunkingSystem:
                 context,
             )
 
-    def _handle_parsed_tsbk(self, tsbk_data: dict[str, Any]) -> None:
-        """Handle parsed TSBK data from P25 decoder."""
+    def _handle_parsed_tsbk(self, tsbk_data: dict[str, Any], update_rate: bool = True) -> None:
+        """Handle parsed TSBK data from P25 decoder.
+
+        Args:
+            tsbk_data: Parsed TSBK dictionary
+            update_rate: If True, update decode rate (set False for batch processing)
+        """
         # Log the message for UI display
         self._log_message(tsbk_data)
 
         # Update stats
         self._tsbk_count += 1
-        now = time.time()
-        if self._last_tsbk_time > 0:
-            elapsed = now - self._last_tsbk_time
-            if elapsed > 0:
-                instant_rate = 1.0 / elapsed
-                self.decode_rate = 0.9 * self.decode_rate + 0.1 * instant_rate
-        self._last_tsbk_time = now
+
+        # Only update rate if requested (batch processing handles this externally)
+        if update_rate:
+            now = time.time()
+            if self._last_tsbk_time > 0:
+                elapsed = now - self._last_tsbk_time
+                if elapsed > 0.001:  # Minimum 1ms between rate updates
+                    instant_rate = 1.0 / elapsed
+                    self.decode_rate = 0.9 * self.decode_rate + 0.1 * instant_rate
+            self._last_tsbk_time = now
 
         # If we were searching, we're now synced
         if self.control_channel_state == ControlChannelState.SEARCHING:
