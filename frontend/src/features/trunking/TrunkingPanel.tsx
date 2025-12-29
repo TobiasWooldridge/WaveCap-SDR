@@ -54,9 +54,12 @@ export function TrunkingPanel({
 }: TrunkingPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>("active");
   const [callEvents, setCallEvents] = useState<CallEvent[]>([]);
+  const [lastSeenMap, setLastSeenMap] = useState<Map<number, number>>(
+    new Map(),
+  );
   const toast = useToast();
 
-  // Track events for the event log
+  // Track events for the event log and update last seen times
   const handleCallStart = useCallback((call: ActiveCall) => {
     const event: CallEvent = {
       id: call.id,
@@ -69,12 +72,17 @@ export function TrunkingPanel({
       encrypted: call.encrypted,
     };
     setCallEvents((prev) => [...prev.slice(-MAX_EVENTS + 1), event]);
+    // Update last seen time for this talkgroup
+    setLastSeenMap((prev) =>
+      new Map(prev).set(call.talkgroupId, call.startTime),
+    );
   }, []);
 
   const handleCallEnd = useCallback((call: ActiveCall) => {
+    const now = Date.now() / 1000;
     const event: CallEvent = {
       id: call.id,
-      timestamp: Date.now() / 1000, // Use current time for end event
+      timestamp: now,
       type: "end",
       talkgroupId: call.talkgroupId,
       talkgroupName: call.talkgroupName,
@@ -84,6 +92,8 @@ export function TrunkingPanel({
       encrypted: call.encrypted,
     };
     setCallEvents((prev) => [...prev.slice(-MAX_EVENTS + 1), event]);
+    // Update last seen time for this talkgroup
+    setLastSeenMap((prev) => new Map(prev).set(call.talkgroupId, now));
   }, []);
 
   // Data fetching for the selected system
@@ -106,13 +116,24 @@ export function TrunkingPanel({
     onCallEnd: handleCallEnd,
   });
 
-  // Initialize call events from server-buffered call history on first load
+  // Initialize call events and last seen times from server-buffered call history
   useEffect(() => {
     if (wsCallHistory.length > 0 && callEvents.length === 0) {
       // Convert server call history to CallEvent format
       // Each ended call becomes two events: start and end
       const events: CallEvent[] = [];
+      const newLastSeen = new Map<number, number>();
+
       for (const call of wsCallHistory) {
+        const endTime =
+          call.endTime || call.startTime + (call.durationSeconds || 0);
+
+        // Track last seen for each talkgroup (use end time as last activity)
+        const existing = newLastSeen.get(call.talkgroupId);
+        if (!existing || endTime > existing) {
+          newLastSeen.set(call.talkgroupId, endTime);
+        }
+
         // Add start event
         events.push({
           id: call.id + "_start",
@@ -127,8 +148,7 @@ export function TrunkingPanel({
         // Add end event
         events.push({
           id: call.id + "_end",
-          timestamp:
-            call.endTime || call.startTime + (call.durationSeconds || 0),
+          timestamp: endTime,
           type: "end",
           talkgroupId: call.talkgroupId,
           talkgroupName: call.talkgroupName,
@@ -141,6 +161,7 @@ export function TrunkingPanel({
       // Sort by timestamp and keep last MAX_EVENTS
       events.sort((a, b) => a.timestamp - b.timestamp);
       setCallEvents(events.slice(-MAX_EVENTS));
+      setLastSeenMap(newLastSeen);
     }
   }, [wsCallHistory, callEvents.length]);
 
@@ -398,6 +419,7 @@ export function TrunkingPanel({
             <TalkgroupDirectory
               talkgroups={talkgroups}
               activeTalkgroups={activeTalkgroupIds}
+              lastSeenMap={lastSeenMap}
             />
           )}
 

@@ -6,15 +6,28 @@ interface TalkgroupDirectoryProps {
   talkgroups: Talkgroup[];
   onToggleMonitor?: (tgid: number, monitor: boolean) => void;
   activeTalkgroups?: Set<number>; // Currently active talkgroups
+  lastSeenMap?: Map<number, number>; // TGID -> timestamp (seconds)
 }
 
-type SortField = "tgid" | "name" | "category" | "priority";
+type SortField = "tgid" | "name" | "category" | "priority" | "lastSeen";
+
+function formatLastSeen(timestamp: number | undefined): string {
+  if (!timestamp) return "";
+  const now = Date.now() / 1000;
+  const diff = now - timestamp;
+
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
 type SortOrder = "asc" | "desc";
 
 export function TalkgroupDirectory({
   talkgroups,
   onToggleMonitor,
   activeTalkgroups = new Set(),
+  lastSeenMap = new Map(),
 }: TalkgroupDirectoryProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
@@ -72,6 +85,10 @@ export function TalkgroupDirectory({
         case "priority":
           cmp = a.priority - b.priority;
           break;
+        case "lastSeen":
+          // Sort by last seen (most recent first by default)
+          cmp = (lastSeenMap.get(b.tgid) || 0) - (lastSeenMap.get(a.tgid) || 0);
+          break;
       }
       return sortOrder === "asc" ? cmp : -cmp;
     });
@@ -84,6 +101,7 @@ export function TalkgroupDirectory({
     sortField,
     sortOrder,
     showOnlyMonitored,
+    lastSeenMap,
   ]);
 
   const handleSort = (field: SortField) => {
@@ -179,68 +197,68 @@ export function TalkgroupDirectory({
 
       {/* Table */}
       <div
-        className="table-responsive"
-        style={{ maxHeight: 400, overflowY: "auto" }}
+        className="table-responsive bg-body-tertiary rounded font-monospace"
+        style={{ maxHeight: 400, overflowY: "auto", fontSize: "0.7rem" }}
       >
         <table className="table table-sm table-hover mb-0">
-          <thead className="sticky-top bg-body">
+          <thead className="sticky-top bg-body-secondary">
             <tr>
-              <th style={{ width: 30 }}></th>
-              <SortHeader field="tgid" label="TGID" className="text-end" />
+              <th style={{ width: 20 }}></th>
               <SortHeader
-                field="name"
-                label="Name"
-                style={{ minWidth: "180px" }}
+                field="tgid"
+                label="TG"
+                className="text-end"
+                style={{ width: 50 }}
               />
-              <SortHeader field="category" label="Category" />
+              <SortHeader field="name" label="Name" />
+              <SortHeader field="category" label="Cat" style={{ width: 80 }} />
               <SortHeader
                 field="priority"
-                label="Priority"
+                label="Pri"
                 className="text-center"
+                style={{ width: 35 }}
               />
-              {onToggleMonitor && <th style={{ width: 40 }}></th>}
+              <SortHeader
+                field="lastSeen"
+                label="Last Seen"
+                style={{ width: 70 }}
+              />
+              {onToggleMonitor && <th style={{ width: 30 }}></th>}
             </tr>
           </thead>
           <tbody>
             {filteredTalkgroups.map((tg) => {
               const isActive = activeTalkgroups.has(tg.tgid);
+              const lastSeen = lastSeenMap.get(tg.tgid);
               return (
                 <tr
                   key={tg.tgid}
                   className={isActive ? "table-success" : undefined}
                 >
-                  <td className="text-center">
+                  <td className="text-center py-1">
                     {isActive && (
                       <Circle
-                        size={8}
+                        size={6}
                         className="text-success"
                         fill="currentColor"
                       />
                     )}
                   </td>
-                  <td className="text-end font-monospace">{tg.tgid}</td>
-                  <td style={{ wordBreak: "break-word" }}>
-                    <div className="fw-semibold" title={tg.name}>
-                      {tg.name}
-                    </div>
-                    {/* Only show alphaTag if it's meaningfully different from name
-                        (not just a truncated/mangled version) */}
-                    {tg.alphaTag &&
-                      !tg.name
-                        .toUpperCase()
-                        .replace(/\s+/g, "_")
-                        .startsWith(tg.alphaTag) && (
-                        <small className="text-muted" title={tg.alphaTag}>
-                          {tg.alphaTag}
-                        </small>
-                      )}
+                  <td className="text-end py-1">{tg.tgid}</td>
+                  <td className="py-1" title={tg.name}>
+                    {tg.name}
                   </td>
-                  <td>
+                  <td className="py-1">
                     {tg.category && (
-                      <span className="badge bg-secondary">{tg.category}</span>
+                      <span
+                        className="badge bg-secondary"
+                        style={{ fontSize: "0.6rem", padding: "1px 3px" }}
+                      >
+                        {tg.category}
+                      </span>
                     )}
                   </td>
-                  <td className="text-center">
+                  <td className="text-center py-1">
                     <span
                       className={`badge ${
                         tg.priority <= 3
@@ -249,12 +267,20 @@ export function TalkgroupDirectory({
                             ? "bg-warning text-dark"
                             : "bg-secondary"
                       }`}
+                      style={{ fontSize: "0.55rem", padding: "1px 3px" }}
                     >
-                      P{tg.priority}
+                      {tg.priority}
                     </span>
                   </td>
+                  <td className="py-1 text-body-secondary">
+                    {isActive ? (
+                      <span className="text-success fw-semibold">active</span>
+                    ) : (
+                      formatLastSeen(lastSeen)
+                    )}
+                  </td>
                   {onToggleMonitor && (
-                    <td className="text-center">
+                    <td className="text-center py-1">
                       <button
                         className={`btn btn-sm ${
                           tg.monitor ? "btn-primary" : "btn-outline-secondary"
@@ -263,11 +289,12 @@ export function TalkgroupDirectory({
                         title={
                           tg.monitor ? "Stop monitoring" : "Start monitoring"
                         }
+                        style={{ padding: "0 3px", lineHeight: 1 }}
                       >
                         {tg.monitor ? (
-                          <Volume2 size={14} />
+                          <Volume2 size={10} />
                         ) : (
-                          <VolumeX size={14} />
+                          <VolumeX size={10} />
                         )}
                       </button>
                     </td>
