@@ -18,7 +18,8 @@ from typing import Any, Callable
 import numpy as np
 
 from wavecapsdr.decoders.ambe import AMBEDecoder, AMBEDecoderError, check_ambe_available
-from wavecapsdr.decoders.imbe import IMBEDecoder, IMBEDecoderError, check_imbe_available
+from wavecapsdr.decoders.imbe import IMBEDecoderError, check_imbe_available
+from wavecapsdr.decoders.imbe_threaded import IMBEDecoderThreaded
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ class VoiceDecoder:
     timeslot: int = 0  # For Phase II TDMA: 0=both, 1 or 2 for specific slot
 
     # Internal decoders
-    _imbe_decoder: IMBEDecoder | None = field(default=None, repr=False)
+    _imbe_decoder: IMBEDecoderThreaded | None = field(default=None, repr=False)
     _ambe_decoder: AMBEDecoder | None = field(default=None, repr=False)
 
     # State
@@ -88,7 +89,7 @@ class VoiceDecoder:
     def is_available(vocoder_type: VocoderType) -> bool:
         """Check if a vocoder type is available."""
         if vocoder_type == VocoderType.IMBE:
-            return IMBEDecoder.is_available()
+            return IMBEDecoderThreaded.is_available()
         elif vocoder_type == VocoderType.AMBE2:
             return AMBEDecoder.is_available()
         return False
@@ -123,12 +124,13 @@ class VoiceDecoder:
         # Create and start the appropriate decoder
         try:
             if self.vocoder_type == VocoderType.IMBE:
-                self._imbe_decoder = IMBEDecoder(
+                self._imbe_decoder = IMBEDecoderThreaded(
                     output_rate=self.output_rate,
                     input_rate=self.input_rate,
                 )
-                await self._imbe_decoder.start()
-                logger.info("VoiceDecoder: Started IMBE decoder")
+                # Threaded decoder uses sync start
+                self._imbe_decoder.start()
+                logger.info("VoiceDecoder: Started IMBE decoder (threaded)")
 
             elif self.vocoder_type == VocoderType.AMBE2:
                 self._ambe_decoder = AMBEDecoder(
@@ -153,7 +155,8 @@ class VoiceDecoder:
 
         # Stop the active decoder
         if self._imbe_decoder:
-            await self._imbe_decoder.stop()
+            # Threaded decoder uses sync stop
+            self._imbe_decoder.stop()
             self._stats.frames_decoded = self._imbe_decoder.frames_decoded
             self._stats.frames_dropped = self._imbe_decoder.frames_dropped
             self._imbe_decoder = None
@@ -180,7 +183,8 @@ class VoiceDecoder:
             return
 
         if self._imbe_decoder:
-            await self._imbe_decoder.decode(discriminator_audio)
+            # Threaded decoder uses sync decode (thread-safe)
+            self._imbe_decoder.decode(discriminator_audio)
         elif self._ambe_decoder:
             await self._ambe_decoder.decode(discriminator_audio)
 
@@ -196,7 +200,8 @@ class VoiceDecoder:
 
         audio = None
         if self._imbe_decoder:
-            audio = await self._imbe_decoder.get_audio()
+            # Threaded decoder uses sync get_audio (non-blocking)
+            audio = self._imbe_decoder.get_audio()
         elif self._ambe_decoder:
             audio = await self._ambe_decoder.get_audio()
 
@@ -222,7 +227,8 @@ class VoiceDecoder:
 
         audio = None
         if self._imbe_decoder:
-            audio = await self._imbe_decoder.get_audio_blocking(timeout)
+            # Threaded decoder uses sync get_audio_blocking
+            audio = self._imbe_decoder.get_audio_blocking(timeout)
         elif self._ambe_decoder:
             audio = await self._ambe_decoder.get_audio_blocking(timeout)
 

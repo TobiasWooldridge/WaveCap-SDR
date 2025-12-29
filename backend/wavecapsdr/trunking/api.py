@@ -1035,6 +1035,8 @@ async def voice_stream_all(websocket: WebSocket, system_id: str) -> None:
 
     async def send_audio_from_queues() -> None:
         """Read from all subscribed queues and send to WebSocket."""
+        bytes_sent = 0
+        messages_sent = 0
         while True:
             if not subscribed_queues:
                 await asyncio.sleep(0.1)
@@ -1047,6 +1049,10 @@ async def voice_stream_all(websocket: WebSocket, system_id: str) -> None:
                     try:
                         data = queue.get_nowait()
                         await websocket.send_bytes(data)
+                        bytes_sent += len(data)
+                        messages_sent += 1
+                        if messages_sent % 10 == 0:
+                            logger.info(f"Voice stream {system_id}: Sent {messages_sent} messages, {bytes_sent} bytes")
                     except asyncio.QueueEmpty:
                         pass
                 except Exception as e:

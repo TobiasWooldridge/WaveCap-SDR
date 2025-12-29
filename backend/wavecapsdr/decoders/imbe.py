@@ -144,6 +144,12 @@ class IMBEDecoder:
         except asyncio.QueueFull:
             # Drop oldest to make room
             self.frames_dropped += 1
+            if self.frames_dropped == 1 or self.frames_dropped % 100 == 0:
+                logger.warning(
+                    f"IMBE input queue full, dropping frames "
+                    f"(dropped={self.frames_dropped}, chunk_size={len(discriminator_audio)}, "
+                    f"queue_size={self._input_queue.qsize()})"
+                )
             try:
                 self._input_queue.get_nowait()
                 self._input_queue.put_nowait(discriminator_audio)
