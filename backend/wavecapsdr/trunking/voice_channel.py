@@ -179,13 +179,12 @@ class VoiceChannel:
 
         try:
             # Create and start vocoder
-            # Note: prefer_native=False because native decoder expects IQ but we have
-            # discriminator audio. Use DSD-FME threaded decoder until native is fixed.
+            # Native decoder now supports discriminator audio via demodulate_discriminator()
             self._voice_decoder = VoiceDecoder(
                 vocoder_type=vocoder_type,
                 output_rate=self.cfg.output_rate,
-                input_rate=48000,  # DSD-FME expects 48kHz discriminator audio
-                prefer_native=False,  # TODO: Fix native decoder to accept disc audio
+                input_rate=48000,  # Both native and DSD-FME expect 48kHz discriminator audio
+                prefer_native=True,  # Use native mbelib-neo decoder if available
             )
             await self._voice_decoder.start()
 

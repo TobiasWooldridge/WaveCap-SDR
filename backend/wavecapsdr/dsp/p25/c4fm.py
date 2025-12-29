@@ -1400,6 +1400,164 @@ class C4FMDemodulator:
         """
         return self._equalizer.pll
 
+    def demodulate_discriminator(
+        self, disc_audio: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Demodulate C4FM from discriminator audio (instantaneous frequency).
+
+        This method accepts discriminator audio directly instead of IQ samples.
+        The discriminator audio is the instantaneous frequency output from an
+        FM demodulator, in radians per sample.
+
+        The signal path is:
+        1. Apply RRC pulse shaping filter
+        2. Skip FM demod (disc_audio is already demodulated)
+        3. Run symbol recovery with timing interpolation
+        4. Slice to dibits with π/2 decision boundaries
+
+        Args:
+            disc_audio: Discriminator audio (instantaneous frequency in radians/sample).
+                        This is typically computed as np.diff(np.unwrap(np.angle(iq))).
+
+        Returns:
+            Tuple of (dibits, soft_symbols):
+            - dibits: Hard decision dibits (0-3), shape (N,)
+            - soft_symbols: Soft symbol values (normalized), shape (N,)
+        """
+        if len(disc_audio) == 0:
+            return (
+                np.array([], dtype=np.uint8),
+                np.array([], dtype=np.float32),
+            )
+
+        # Diagnostic counter
+        if not hasattr(self, '_diag_disc_calls'):
+            self._diag_disc_calls = 0
+            logger.info(f"[DIAG-DISC] FIRST CALL: demodulate_discriminator, len={len(disc_audio)}")
+        self._diag_disc_calls += 1
+
+        # Apply RRC pulse shaping filter to discriminator audio
+        # This helps with ISI and improves symbol timing
+        with _c4fm_profiler.measure("rrc_filter"):
+            # Initialize filter state if needed
+            if not hasattr(self, '_rrc_state_disc'):
+                self._rrc_state_disc = signal.lfilter_zi(self._rrc_filter, 1.0) * disc_audio[0]
+
+            disc_rrc, self._rrc_state_disc = signal.lfilter(
+                self._rrc_filter, 1.0, disc_audio.astype(np.float32),
+                zi=self._rrc_state_disc
+            )
+
+        # The discriminator audio is in radians/sample
+        # For C4FM at 48kHz with 4800 baud (10 samples/symbol):
+        # - Full deviation (±1800 Hz) = ±0.236 rad/sample
+        # - Symbol levels (+3, +1, -1, -3) map to ±3π/4, ±π/4 per symbol period
+        # - Per sample: ±3*π/4/10 ≈ ±0.236 for outer, ±0.079 for inner
+        #
+        # The FM demod output spans roughly -π to +π per symbol period
+        # So we scale disc_audio by samples_per_symbol to match
+        phases = disc_rrc * self.samples_per_symbol
+
+        # JIT-compiled symbol recovery
+        _c4fm_profiler.start("symbol_recovery")
+
+        dibits_arr, soft_symbols_arr, symbol_indices, self._buffer_pointer, self._sample_point = \
+            _symbol_recovery_jit(
+                phases.astype(np.float32),
+                self._buffer,
+                self._buffer_pointer,
+                self._sample_point,
+                self.samples_per_symbol,
+                self._equalizer.pll,
+                self._equalizer.gain,
+                _interpolator.TAPS,
+            )
+
+        _c4fm_profiler.stop("symbol_recovery")
+
+        # Update symbols processed count
+        self._symbols_processed += len(dibits_arr)
+
+        # Sync detection on extracted symbols
+        _c4fm_profiler.start("sync_detection")
+        for i, soft_symbol_norm in enumerate(soft_symbols_arr):
+            self._symbols_since_sync += 1
+            sync_score_primary = self._sync_detector.process(soft_symbol_norm)
+
+            use_lagging = False
+            additional_offset = 0.0
+
+            if self._fine_sync:
+                sync_score = sync_score_primary
+            else:
+                lag_pos = symbol_indices[i] - int(self._lagging_offset)
+                if lag_pos >= 4:
+                    lag_mu = 1.0 - (self._lagging_offset - int(self._lagging_offset))
+                    lag_offset = lag_pos - 4
+                    if lag_offset >= 0 and lag_pos < len(self._buffer):
+                        soft_symbol_lag = self._equalizer.get_equalized_symbol(
+                            self._buffer, lag_offset, lag_mu
+                        )
+                        soft_symbol_lag_norm = soft_symbol_lag * (4.0 / np.pi)
+                        sync_score_lag = self._sync_detector_lagging.process(soft_symbol_lag_norm)
+                    else:
+                        sync_score_lag = 0.0
+                else:
+                    sync_score_lag = 0.0
+
+                if sync_score_lag > sync_score_primary and sync_score_lag >= self.SYNC_THRESHOLD_DETECTION:
+                    sync_score = sync_score_lag
+                    use_lagging = True
+                    additional_offset = -self._lagging_offset
+                else:
+                    sync_score = sync_score_primary
+
+            if sync_score >= self.SYNC_THRESHOLD_DETECTION:
+                self._symbols_since_sync = 0
+
+                if not self._fine_sync:
+                    # Calculate timing adjustment
+                    opt_offset = self._timing_optimizer.optimize(self._buffer, self._sample_point)
+                    total_offset = opt_offset + additional_offset
+
+                    if abs(total_offset) >= 0.1:
+                        self._sample_point += total_offset
+                        if self._sample_point >= self.samples_per_symbol:
+                            self._sample_point -= self.samples_per_symbol
+                        elif self._sample_point < 0:
+                            self._sample_point += self.samples_per_symbol
+                        self._fine_sync = True
+                        self._equalizer.gain = 1.0
+
+            if self._symbols_since_sync > 3600:
+                self._fine_sync = False
+                self._symbols_since_sync = 0
+
+        _c4fm_profiler.stop("sync_detection")
+
+        # Diagnostic logging
+        if len(soft_symbols_arr) > 0 and self._diag_disc_calls % 100 == 0:
+            soft_arr = np.array(soft_symbols_arr, dtype=np.float32)
+            hist, _ = np.histogram(soft_arr, bins=16, range=(-4, 4))
+            hist_str = ",".join([str(int(h)) for h in hist])
+            near_p3 = np.sum(np.abs(soft_arr - 3.0) < 1.0)
+            near_p1 = np.sum(np.abs(soft_arr - 1.0) < 1.0)
+            near_m1 = np.sum(np.abs(soft_arr + 1.0) < 1.0)
+            near_m3 = np.sum(np.abs(soft_arr + 3.0) < 1.0)
+            in_constellation = near_p3 + near_p1 + near_m1 + near_m3
+            constellation_pct = 100.0 * in_constellation / len(soft_arr) if len(soft_arr) > 0 else 0
+            logger.info(
+                f"[DIAG-DISC] Symbols: count={len(soft_arr)}, "
+                f"constellation_pct={constellation_pct:.1f}%, histogram=[{hist_str}]"
+            )
+
+        _c4fm_profiler.report()
+
+        return (
+            np.array(dibits_arr, dtype=np.uint8),
+            np.array(soft_symbols_arr, dtype=np.float32),
+        )
+
 
 def c4fm_demod_simple(
     iq: np.ndarray,

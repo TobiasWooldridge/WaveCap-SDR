@@ -97,9 +97,10 @@ class IMBEDecoderNative:
     bytes_processed: int = 0
 
     def __post_init__(self) -> None:
-        # Calculate input resampling ratio (input_rate -> 50kHz for C4FM demod)
-        c4fm_rate = 50000
-        self._input_resample_up = c4fm_rate
+        # C4FM at 48kHz with 4800 baud = exactly 10 samples/symbol
+        # No resampling needed if input is already 48kHz
+        self._c4fm_rate = 48000
+        self._input_resample_up = self._c4fm_rate
         self._input_resample_down = self.input_rate
         gcd = np.gcd(self._input_resample_up, self._input_resample_down)
         self._input_resample_up //= gcd
@@ -121,8 +122,8 @@ class IMBEDecoderNative:
                 "https://github.com/arancormonk/mbelib-neo"
             )
 
-        # Initialize C4FM demodulator at 50kHz sample rate
-        self._c4fm = C4FMDemodulator(sample_rate=50000)
+        # Initialize C4FM demodulator at 48kHz (10 samples/symbol at 4800 baud)
+        self._c4fm = C4FMDemodulator(sample_rate=self._c4fm_rate)
 
         # Initialize mbelib decoder
         self._mbelib = IMBEDecoderNeo(output_rate=self.output_rate)
@@ -244,14 +245,16 @@ class IMBEDecoderNative:
         if self._c4fm is None or self._mbelib is None:
             return
 
-        # Resample to 50kHz if needed
+        # Resample to C4FM sample rate if needed
+        # C4FM demodulator expects 48kHz for 10 samples/symbol at 4800 baud
         if self._input_resample_up != self._input_resample_down:
             disc_audio = signal.resample_poly(
                 disc_audio, self._input_resample_up, self._input_resample_down
             ).astype(np.float32)
 
-        # C4FM demodulate to dibits
-        dibits, soft_symbols = self._c4fm.demodulate(disc_audio)
+        # C4FM demodulate discriminator audio to dibits
+        # Use the discriminator-specific method that skips FM demod
+        dibits, soft_symbols = self._c4fm.demodulate_discriminator(disc_audio)
 
         if len(dibits) == 0:
             return
