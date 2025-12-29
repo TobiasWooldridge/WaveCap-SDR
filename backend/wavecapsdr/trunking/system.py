@@ -406,12 +406,16 @@ class VoiceRecorder:
 
         # Feed to voice channel (async, schedule on event loop)
         loop = self._event_loop
-        if loop is None or not loop.is_running():
+        voice_channel = self._voice_channel  # Capture reference before scheduling
+        if loop is None or not loop.is_running() or voice_channel is None:
             return
 
+        # Use captured reference to avoid race condition where release() sets _voice_channel=None
+        audio_data = disc_audio.astype(np.float32)
         loop.call_soon_threadsafe(
-            lambda: loop.create_task(
-                self._voice_channel.process_discriminator_audio(disc_audio.astype(np.float32))
+            lambda vc=voice_channel, data=audio_data: (
+                loop.create_task(vc.process_discriminator_audio(data))
+                if vc is not None else None
             )
         )
 

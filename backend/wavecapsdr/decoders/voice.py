@@ -6,6 +6,10 @@ Provides a single interface for decoding both:
 
 This module wraps the IMBEDecoder and AMBEDecoder classes to provide
 a unified interface for the trunking system.
+
+Decoder backends:
+- Native (mbelib-neo): Direct ctypes bindings for maximum performance
+- Threaded (DSD-FME): Subprocess-based, fallback when mbelib-neo unavailable
 """
 
 from __future__ import annotations
@@ -20,6 +24,8 @@ import numpy as np
 from wavecapsdr.decoders.ambe import AMBEDecoder, AMBEDecoderError, check_ambe_available
 from wavecapsdr.decoders.imbe import IMBEDecoderError, check_imbe_available
 from wavecapsdr.decoders.imbe_threaded import IMBEDecoderThreaded
+from wavecapsdr.decoders.imbe_native import IMBEDecoderNative, IMBENativeError, check_native_imbe_available
+from wavecapsdr.decoders.mbelib_neo import is_available as mbelib_neo_available, check_available as check_mbelib_neo
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +57,10 @@ class VoiceDecoder:
     Wraps IMBE (Phase I) and AMBE+2 (Phase II) decoders to provide a
     single interface for trunking voice channel decoding.
 
+    Automatically selects the best available decoder backend:
+    - Native (mbelib-neo): Direct ctypes bindings, maximum performance
+    - Threaded (DSD-FME): Subprocess-based fallback
+
     Usage:
         decoder = VoiceDecoder(vocoder_type=VocoderType.IMBE)
         await decoder.start()
@@ -68,10 +78,13 @@ class VoiceDecoder:
     output_rate: int = 48000
     input_rate: int = 48000
     timeslot: int = 0  # For Phase II TDMA: 0=both, 1 or 2 for specific slot
+    prefer_native: bool = True  # Prefer mbelib-neo native decoder when available
 
     # Internal decoders
     _imbe_decoder: IMBEDecoderThreaded | None = field(default=None, repr=False)
+    _imbe_native: IMBEDecoderNative | None = field(default=None, repr=False)
     _ambe_decoder: AMBEDecoder | None = field(default=None, repr=False)
+    _using_native: bool = field(default=False, repr=False)
 
     # State
     running: bool = False
@@ -84,12 +97,24 @@ class VoiceDecoder:
     def __post_init__(self) -> None:
         """Initialize internal state."""
         self._stats = VoiceDecoderStats()
+        self._using_native = False
 
     @staticmethod
-    def is_available(vocoder_type: VocoderType) -> bool:
-        """Check if a vocoder type is available."""
+    def is_available(vocoder_type: VocoderType, native_only: bool = False) -> bool:
+        """Check if a vocoder type is available.
+
+        Args:
+            vocoder_type: The vocoder type to check
+            native_only: If True, only check for native mbelib-neo availability
+        """
         if vocoder_type == VocoderType.IMBE:
-            return IMBEDecoderThreaded.is_available()
+            # Check for native first (preferred)
+            if IMBEDecoderNative.is_available():
+                return True
+            # Fall back to DSD-FME threaded decoder
+            if not native_only:
+                return IMBEDecoderThreaded.is_available()
+            return False
         elif vocoder_type == VocoderType.AMBE2:
             return AMBEDecoder.is_available()
         return False
@@ -101,12 +126,31 @@ class VoiceDecoder:
         Returns:
             Dictionary with availability status and messages for each vocoder.
         """
-        imbe_available, imbe_msg = check_imbe_available()
+        # Check native IMBE (mbelib-neo)
+        native_available, native_msg = check_native_imbe_available()
+
+        # Check threaded IMBE (DSD-FME)
+        threaded_available, threaded_msg = check_imbe_available()
+
+        # IMBE is available if either native or threaded works
+        imbe_available = native_available or threaded_available
+        if native_available:
+            imbe_msg = f"Native: {native_msg}"
+        elif threaded_available:
+            imbe_msg = f"Threaded: {threaded_msg}"
+        else:
+            imbe_msg = f"Native: {native_msg}; Threaded: {threaded_msg}"
+
+        # Check AMBE
         ambe_available, ambe_msg = check_ambe_available()
 
         return {
             "imbe": {
                 "available": imbe_available,
+                "native_available": native_available,
+                "native_message": native_msg,
+                "threaded_available": threaded_available,
+                "threaded_message": threaded_msg,
                 "message": imbe_msg,
             },
             "ambe2": {
@@ -124,13 +168,26 @@ class VoiceDecoder:
         # Create and start the appropriate decoder
         try:
             if self.vocoder_type == VocoderType.IMBE:
-                self._imbe_decoder = IMBEDecoderThreaded(
-                    output_rate=self.output_rate,
-                    input_rate=self.input_rate,
-                )
-                # Threaded decoder uses sync start
-                self._imbe_decoder.start()
-                logger.info("VoiceDecoder: Started IMBE decoder (threaded)")
+                # Try native decoder first if preferred and available
+                use_native = self.prefer_native and IMBEDecoderNative.is_available()
+
+                if use_native:
+                    self._imbe_native = IMBEDecoderNative(
+                        output_rate=self.output_rate,
+                        input_rate=self.input_rate,
+                    )
+                    self._imbe_native.start()
+                    self._using_native = True
+                    logger.info("VoiceDecoder: Started IMBE decoder (native/mbelib-neo)")
+                else:
+                    # Fall back to threaded DSD-FME decoder
+                    self._imbe_decoder = IMBEDecoderThreaded(
+                        output_rate=self.output_rate,
+                        input_rate=self.input_rate,
+                    )
+                    self._imbe_decoder.start()
+                    self._using_native = False
+                    logger.info("VoiceDecoder: Started IMBE decoder (threaded/DSD-FME)")
 
             elif self.vocoder_type == VocoderType.AMBE2:
                 self._ambe_decoder = AMBEDecoder(
@@ -143,7 +200,7 @@ class VoiceDecoder:
 
             self.running = True
 
-        except (IMBEDecoderError, AMBEDecoderError) as e:
+        except (IMBEDecoderError, IMBENativeError, AMBEDecoderError) as e:
             raise VoiceDecoderError(str(e)) from e
 
     async def stop(self) -> None:
@@ -152,8 +209,15 @@ class VoiceDecoder:
             return
 
         self.running = False
+        backend = "native" if self._using_native else "threaded"
 
         # Stop the active decoder
+        if self._imbe_native:
+            self._imbe_native.stop()
+            self._stats.frames_decoded = self._imbe_native.frames_decoded
+            self._stats.frames_dropped = self._imbe_native.frames_dropped
+            self._imbe_native = None
+
         if self._imbe_decoder:
             # Threaded decoder uses sync stop
             self._imbe_decoder.stop()
@@ -168,7 +232,7 @@ class VoiceDecoder:
             self._ambe_decoder = None
 
         logger.info(
-            f"VoiceDecoder: Stopped ({self.vocoder_type.value}, "
+            f"VoiceDecoder: Stopped ({self.vocoder_type.value}/{backend}, "
             f"decoded={self._stats.frames_decoded}, dropped={self._stats.frames_dropped})"
         )
 
@@ -182,7 +246,10 @@ class VoiceDecoder:
         if not self.running:
             return
 
-        if self._imbe_decoder:
+        if self._imbe_native:
+            # Native decoder uses sync decode (thread-safe)
+            self._imbe_native.decode(discriminator_audio)
+        elif self._imbe_decoder:
             # Threaded decoder uses sync decode (thread-safe)
             self._imbe_decoder.decode(discriminator_audio)
         elif self._ambe_decoder:
@@ -199,7 +266,10 @@ class VoiceDecoder:
             return None
 
         audio = None
-        if self._imbe_decoder:
+        if self._imbe_native:
+            # Native decoder uses sync get_audio (non-blocking)
+            audio = self._imbe_native.get_audio()
+        elif self._imbe_decoder:
             # Threaded decoder uses sync get_audio (non-blocking)
             audio = self._imbe_decoder.get_audio()
         elif self._ambe_decoder:
@@ -226,7 +296,10 @@ class VoiceDecoder:
             return None
 
         audio = None
-        if self._imbe_decoder:
+        if self._imbe_native:
+            # Native decoder uses sync get_audio_blocking
+            audio = self._imbe_native.get_audio_blocking(timeout)
+        elif self._imbe_decoder:
             # Threaded decoder uses sync get_audio_blocking
             audio = self._imbe_decoder.get_audio_blocking(timeout)
         elif self._ambe_decoder:
@@ -245,7 +318,10 @@ class VoiceDecoder:
     def get_stats(self) -> dict[str, Any]:
         """Get decoder statistics."""
         # Update stats from active decoder
-        if self._imbe_decoder:
+        if self._imbe_native:
+            self._stats.frames_decoded = self._imbe_native.frames_decoded
+            self._stats.frames_dropped = self._imbe_native.frames_dropped
+        elif self._imbe_decoder:
             self._stats.frames_decoded = self._imbe_decoder.frames_decoded
             self._stats.frames_dropped = self._imbe_decoder.frames_dropped
         elif self._ambe_decoder:
@@ -254,6 +330,7 @@ class VoiceDecoder:
 
         return {
             "vocoder_type": self.vocoder_type.value,
+            "backend": "native" if self._using_native else "threaded",
             "running": self.running,
             "frames_decoded": self._stats.frames_decoded,
             "frames_dropped": self._stats.frames_dropped,
@@ -267,6 +344,7 @@ def create_voice_decoder(
     output_rate: int = 48000,
     input_rate: int = 48000,
     timeslot: int = 0,
+    prefer_native: bool = True,
 ) -> VoiceDecoder:
     """Create a voice decoder for the specified protocol.
 
@@ -275,6 +353,7 @@ def create_voice_decoder(
         output_rate: Target audio output sample rate
         input_rate: Input discriminator audio sample rate
         timeslot: For Phase II, which TDMA slot to decode
+        prefer_native: Use mbelib-neo native decoder when available
 
     Returns:
         Configured VoiceDecoder instance
@@ -291,4 +370,5 @@ def create_voice_decoder(
         output_rate=output_rate,
         input_rate=input_rate,
         timeslot=timeslot,
+        prefer_native=prefer_native,
     )
