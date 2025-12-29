@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Radio, Antenna, Plus, X, Settings } from "lucide-react";
 import type { DeviceTab } from "../types";
+import type { ViewMode } from "./ModeTabBar";
 import { formatFrequencyMHz } from "../utils/frequency";
 import Button from "./primitives/Button.react";
 import {
@@ -14,6 +15,8 @@ interface DeviceTabBarProps {
   deviceTabs: DeviceTab[];
   /** Currently selected device ID */
   selectedDeviceId: string | null;
+  /** Current view mode (radio, trunking, etc.) - determines add button behavior */
+  currentMode: ViewMode;
   /** Callback when a device is selected */
   onSelectDevice: (deviceId: string) => void;
   /** Callback to create a new capture */
@@ -40,6 +43,7 @@ interface DeviceTabBarProps {
 export function DeviceTabBar({
   deviceTabs,
   selectedDeviceId,
+  currentMode,
   onSelectDevice,
   onCreateCapture,
   onCreateTrunkingSystem,
@@ -47,8 +51,30 @@ export function DeviceTabBar({
   onDeleteTrunkingSystem,
   onOpenSettings,
 }: DeviceTabBarProps) {
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(
+    null,
+  );
+
+  // Determine add button config based on current mode
+  const getAddButtonConfig = () => {
+    if (currentMode === "trunking" && onCreateTrunkingSystem) {
+      return {
+        icon: <Antenna size={14} />,
+        label: "Add Trunking",
+        title: "Add new trunking system",
+        onClick: onCreateTrunkingSystem,
+      };
+    }
+    // Default to radio for "radio", "digital", "system" modes
+    return {
+      icon: <Radio size={14} />,
+      label: "Add Radio",
+      title: "Add new radio capture",
+      onClick: onCreateCapture,
+    };
+  };
+
+  const addButton = getAddButtonConfig();
 
   if (deviceTabs.length === 0) {
     return (
@@ -59,7 +85,13 @@ export function DeviceTabBar({
           <Plus size={14} className="me-1" />
           Add Radio
         </Button>
-        <Button size="sm" use="secondary" appearance="outline" onClick={onOpenSettings} className="ms-auto">
+        <Button
+          size="sm"
+          use="secondary"
+          appearance="outline"
+          onClick={onOpenSettings}
+          className="ms-auto"
+        >
           <Settings size={14} />
         </Button>
       </div>
@@ -99,65 +131,23 @@ export function DeviceTabBar({
           size="sm"
           use="light"
           appearance="outline"
-          onClick={() => setShowAddModal(true)}
-          title="Add radio or trunking system"
+          onClick={addButton.onClick}
+          title={addButton.title}
+          className="d-flex align-items-center gap-1"
         >
-          <Plus size={14} />
+          <Plus size={12} />
+          {addButton.icon}
         </Button>
-        <Button size="sm" use="secondary" appearance="outline" onClick={onOpenSettings} title="Device settings">
+        <Button
+          size="sm"
+          use="secondary"
+          appearance="outline"
+          onClick={onOpenSettings}
+          title="Device settings"
+        >
           <Settings size={14} />
         </Button>
       </div>
-
-      {/* Add Radio/Trunking Modal */}
-      {showAddModal && (
-        <div
-          className="modal d-block"
-          style={{ backgroundColor: "rgba(0,0,0,0.5)" }}
-          onClick={() => setShowAddModal(false)}
-        >
-          <div
-            className="modal-dialog modal-dialog-centered modal-sm"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-content">
-              <div className="modal-header py-2">
-                <h6 className="modal-title">Add New</h6>
-                <button
-                  type="button"
-                  className="btn-close btn-close-sm"
-                  onClick={() => setShowAddModal(false)}
-                  aria-label="Close"
-                />
-              </div>
-              <div className="modal-body d-flex flex-column gap-2">
-                <button
-                  className="btn btn-outline-primary d-flex align-items-center gap-2"
-                  onClick={() => {
-                    setShowAddModal(false);
-                    onCreateCapture();
-                  }}
-                >
-                  <Radio size={16} />
-                  Add Radio
-                </button>
-                {onCreateTrunkingSystem && (
-                  <button
-                    className="btn btn-outline-secondary d-flex align-items-center gap-2"
-                    onClick={() => {
-                      setShowAddModal(false);
-                      onCreateTrunkingSystem();
-                    }}
-                  >
-                    <Antenna size={16} />
-                    Add Trunking System
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
@@ -182,14 +172,18 @@ export function DeviceTabBar({
               </div>
               <div className="modal-body">
                 {(() => {
-                  const tab = deviceTabs.find((t) => t.deviceId === showDeleteConfirm);
+                  const tab = deviceTabs.find(
+                    (t) => t.deviceId === showDeleteConfirm,
+                  );
                   if (!tab) return null;
                   return (
                     <div>
                       <p className="mb-2">Delete this device configuration?</p>
                       <ul className="small text-muted mb-0">
                         {tab.capture && <li>Radio capture and all channels</li>}
-                        {tab.trunkingSystem && <li>Trunking system: {tab.trunkingSystem.name}</li>}
+                        {tab.trunkingSystem && (
+                          <li>Trunking system: {tab.trunkingSystem.name}</li>
+                        )}
                       </ul>
                     </div>
                   );
@@ -205,7 +199,9 @@ export function DeviceTabBar({
                 <button
                   className="btn btn-sm btn-danger"
                   onClick={() => {
-                    const tab = deviceTabs.find((t) => t.deviceId === showDeleteConfirm);
+                    const tab = deviceTabs.find(
+                      (t) => t.deviceId === showDeleteConfirm,
+                    );
                     if (tab) handleDeleteDevice(tab);
                   }}
                 >
@@ -237,7 +233,12 @@ function getModeIndicatorTooltip(tab: DeviceTab): string {
   return modes.join(" + ") + " available";
 }
 
-function DeviceTabItem({ tab, isSelected, onSelect, onDelete }: DeviceTabItemProps) {
+function DeviceTabItem({
+  tab,
+  isSelected,
+  onSelect,
+  onDelete,
+}: DeviceTabItemProps) {
   // Get status props for radio (capture)
   const radioStatus = tab.capture
     ? getCaptureStatusProps(tab.capture.state)
@@ -249,24 +250,26 @@ function DeviceTabItem({ tab, isSelected, onSelect, onDelete }: DeviceTabItemPro
         tab.trunkingSystem.state,
         tab.controlChannelState,
         tab.activeCalls,
-        tab.isManuallyLocked
+        tab.isManuallyLocked,
       )
     : null;
 
   // Determine icon colors based on running states
-  const radioIconColor = tab.capture?.state === "running"
-    ? "text-success"
-    : tab.capture?.state === "failed" || tab.capture?.state === "error"
-    ? "text-danger"
-    : "text-secondary";
+  const radioIconColor =
+    tab.capture?.state === "running"
+      ? "text-success"
+      : tab.capture?.state === "failed" || tab.capture?.state === "error"
+        ? "text-danger"
+        : "text-secondary";
 
-  const trunkingIconColor = tab.trunkingSystem?.state === "running"
-    ? tab.controlChannelState === "lost"
-      ? "text-danger"
-      : "text-success"
-    : tab.trunkingSystem?.state === "failed"
-    ? "text-danger"
-    : "text-secondary";
+  const trunkingIconColor =
+    tab.trunkingSystem?.state === "running"
+      ? tab.controlChannelState === "lost"
+        ? "text-danger"
+        : "text-success"
+      : tab.trunkingSystem?.state === "failed"
+        ? "text-danger"
+        : "text-secondary";
 
   return (
     <div
@@ -280,13 +283,12 @@ function DeviceTabItem({ tab, isSelected, onSelect, onDelete }: DeviceTabItemPro
       onClick={onSelect}
     >
       {/* Mode indicators */}
-      <div className="d-flex flex-column gap-1" title={getModeIndicatorTooltip(tab)}>
-        {tab.hasRadio && (
-          <Radio size={12} className={radioIconColor} />
-        )}
-        {tab.hasTrunking && (
-          <Antenna size={12} className={trunkingIconColor} />
-        )}
+      <div
+        className="d-flex flex-column gap-1"
+        title={getModeIndicatorTooltip(tab)}
+      >
+        {tab.hasRadio && <Radio size={12} className={radioIconColor} />}
+        {tab.hasTrunking && <Antenna size={12} className={trunkingIconColor} />}
       </div>
 
       {/* Device info */}
@@ -299,9 +301,15 @@ function DeviceTabItem({ tab, isSelected, onSelect, onDelete }: DeviceTabItemPro
         </span>
         <span
           className="text-truncate"
-          style={{ fontSize: "0.7rem", maxWidth: "140px", color: isSelected ? "#6c757d" : "#adb5bd" }}
+          style={{
+            fontSize: "0.7rem",
+            maxWidth: "140px",
+            color: isSelected ? "#6c757d" : "#adb5bd",
+          }}
         >
-          {tab.frequencyHz > 0 ? `${formatFrequencyMHz(tab.frequencyHz)} MHz` : "No frequency set"}
+          {tab.frequencyHz > 0
+            ? `${formatFrequencyMHz(tab.frequencyHz)} MHz`
+            : "No frequency set"}
         </span>
       </div>
 

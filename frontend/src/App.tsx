@@ -127,6 +127,7 @@ function AppContent() {
           <DeviceTabBar
             deviceTabs={deviceTabs}
             selectedDeviceId={selectedDeviceId}
+            currentMode={viewMode}
             onSelectDevice={handleSelectDevice}
             onCreateCapture={() => setShowWizard(true)}
             onCreateTrunkingSystem={() => setShowTrunkingWizard(true)}
