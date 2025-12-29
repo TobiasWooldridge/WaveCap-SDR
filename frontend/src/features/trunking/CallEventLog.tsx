@@ -82,18 +82,7 @@ function getEventIcon(type: string, encrypted?: boolean) {
   }
 }
 
-function getEventClass(type: string): string {
-  switch (type) {
-    case "start":
-      return "border-start border-success border-2";
-    case "end":
-      return "border-start border-secondary border-2";
-    default:
-      return "";
-  }
-}
-
-export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
+export function CallEventLog({ events, maxHeight = 400 }: CallEventLogProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
 
@@ -313,8 +302,8 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
       {/* Event list */}
       <div
         ref={scrollRef}
-        className="bg-body-tertiary rounded overflow-auto flex-grow-1"
-        style={{ maxHeight, fontSize: "0.75rem" }}
+        className="bg-body-tertiary rounded overflow-auto font-monospace flex-grow-1"
+        style={{ maxHeight, fontSize: "0.7rem" }}
         onScroll={handleScroll}
       >
         {filteredEvents.length === 0 ? (
@@ -326,13 +315,12 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
             {filteredEvents.map((event) => (
               <div
                 key={`${event.id}-${event.type}-${event.timestamp}`}
-                className={`d-flex align-items-center gap-2 px-2 py-1 ${getEventClass(event.type)}`}
-                style={{ borderBottom: "1px solid var(--bs-border-color)" }}
+                className="d-flex align-items-start gap-2 px-2 py-1 border-bottom"
               >
                 {/* Time with milliseconds */}
                 <span
-                  className="text-body-secondary font-monospace"
-                  style={{ width: "75px" }}
+                  className="text-body-secondary"
+                  style={{ minWidth: "85px" }}
                 >
                   {formatTime(event.timestamp)}
                   <span className="opacity-75">
@@ -402,8 +390,8 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
 
                 {/* Frequency */}
                 <span
-                  className="font-monospace text-body-secondary"
-                  style={{ width: "65px" }}
+                  className="text-body-secondary"
+                  style={{ minWidth: "60px" }}
                   title="Voice Channel Frequency"
                 >
                   {formatFrequency(event.frequencyHz)}
