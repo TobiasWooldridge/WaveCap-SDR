@@ -223,9 +223,17 @@ export function TalkgroupDirectory({
                     <div className="fw-semibold" title={tg.name}>
                       {tg.name}
                     </div>
-                    <small className="text-muted" title={tg.alphaTag}>
-                      {tg.alphaTag}
-                    </small>
+                    {/* Only show alphaTag if it's meaningfully different from name
+                        (not just a truncated/mangled version) */}
+                    {tg.alphaTag &&
+                      !tg.name
+                        .toUpperCase()
+                        .replace(/\s+/g, "_")
+                        .startsWith(tg.alphaTag) && (
+                        <small className="text-muted" title={tg.alphaTag}>
+                          {tg.alphaTag}
+                        </small>
+                      )}
                   </td>
                   <td>
                     {tg.category && (
