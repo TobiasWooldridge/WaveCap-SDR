@@ -165,6 +165,10 @@ class ControlChannelScanner:
     def _measure_channel(self, iq: np.ndarray, freq_hz: float) -> ChannelMeasurement:
         """Measure signal strength at a specific frequency.
 
+        Uses adjacent-channel noise measurement for accurate SNR estimation.
+        P25 control channels transmit continuously with constant-envelope
+        modulation, so we can't use "quiet periods" for noise estimation.
+
         Args:
             iq: Wideband IQ samples
             freq_hz: Target frequency in Hz
@@ -204,14 +208,39 @@ class ControlChannelScanner:
         else:
             decimated_iq = shifted_iq
 
-        # Calculate signal power
+        # Calculate signal power in channel
         signal_power = np.mean(np.abs(decimated_iq) ** 2)
         peak_power = np.max(np.abs(decimated_iq) ** 2)
 
-        # Estimate noise floor from quietest 10% of samples
-        sorted_power = np.sort(np.abs(decimated_iq) ** 2)
-        noise_samples = sorted_power[:max(1, len(sorted_power) // 10)]
-        noise_floor = np.mean(noise_samples)
+        # Estimate noise floor from EDGES of capture bandwidth
+        # This is more accurate than adjacent channels which may have other signals
+        # With a 6 MHz sample rate centered at 415 MHz, edges are at ~412-418 MHz
+        # Use ±2.8 MHz to stay within valid bandwidth but away from trunking signals
+        noise_powers = []
+        max_offset = self.sample_rate / 2 - 15000  # Stay 15 kHz from Nyquist edge
+
+        # Sample noise at the edges of the capture bandwidth (away from signals)
+        edge_offsets = [-max_offset + 25000, max_offset - 25000]  # 25 kHz from edges
+        for edge_offset in edge_offsets:
+            noise_iq = freq_shift(iq, edge_offset, self.sample_rate)
+            if decim_factor > 1:
+                noise_filtered = scipy_signal.lfilter(
+                    _SCANNER_DECIM_FILTER_TAPS, 1.0, noise_iq
+                )
+                noise_decimated = noise_filtered[::decim_factor]
+            else:
+                noise_decimated = noise_iq
+            noise_powers.append(np.mean(np.abs(noise_decimated) ** 2))
+
+        if noise_powers:
+            # Use the lower of the two edge measurements as noise floor
+            # (in case one edge still has some signal)
+            noise_floor = min(noise_powers)
+        else:
+            # Fallback: use quietest 5% of samples (less reliable)
+            sorted_power = np.sort(np.abs(decimated_iq) ** 2)
+            noise_samples = sorted_power[:max(1, len(sorted_power) // 20)]
+            noise_floor = np.mean(noise_samples)
 
         # Convert to dB
         eps = 1e-12  # Avoid log(0)
