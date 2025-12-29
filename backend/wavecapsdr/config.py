@@ -45,6 +45,17 @@ class DeviceConfig:
 
 
 @dataclass
+class MCPConfig:
+    """Configuration for MCP (Model Context Protocol) server."""
+
+    # Enable MCP server endpoint
+    enabled: bool = False
+    # API key for authentication (required if enabled)
+    # Can be set via environment variable WAVECAP_MCP_KEY
+    api_key: str | None = None
+
+
+@dataclass
 class RecoveryConfig:
     """Configuration for automatic device recovery."""
 
@@ -130,6 +141,7 @@ class AppConfig:
     limits: LimitsConfig = field(default_factory=LimitsConfig)
     device: DeviceConfig = field(default_factory=DeviceConfig)
     recovery: RecoveryConfig = field(default_factory=RecoveryConfig)
+    mcp: MCPConfig = field(default_factory=MCPConfig)
     presets: dict[str, PresetConfig] = field(default_factory=dict)
     recipes: dict[str, RecipeConfig] = field(default_factory=dict)
     captures: list[CaptureStartConfig] = field(default_factory=list)
@@ -185,6 +197,22 @@ def load_config(path_str: str) -> AppConfig:
     limits = LimitsConfig(**raw.get("limits", {}))
     device = DeviceConfig(**raw.get("device", {}))
     recovery = RecoveryConfig(**raw.get("recovery", {}))
+
+    # Parse MCP config with environment variable support
+    mcp_raw = raw.get("mcp", {})
+    if isinstance(mcp_raw, dict):
+        # Support environment variable for API key
+        api_key = mcp_raw.get("api_key")
+        if api_key is None or api_key == "${WAVECAP_MCP_KEY}":
+            # Check environment variable
+            from os import environ
+            api_key = environ.get("WAVECAP_MCP_KEY")
+        mcp = MCPConfig(
+            enabled=mcp_raw.get("enabled", False),
+            api_key=api_key,
+        )
+    else:
+        mcp = MCPConfig()
 
     # Parse presets
     presets: dict[str, PresetConfig] = {}
@@ -253,6 +281,7 @@ def load_config(path_str: str) -> AppConfig:
         limits=limits,
         device=device,
         recovery=recovery,
+        mcp=mcp,
         presets=presets,
         recipes=recipes,
         captures=captures,

@@ -16,6 +16,7 @@ from slowapi.util import get_remote_address
 from .api import router as api_router
 from .config import AppConfig
 from .device_namer import generate_capture_name, get_device_nickname
+from .mcp_server import router as mcp_router
 from .state import AppState
 from .trunking.api import router as trunking_router
 
@@ -310,6 +311,7 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
 
     app.include_router(api_router, prefix="/api/v1")
     app.include_router(trunking_router, prefix="/api/v1")
+    app.include_router(mcp_router, prefix="/api/v1")
 
     # Serve static files
     static_dir = Path(__file__).parent / "static"

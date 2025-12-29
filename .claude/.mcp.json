@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "wavecap-sdr": {
+      "type": "sse",
+      "url": "http://localhost:8087/api/v1/mcp",
+      "headers": {
+        "X-MCP-API-Key": "${WAVECAP_MCP_KEY}"
+      }
+    }
+  }
+}
