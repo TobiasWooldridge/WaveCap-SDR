@@ -617,8 +617,8 @@ trunking:
       - 417.7625 MHz   # +2387.5 kHz from center
       device_id: driver=sdrplay,serial=240309F070
       # Gain: IFGR for SDRplay (20-59, lower = more gain)
-      # Signal was too weak at 40, trying 25 for better reception
-      gain: 25
+      # Using 5 for maximum gain
+      gain: 5
       sample_rate: 6000000
       id: sa_grn_2
       max_voice_recorders: 2
