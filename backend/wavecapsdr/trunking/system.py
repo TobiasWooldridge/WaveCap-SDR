@@ -676,9 +676,14 @@ class TrunkingSystem:
         # From 6 MHz: need 240x total decimation to get 25 kHz
         # Three-stage approach: 30:1 → 4:1 → 2:1 = 240:1 total
         #
-        # Stage 1: 6 MHz → 200 kHz (30:1 decimation)
-        # Stage 2: 200 kHz → 50 kHz (4:1 decimation)
-        # Stage 3: 50 kHz → 25 kHz (2:1 decimation) - matches SDRTrunk
+        # Two-stage decimation: 6 MHz → 200 kHz → 50 kHz
+        #
+        # We tested with SDRTrunk recording and found:
+        # - 50 kHz: 90.7% CRC pass rate ✓
+        # - 25 kHz (after additional 2:1 decimation): 37.1% ✗
+        #
+        # The C4FM demodulator works fine at 50 kHz (10.4 SPS).
+        # SDRTrunk records at 50 kHz, so this matches their approach.
         # ================================================================
 
         input_rate = self.cfg.sample_rate  # e.g., 6 MHz
@@ -687,17 +692,14 @@ class TrunkingSystem:
         stage1_factor = 30
         stage1_rate = input_rate // stage1_factor  # 200 kHz
 
-        # Stage 2: Intermediate decimation to 50 kHz
+        # Stage 2: Final decimation to 50 kHz (10.4 SPS)
+        # This matches SDRTrunk's recording sample rate
         stage2_factor = 4
         stage2_rate = stage1_rate // stage2_factor  # 50 kHz
 
-        # Stage 3: Final decimation to 25 kHz (5.2 SPS, matches SDRTrunk)
-        stage3_factor = 2
-        stage3_rate = stage2_rate // stage3_factor  # 25 kHz
-
-        # Final output rate
-        actual_sample_rate = stage3_rate
-        total_decim = stage1_factor * stage2_factor * stage3_factor
+        # Final output rate - stay at 50 kHz
+        actual_sample_rate = stage2_rate
+        total_decim = stage1_factor * stage2_factor
 
         # Create ControlChannelMonitor with actual sample rate for correct timing
         self._control_monitor = create_control_monitor(
@@ -757,21 +759,12 @@ class TrunkingSystem:
         # Store lfilter_zi as template - will be scaled by first sample
         stage2_zi_template = scipy_signal.lfilter_zi(stage2_taps, 1.0).astype(np.complex128)
 
-        # Design Stage 3 anti-aliasing filter (50 kHz → 25 kHz)
-        # Cutoff at 0.8 * (stage3_rate/2) / (stage2_rate/2) = 0.8 / stage3_factor
-        # Use Kaiser window with beta=7.857 for 80 dB stopband attenuation (matches SDRTrunk)
-        stage3_normalized_cutoff = 0.8 / stage3_factor
-        stage3_taps = scipy_signal.firwin(
-            41, stage3_normalized_cutoff, window=("kaiser", 7.857)
-        )
-        # Store lfilter_zi as template - will be scaled by first sample
-        stage3_zi_template = scipy_signal.lfilter_zi(stage3_taps, 1.0).astype(np.complex128)
+        # No Stage 3 - we stay at 50 kHz where testing showed 90.7% CRC pass rate
 
         logger.info(
-            f"TrunkingSystem {self.cfg.id}: Three-stage decimation: "
+            f"TrunkingSystem {self.cfg.id}: Two-stage decimation: "
             f"{input_rate/1e6:.1f} MHz → {stage1_rate/1e3:.1f} kHz ({stage1_factor}:1, {len(stage1_taps)} taps) → "
-            f"{stage2_rate/1e3:.1f} kHz ({stage2_factor}:1, {len(stage2_taps)} taps) → "
-            f"{stage3_rate/1e3:.1f} kHz ({stage3_factor}:1, {len(stage3_taps)} taps), "
+            f"{stage2_rate/1e3:.1f} kHz ({stage2_factor}:1, {len(stage2_taps)} taps), "
             f"total {total_decim}:1"
         )
 
@@ -782,7 +775,6 @@ class TrunkingSystem:
         filter_state = {
             "stage1_zi": None,  # Initialized on first chunk
             "stage2_zi": None,  # Initialized on first chunk
-            "stage3_zi": None,  # Initialized on first chunk
         }
 
         # Debug counter for IQ flow monitoring
@@ -921,7 +913,6 @@ class TrunkingSystem:
                 # Reset filter states to None - will be re-initialized with first sample
                 filter_state["stage1_zi"] = None
                 filter_state["stage2_zi"] = None
-                filter_state["stage3_zi"] = None
                 # Reset frequency shift phase (sample index back to 0)
                 freq_shift_state["sample_idx"] = 0
                 # Clear the IQ buffer (contains corrupted partial data)
@@ -1108,16 +1099,8 @@ class TrunkingSystem:
                     )
                     decimated2 = filtered2[::stage2_factor]
 
-                # Stage 3: Decimate by 2 (50 kHz → 25 kHz) - matches SDRTrunk
-                with _iq_profiler.measure("decim_stage3"):
-                    # Initialize stage3_zi with first sample to prevent transient
-                    if filter_state["stage3_zi"] is None:
-                        filter_state["stage3_zi"] = stage3_zi_template * decimated2[0]
-                    filtered3, filter_state["stage3_zi"] = scipy_signal.lfilter(
-                        stage3_taps, 1.0, decimated2,
-                        zi=filter_state["stage3_zi"]
-                    )
-                    decimated_iq = filtered3[::stage3_factor]
+                # No Stage 3 - stay at 50 kHz (tested: 90.7% CRC pass rate)
+                decimated_iq = decimated2
 
                 # [DIAG-DECIM] Decimation diagnostics
                 if iq_debug_state["calls"] % 100 == 0:
@@ -1125,18 +1108,13 @@ class TrunkingSystem:
                     power_filt1 = float(np.mean(np.abs(filtered1)**2))  # After filter, before decim
                     power_stage1 = float(np.mean(np.abs(decimated1)**2))
                     power_filt2 = float(np.mean(np.abs(filtered2)**2))  # After filter, before decim
-                    power_stage2 = float(np.mean(np.abs(decimated2)**2))
-                    power_filt3 = float(np.mean(np.abs(filtered3)**2))  # After filter, before decim
                     power_out = float(np.mean(np.abs(decimated_iq)**2))
                     # Use scientific notation to see actual values - show filter vs decim power loss
                     logger.info(
                         f"[DIAG-DECIM] Stage1: in={power_in:.2e}, filtered={power_filt1:.2e}, decim={power_stage1:.2e}"
                     )
                     logger.info(
-                        f"[DIAG-DECIM] Stage2: in={power_stage1:.2e}, filtered={power_filt2:.2e}, decim={power_stage2:.2e}"
-                    )
-                    logger.info(
-                        f"[DIAG-DECIM] Stage3: in={power_stage2:.2e}, filtered={power_filt3:.2e}, decim={power_out:.2e}"
+                        f"[DIAG-DECIM] Stage2: in={power_stage1:.2e}, filtered={power_filt2:.2e}, out={power_out:.2e}"
                     )
             else:
                 decimated_iq = centered_iq
