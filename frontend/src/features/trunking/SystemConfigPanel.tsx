@@ -274,19 +274,20 @@ export function SystemConfigPanel({ system }: SystemConfigPanelProps) {
                 </span>
               </div>
 
-              <ControlChannelHeaders />
-
-              <div className="d-flex flex-column">
-                {channels.map((channel) => (
-                  <ControlChannelRow
-                    key={channel.frequencyHz}
-                    channel={channel}
-                    systemId={system.id}
-                    isLocking={setHuntModeMutation.isPending}
-                    huntMode={system.huntMode}
-                  />
-                ))}
-              </div>
+              <table className="table table-sm table-borderless mb-0" style={{ tableLayout: "fixed" }}>
+                <ControlChannelHeaders />
+                <tbody>
+                  {channels.map((channel) => (
+                    <ControlChannelRow
+                      key={channel.frequencyHz}
+                      channel={channel}
+                      systemId={system.id}
+                      isLocking={setHuntModeMutation.isPending}
+                      huntMode={system.huntMode}
+                    />
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

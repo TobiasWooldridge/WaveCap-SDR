@@ -33,7 +33,10 @@ export function ControlChannelPanel({ system }: ControlChannelPanelProps) {
     setShowHelp(!showHelp);
   };
 
-  const channels = system.controlChannels || [];
+  // Sort channels by frequency
+  const channels = [...(system.controlChannels || [])].sort(
+    (a, b) => a.frequencyHz - b.frequencyHz
+  );
   if (channels.length === 0) {
     return null;
   }
@@ -123,19 +126,20 @@ export function ControlChannelPanel({ system }: ControlChannelPanelProps) {
         <div className="card-body py-1 px-2">
           {showHelp && <HuntModeHelp />}
 
-          <ControlChannelHeaders />
-
-          <div className="d-flex flex-column">
-            {channels.map((channel) => (
-              <ControlChannelRow
-                key={channel.frequencyHz}
-                channel={channel}
-                systemId={system.id}
-                isLocking={setHuntModeMutation.isPending}
-                huntMode={system.huntMode}
-              />
-            ))}
-          </div>
+          <table className="table table-sm table-borderless mb-0" style={{ tableLayout: "fixed" }}>
+            <ControlChannelHeaders />
+            <tbody>
+              {channels.map((channel) => (
+                <ControlChannelRow
+                  key={channel.frequencyHz}
+                  channel={channel}
+                  systemId={system.id}
+                  isLocking={setHuntModeMutation.isPending}
+                  huntMode={system.huntMode}
+                />
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

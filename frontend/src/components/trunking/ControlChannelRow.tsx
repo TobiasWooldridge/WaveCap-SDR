@@ -65,68 +65,66 @@ export function ControlChannelRow({
     LockIcon = Unlock;
   }
 
+  const rowClass = [
+    isCurrentChannel ? "table-success" : "",
+    isLockedChannel ? "border border-warning" : "",
+    !channel.enabled ? "text-muted" : "",
+  ].filter(Boolean).join(" ");
+
   return (
-    <div
-      className={`d-flex align-items-center gap-2 py-1 px-2 rounded ${
-        isCurrentChannel ? "bg-success bg-opacity-25" : ""
-      } ${isLockedChannel ? "border border-warning" : ""}`}
-      style={{ fontSize: "0.8rem" }}
-    >
-      <input
-        type="checkbox"
-        checked={channel.enabled}
-        onChange={handleToggleEnabled}
-        disabled={enabledMutation.isPending}
-        className="form-check-input m-0"
-        style={{ cursor: "pointer", width: "14px", height: "14px" }}
-        title={
-          channel.enabled
-            ? "Disable channel from scan"
-            : "Enable channel for scan"
-        }
-      />
-      <span
-        className={`${!channel.enabled ? "text-muted" : ""}`}
-        style={{
-          minWidth: channel.name ? "140px" : "90px",
-          fontSize: "0.75rem",
-        }}
+    <tr className={rowClass} style={{ fontSize: "0.75rem" }}>
+      <td style={{ width: "40px", padding: "6px 12px" }}>
+        <input
+          type="checkbox"
+          checked={channel.enabled}
+          onChange={handleToggleEnabled}
+          disabled={enabledMutation.isPending}
+          className="form-check-input m-0"
+          style={{ cursor: "pointer", width: "14px", height: "14px" }}
+          title={
+            channel.enabled
+              ? "Disable channel from scan"
+              : "Enable channel for scan"
+          }
+        />
+      </td>
+      <td className="font-monospace" style={{ width: "110px", padding: "6px 12px" }}>
+        {formatFrequencyWithUnit(channel.frequencyHz)}
+      </td>
+      <td style={{ width: "100px", padding: "6px 12px" }}>
+        <SignalBar snrDb={channel.snrDb} />
+      </td>
+      <td style={{ width: "60px", padding: "6px 12px", textAlign: "center" }}>
+        <span
+          className={`badge ${channel.syncDetected ? "bg-success" : "bg-secondary"}`}
+          style={{ fontSize: "0.6rem", padding: "2px 4px" }}
+          title={channel.syncDetected ? "P25 sync detected" : "No sync"}
+        >
+          {channel.syncDetected ? "SYNC" : "----"}
+        </span>
+      </td>
+      <td style={{ width: "50px", padding: "6px 12px", textAlign: "center" }}>
+        <button
+          className={`btn btn-sm ${lockButtonClass}`}
+          onClick={handleLock}
+          disabled={isLocking || isPending || !channel.enabled}
+          title={lockTitle}
+          style={{ padding: "1px 4px", lineHeight: 1 }}
+        >
+          <LockIcon size={10} />
+        </button>
+      </td>
+      <td
+        style={{ padding: "6px 12px" }}
         title={formatFrequencyWithUnit(channel.frequencyHz)}
       >
         {channel.name ? (
-          <span className="d-flex align-items-center gap-1">
-            <span style={{ fontWeight: 500 }}>{channel.name}</span>
-            <span
-              className="font-monospace text-muted"
-              style={{ fontSize: "0.65rem" }}
-            >
-              {formatFrequencyWithUnit(channel.frequencyHz)}
-            </span>
-          </span>
+          <span style={{ fontWeight: 500 }}>{channel.name}</span>
         ) : (
-          <span className="font-monospace">
-            {formatFrequencyWithUnit(channel.frequencyHz)}
-          </span>
+          <span className="text-muted fst-italic">—</span>
         )}
-      </span>
-      <SignalBar snrDb={channel.snrDb} />
-      <span
-        className={`badge ${channel.syncDetected ? "bg-success" : "bg-secondary"}`}
-        style={{ fontSize: "0.6rem", minWidth: "32px", padding: "2px 4px" }}
-        title={channel.syncDetected ? "P25 sync detected" : "No sync"}
-      >
-        {channel.syncDetected ? "SYNC" : "----"}
-      </span>
-      <button
-        className={`btn btn-sm ${lockButtonClass}`}
-        onClick={handleLock}
-        disabled={isLocking || isPending || !channel.enabled}
-        title={lockTitle}
-        style={{ padding: "1px 4px", lineHeight: 1 }}
-      >
-        <LockIcon size={10} />
-      </button>
-    </div>
+      </td>
+    </tr>
   );
 }
 
@@ -135,22 +133,19 @@ export function ControlChannelRow({
  */
 export function ControlChannelHeaders() {
   return (
-    <div
-      className="d-flex align-items-center gap-2 py-1 px-2 text-muted border-bottom mb-1"
-      style={{ fontSize: "0.65rem" }}
-    >
-      <span
-        style={{ width: "14px" }}
-        title="Enable/disable channel for scanning"
-      >
-        En
-      </span>
-      <span style={{ minWidth: "90px" }}>Channel</span>
-      <span style={{ width: "80px" }}>SNR</span>
-      <span style={{ minWidth: "32px" }}>Sync</span>
-      <span style={{ width: "24px" }} title="Lock to channel">
-        Lock
-      </span>
-    </div>
+    <thead>
+      <tr className="text-muted" style={{ fontSize: "0.65rem", whiteSpace: "nowrap" }}>
+        <th style={{ width: "40px", padding: "6px 12px" }} title="Enable/disable channel">
+          En
+        </th>
+        <th style={{ width: "110px", padding: "6px 12px" }}>Frequency</th>
+        <th style={{ width: "100px", padding: "6px 12px" }}>SNR</th>
+        <th style={{ width: "60px", padding: "6px 12px", textAlign: "center" }}>Sync</th>
+        <th style={{ width: "50px", padding: "6px 12px", textAlign: "center" }} title="Lock to channel">
+          Lock
+        </th>
+        <th style={{ padding: "6px 12px" }}>Site Name</th>
+      </tr>
+    </thead>
   );
 }
