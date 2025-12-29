@@ -301,20 +301,20 @@ class IMBEDecoderNative:
         # Check for frames when we have enough dibits
         self._check_for_frame()
 
-    def _find_frame_sync(self, dibits: np.ndarray) -> int:
+    def _find_frame_sync(self, dibits: np.ndarray) -> tuple[int, bool]:
         """Find frame sync pattern in dibits.
 
-        Returns position of sync start, or -1 if not found.
+        Returns (position, is_reversed) tuple, or (-1, False) if not found.
         Uses correlation-based matching with threshold.
         """
         sync_len = len(FRAME_SYNC_DIBITS)
         if len(dibits) < sync_len:
-            return -1
+            return -1, False
 
         best_pos = -1
         best_score = 0
         best_is_reversed = False
-        threshold = sync_len - 6  # Allow up to 6 errors (18/24 = 75%)
+        threshold = sync_len - 7  # Allow up to 7 errors (17/24 = 71%)
 
         for i in range(len(dibits) - sync_len + 1):
             window = dibits[i:i + sync_len]
@@ -347,8 +347,8 @@ class IMBEDecoderNative:
             )
 
         if best_score >= threshold:
-            return best_pos
-        return -1
+            return best_pos, best_is_reversed
+        return -1, False
 
     def _check_for_frame(self) -> None:
         """Check if we have a complete P25 frame."""
@@ -367,7 +367,7 @@ class IMBEDecoderNative:
 
         # Search for frame sync in the buffer
         buffer_view = self._dibit_buffer[:self._frame_position]
-        sync_pos = self._find_frame_sync(buffer_view)
+        sync_pos, is_reversed = self._find_frame_sync(buffer_view)
 
         if sync_pos < 0:
             # Log periodically for diagnostics
@@ -378,6 +378,10 @@ class IMBEDecoderNative:
         # Need enough dibits after sync for NID (24 sync + 33 NID = 57)
         if sync_pos + 57 > self._frame_position:
             return
+
+        # Apply polarity correction if needed
+        if is_reversed:
+            buffer_view = buffer_view ^ 2
 
         # Extract NID (starts after 24-dibit sync)
         nid_start = sync_pos + 24
@@ -413,12 +417,17 @@ class IMBEDecoderNative:
                 frame_dibits = buffer_view[sync_pos:frame_end]
                 self._process_ldu(frame_dibits, is_ldu1=True)
                 self._consume_dibits(frame_end)
-            # else: wait for more dibits
+            elif sync_pos > 0:
+                # Shift buffer to put sync at start, making room for LDU data
+                self._consume_dibits(sync_pos)
         elif nid.duid == DUID.LDU2:
             if frame_end <= self._frame_position:
                 frame_dibits = buffer_view[sync_pos:frame_end]
                 self._process_ldu(frame_dibits, is_ldu1=False)
                 self._consume_dibits(frame_end)
+            elif sync_pos > 0:
+                # Shift buffer to put sync at start, making room for LDU data
+                self._consume_dibits(sync_pos)
         else:
             # Other frame types (TDU, HDU, etc.) - skip past
             self._consume_dibits(sync_pos + 24)
