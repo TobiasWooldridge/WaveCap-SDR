@@ -25,19 +25,41 @@ interface SystemStatusPanelProps {
 // Channel hunt timeout in seconds (should match backend config)
 const HUNT_TIMEOUT_SECONDS = 5;
 
+/**
+ * Get background class based on SNR value
+ * Excellent: > 15 dB → green
+ * Good: 10-15 dB → light green
+ * Fair: 5-10 dB → yellow/warning
+ * Poor: < 5 dB → red/danger
+ */
+function getSnrBackgroundClass(snrDb: number | null): string {
+  if (snrDb === null) return "bg-body-tertiary";
+  if (snrDb >= 15) return "bg-success bg-opacity-25";
+  if (snrDb >= 10) return "bg-success bg-opacity-10";
+  if (snrDb >= 5) return "bg-warning bg-opacity-25";
+  return "bg-danger bg-opacity-25";
+}
+
 interface StatBoxProps {
   label: string;
   value: string | number;
   unit?: string;
   highlight?: boolean;
+  bgClass?: string; // Custom background class (overrides highlight)
   info?: string;
 }
 
-function StatBox({ label, value, unit, highlight, info }: StatBoxProps) {
+function StatBox({
+  label,
+  value,
+  unit,
+  highlight,
+  bgClass,
+  info,
+}: StatBoxProps) {
+  const defaultBg = highlight ? "bg-success bg-opacity-25" : "bg-body-tertiary";
   return (
-    <div
-      className={`rounded p-2 text-center ${highlight ? "bg-success bg-opacity-25" : "bg-body-tertiary"}`}
-    >
+    <div className={`rounded p-2 text-center ${bgClass || defaultBg}`}>
       <small className="text-muted d-block" style={{ fontSize: "0.65rem" }}>
         {label}
         {info && <InfoTooltip content={info} />}
@@ -162,6 +184,7 @@ export function SystemStatusPanel({
               label="SNR"
               value={snr !== null ? snr.toFixed(1) : "---"}
               unit={snr !== null ? "dB" : undefined}
+              bgClass={getSnrBackgroundClass(snr)}
               info="Signal-to-Noise Ratio in decibels. Higher is better. Above 10 dB is good, above 15 dB is excellent."
             />
           </div>

@@ -99,7 +99,7 @@ function MetricCard({
     <div className="card h-100">
       <div className="card-body p-2">
         <div className="d-flex align-items-center gap-2 mb-1">
-          <span className={color}>{icon}</span>
+          <span className={`d-flex ${color}`}>{icon}</span>
           <span className="text-muted small">{label}</span>
         </div>
         <div className="d-flex align-items-baseline gap-2">
@@ -147,8 +147,12 @@ function CaptureMetricsCard({
         style={{ cursor: "pointer" }}
         onClick={onToggle}
       >
-        {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        <Radio size={14} className={stateColor} />
+        <span className="d-flex">
+          {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </span>
+        <span className={`d-flex ${stateColor}`}>
+          <Radio size={14} />
+        </span>
         <span className="fw-medium small">{metrics.captureId.slice(0, 8)}</span>
         <span
           className={`badge ${stateColor === "text-success" ? "bg-success" : stateColor === "text-danger" ? "bg-danger" : "bg-secondary"}`}
@@ -157,7 +161,9 @@ function CaptureMetricsCard({
           {metrics.state}
         </span>
         {hasErrors && (
-          <AlertTriangle size={12} className="text-warning ms-auto" />
+          <span className="d-flex ms-auto">
+            <AlertTriangle size={12} className="text-warning" />
+          </span>
         )}
         <span className="text-muted small ms-auto">
           {metrics.channelCount} channels
@@ -233,7 +239,9 @@ function ErrorSummary({ errors, onClear }: ErrorSummaryProps) {
   return (
     <div className="card border-warning mb-3">
       <div className="card-header bg-warning bg-opacity-10 d-flex align-items-center gap-2 py-1 px-2">
-        <AlertTriangle size={14} className="text-warning" />
+        <span className="d-flex text-warning">
+          <AlertTriangle size={14} />
+        </span>
         <span className="fw-medium small">Recent Errors ({errors.length})</span>
         <button
           className="btn btn-sm btn-outline-secondary ms-auto"
@@ -352,12 +360,16 @@ export function SystemPanel() {
       <div className="d-flex align-items-center gap-2 px-3 py-1 border-bottom bg-body-secondary">
         {isConnected ? (
           <>
-            <Wifi size={14} className="text-success" />
+            <span className="d-flex text-success">
+              <Wifi size={14} />
+            </span>
             <span className="small text-success">Connected</span>
           </>
         ) : (
           <>
-            <WifiOff size={14} className="text-danger" />
+            <span className="d-flex text-danger">
+              <WifiOff size={14} />
+            </span>
             <span className="small text-danger">Disconnected</span>
           </>
         )}
@@ -438,7 +450,9 @@ export function SystemPanel() {
         {systemMetrics && systemMetrics.cpuPerCore.length > 0 && (
           <div className="card mb-3">
             <div className="card-header py-1 px-2 d-flex align-items-center gap-2">
-              <Cpu size={14} />
+              <span className="d-flex">
+                <Cpu size={14} />
+              </span>
               <span className="small fw-medium">CPU Cores</span>
             </div>
             <div className="card-body p-2">
