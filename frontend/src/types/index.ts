@@ -129,6 +129,10 @@ export interface Channel {
   // Error indicators
   audioDropCount: number;
   audioDropRate: number; // Drops per second
+
+  // POCSAG decoding settings (NBFM only)
+  enablePocsag?: boolean;
+  pocsagBaud?: number;
 }
 
 // RDS (Radio Data System) data for FM broadcast
@@ -151,6 +155,7 @@ export interface POCSAGMessage {
   message: string; // Decoded message content
   timestamp: number; // Unix timestamp
   baudRate: number; // 512, 1200, or 2400
+  alias?: string | null; // Human-readable name from config (e.g., "CFS Dispatch")
 }
 
 export interface UpdateCaptureRequest {

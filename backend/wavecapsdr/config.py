@@ -136,6 +136,8 @@ class AppConfig:
     device_names: dict[str, str] = field(default_factory=dict)  # device_id -> custom name
     # Raw trunking system configs (parsed into TrunkingSystemConfig objects in state.py)
     trunking_systems: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # POCSAG capcode aliases (capcode -> friendly name, e.g., 1234567 -> "CFS Dispatch")
+    pocsag_aliases: dict[int, str] = field(default_factory=dict)
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -235,6 +237,16 @@ def load_config(path_str: str) -> AppConfig:
                 if isinstance(sys_data, dict):
                     trunking_systems[sys_id] = sys_data
 
+    # Parse POCSAG capcode aliases (capcode -> friendly name)
+    pocsag_aliases: dict[int, str] = {}
+    pocsag_aliases_raw = raw.get("pocsag_aliases", {})
+    if isinstance(pocsag_aliases_raw, dict):
+        for capcode, name in pocsag_aliases_raw.items():
+            try:
+                pocsag_aliases[int(capcode)] = str(name)
+            except (ValueError, TypeError):
+                pass  # Skip invalid entries
+
     return AppConfig(
         server=server,
         stream=stream,
@@ -246,6 +258,7 @@ def load_config(path_str: str) -> AppConfig:
         captures=captures,
         device_names=device_names,
         trunking_systems=trunking_systems,
+        pocsag_aliases=pocsag_aliases,
     )
 
 

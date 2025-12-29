@@ -468,6 +468,7 @@ class POCSAGMessageModel(BaseModel):
     message: str  # Decoded message content
     timestamp: float  # Unix timestamp
     baudRate: int = 1200  # 512, 1200, or 2400
+    alias: str | None = None  # Human-readable name from config (e.g., "CFS Dispatch")
 
 
 # Signal monitoring models

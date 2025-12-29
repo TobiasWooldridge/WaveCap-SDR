@@ -2188,6 +2188,9 @@ def get_channel_pocsag_messages(
     # Get messages from the channel's POCSAG decoder
     messages = ch.get_pocsag_messages(limit=limit, since_timestamp=since)
 
+    # Look up aliases from config
+    pocsag_aliases = state.config.pocsag_aliases
+
     return [
         POCSAGMessageModel(
             address=msg["address"],
@@ -2196,6 +2199,7 @@ def get_channel_pocsag_messages(
             message=msg["message"],
             timestamp=msg["timestamp"],
             baudRate=msg["baudRate"],
+            alias=pocsag_aliases.get(msg["address"]),
         )
         for msg in messages
     ]

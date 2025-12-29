@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Wand2 } from "lucide-react";
 import { ToastProvider } from "./hooks/useToast";
@@ -15,6 +15,7 @@ import { ChannelList } from "./features/channel";
 import { SpectrumPanel } from "./features/spectrum";
 import { TrunkingPanel } from "./features/trunking";
 import { SystemPanel } from "./features/system";
+import { DigitalPanel } from "./features/digital";
 import { DeviceTabBar } from "./components/DeviceTabBar";
 import { ModeTabBar } from "./components/ModeTabBar";
 import { CreateCaptureWizard } from "./components/CreateCaptureWizard.react";
@@ -61,6 +62,12 @@ function AppContent() {
   const { data: channels } = useChannels(selectedCapture?.id ?? "");
   const deleteCapture = useDeleteCapture();
   const deleteTrunkingSystem = useDeleteTrunkingSystem();
+
+  // Check if any channels have POCSAG decoding enabled
+  const hasDigitalForDevice = useMemo(() => {
+    if (!channels || channels.length === 0) return false;
+    return channels.some((ch) => ch.enablePocsag);
+  }, [channels]);
   const { stopAll } = useAudio();
 
   // Stop all audio when changing devices
@@ -135,7 +142,7 @@ function AppContent() {
             activeMode={viewMode}
             onModeChange={setViewMode}
             hasTrunking={hasTrunkingForDevice}
-            hasDigital={false}
+            hasDigital={hasDigitalForDevice}
           />
         )}
       </div>
@@ -150,6 +157,16 @@ function AppContent() {
         /* Trunking Mode */
         <div className="flex-grow-1">
           <TrunkingPanel systemId={trunkingSystemForDevice.id} />
+        </div>
+      ) : viewMode === "digital" && selectedCapture ? (
+        /* Digital Mode - POCSAG pager messages */
+        <div className="flex-grow-1">
+          <DigitalPanel
+            captureId={selectedCapture.id}
+            captureName={
+              selectedCapture.name || selectedCapture.autoName || undefined
+            }
+          />
         </div>
       ) : viewMode === "radio" && selectedCapture ? (
         /* Radio Mode */
