@@ -24,7 +24,7 @@ export interface TrunkingSystem {
   state: TrunkingSystemState;
   controlChannelState: ControlChannelState;
   controlChannelFreqHz: number | null;
-  centerHz: number;  // SDR center frequency (auto-managed by trunking)
+  centerHz: number; // SDR center frequency (auto-managed by trunking)
   nac: number | null;
   systemId: number | null;
   rfssId: number | null;
@@ -46,6 +46,7 @@ export interface ControlChannelMeasurement {
 
 export interface ControlChannel {
   frequencyHz: number;
+  name: string;
   enabled: boolean;
   isCurrent: boolean;
   isLocked: boolean;
@@ -155,7 +156,7 @@ export interface TrunkingRecipe {
   description?: string;
   category: string;
   protocol: TrunkingProtocol;
-  controlChannels: number[];  // Frequencies in Hz
+  controlChannels: number[]; // Frequencies in Hz
   centerHz: number;
   sampleRate: number;
   gain?: number;
@@ -192,8 +193,8 @@ export interface TrunkingSnapshotEvent {
   type: "snapshot";
   systems: TrunkingSystem[];
   activeCalls: ActiveCall[];
-  messages?: P25Message[];  // Buffered messages from server
-  callHistory?: CallHistoryEntry[];  // Buffered call history from server
+  messages?: P25Message[]; // Buffered messages from server
+  callHistory?: CallHistoryEntry[]; // Buffered call history from server
 }
 
 export interface TrunkingSystemUpdateEvent {
@@ -237,7 +238,12 @@ export type TrunkingEvent =
 
 // Voice stream types
 
-export type VoiceStreamState = "created" | "starting" | "active" | "silent" | "ended";
+export type VoiceStreamState =
+  | "created"
+  | "starting"
+  | "active"
+  | "silent"
+  | "ended";
 
 export interface RadioLocation {
   unitId: number;
@@ -288,7 +294,7 @@ export interface VoiceAudioMessage {
   sampleRate: number;
   frameNumber: number;
   format: "pcm16" | "f32";
-  audio: string;  // Base64 encoded audio
+  audio: string; // Base64 encoded audio
 }
 
 export interface VoiceStreamEndedMessage {

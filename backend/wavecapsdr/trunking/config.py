@@ -77,6 +77,38 @@ class HuntMode(str, Enum):
 
 
 @dataclass
+class ControlChannelConfig:
+    """Configuration for a single control channel.
+
+    Attributes:
+        frequency_hz: Control channel frequency in Hz
+        name: Optional human-readable name (e.g., "CC1 - Primary", "Mt Barker")
+    """
+    frequency_hz: float
+    name: str = ""
+
+    @classmethod
+    def from_value(cls, value: str | int | float | dict) -> "ControlChannelConfig":
+        """Parse a control channel from various formats.
+
+        Supports:
+        - Float/int: Raw frequency in Hz
+        - String: Frequency with optional unit (e.g., "413.075 MHz")
+        - Dict: {frequency: "413.075 MHz", name: "CC1 - Primary"}
+        """
+        if isinstance(value, dict):
+            freq = value.get("frequency") or value.get("freq") or value.get("frequency_hz")
+            if freq is None:
+                raise ValueError(f"Control channel dict missing frequency: {value}")
+            return cls(
+                frequency_hz=parse_frequency(freq),
+                name=value.get("name", ""),
+            )
+        else:
+            return cls(frequency_hz=parse_frequency(value))
+
+
+@dataclass
 class TalkgroupConfig:
     """Configuration for a single talkgroup.
 
@@ -111,7 +143,7 @@ class TrunkingSystemConfig:
         id: Unique system identifier
         name: Human-readable system name
         protocol: P25 Phase I or Phase II
-        control_channels: List of control channel frequencies (Hz)
+        control_channels: List of control channel configurations (frequency + optional name)
         center_hz: SDR center frequency (Hz)
         sample_rate: SDR sample rate (Hz)
         device_id: SoapySDR device string
@@ -126,7 +158,7 @@ class TrunkingSystemConfig:
     name: str
     protocol: TrunkingProtocol = TrunkingProtocol.P25_PHASE1
     modulation: P25Modulation | None = None  # None = auto-detect based on protocol
-    control_channels: list[float] = field(default_factory=list)
+    control_channels: list[ControlChannelConfig] = field(default_factory=list)
     center_hz: float = 851_000_000
     sample_rate: int = 8_000_000
     device_id: str = ""
@@ -154,6 +186,18 @@ class TrunkingSystemConfig:
     roam_threshold_db: float = 6.0  # SNR improvement required to trigger roaming
     initial_scan_enabled: bool = True  # Whether to scan all channels at startup
     default_hunt_mode: HuntMode = HuntMode.AUTO  # Default control channel hunting mode
+
+    @property
+    def control_channel_frequencies(self) -> list[float]:
+        """Get list of control channel frequencies (Hz) for backward compatibility."""
+        return [cc.frequency_hz for cc in self.control_channels]
+
+    def get_control_channel_name(self, frequency_hz: float) -> str:
+        """Get the name for a control channel frequency, or empty string if not named."""
+        for cc in self.control_channels:
+            if abs(cc.frequency_hz - frequency_hz) < 1000:  # 1 kHz tolerance
+                return cc.name
+        return ""
 
     def get_talkgroup(self, tgid: int) -> TalkgroupConfig | None:
         """Get talkgroup config by ID."""
@@ -240,7 +284,7 @@ class TrunkingSystemConfig:
             name=data.get("name", "P25 System"),
             protocol=protocol,
             modulation=modulation,
-            control_channels=[parse_frequency(f) for f in data.get("control_channels", [])],
+            control_channels=[ControlChannelConfig.from_value(f) for f in data.get("control_channels", [])],
             center_hz=parse_frequency(data.get("center_hz", 851_000_000)),
             sample_rate=int(data.get("sample_rate", 8_000_000)),
             device_id=data.get("device_id", ""),
@@ -268,7 +312,10 @@ class TrunkingSystemConfig:
             "id": self.id,
             "name": self.name,
             "protocol": self.protocol.value,
-            "control_channels": self.control_channels,
+            "control_channels": [
+                {"frequency": cc.frequency_hz, "name": cc.name} if cc.name else cc.frequency_hz
+                for cc in self.control_channels
+            ],
             "center_hz": self.center_hz,
             "sample_rate": self.sample_rate,
             "device_id": self.device_id,

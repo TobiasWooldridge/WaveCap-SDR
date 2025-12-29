@@ -3,7 +3,11 @@
  */
 import { Lock, Unlock } from "lucide-react";
 import type { ControlChannel, HuntMode } from "../../types/trunking";
-import { useSetHuntMode, useLockToChannel, useSetChannelEnabled } from "../../hooks/useTrunking";
+import {
+  useSetHuntMode,
+  useLockToChannel,
+  useSetChannelEnabled,
+} from "../../hooks/useTrunking";
 import { formatFrequencyWithUnit } from "../../utils/frequency";
 import { SignalBar } from "./SignalBar";
 
@@ -75,13 +79,35 @@ export function ControlChannelRow({
         disabled={enabledMutation.isPending}
         className="form-check-input m-0"
         style={{ cursor: "pointer", width: "14px", height: "14px" }}
-        title={channel.enabled ? "Disable channel from scan" : "Enable channel for scan"}
+        title={
+          channel.enabled
+            ? "Disable channel from scan"
+            : "Enable channel for scan"
+        }
       />
       <span
-        className={`font-monospace ${!channel.enabled ? "text-muted" : ""}`}
-        style={{ minWidth: "90px", fontSize: "0.75rem" }}
+        className={`${!channel.enabled ? "text-muted" : ""}`}
+        style={{
+          minWidth: channel.name ? "140px" : "90px",
+          fontSize: "0.75rem",
+        }}
+        title={formatFrequencyWithUnit(channel.frequencyHz)}
       >
-        {formatFrequencyWithUnit(channel.frequencyHz)}
+        {channel.name ? (
+          <span className="d-flex align-items-center gap-1">
+            <span style={{ fontWeight: 500 }}>{channel.name}</span>
+            <span
+              className="font-monospace text-muted"
+              style={{ fontSize: "0.65rem" }}
+            >
+              {formatFrequencyWithUnit(channel.frequencyHz)}
+            </span>
+          </span>
+        ) : (
+          <span className="font-monospace">
+            {formatFrequencyWithUnit(channel.frequencyHz)}
+          </span>
+        )}
       </span>
       <SignalBar snrDb={channel.snrDb} />
       <span
@@ -113,10 +139,13 @@ export function ControlChannelHeaders() {
       className="d-flex align-items-center gap-2 py-1 px-2 text-muted border-bottom mb-1"
       style={{ fontSize: "0.65rem" }}
     >
-      <span style={{ width: "14px" }} title="Enable/disable channel for scanning">
+      <span
+        style={{ width: "14px" }}
+        title="Enable/disable channel for scanning"
+      >
         En
       </span>
-      <span style={{ minWidth: "90px" }}>Frequency</span>
+      <span style={{ minWidth: "90px" }}>Channel</span>
       <span style={{ width: "80px" }}>SNR</span>
       <span style={{ minWidth: "32px" }}>Sync</span>
       <span style={{ width: "24px" }} title="Lock to channel">

@@ -594,7 +594,7 @@ class TrunkingSystem:
         self._cc_scanner = ControlChannelScanner(
             center_hz=self.cfg.center_hz,
             sample_rate=self.cfg.sample_rate,
-            control_channels=self.cfg.control_channels,
+            control_channels=self.cfg.control_channel_frequencies,
         )
 
         # Create voice recorder pool
@@ -652,7 +652,7 @@ class TrunkingSystem:
         # If we have a saved locked frequency, start there; otherwise use first channel
         if self._locked_frequency is not None:
             try:
-                self.control_channel_index = self.cfg.control_channels.index(self._locked_frequency)
+                self.control_channel_index = self.cfg.control_channel_frequencies.index(self._locked_frequency)
             except ValueError:
                 self.control_channel_index = 0
             self.control_channel_freq_hz = self._locked_frequency
@@ -662,7 +662,7 @@ class TrunkingSystem:
             )
         else:
             self.control_channel_index = 0
-            self.control_channel_freq_hz = self.cfg.control_channels[0]
+            self.control_channel_freq_hz = self.cfg.control_channels[0].frequency_hz
 
         # If initial scan is disabled or we have a saved lock, mark as complete
         if not self._initial_scan_enabled or self._locked_frequency is not None:
@@ -1063,8 +1063,8 @@ class TrunkingSystem:
                             # Update to best channel
                             system.control_channel_freq_hz = best_freq
                             system.control_channel_index = (
-                                system.cfg.control_channels.index(best_freq)
-                                if best_freq in system.cfg.control_channels
+                                system.cfg.control_channel_frequencies.index(best_freq)
+                                if best_freq in system.cfg.control_channel_frequencies
                                 else 0
                             )
 
@@ -1133,8 +1133,8 @@ class TrunkingSystem:
 
                             system.control_channel_freq_hz = roam_to
                             system.control_channel_index = (
-                                system.cfg.control_channels.index(roam_to)
-                                if roam_to in system.cfg.control_channels
+                                system.cfg.control_channel_frequencies.index(roam_to)
+                                if roam_to in system.cfg.control_channel_frequencies
                                 else 0
                             )
 
@@ -1871,7 +1871,7 @@ class TrunkingSystem:
             return
 
         # Find next enabled channel
-        current_freq = self.control_channel_freq_hz or self.cfg.control_channels[0]
+        current_freq = self.control_channel_freq_hz or self.cfg.control_channel_frequencies[0]
 
         # Sort enabled channels and find the next one after current
         sorted_channels = sorted(enabled_channels)
@@ -1889,7 +1889,7 @@ class TrunkingSystem:
 
         # Find the index in the original control_channels list
         try:
-            self.control_channel_index = self.cfg.control_channels.index(next_freq)
+            self.control_channel_index = self.cfg.control_channel_frequencies.index(next_freq)
         except ValueError:
             self.control_channel_index = 0
 
@@ -2215,7 +2215,7 @@ class TrunkingSystem:
             ValueError: If locked_freq is not a valid control channel
         """
         # Validate locked_freq if provided
-        if locked_freq is not None and locked_freq not in self.cfg.control_channels:
+        if locked_freq is not None and locked_freq not in self.cfg.control_channel_frequencies:
             raise ValueError(
                 f"Frequency {locked_freq/1e6:.4f} MHz is not a configured control channel"
             )
@@ -2262,8 +2262,8 @@ class TrunkingSystem:
             List of enabled frequencies, or all channels if none are disabled.
         """
         if self._enabled_channels is None:
-            return list(self.cfg.control_channels)
-        return [f for f in self.cfg.control_channels if f in self._enabled_channels]
+            return list(self.cfg.control_channel_frequencies)
+        return [f for f in self.cfg.control_channel_frequencies if f in self._enabled_channels]
 
     def set_channel_enabled(self, freq_hz: float, enabled: bool) -> None:
         """Enable or disable a specific control channel.
@@ -2275,14 +2275,14 @@ class TrunkingSystem:
         Raises:
             ValueError: If freq_hz is not a configured control channel
         """
-        if freq_hz not in self.cfg.control_channels:
+        if freq_hz not in self.cfg.control_channel_frequencies:
             raise ValueError(
                 f"Frequency {freq_hz/1e6:.4f} MHz is not a configured control channel"
             )
 
         # Initialize enabled_channels set if needed
         if self._enabled_channels is None:
-            self._enabled_channels = set(self.cfg.control_channels)
+            self._enabled_channels = set(self.cfg.control_channel_frequencies)
 
         if enabled:
             self._enabled_channels.add(freq_hz)
@@ -2340,7 +2340,7 @@ class TrunkingSystem:
         if self._cc_scanner:
             measurements = self._cc_scanner._measurements
 
-        for freq in self.cfg.control_channels:
+        for freq in self.cfg.control_channel_frequencies:
             m = measurements.get(freq)
             is_current = (
                 self.control_channel_freq_hz is not None
@@ -2349,6 +2349,7 @@ class TrunkingSystem:
 
             info = {
                 "frequencyHz": freq,
+                "name": self.cfg.get_control_channel_name(freq),
                 "enabled": self.is_channel_enabled(freq),
                 "isCurrent": is_current,
                 "isLocked": self._locked_frequency is not None and abs(freq - self._locked_frequency) < 1000,
@@ -2366,12 +2367,12 @@ class TrunkingSystem:
 
         Internal method used by hunt mode control.
         """
-        if freq_hz not in self.cfg.control_channels:
+        if freq_hz not in self.cfg.control_channel_frequencies:
             return
 
         # Find the index of this frequency
         try:
-            idx = self.cfg.control_channels.index(freq_hz)
+            idx = self.cfg.control_channel_frequencies.index(freq_hz)
         except ValueError:
             return
 
