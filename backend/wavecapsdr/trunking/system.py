@@ -172,6 +172,7 @@ class ActiveCall:
             "encrypted": self.encrypted,
             "audioFrames": self.audio_frames,
             "durationSeconds": self.duration_seconds,
+            "recorderId": self.recorder_id,
         }
 
 

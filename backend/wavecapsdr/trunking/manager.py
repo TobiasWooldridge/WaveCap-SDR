@@ -456,6 +456,7 @@ class TrunkingManager:
         self._schedule_broadcast({
             "type": "call_end",
             "systemId": system_id,
+            "callId": call.id,
             "call": call.to_dict(),
         })
 
