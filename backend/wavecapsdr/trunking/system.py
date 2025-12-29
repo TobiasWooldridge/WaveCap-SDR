@@ -142,6 +142,7 @@ class ActiveCall:
     id: str
     talkgroup_id: int
     talkgroup_name: str
+    talkgroup_category: str
     source_id: int | None
     frequency_hz: float
     channel_id: int
@@ -161,6 +162,7 @@ class ActiveCall:
             "id": self.id,
             "talkgroupId": self.talkgroup_id,
             "talkgroupName": self.talkgroup_name,
+            "talkgroupCategory": self.talkgroup_category,
             "sourceId": self.source_id,
             "frequencyHz": self.frequency_hz,
             "channelId": self.channel_id,
@@ -1611,10 +1613,12 @@ class TrunkingSystem:
 
         # Start new call
         tg_name = tg_config.name if tg_config else f"TG {tgid}"
+        tg_category = tg_config.category if tg_config else ""
         call = ActiveCall(
             id=str(uuid.uuid4())[:8],
             talkgroup_id=tgid,
             talkgroup_name=tg_name,
+            talkgroup_category=tg_category,
             source_id=source_id,
             frequency_hz=freq_hz,
             channel_id=channel_id,

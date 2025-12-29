@@ -88,6 +88,7 @@ export interface ActiveCall {
   id: string;
   talkgroupId: number;
   talkgroupName: string;
+  talkgroupCategory: string;
   sourceId: number | null;
   frequencyHz: number;
   channelId: number;

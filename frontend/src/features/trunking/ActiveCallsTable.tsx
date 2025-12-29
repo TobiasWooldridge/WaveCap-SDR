@@ -137,6 +137,7 @@ export function ActiveCallsTable({
           <tr>
             <th style={{ width: "30px" }}></th>
             <th style={{ minWidth: "180px" }}>Talkgroup</th>
+            <th>Category</th>
             <th style={{ width: "70px" }}>Source</th>
             <th className="text-end" style={{ width: "90px" }}>
               Frequency
@@ -159,6 +160,13 @@ export function ActiveCallsTable({
                     {call.talkgroupName}
                   </div>
                   <small className="text-muted">TG {call.talkgroupId}</small>
+                </td>
+                <td>
+                  {call.talkgroupCategory && (
+                    <span className="badge bg-secondary">
+                      {call.talkgroupCategory}
+                    </span>
+                  )}
                 </td>
                 <td>
                   {call.sourceId !== null ? (
@@ -211,7 +219,7 @@ export function ActiveCallsTable({
               </tr>
               {expandedCallId === call.id && onCopyUrl && (
                 <tr key={`${call.id}-urls`} className="bg-body-secondary">
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <div className="d-flex gap-2 py-1 px-2">
                       <small className="text-muted me-2">Stream URLs:</small>
                       {TRUNKING_VOICE_STREAM_FORMATS.map((format) => {
