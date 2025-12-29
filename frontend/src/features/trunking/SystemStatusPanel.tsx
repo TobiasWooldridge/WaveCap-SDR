@@ -194,7 +194,20 @@ export function SystemStatusPanel({
             <StatBox
               label="NAC"
               value={formatHex(system.nac, 3, false)}
-              info="Network Access Code - a 3-digit hex identifier unique to this P25 system. Used to distinguish between overlapping systems."
+              info="Network Access Code (12-bit). Transmitted in every P25 frame to identify the network. Used by radios to filter traffic and by the decoder to assist error correction. Common values: 0x293 (default), 0xF7E (interop)."
+            />
+          </div>
+
+          {/* System ID */}
+          <div className="col-6 col-md-2">
+            <StatBox
+              label="Sys ID"
+              value={
+                system.systemId !== null
+                  ? formatHex(system.systemId, 3, false)
+                  : "---"
+              }
+              info="System ID (12-bit). Unique identifier for the trunking system, broadcast in RFSS Status messages. Combined with WACN (Wide Area Communications Network) to form a globally unique system identifier."
             />
           </div>
 
@@ -203,7 +216,7 @@ export function SystemStatusPanel({
             <StatBox
               label="Site"
               value={system.siteId !== null ? system.siteId : "---"}
-              info="Site ID within the trunking system. Large systems have multiple sites (towers) for coverage."
+              info="Site/RFSS ID within the trunking system. Large systems have multiple sites (towers) for coverage. The Site ID identifies which tower you're receiving."
             />
           </div>
 
