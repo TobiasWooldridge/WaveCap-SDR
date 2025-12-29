@@ -21,7 +21,7 @@ import numpy as np
 from wavecapsdr.decoders.nac_tracker import NACTracker
 from wavecapsdr.dsp.fec.bch import bch_decode
 from wavecapsdr.dsp.fec.golay import golay_decode
-from wavecapsdr.dsp.fec.trellis import trellis_decode
+from wavecapsdr.dsp.fec.trellis import trellis_decode, trellis_decode_3_4
 
 logger = logging.getLogger(__name__)
 
@@ -250,7 +250,7 @@ def deinterleave_data(bits: np.ndarray) -> np.ndarray:
     """Deinterleave 196-bit block using P25 data deinterleave pattern.
 
     Uses SDRTrunk's deinterleave logic: for each input position i,
-    its value goes to output position DATA_DEINTERLEAVE[i].
+    write to output position DATA_DEINTERLEAVE[i].
 
     Args:
         bits: Interleaved bit array (must be 196 bits)
@@ -263,7 +263,7 @@ def deinterleave_data(bits: np.ndarray) -> np.ndarray:
         return bits
 
     # SDRTrunk deinterleave logic: output[DATA_DEINTERLEAVE[i]] = input[i]
-    # For each position i in the input, its value goes to DATA_DEINTERLEAVE[i] in output
+    # For each position i in the input, write to DATA_DEINTERLEAVE[i] in output
     deinterleaved = np.zeros(196, dtype=np.uint8)
     for i in range(196):
         deinterleaved[DATA_DEINTERLEAVE[i]] = bits[i]
@@ -887,18 +887,19 @@ def extract_tsbk_blocks(dibits: np.ndarray, soft: np.ndarray | None = None) -> l
     Each TSBK block in a TSDU is:
     - 98 dibits (trellis-encoded, interleaved) = 196 bits
     - After deinterleaving: 196 bits (reordered)
-    - After trellis 1/2 rate decode: 49 dibits = 98 bits
+    - After trellis 1/2 rate decode: 98 bits (use first 96 for TSBK)
     - Final structure: 1 LB + 1 Protect + 6 Opcode + 8 MFID + 64 Data + 16 CRC = 96 bits
-      (2 bits are flushing bits from trellis and discarded)
+
+    IMPORTANT: TSBK uses 1/2 rate trellis per SDRTrunk (not 3/4 rate).
 
     TSDU can contain 1-3 TSBK blocks.
 
-    Processing steps:
+    Processing steps (per SDRTrunk TSBKMessageFactory):
     1. Extract 98 dibits per TSBK block
     2. Convert 98 dibits → 196 bits
     3. Deinterleave 196 bits using DATA_DEINTERLEAVE pattern
-    4. Convert 196 bits → 98 dibits for trellis decoder
-    5. Trellis decode 98 dibits → 49 dibits (98 bits, use first 96)
+    4. Convert 196 bits → 98 dibits for 1/2 rate trellis decoder
+    5. Trellis 1/2 decode 98 dibits → ~49 dibits → ~98 bits
     6. Validate CRC-16 CCITT and parse TSBK structure
 
     Args:
@@ -922,34 +923,15 @@ def extract_tsbk_blocks(dibits: np.ndarray, soft: np.ndarray | None = None) -> l
         )
         soft = None
 
-    def _rotate_soft(vals: np.ndarray, xor_mask: int) -> np.ndarray:
-        if xor_mask == 0:
-            return vals
-        if xor_mask == 2:
-            return -vals
-        # XOR 1/3 swaps inner/outer levels; approximate by swapping |1| and |3|
-        abs_vals = np.clip(np.abs(vals), 0.0, 3.0)
-        swapped = (4.0 - abs_vals) * np.sign(vals)
-        if xor_mask == 1:
-            return swapped
-        # xor_mask == 3
-        return -swapped
-
     offset = 0
     for block_idx in range(3):  # Max 3 TSBKs per TSDU
         # Check if we have enough dibits for another TSBK
         if offset + TSBK_ENCODED_SIZE > len(dibits):
-            logger.info(f"TSBK block {block_idx}: not enough dibits (have {len(dibits)-offset}, need {TSBK_ENCODED_SIZE})")
+            logger.debug(f"TSBK block {block_idx}: not enough dibits (have {len(dibits)-offset}, need {TSBK_ENCODED_SIZE})")
             break
 
         # Extract 98 dibits for this TSBK
         tsbk_dibits = dibits[offset:offset + TSBK_ENCODED_SIZE]
-        tsbk_soft = soft[offset:offset + TSBK_ENCODED_SIZE] if soft is not None else None
-
-        # Simple decoding path: no XOR rotation, always deinterleave
-        # XOR rotation was attempting to handle QPSK ambiguity, but C4FM
-        # polarity is already handled at the sync detection level.
-        # The deinterleave step is required by the P25 spec.
 
         # Convert 98 dibits to 196 bits for deinterleaving
         interleaved_bits = dibits_to_bits(tsbk_dibits)
@@ -974,46 +956,39 @@ def extract_tsbk_blocks(dibits: np.ndarray, soft: np.ndarray | None = None) -> l
             bit_str = ''.join(str(b) for b in deinterleaved_bits[:48])
             logger.info(f"TSBK DEBUG: deinterleaved bits[0:48]={bit_str}")
 
-        # Step 2: Trellis decode (1/2 rate: 196 bits → 98 bits)
-        # Convert bits back to dibits for trellis decoder
-        trellis_dibits_in = np.zeros(98, dtype=np.uint8)
+        # Step 2: Trellis decode using 1/2 rate (per SDRTrunk)
+        # Convert 196 bits back to 98 dibits for the trellis decoder
+        trellis_dibits = np.zeros(98, dtype=np.uint8)
         for i in range(98):
-            trellis_dibits_in[i] = (deinterleaved_bits[i*2] << 1) | deinterleaved_bits[i*2 + 1]
+            trellis_dibits[i] = (int(deinterleaved_bits[i * 2]) << 1) | int(deinterleaved_bits[i * 2 + 1])
 
-        # DEBUG: Log dibits going into trellis decoder
+        # DEBUG: Log symbols going into trellis decoder
         if block_idx == 0:
-            dibit_hex = ''.join(f'{d:01x}' for d in trellis_dibits_in[:24])
+            dibit_hex = ''.join(f'{d:01x}' for d in trellis_dibits[:24])
             logger.info(f"TSBK DEBUG: trellis input dibits[0:24]={dibit_hex}")
 
-        # Trellis decode with hard dibits only
-        # Note: Soft decoding is disabled because the deinterleaving happens at the
-        # bit level, but soft symbols are at the dibit level. This mismatch causes
-        # incorrect soft values to be passed to the trellis decoder. SDRTrunk also
-        # uses hard decoding for TSBK.
-        decoded_dibits, error_metric = trellis_decode(trellis_dibits_in, debug=(block_idx == 0))
+        # Trellis 1/2 rate decode (98 dibits → ~49 dibits)
+        decoded_dibits, error_metric = trellis_decode(trellis_dibits, debug=(block_idx == 0))
 
-        if decoded_dibits is None:
-            logger.warning(f"TSBK block {block_idx}: trellis decode failed")
+        if decoded_dibits is None or len(decoded_dibits) < 48:
+            logger.warning(f"TSBK block {block_idx}: trellis decode failed, got {len(decoded_dibits) if decoded_dibits is not None else 0} dibits")
+            break
+
+        # Convert decoded dibits to bits (need 96 bits for TSBK)
+        decoded_bits = np.zeros(len(decoded_dibits) * 2, dtype=np.uint8)
+        for i, d in enumerate(decoded_dibits):
+            decoded_bits[i * 2] = (d >> 1) & 1
+            decoded_bits[i * 2 + 1] = d & 1
+
+        if len(decoded_bits) < 96:
+            logger.warning(f"TSBK block {block_idx}: not enough decoded bits ({len(decoded_bits)} < 96)")
             break
 
         # DEBUG: Log decoded output
         if block_idx == 0:
-            logger.info(f"TSBK block 0: error_metric={error_metric}, decoded_len={len(decoded_dibits)}")
-            if len(decoded_dibits) >= 24:
-                dibit_hex = ''.join(f'{d:01x}' for d in decoded_dibits[:24])
-                logger.info(f"TSBK DEBUG: decoded dibits[0:24]={dibit_hex}")
-
-        # Convert decoded dibits to bits (49 dibits → 98 bits, but we only need 96)
-        if len(decoded_dibits) < 48:
-            logger.warning(f"TSBK block {block_idx}: trellis decode failed, got {len(decoded_dibits)} dibits")
-            break
-
-        # Take first 48 decoded dibits and convert to 96 bits
-        decoded_bits = np.zeros(96, dtype=np.uint8)
-        for i in range(48):
-            if i < len(decoded_dibits):
-                decoded_bits[i*2] = (decoded_dibits[i] >> 1) & 1
-                decoded_bits[i*2 + 1] = decoded_dibits[i] & 1
+            logger.info(f"TSBK block 0: error_metric={error_metric}, decoded_dibits={len(decoded_dibits)}, decoded_bits={len(decoded_bits)}")
+            bit_str = ''.join(str(b) for b in decoded_bits[:48])
+            logger.info(f"TSBK DEBUG: decoded bits[0:48]={bit_str}")
 
         # Step 3: Validate CRC-16 CCITT (first 80 bits + 16-bit CRC = 96 bits total)
         crc_valid, crc_errors = crc16_ccitt_p25(decoded_bits)

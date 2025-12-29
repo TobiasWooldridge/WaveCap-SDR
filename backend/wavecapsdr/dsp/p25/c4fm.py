@@ -1430,6 +1430,10 @@ class C4FMDemodulator:
                 np.array([], dtype=np.float32),
             )
 
+        # Ensure mono audio (take first channel if stereo)
+        if disc_audio.ndim > 1:
+            disc_audio = disc_audio[:, 0]
+
         # Diagnostic counter
         if not hasattr(self, '_diag_disc_calls'):
             self._diag_disc_calls = 0
@@ -1517,8 +1521,10 @@ class C4FMDemodulator:
 
                 if not self._fine_sync:
                     # Calculate timing adjustment
-                    opt_offset = self._timing_optimizer.optimize(self._buffer, self._sample_point)
-                    total_offset = opt_offset + additional_offset
+                    timing_adj, opt_score, pll_adj, gain_adj = self._timing_optimizer.optimize(
+                        self._buffer, self._sample_point, self._equalizer, fine_sync=False
+                    )
+                    total_offset = timing_adj + additional_offset
 
                     if abs(total_offset) >= 0.1:
                         self._sample_point += total_offset

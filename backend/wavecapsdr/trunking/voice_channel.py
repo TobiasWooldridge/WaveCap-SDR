@@ -294,8 +294,25 @@ class VoiceChannel:
         Args:
             disc_audio: Instantaneous frequency values from FM discriminator (48kHz)
         """
-        if self.state != "active" or not self._voice_decoder:
+        # Diagnostic: track first few calls
+        if not hasattr(self, '_proc_diag_count'):
+            self._proc_diag_count = 0
+        self._proc_diag_count += 1
+        if self._proc_diag_count <= 3:
+            logger.info(
+                f"VoiceChannel {self.id}: process_discriminator_audio #{self._proc_diag_count}, "
+                f"samples={len(disc_audio)}, state={self.state}, decoder={self._voice_decoder is not None}"
+            )
+
+        # Allow audio processing in "active" or "silent" states (not "ended")
+        # Audio arriving may revive a "silent" channel
+        if self.state == "ended" or not self._voice_decoder:
             return
+
+        # If we receive audio while "silent", transition back to "active"
+        if self.state == "silent":
+            self.state = "active"
+            logger.info(f"VoiceChannel {self.id}: Revived from silent state by incoming audio")
 
         await self._voice_decoder.decode(disc_audio)
 

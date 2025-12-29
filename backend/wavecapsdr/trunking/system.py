@@ -408,16 +408,33 @@ class VoiceRecorder:
         # Feed to voice channel (async, schedule on event loop)
         loop = self._event_loop
         voice_channel = self._voice_channel  # Capture reference before scheduling
+
+        # Track IQ processing stats (first 5 calls only)
+        if not hasattr(self, '_iq_diag_count'):
+            self._iq_diag_count = 0
+        self._iq_diag_count += 1
+        if self._iq_diag_count <= 5:
+            logger.info(
+                f"VoiceRecorder {self.id}: process_iq #{self._iq_diag_count}, "
+                f"disc_audio samples={len(disc_audio)}, loop={loop is not None}, "
+                f"loop_running={loop.is_running() if loop else 'N/A'}, "
+                f"vc={voice_channel is not None}"
+            )
+
         if loop is None or not loop.is_running() or voice_channel is None:
+            if self._iq_diag_count <= 5:
+                logger.warning(
+                    f"VoiceRecorder {self.id}: Skipping audio (loop={loop is not None}, "
+                    f"running={loop.is_running() if loop else 'N/A'}, vc={voice_channel is not None})"
+                )
             return
 
         # Use captured reference to avoid race condition where release() sets _voice_channel=None
         audio_data = disc_audio.astype(np.float32)
-        loop.call_soon_threadsafe(
-            lambda vc=voice_channel, data=audio_data: (
-                loop.create_task(vc.process_discriminator_audio(data))
-                if vc is not None else None
-            )
+        # Use run_coroutine_threadsafe to properly schedule the async method
+        asyncio.run_coroutine_threadsafe(
+            voice_channel.process_discriminator_audio(audio_data),
+            loop
         )
 
     async def release(self) -> None:

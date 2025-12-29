@@ -183,7 +183,8 @@ class IMBEDecoderNative:
 
         logger.info(
             f"IMBEDecoderNative stopped (ldu={self.ldu_frames}, imbe={self.imbe_frames}, "
-            f"decoded={self.frames_decoded}, dropped={self.frames_dropped})"
+            f"decoded={self.frames_decoded}, dropped={self.frames_dropped}, "
+            f"bytes_processed={self.bytes_processed})"
         )
 
     def decode(self, discriminator_audio: np.ndarray) -> None:
@@ -219,6 +220,7 @@ class IMBEDecoderNative:
     def _process_loop(self) -> None:
         """Main processing loop (runs in thread)."""
         logger.debug("IMBEDecoderNative process thread started")
+        audio_chunks = 0
 
         while self.running:
             try:
@@ -229,6 +231,14 @@ class IMBEDecoderNative:
                     break
 
                 self.bytes_processed += len(audio) * 4  # float32
+                audio_chunks += 1
+
+                # Log first few chunks for diagnostics
+                if audio_chunks <= 3:
+                    logger.info(
+                        f"IMBEDecoderNative: Processing chunk {audio_chunks}, "
+                        f"samples={len(audio)}, bytes_total={self.bytes_processed}"
+                    )
 
                 # Process audio
                 self._process_audio(audio)
@@ -255,6 +265,17 @@ class IMBEDecoderNative:
         # C4FM demodulate discriminator audio to dibits
         # Use the discriminator-specific method that skips FM demod
         dibits, soft_symbols = self._c4fm.demodulate_discriminator(disc_audio)
+
+        # Diagnostic: log first few batches of dibits
+        if not hasattr(self, '_dibit_diag_count'):
+            self._dibit_diag_count = 0
+        self._dibit_diag_count += 1
+        if self._dibit_diag_count <= 3:
+            logger.info(
+                f"IMBEDecoderNative: demod #{self._dibit_diag_count}, "
+                f"in_samples={len(disc_audio)}, out_dibits={len(dibits)}, "
+                f"first_10={list(dibits[:10]) if len(dibits) >= 10 else list(dibits)}"
+            )
 
         if len(dibits) == 0:
             return

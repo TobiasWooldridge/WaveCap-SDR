@@ -373,3 +373,217 @@ def trellis_deinterleave(dibits: np.ndarray, block_size: int = 98) -> np.ndarray
     deinterleaved = matrix.T.flatten()
 
     return deinterleaved[: len(dibits)]
+
+
+# =============================================================================
+# P25 3/4 Rate Trellis Decoder (for TSBK/PDU)
+# =============================================================================
+
+# P25 3/4 rate trellis encoder state transition table
+# From SDRTrunk P25_3_4_Node.java TRANSITION_MATRIX
+# Row = current state (0-7), Column = input tribit (0-7), Value = output nibble (0-15)
+# The output nibble represents the 4-bit transmitted symbol
+TRELLIS_3_4_TRANSITION = np.array([
+    [2, 13, 14, 1, 7, 8, 11, 4],    # state 0
+    [14, 1, 7, 8, 11, 4, 2, 13],    # state 1
+    [10, 5, 6, 9, 15, 0, 3, 12],    # state 2
+    [6, 9, 15, 0, 3, 12, 10, 5],    # state 3
+    [15, 0, 3, 12, 10, 5, 6, 9],    # state 4
+    [3, 12, 10, 5, 6, 9, 15, 0],    # state 5
+    [7, 8, 11, 4, 2, 13, 14, 1],    # state 6
+    [11, 4, 2, 13, 14, 1, 7, 8],    # state 7
+], dtype=np.int32)
+
+# Hamming weight lookup for 0-15 (used for branch metric calculation)
+HAMMING_WEIGHT = np.array([0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4], dtype=np.int32)
+
+
+@dataclass
+class TrellisPath34:
+    """A path through the 3/4 rate trellis for Viterbi decoding."""
+
+    state: int
+    metric: int  # Cumulative error metric
+    input_values: list[int]  # Sequence of input tribits (0-7)
+
+
+class TrellisDecoder34:
+    """Viterbi decoder for P25 3/4 rate trellis code (TSBK/PDU).
+
+    P25 TSBK uses 3/4 rate trellis coded modulation:
+    - 3 input bits (tribit, 0-7)
+    - 4 output bits (nibble, 0-15)
+    - 8 states
+
+    The decoder uses the Viterbi algorithm to find the maximum likelihood
+    path through the trellis based on Hamming distance.
+
+    Reference: TIA-102.BAAA-A Annex E, SDRTrunk ViterbiDecoder_3_4_P25.java
+    """
+
+    NUM_STATES = 8
+    MAX_METRIC = 99999
+
+    def __init__(self):
+        """Initialize 3/4 rate trellis decoder."""
+        pass
+
+    def decode(self, symbols: np.ndarray, debug: bool = False) -> tuple[np.ndarray, int]:
+        """Decode 3/4 rate trellis encoded symbols.
+
+        Args:
+            symbols: Array of 4-bit received symbols (nibbles, 0-15)
+            debug: If True, log detailed debug information
+
+        Returns:
+            Tuple of (decoded_bits, error_metric)
+            - decoded_bits: Decoded data as bit array
+            - error_metric: Total Hamming distance errors
+        """
+        n_symbols = len(symbols)
+        if n_symbols < 2:
+            return np.array([], dtype=np.uint8), 0
+
+        if debug:
+            sym_str = ' '.join(f'{s:x}' for s in symbols[:20])
+            logger.info(f"Trellis34 decode: {n_symbols} symbols, first 20: {sym_str}")
+
+        # Initialize paths - all start with infinite metric except state 0
+        paths = [
+            TrellisPath34(state=i, metric=0 if i == 0 else self.MAX_METRIC, input_values=[])
+            for i in range(self.NUM_STATES)
+        ]
+
+        # Process symbols 0 to n-2 with normal add (all inputs allowed)
+        for sym_idx in range(n_symbols - 1):
+            received_sym = int(symbols[sym_idx]) & 0xF  # Ensure 4-bit nibble
+            new_paths = [None] * self.NUM_STATES
+
+            # For each possible next state, find best predecessor
+            for next_state in range(self.NUM_STATES):
+                best_metric = self.MAX_METRIC
+                best_prev_state = 0
+                best_input = 0
+
+                # Check all possible transitions to this next_state
+                for prev_state in range(self.NUM_STATES):
+                    if paths[prev_state] is None or paths[prev_state].metric >= self.MAX_METRIC:
+                        continue
+
+                    # For 3/4 rate, next state = input tribit
+                    input_tribit = next_state
+
+                    # Get expected output for this transition
+                    expected_sym = TRELLIS_3_4_TRANSITION[prev_state, input_tribit]
+
+                    # Calculate branch metric (Hamming distance)
+                    error_mask = received_sym ^ expected_sym
+                    branch_metric = int(HAMMING_WEIGHT[error_mask])
+
+                    # Total path metric
+                    path_metric = paths[prev_state].metric + branch_metric
+
+                    if path_metric < best_metric:
+                        best_metric = path_metric
+                        best_prev_state = prev_state
+                        best_input = input_tribit
+
+                # Create new path for this state
+                if best_metric < self.MAX_METRIC:
+                    prev_path = paths[best_prev_state]
+                    new_paths[next_state] = TrellisPath34(
+                        state=next_state,
+                        metric=best_metric,
+                        input_values=[*prev_path.input_values, best_input],
+                    )
+                else:
+                    new_paths[next_state] = TrellisPath34(
+                        state=next_state,
+                        metric=self.MAX_METRIC,
+                        input_values=[],
+                    )
+
+            paths = new_paths
+
+        # Process last symbol with flush (only input=0 allowed, forcing convergence to state 0)
+        received_sym = int(symbols[n_symbols - 1]) & 0xF
+        flush_input = 0  # P25 encoder flushes with zeros
+        best_path = None
+        best_metric = self.MAX_METRIC
+
+        for prev_state in range(self.NUM_STATES):
+            if paths[prev_state] is None or paths[prev_state].metric >= self.MAX_METRIC:
+                continue
+
+            # Expected output for flushing transition (prev_state -> input 0)
+            expected_sym = TRELLIS_3_4_TRANSITION[prev_state, flush_input]
+
+            # Calculate branch metric
+            error_mask = received_sym ^ expected_sym
+            branch_metric = int(HAMMING_WEIGHT[error_mask])
+
+            # Total path metric
+            path_metric = paths[prev_state].metric + branch_metric
+
+            if path_metric < best_metric:
+                best_metric = path_metric
+                best_path = TrellisPath34(
+                    state=flush_input,
+                    metric=path_metric,
+                    input_values=[*paths[prev_state].input_values, flush_input],
+                )
+
+        # If flush didn't find a valid path, fallback to best survivor
+        if best_path is None:
+            best_path = paths[0]
+            for p in paths:
+                if p is not None and p.metric < best_path.metric:
+                    best_path = p
+
+        # Extract decoded bits from input values (tribits → bits)
+        # Each input tribit represents 3 bits
+        # Last tribit is the flushing input (zeros), skip it
+        n_tribits = len(best_path.input_values)
+        if n_tribits < 2:
+            return np.array([], dtype=np.uint8), best_path.metric
+
+        # Skip only the last (flushing) node
+        # The starting state is implicit in the initialization (not in input_values)
+        # SDRTrunk skips first (starting node) and last (flushing), but our input_values
+        # doesn't include the starting node, so we only skip the last
+        decoded_bits = []
+        for i in range(n_tribits - 1):  # All except last (flushing)
+            tribit = best_path.input_values[i]
+            # Extract 3 bits from tribit (MSB first)
+            decoded_bits.append((tribit >> 2) & 1)
+            decoded_bits.append((tribit >> 1) & 1)
+            decoded_bits.append(tribit & 1)
+
+        error_metric = best_path.metric
+
+        if debug:
+            logger.info(f"Trellis34 decode: output {len(decoded_bits)} bits, error_metric={error_metric}")
+            if decoded_bits:
+                bit_str = ''.join(str(b) for b in decoded_bits[:24])
+                logger.info(f"Trellis34 decode: first 24 bits: {bit_str}")
+
+        return np.array(decoded_bits, dtype=np.uint8), error_metric
+
+
+def trellis_decode_3_4(
+    symbols: np.ndarray,
+    debug: bool = False,
+) -> tuple[np.ndarray, int]:
+    """Decode 3/4 rate trellis encoded symbols (convenience function).
+
+    This is the correct decoder for P25 TSBK (control channel) messages.
+
+    Args:
+        symbols: Array of 4-bit received symbols (nibbles, 0-15)
+        debug: If True, log detailed debug information
+
+    Returns:
+        Tuple of (decoded_bits, error_metric)
+    """
+    decoder = TrellisDecoder34()
+    return decoder.decode(symbols, debug=debug)
