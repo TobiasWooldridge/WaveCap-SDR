@@ -283,9 +283,9 @@ export function SystemPanel() {
   );
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const shouldScrollRef = useRef(true);
+  const pausedLogsRef = useRef<typeof logs>([]);
 
-  // Filter logs
+  // Filter logs based on level and search
   const filteredLogs = useMemo(() => {
     const levelIdx = LOG_LEVEL_ORDER.indexOf(minLevel);
     return logs.filter((log) => {
@@ -302,19 +302,37 @@ export function SystemPanel() {
     });
   }, [logs, minLevel, searchText]);
 
-  // Auto-scroll to bottom for new logs
+  // When paused, show frozen logs; when not paused, show live logs
+  const displayedLogs = useMemo(() => {
+    if (isPaused) {
+      return pausedLogsRef.current;
+    }
+    // Update the paused snapshot when not paused
+    pausedLogsRef.current = filteredLogs;
+    return filteredLogs;
+  }, [isPaused, filteredLogs]);
+
+  // Auto-scroll to top when new logs arrive (if not paused)
   useEffect(() => {
-    if (!isPaused && shouldScrollRef.current && scrollRef.current) {
+    if (!isPaused && scrollRef.current) {
       scrollRef.current.scrollTop = 0; // Logs are newest-first
     }
   }, [filteredLogs, isPaused]);
 
+  // Handle scroll: auto-pause when scrolling down, auto-unpause at top
   const handleScroll = useCallback(() => {
     if (scrollRef.current) {
-      // Since logs are newest-first, "at top" means seeing latest
-      shouldScrollRef.current = scrollRef.current.scrollTop < 10;
+      const isAtTop = scrollRef.current.scrollTop < 20;
+
+      if (isAtTop && isPaused) {
+        // User scrolled back to top - resume
+        setIsPaused(false);
+      } else if (!isAtTop && !isPaused) {
+        // User scrolled down - pause
+        setIsPaused(true);
+      }
     }
-  }, []);
+  }, [isPaused]);
 
   const toggleCapture = useCallback((captureId: string) => {
     setExpandedCaptures((prev) => {
@@ -510,7 +528,12 @@ export function SystemPanel() {
             </div>
 
             <span className="text-muted small ms-auto">
-              {filteredLogs.length} / {logs.length}
+              {displayedLogs.length} / {logs.length}
+              {isPaused && displayedLogs.length !== filteredLogs.length && (
+                <span className="text-warning ms-1">
+                  (+{filteredLogs.length - displayedLogs.length} new)
+                </span>
+              )}
             </span>
 
             {/* Controls */}
@@ -538,14 +561,14 @@ export function SystemPanel() {
             style={{ fontSize: "0.7rem", maxHeight: 400 }}
             onScroll={handleScroll}
           >
-            {filteredLogs.length === 0 ? (
+            {displayedLogs.length === 0 ? (
               <div className="text-center text-muted py-4">
                 {logs.length === 0 ? "No logs yet" : "No logs match filter"}
               </div>
             ) : (
               <table className="table table-sm table-hover mb-0">
                 <tbody>
-                  {filteredLogs.map((log, idx) => (
+                  {displayedLogs.map((log, idx) => (
                     <tr key={`${log.timestamp}-${idx}`}>
                       <td
                         className="text-muted"
