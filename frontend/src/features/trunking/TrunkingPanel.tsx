@@ -31,7 +31,10 @@ import { TalkgroupDirectory } from "./TalkgroupDirectory";
 import { CallEventLog, CallEvent } from "./CallEventLog";
 import { MessageLog } from "./MessageLog";
 import { ActivitySummary } from "./ActivitySummary";
-import { StreamLinks, TRUNKING_SYSTEM_STREAM_FORMATS } from "../../components/StreamLinks";
+import {
+  StreamLinks,
+  TRUNKING_SYSTEM_STREAM_FORMATS,
+} from "../../components/StreamLinks";
 import Flex from "../../components/primitives/Flex.react";
 import Spinner from "../../components/primitives/Spinner.react";
 
@@ -45,7 +48,10 @@ interface TrunkingPanelProps {
   onCreateSystem?: () => void;
 }
 
-export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) {
+export function TrunkingPanel({
+  systemId,
+  onCreateSystem,
+}: TrunkingPanelProps) {
   const [activeTab, setActiveTab] = useState<TabId>("active");
   const [callEvents, setCallEvents] = useState<CallEvent[]>([]);
   const toast = useToast();
@@ -81,7 +87,8 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
   }, []);
 
   // Data fetching for the selected system
-  const { data: system, isLoading: systemLoading } = useTrunkingSystem(systemId);
+  const { data: system, isLoading: systemLoading } =
+    useTrunkingSystem(systemId);
   const { data: vocoder } = useVocoderStatus();
   const { data: talkgroups } = useTalkgroups(systemId);
   const { data: activeCalls } = useActiveCalls(systemId);
@@ -120,7 +127,8 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
         // Add end event
         events.push({
           id: call.id + "_end",
-          timestamp: call.endTime || (call.startTime + (call.durationSeconds || 0)),
+          timestamp:
+            call.endTime || call.startTime + (call.durationSeconds || 0),
           type: "end",
           talkgroupId: call.talkgroupId,
           talkgroupName: call.talkgroupName,
@@ -145,8 +153,11 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
 
   // Use WebSocket calls if available, otherwise fall back to polling
   const displayCalls = useMemo(
-    () => (wsConnected && wsActiveCalls.length > 0 ? wsActiveCalls : activeCalls ?? []),
-    [activeCalls, wsActiveCalls, wsConnected]
+    () =>
+      wsConnected && wsActiveCalls.length > 0
+        ? wsActiveCalls
+        : (activeCalls ?? []),
+    [activeCalls, wsActiveCalls, wsConnected],
   );
 
   // Mutations
@@ -156,37 +167,43 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
   // Active talkgroup IDs for highlighting
   const activeTalkgroupIds = useMemo(
     () => new Set(displayCalls.map((c: ActiveCall) => c.talkgroupId)),
-    [displayCalls]
+    [displayCalls],
   );
 
   // Handle stream URL copy
-  const handleCopyUrl = useCallback(async (url: string) => {
-    const success = await copyToClipboard(url);
-    if (success) {
-      toast.success("URL copied to clipboard");
-    } else {
-      toast.error("Failed to copy URL");
-    }
-  }, [toast]);
+  const handleCopyUrl = useCallback(
+    async (url: string) => {
+      const success = await copyToClipboard(url);
+      if (success) {
+        toast.success("URL copied to clipboard");
+      } else {
+        toast.error("Failed to copy URL");
+      }
+    },
+    [toast],
+  );
 
   // Per-call audio playback state (using system audio for now)
   // Note: Per-call playback would require additional state tracking
   // For MVP, the master play button handles all audio
   const [playingCallId, setPlayingCallId] = useState<string | null>(null);
 
-  const handlePlayCall = useCallback(async (callId: string, _streamId: string) => {
-    if (playingCallId === callId) {
-      // Stop this call - for now just toggle off the indicator
-      setPlayingCallId(null);
-    } else {
-      // Start this call - for now just toggle on the indicator
-      // The system audio already includes all calls
-      setPlayingCallId(callId);
-      if (!isPlayingAudio) {
-        await playAudio();
+  const handlePlayCall = useCallback(
+    async (callId: string, _streamId: string) => {
+      if (playingCallId === callId) {
+        // Stop this call - for now just toggle off the indicator
+        setPlayingCallId(null);
+      } else {
+        // Start this call - for now just toggle on the indicator
+        // The system audio already includes all calls
+        setPlayingCallId(callId);
+        if (!isPlayingAudio) {
+          await playAudio();
+        }
       }
-    }
-  }, [playingCallId, isPlayingAudio, playAudio]);
+    },
+    [playingCallId, isPlayingAudio, playAudio],
+  );
 
   if (systemLoading) {
     return (
@@ -277,12 +294,13 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
 
       {/* Content tabs */}
       <div className="card">
-        <div className="card-header py-2">
-          <ul className="nav nav-tabs card-header-tabs">
+        <div className="card-header py-2 d-flex align-items-center">
+          <ul className="nav nav-tabs card-header-tabs flex-grow-1">
             <li className="nav-item">
               <button
                 className={`nav-link ${activeTab === "active" ? "active" : ""}`}
                 onClick={() => setActiveTab("active")}
+                title="Live voice calls currently on the system"
               >
                 <Phone size={14} className="me-1" />
                 Active
@@ -299,6 +317,7 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
                   activeTab === "talkgroups" ? "active" : ""
                 }`}
                 onClick={() => setActiveTab("talkgroups")}
+                title="Directory of configured talkgroups"
               >
                 <Users size={14} className="me-1" />
                 Talkgroups
@@ -313,6 +332,7 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
               <button
                 className={`nav-link ${activeTab === "messages" ? "active" : ""}`}
                 onClick={() => setActiveTab("messages")}
+                title="P25 control channel messages (TSBKs)"
               >
                 <MessageSquare size={14} className="me-1" />
                 Messages
@@ -327,6 +347,7 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
               <button
                 className={`nav-link ${activeTab === "history" ? "active" : ""}`}
                 onClick={() => setActiveTab("history")}
+                title="Log of call start/end events"
               >
                 <History size={14} className="me-1" />
                 History
@@ -341,12 +362,25 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
               <button
                 className={`nav-link ${activeTab === "summary" ? "active" : ""}`}
                 onClick={() => setActiveTab("summary")}
+                title="Activity summary and statistics"
               >
                 <FileText size={14} className="me-1" />
                 Summary
               </button>
             </li>
           </ul>
+          {/* Connection status indicator */}
+          <span
+            className={`badge ${wsConnected ? "bg-success" : "bg-danger"} ms-2`}
+            title={
+              wsConnected
+                ? "WebSocket connected - receiving live updates"
+                : "WebSocket disconnected"
+            }
+            style={{ fontSize: "0.65rem" }}
+          >
+            {wsConnected ? "●" : "○"}
+          </span>
         </div>
 
         <div className="card-body">
@@ -384,15 +418,6 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
           )}
         </div>
       </div>
-
-      {/* WebSocket connection status */}
-      <div className="small text-muted d-flex align-items-center gap-1">
-        <span
-          className={`badge ${wsConnected ? "bg-success" : "bg-danger"}`}
-          style={{ width: 8, height: 8, padding: 0 }}
-        />
-        {wsConnected ? "Live" : "Disconnected"}
-      </div>
     </Flex>
   );
 }
@@ -401,7 +426,11 @@ export function TrunkingPanel({ systemId, onCreateSystem }: TrunkingPanelProps) 
  * Empty state component shown when no trunking system is selected.
  * Used by App.tsx when tabs are empty or no system selected.
  */
-export function TrunkingEmptyState({ onCreateSystem }: { onCreateSystem?: () => void }) {
+export function TrunkingEmptyState({
+  onCreateSystem,
+}: {
+  onCreateSystem?: () => void;
+}) {
   const { data: vocoder } = useVocoderStatus();
 
   return (

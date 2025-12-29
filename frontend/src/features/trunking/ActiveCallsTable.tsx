@@ -44,6 +44,45 @@ function getCallDuration(call: ActiveCall): number {
   return Math.max(0, now - call.startTime);
 }
 
+/**
+ * Check if a call is actively transmitting (received audio recently).
+ * Returns true if audio was received within the threshold.
+ */
+function isActivelyTransmitting(
+  call: ActiveCall,
+  thresholdSeconds = 2,
+): boolean {
+  if (call.state !== "recording") return false;
+  const now = Date.now() / 1000;
+  return now - call.lastActivityTime < thresholdSeconds;
+}
+
+/**
+ * Audio activity bars component - animated VU meter style indicator
+ */
+function AudioBars() {
+  return (
+    <span className="audio-bars" title="Receiving audio">
+      <span className="audio-bar" />
+      <span className="audio-bar" />
+      <span className="audio-bar" />
+    </span>
+  );
+}
+
+/**
+ * Transmission indicator component - shows TX badge and audio bars
+ */
+function TransmissionIndicator({ isActive }: { isActive: boolean }) {
+  if (!isActive) return null;
+  return (
+    <span className="tx-indicator">
+      <span className="tx-badge">TX</span>
+      <AudioBars />
+    </span>
+  );
+}
+
 function getCallStateIcon(state: string, encrypted: boolean) {
   if (encrypted) {
     return <Lock size={14} className="text-danger" />;
@@ -60,7 +99,10 @@ function getCallStateIcon(state: string, encrypted: boolean) {
   }
 }
 
-function getCallStateClass(state: string): string {
+function getCallStateClass(state: string, isTransmitting: boolean): string {
+  if (isTransmitting) {
+    return "call-row-active";
+  }
   switch (state) {
     case "recording":
       return "table-success";
@@ -149,107 +191,123 @@ export function ActiveCallsTable({
           </tr>
         </thead>
         <tbody>
-          {sortedCalls.map((call) => (
-            <>
-              <tr key={call.id} className={getCallStateClass(call.state)}>
-                <td className="text-center">
-                  {getCallStateIcon(call.state, call.encrypted)}
-                </td>
-                <td style={{ wordBreak: "break-word" }}>
-                  <div className="fw-semibold" title={call.talkgroupName}>
-                    {call.talkgroupName}
-                  </div>
-                  <small className="text-muted">TG {call.talkgroupId}</small>
-                </td>
-                <td>
-                  {call.talkgroupCategory && (
-                    <span className="badge bg-secondary">
-                      {call.talkgroupCategory}
-                    </span>
-                  )}
-                </td>
-                <td>
-                  {call.sourceId !== null ? (
-                    <span className="badge bg-secondary">{call.sourceId}</span>
-                  ) : (
-                    <span className="text-muted">---</span>
-                  )}
-                </td>
-                <td className="text-end font-monospace">
-                  {formatFrequency(call.frequencyHz)}
-                </td>
-                <td className="text-end font-monospace">
-                  {formatDuration(getCallDuration(call))}
-                </td>
-                <td className="text-center">
-                  <div className="btn-group btn-group-sm">
-                    {onPlayAudio &&
-                      !call.encrypted &&
-                      call.state === "recording" &&
-                      call.recorderId && (
-                        <button
-                          className={`btn ${
-                            playingCallId === call.id
-                              ? "btn-warning"
-                              : "btn-outline-success"
-                          }`}
-                          onClick={() => onPlayAudio(call.id, call.recorderId!)}
-                          title={
-                            playingCallId === call.id
-                              ? "Stop playing"
-                              : "Play audio"
-                          }
-                        >
-                          <Volume2 size={14} />
-                        </button>
-                      )}
-                    {onCopyUrl &&
-                      call.state === "recording" &&
-                      call.recorderId && (
-                        <button
-                          className={`btn ${expandedCallId === call.id ? "btn-secondary" : "btn-outline-secondary"}`}
-                          onClick={() => toggleExpanded(call.id)}
-                          title="Stream URLs"
-                        >
-                          <Link size={14} />
-                        </button>
-                      )}
-                  </div>
-                </td>
-              </tr>
-              {expandedCallId === call.id && onCopyUrl && (
-                <tr key={`${call.id}-urls`} className="bg-body-secondary">
-                  <td colSpan={7}>
-                    <div className="d-flex gap-2 py-1 px-2">
-                      <small className="text-muted me-2">Stream URLs:</small>
-                      {TRUNKING_VOICE_STREAM_FORMATS.map((format) => {
-                        const isCopied =
-                          copiedFormat === `${call.id}-${format.key}`;
-                        return (
+          {sortedCalls.map((call) => {
+            const transmitting = isActivelyTransmitting(call);
+            return (
+              <>
+                <tr
+                  key={call.id}
+                  className={getCallStateClass(call.state, transmitting)}
+                >
+                  <td className="text-center">
+                    <div className="d-flex flex-column align-items-center gap-1">
+                      {getCallStateIcon(call.state, call.encrypted)}
+                      <TransmissionIndicator isActive={transmitting} />
+                    </div>
+                  </td>
+                  <td style={{ wordBreak: "break-word" }}>
+                    <div className="fw-semibold" title={call.talkgroupName}>
+                      {call.talkgroupName}
+                    </div>
+                    <small className="text-muted">TG {call.talkgroupId}</small>
+                  </td>
+                  <td>
+                    {call.talkgroupCategory && (
+                      <span className="badge bg-secondary">
+                        {call.talkgroupCategory}
+                      </span>
+                    )}
+                  </td>
+                  <td>
+                    {call.sourceId !== null ? (
+                      <span className="badge bg-secondary">
+                        {call.sourceId}
+                      </span>
+                    ) : (
+                      <span className="text-muted">---</span>
+                    )}
+                  </td>
+                  <td className="text-end font-monospace">
+                    {formatFrequency(call.frequencyHz)}
+                  </td>
+                  <td className="text-end font-monospace">
+                    {formatDuration(getCallDuration(call))}
+                  </td>
+                  <td className="text-center">
+                    <div className="btn-group btn-group-sm">
+                      {onPlayAudio &&
+                        !call.encrypted &&
+                        call.state === "recording" &&
+                        call.recorderId && (
                           <button
-                            key={format.key}
-                            className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1"
+                            className={`btn ${
+                              playingCallId === call.id
+                                ? "btn-warning"
+                                : "btn-outline-success"
+                            }`}
                             onClick={() =>
-                              handleCopyStreamUrl(call, format.key)
+                              onPlayAudio(call.id, call.recorderId!)
+                            }
+                            title={
+                              playingCallId === call.id
+                                ? "Stop playing"
+                                : "Play audio"
                             }
                           >
-                            {isCopied ? (
-                              <CheckCircle size={12} className="text-success" />
-                            ) : (
-                              <Copy size={12} />
-                            )}
-                            <span style={{ fontSize: "11px" }}>
-                              {format.label}
-                            </span>
+                            <Volume2 size={14} />
                           </button>
-                        );
-                      })}
+                        )}
+                      {onCopyUrl &&
+                        call.state === "recording" &&
+                        call.recorderId && (
+                          <button
+                            className={`btn ${expandedCallId === call.id ? "btn-secondary" : "btn-outline-secondary"}`}
+                            onClick={() => toggleExpanded(call.id)}
+                            title="Stream URLs"
+                          >
+                            <Link size={14} />
+                          </button>
+                        )}
                     </div>
                   </td>
                 </tr>
-              )}
-            </>
-          ))}
+                {expandedCallId === call.id && onCopyUrl && (
+                  <tr key={`${call.id}-urls`} className="bg-body-secondary">
+                    <td colSpan={7}>
+                      <div className="d-flex gap-2 py-1 px-2">
+                        <small className="text-muted me-2">Stream URLs:</small>
+                        {TRUNKING_VOICE_STREAM_FORMATS.map((format) => {
+                          const isCopied =
+                            copiedFormat === `${call.id}-${format.key}`;
+                          return (
+                            <button
+                              key={format.key}
+                              className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1"
+                              onClick={() =>
+                                handleCopyStreamUrl(call, format.key)
+                              }
+                            >
+                              {isCopied ? (
+                                <CheckCircle
+                                  size={12}
+                                  className="text-success"
+                                />
+                              ) : (
+                                <Copy size={12} />
+                              )}
+                              <span style={{ fontSize: "11px" }}>
+                                {format.label}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </>
+            );
+          })}
         </tbody>
       </table>
     </div>
