@@ -1,3 +1,11 @@
+# Secrets and environment files (NEVER COMMIT)
+.secrets.env
+.env.local
+.env.*.local
+*.secret
+*.secrets
+secrets/
+
 # Python byte-compiled files and caches
 __pycache__/
 *.py[cod]
