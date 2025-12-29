@@ -633,3 +633,6 @@ trunking:
       wacn: 781056
       # Load talkgroups from external file (516 SA-GRN talkgroups)
       talkgroups_file: talkgroups/sa_grn.yaml
+      # Hunt mode: scan_once = scan channels on startup, lock to first good one
+      # auto = continuously hunt for best channel, manual = stay on locked frequency
+      default_hunt_mode: scan_once

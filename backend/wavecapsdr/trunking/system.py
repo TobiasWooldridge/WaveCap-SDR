@@ -17,12 +17,15 @@ Architecture:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import time
 import uuid
 from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
@@ -50,6 +53,59 @@ logger = logging.getLogger(__name__)
 
 # Profiler for IQ processing performance analysis
 _iq_profiler = get_profiler("TrunkingIQ", enabled=True)
+
+# State persistence directory (persists hunt mode and locked frequency across restarts)
+_STATE_DIR = Path.home() / ".wavecapsdr" / "trunking_state"
+
+
+def _get_state_file(system_id: str) -> Path:
+    """Get the state file path for a trunking system."""
+    return _STATE_DIR / f"{system_id}.json"
+
+
+def _save_state(system_id: str, hunt_mode: str, locked_freq_hz: float | None) -> None:
+    """Save trunking system state to disk.
+
+    Args:
+        system_id: The trunking system ID
+        hunt_mode: The current hunt mode (auto, manual, scan_once)
+        locked_freq_hz: The locked frequency in Hz, or None
+    """
+    try:
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        state_file = _get_state_file(system_id)
+        state = {
+            "hunt_mode": hunt_mode,
+            "locked_freq_hz": locked_freq_hz,
+            "saved_at": time.time(),
+        }
+        with open(state_file, "w") as f:
+            json.dump(state, f)
+        logger.debug(f"Saved trunking state for {system_id}: {state}")
+    except Exception as e:
+        logger.warning(f"Failed to save trunking state for {system_id}: {e}")
+
+
+def _load_state(system_id: str) -> dict | None:
+    """Load trunking system state from disk.
+
+    Args:
+        system_id: The trunking system ID
+
+    Returns:
+        State dict with hunt_mode and locked_freq_hz, or None if no saved state
+    """
+    try:
+        state_file = _get_state_file(system_id)
+        if not state_file.exists():
+            return None
+        with open(state_file) as f:
+            state = json.load(f)
+        logger.debug(f"Loaded trunking state for {system_id}: {state}")
+        return state
+    except Exception as e:
+        logger.warning(f"Failed to load trunking state for {system_id}: {e}")
+        return None
 
 
 class TrunkingSystemState(str, Enum):
@@ -501,8 +557,32 @@ class TrunkingSystem:
         self._roam_threshold_db = self.cfg.roam_threshold_db
         self._initial_scan_enabled = self.cfg.initial_scan_enabled
 
-        # Use hunt mode from config
+        # Use hunt mode from config (may be overridden by saved state)
         self._hunt_mode = self.cfg.default_hunt_mode
+
+        # Restore saved state if available (locked frequency survives restart)
+        saved_state = _load_state(self.cfg.id)
+        if saved_state:
+            saved_freq = saved_state.get("locked_freq_hz")
+            saved_mode = saved_state.get("hunt_mode")
+
+            # Restore locked frequency if it's still a valid control channel
+            if saved_freq is not None and saved_freq in self.cfg.control_channels:
+                self._locked_frequency = saved_freq
+                logger.info(
+                    f"TrunkingSystem {self.cfg.id}: Restored locked frequency "
+                    f"{saved_freq/1e6:.4f} MHz from saved state"
+                )
+
+                # If we have a locked frequency, skip the initial scan
+                # and start directly on that frequency
+                if self._hunt_mode == HuntMode.SCAN_ONCE:
+                    self._scan_once_complete = True
+                    self._initial_scan_complete = True
+                    logger.info(
+                        f"TrunkingSystem {self.cfg.id}: Skipping initial scan, "
+                        f"starting on saved frequency"
+                    )
 
         # Create TSBK parser
         self._tsbk_parser = TSBKParser()
@@ -568,13 +648,29 @@ class TrunkingSystem:
             self._set_state(TrunkingSystemState.FAILED)
             return
 
-        # Initialize control channel (will be updated after initial scan if enabled)
-        self.control_channel_index = 0
-        self.control_channel_freq_hz = self.cfg.control_channels[0]
-        # If initial scan is disabled, mark as complete so we start immediately
-        self._initial_scan_complete = not self._initial_scan_enabled
-        if not self._initial_scan_enabled:
-            logger.info(f"TrunkingSystem {self.cfg.id}: Initial scan disabled, starting on first channel")
+        # Initialize control channel
+        # If we have a saved locked frequency, start there; otherwise use first channel
+        if self._locked_frequency is not None:
+            try:
+                self.control_channel_index = self.cfg.control_channels.index(self._locked_frequency)
+            except ValueError:
+                self.control_channel_index = 0
+            self.control_channel_freq_hz = self._locked_frequency
+            logger.info(
+                f"TrunkingSystem {self.cfg.id}: Starting on saved frequency "
+                f"{self._locked_frequency/1e6:.4f} MHz"
+            )
+        else:
+            self.control_channel_index = 0
+            self.control_channel_freq_hz = self.cfg.control_channels[0]
+
+        # If initial scan is disabled or we have a saved lock, mark as complete
+        if not self._initial_scan_enabled or self._locked_frequency is not None:
+            self._initial_scan_complete = True
+            if not self._initial_scan_enabled:
+                logger.info(f"TrunkingSystem {self.cfg.id}: Initial scan disabled, starting on first channel")
+        else:
+            self._initial_scan_complete = False
 
         try:
             # Create wideband capture for this trunking system
@@ -1748,9 +1844,15 @@ class TrunkingSystem:
                 if self._hunt_mode == HuntMode.SCAN_ONCE and not self._scan_once_complete:
                     self._scan_once_complete = True
                     self._locked_frequency = self.control_channel_freq_hz
+                    # Persist the lock so it survives restart
+                    _save_state(
+                        self.cfg.id,
+                        self._hunt_mode.value,
+                        self._locked_frequency
+                    )
                     logger.info(
                         f"TrunkingSystem {self.cfg.id}: SCAN_ONCE complete, "
-                        f"locked to {self.control_channel_freq_hz/1e6:.4f} MHz"
+                        f"locked to {self.control_channel_freq_hz/1e6:.4f} MHz (saved)"
                     )
                 return
 
@@ -2141,6 +2243,9 @@ class TrunkingSystem:
                 f"TrunkingSystem {self.cfg.id}: Hunt mode changed from "
                 f"{old_mode.value} to {mode.value}"
             )
+
+        # Persist the state so it survives restart
+        _save_state(self.cfg.id, mode.value, locked_freq)
 
         # Notify observers
         if self.on_system_update:
