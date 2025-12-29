@@ -42,7 +42,7 @@ export function TalkgroupDirectory({
         (tg) =>
           tg.name.toLowerCase().includes(query) ||
           tg.alphaTag.toLowerCase().includes(query) ||
-          tg.tgid.toString().includes(query)
+          tg.tgid.toString().includes(query),
       );
     }
 
@@ -99,15 +99,17 @@ export function TalkgroupDirectory({
     field,
     label,
     className = "",
+    style = {},
   }: {
     field: SortField;
     label: string;
     className?: string;
+    style?: React.CSSProperties;
   }) => (
     <th
       className={`${className} cursor-pointer user-select-none`}
       onClick={() => handleSort(field)}
-      style={{ cursor: "pointer" }}
+      style={{ cursor: "pointer", ...style }}
     >
       {label}
       {sortField === field && (
@@ -185,7 +187,11 @@ export function TalkgroupDirectory({
             <tr>
               <th style={{ width: 30 }}></th>
               <SortHeader field="tgid" label="TGID" className="text-end" />
-              <SortHeader field="name" label="Name" />
+              <SortHeader
+                field="name"
+                label="Name"
+                style={{ minWidth: "180px" }}
+              />
               <SortHeader field="category" label="Category" />
               <SortHeader
                 field="priority"
@@ -213,9 +219,13 @@ export function TalkgroupDirectory({
                     )}
                   </td>
                   <td className="text-end font-monospace">{tg.tgid}</td>
-                  <td>
-                    <div className="fw-semibold">{tg.name}</div>
-                    <small className="text-muted">{tg.alphaTag}</small>
+                  <td style={{ wordBreak: "break-word" }}>
+                    <div className="fw-semibold" title={tg.name}>
+                      {tg.name}
+                    </div>
+                    <small className="text-muted" title={tg.alphaTag}>
+                      {tg.alphaTag}
+                    </small>
                   </td>
                   <td>
                     {tg.category && (
@@ -228,8 +238,8 @@ export function TalkgroupDirectory({
                         tg.priority <= 3
                           ? "bg-danger"
                           : tg.priority <= 6
-                          ? "bg-warning text-dark"
-                          : "bg-secondary"
+                            ? "bg-warning text-dark"
+                            : "bg-secondary"
                       }`}
                     >
                       P{tg.priority}
@@ -239,12 +249,12 @@ export function TalkgroupDirectory({
                     <td className="text-center">
                       <button
                         className={`btn btn-sm ${
-                          tg.monitor
-                            ? "btn-primary"
-                            : "btn-outline-secondary"
+                          tg.monitor ? "btn-primary" : "btn-outline-secondary"
                         }`}
                         onClick={() => onToggleMonitor(tg.tgid, !tg.monitor)}
-                        title={tg.monitor ? "Stop monitoring" : "Start monitoring"}
+                        title={
+                          tg.monitor ? "Stop monitoring" : "Start monitoring"
+                        }
                       >
                         {tg.monitor ? (
                           <Volume2 size={14} />

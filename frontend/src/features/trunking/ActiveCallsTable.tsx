@@ -1,5 +1,13 @@
 import { useState, useEffect } from "react";
-import { Phone, PhoneOff, Lock, Volume2, Link, Copy, CheckCircle } from "lucide-react";
+import {
+  Phone,
+  PhoneOff,
+  Lock,
+  Volume2,
+  Link,
+  Copy,
+  CheckCircle,
+} from "lucide-react";
 import type { ActiveCall } from "../../types/trunking";
 import { TRUNKING_VOICE_STREAM_FORMATS } from "../../components/StreamLinks";
 
@@ -76,11 +84,11 @@ export function ActiveCallsTable({
 
   // Refresh every second to update live durations for active calls
   useEffect(() => {
-    const hasActiveCalls = calls.some(c => c.state !== "ended");
+    const hasActiveCalls = calls.some((c) => c.state !== "ended");
     if (!hasActiveCalls) return;
 
     const interval = setInterval(() => {
-      setTick(t => t + 1);
+      setTick((t) => t + 1);
     }, 1000);
 
     return () => clearInterval(interval);
@@ -107,7 +115,9 @@ export function ActiveCallsTable({
   const handleCopyStreamUrl = (call: ActiveCall, formatKey: string) => {
     if (!call.recorderId) return;
     const baseUrl = `/api/v1/trunking/stream/${systemId}/voice/${call.recorderId}`;
-    const format = TRUNKING_VOICE_STREAM_FORMATS.find(f => f.key === formatKey);
+    const format = TRUNKING_VOICE_STREAM_FORMATS.find(
+      (f) => f.key === formatKey,
+    );
     if (format && onCopyUrl) {
       const url = format.buildUrl(baseUrl);
       onCopyUrl(url);
@@ -126,10 +136,14 @@ export function ActiveCallsTable({
         <thead>
           <tr>
             <th style={{ width: "30px" }}></th>
-            <th>Talkgroup</th>
-            <th>Source</th>
-            <th className="text-end">Frequency</th>
-            <th className="text-end">Duration</th>
+            <th style={{ minWidth: "180px" }}>Talkgroup</th>
+            <th style={{ width: "70px" }}>Source</th>
+            <th className="text-end" style={{ width: "90px" }}>
+              Frequency
+            </th>
+            <th className="text-end" style={{ width: "70px" }}>
+              Duration
+            </th>
             <th style={{ width: "80px" }}></th>
           </tr>
         </thead>
@@ -140,8 +154,10 @@ export function ActiveCallsTable({
                 <td className="text-center">
                   {getCallStateIcon(call.state, call.encrypted)}
                 </td>
-                <td>
-                  <div className="fw-semibold">{call.talkgroupName}</div>
+                <td style={{ wordBreak: "break-word" }}>
+                  <div className="fw-semibold" title={call.talkgroupName}>
+                    {call.talkgroupName}
+                  </div>
                   <small className="text-muted">TG {call.talkgroupId}</small>
                 </td>
                 <td>
@@ -159,32 +175,37 @@ export function ActiveCallsTable({
                 </td>
                 <td className="text-center">
                   <div className="btn-group btn-group-sm">
-                    {onPlayAudio && !call.encrypted && call.state === "recording" && call.recorderId && (
-                      <button
-                        className={`btn ${
-                          playingCallId === call.id
-                            ? "btn-warning"
-                            : "btn-outline-success"
-                        }`}
-                        onClick={() => onPlayAudio(call.id, call.recorderId!)}
-                        title={
-                          playingCallId === call.id
-                            ? "Stop playing"
-                            : "Play audio"
-                        }
-                      >
-                        <Volume2 size={14} />
-                      </button>
-                    )}
-                    {onCopyUrl && call.state === "recording" && call.recorderId && (
-                      <button
-                        className={`btn ${expandedCallId === call.id ? "btn-secondary" : "btn-outline-secondary"}`}
-                        onClick={() => toggleExpanded(call.id)}
-                        title="Stream URLs"
-                      >
-                        <Link size={14} />
-                      </button>
-                    )}
+                    {onPlayAudio &&
+                      !call.encrypted &&
+                      call.state === "recording" &&
+                      call.recorderId && (
+                        <button
+                          className={`btn ${
+                            playingCallId === call.id
+                              ? "btn-warning"
+                              : "btn-outline-success"
+                          }`}
+                          onClick={() => onPlayAudio(call.id, call.recorderId!)}
+                          title={
+                            playingCallId === call.id
+                              ? "Stop playing"
+                              : "Play audio"
+                          }
+                        >
+                          <Volume2 size={14} />
+                        </button>
+                      )}
+                    {onCopyUrl &&
+                      call.state === "recording" &&
+                      call.recorderId && (
+                        <button
+                          className={`btn ${expandedCallId === call.id ? "btn-secondary" : "btn-outline-secondary"}`}
+                          onClick={() => toggleExpanded(call.id)}
+                          title="Stream URLs"
+                        >
+                          <Link size={14} />
+                        </button>
+                      )}
                   </div>
                 </td>
               </tr>
@@ -194,19 +215,24 @@ export function ActiveCallsTable({
                     <div className="d-flex gap-2 py-1 px-2">
                       <small className="text-muted me-2">Stream URLs:</small>
                       {TRUNKING_VOICE_STREAM_FORMATS.map((format) => {
-                        const isCopied = copiedFormat === `${call.id}-${format.key}`;
+                        const isCopied =
+                          copiedFormat === `${call.id}-${format.key}`;
                         return (
                           <button
                             key={format.key}
                             className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1"
-                            onClick={() => handleCopyStreamUrl(call, format.key)}
+                            onClick={() =>
+                              handleCopyStreamUrl(call, format.key)
+                            }
                           >
                             {isCopied ? (
                               <CheckCircle size={12} className="text-success" />
                             ) : (
                               <Copy size={12} />
                             )}
-                            <span style={{ fontSize: "11px" }}>{format.label}</span>
+                            <span style={{ fontSize: "11px" }}>
+                              {format.label}
+                            </span>
                           </button>
                         );
                       })}

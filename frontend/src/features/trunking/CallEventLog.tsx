@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { Phone, PhoneOff, PhoneIncoming, Lock, Filter, Copy, Download, X } from "lucide-react";
+import {
+  Phone,
+  PhoneOff,
+  PhoneIncoming,
+  Lock,
+  Filter,
+  Copy,
+  Download,
+  X,
+} from "lucide-react";
 
 export interface CallEvent {
   id: string;
@@ -89,13 +98,15 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
   const isAtBottomRef = useRef(true);
 
   // Filter state
-  const [eventTypeFilter, setEventTypeFilter] = useState<EventTypeFilter>("all");
-  const [encryptedFilter, setEncryptedFilter] = useState<EncryptedFilter>("all");
+  const [eventTypeFilter, setEventTypeFilter] =
+    useState<EventTypeFilter>("all");
+  const [encryptedFilter, setEncryptedFilter] =
+    useState<EncryptedFilter>("all");
   const [showFilters, setShowFilters] = useState(false);
 
   // Filter events
   const filteredEvents = useMemo(() => {
-    return events.filter(event => {
+    return events.filter((event) => {
       // Event type filter
       if (eventTypeFilter !== "all" && event.type !== eventTypeFilter) {
         return false;
@@ -129,8 +140,9 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
   // Copy to clipboard
   const handleCopy = useCallback(() => {
     const text = filteredEvents
-      .map(event => {
-        const duration = event.type === "end" ? formatDuration(event.durationSeconds) : "";
+      .map((event) => {
+        const duration =
+          event.type === "end" ? formatDuration(event.durationSeconds) : "";
         return `${formatFullTimestamp(event.timestamp)}\t${event.type.toUpperCase()}\t${event.talkgroupName}\t${event.talkgroupId}\t${event.sourceId ?? ""}\t${formatFrequency(event.frequencyHz)}\t${duration}\t${event.encrypted ? "ENC" : ""}`;
       })
       .join("\n");
@@ -139,8 +151,9 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
 
   // Export to CSV
   const handleExport = useCallback(() => {
-    const headers = "timestamp,type,talkgroupName,talkgroupId,sourceId,frequencyMHz,durationSeconds,encrypted";
-    const rows = filteredEvents.map(event => {
+    const headers =
+      "timestamp,type,talkgroupName,talkgroupId,sourceId,frequencyMHz,durationSeconds,encrypted";
+    const rows = filteredEvents.map((event) => {
       const ts = formatFullTimestamp(event.timestamp);
       const freq = formatFrequency(event.frequencyHz);
       const duration = event.durationSeconds?.toFixed(1) ?? "";
@@ -165,7 +178,8 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
     setEncryptedFilter("all");
   };
 
-  const hasActiveFilters = eventTypeFilter !== "all" || encryptedFilter !== "all";
+  const hasActiveFilters =
+    eventTypeFilter !== "all" || encryptedFilter !== "all";
 
   if (events.length === 0) {
     return (
@@ -175,7 +189,9 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
       >
         <Phone size={20} className="mb-1 opacity-50" />
         <div>Waiting for call activity...</div>
-        <div className="small mt-1">Events will appear when calls start or end</div>
+        <div className="small mt-1">
+          Events will appear when calls start or end
+        </div>
       </div>
     );
   }
@@ -183,7 +199,10 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
   return (
     <div className="d-flex flex-column" style={{ maxHeight: maxHeight + 40 }}>
       {/* Toolbar */}
-      <div className="d-flex align-items-center gap-2 mb-2 flex-wrap" style={{ fontSize: "0.75rem" }}>
+      <div
+        className="d-flex align-items-center gap-2 mb-2 flex-wrap"
+        style={{ fontSize: "0.75rem" }}
+      >
         {/* Filter toggle */}
         <button
           className={`btn btn-sm ${showFilters ? "btn-primary" : "btn-outline-secondary"}`}
@@ -232,11 +251,14 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
 
       {/* Filter chips */}
       {showFilters && (
-        <div className="d-flex gap-2 mb-2 flex-wrap align-items-center" style={{ fontSize: "0.7rem" }}>
+        <div
+          className="d-flex gap-2 mb-2 flex-wrap align-items-center"
+          style={{ fontSize: "0.7rem" }}
+        >
           {/* Event type filter */}
           <div className="d-flex gap-1 align-items-center">
             <span className="text-muted me-1">Type:</span>
-            {(["all", "start", "end"] as EventTypeFilter[]).map(type => (
+            {(["all", "start", "end"] as EventTypeFilter[]).map((type) => (
               <button
                 key={type}
                 className={`btn btn-sm ${eventTypeFilter === type ? "btn-primary" : "btn-outline-secondary"}`}
@@ -251,18 +273,27 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
           {/* Encrypted filter */}
           <div className="d-flex gap-1 align-items-center">
             <span className="text-muted me-1">Encrypted:</span>
-            {(["all", "encrypted", "unencrypted"] as EncryptedFilter[]).map(filter => (
-              <button
-                key={filter}
-                className={`btn btn-sm ${encryptedFilter === filter ? "btn-primary" : "btn-outline-secondary"}`}
-                onClick={() => setEncryptedFilter(filter)}
-                style={{ fontSize: "0.65rem", padding: "1px 6px" }}
-              >
-                {filter === "all" ? "All" : filter === "encrypted" ? (
-                  <><Lock size={10} className="me-1" />Yes</>
-                ) : "No"}
-              </button>
-            ))}
+            {(["all", "encrypted", "unencrypted"] as EncryptedFilter[]).map(
+              (filter) => (
+                <button
+                  key={filter}
+                  className={`btn btn-sm ${encryptedFilter === filter ? "btn-primary" : "btn-outline-secondary"}`}
+                  onClick={() => setEncryptedFilter(filter)}
+                  style={{ fontSize: "0.65rem", padding: "1px 6px" }}
+                >
+                  {filter === "all" ? (
+                    "All"
+                  ) : filter === "encrypted" ? (
+                    <>
+                      <Lock size={10} className="me-1" />
+                      Yes
+                    </>
+                  ) : (
+                    "No"
+                  )}
+                </button>
+              ),
+            )}
           </div>
 
           {/* Clear all */}
@@ -272,7 +303,8 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
               onClick={clearFilters}
               style={{ fontSize: "0.65rem", padding: "1px 6px" }}
             >
-              <X size={10} className="me-1" />Clear
+              <X size={10} className="me-1" />
+              Clear
             </button>
           )}
         </div>
@@ -298,9 +330,14 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
                 style={{ borderBottom: "1px solid var(--bs-border-color)" }}
               >
                 {/* Time with milliseconds */}
-                <span className="text-body-secondary font-monospace" style={{ width: "75px" }}>
+                <span
+                  className="text-body-secondary font-monospace"
+                  style={{ width: "75px" }}
+                >
                   {formatTime(event.timestamp)}
-                  <span className="opacity-75">.{formatMillis(event.timestamp)}</span>
+                  <span className="opacity-75">
+                    .{formatMillis(event.timestamp)}
+                  </span>
                 </span>
 
                 {/* Icon */}
@@ -314,21 +351,35 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
                     event.type === "start"
                       ? "bg-success"
                       : event.type === "end"
-                      ? "bg-secondary"
-                      : "bg-info"
+                        ? "bg-secondary"
+                        : "bg-info"
                   }`}
                   style={{ width: "42px", fontSize: "0.6rem" }}
                 >
-                  {event.type === "start" ? "START" : event.type === "end" ? "END" : "UPDATE"}
+                  {event.type === "start"
+                    ? "START"
+                    : event.type === "end"
+                      ? "END"
+                      : "UPDATE"}
                 </span>
 
                 {/* Talkgroup name + ID */}
-                <span className="d-flex align-items-center gap-1" style={{ minWidth: "130px", maxWidth: "180px" }}>
-                  <span className="fw-semibold text-truncate" title={event.talkgroupName}>
+                <span
+                  className="d-flex align-items-center gap-1"
+                  style={{ minWidth: "160px", flex: "1 1 auto" }}
+                >
+                  <span
+                    className="fw-semibold"
+                    style={{ wordBreak: "break-word" }}
+                    title={event.talkgroupName}
+                  >
                     {event.talkgroupName || `TG ${event.talkgroupId}`}
                   </span>
                   {event.talkgroupName && (
-                    <span className="badge bg-secondary" style={{ fontSize: "0.55rem" }}>
+                    <span
+                      className="badge bg-secondary"
+                      style={{ fontSize: "0.55rem" }}
+                    >
                       {event.talkgroupId}
                     </span>
                   )}
@@ -337,7 +388,11 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
                 {/* Source ID */}
                 <span style={{ width: "55px" }}>
                   {event.sourceId !== null ? (
-                    <span className="badge bg-secondary" style={{ fontSize: "0.6rem" }} title="Radio Unit ID">
+                    <span
+                      className="badge bg-secondary"
+                      style={{ fontSize: "0.6rem" }}
+                      title="Radio Unit ID"
+                    >
                       RU {event.sourceId}
                     </span>
                   ) : (
@@ -346,21 +401,32 @@ export function CallEventLog({ events, maxHeight = 300 }: CallEventLogProps) {
                 </span>
 
                 {/* Frequency */}
-                <span className="font-monospace text-body-secondary" style={{ width: "65px" }} title="Voice Channel Frequency">
+                <span
+                  className="font-monospace text-body-secondary"
+                  style={{ width: "65px" }}
+                  title="Voice Channel Frequency"
+                >
                   {formatFrequency(event.frequencyHz)}
                 </span>
 
                 {/* Duration (for end events) */}
                 <span style={{ width: "50px" }}>
-                  {event.type === "end" && event.durationSeconds !== undefined && (
-                    <span className="text-info fw-semibold">{formatDuration(event.durationSeconds)}</span>
-                  )}
+                  {event.type === "end" &&
+                    event.durationSeconds !== undefined && (
+                      <span className="text-info fw-semibold">
+                        {formatDuration(event.durationSeconds)}
+                      </span>
+                    )}
                 </span>
 
                 {/* Encrypted indicator */}
                 <span style={{ width: "20px" }}>
                   {event.encrypted && (
-                    <span className="badge bg-danger" style={{ fontSize: "0.55rem" }} title="Encrypted call">
+                    <span
+                      className="badge bg-danger"
+                      style={{ fontSize: "0.55rem" }}
+                      title="Encrypted call"
+                    >
                       <Lock size={8} />
                     </span>
                   )}
