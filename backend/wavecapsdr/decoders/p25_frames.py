@@ -25,6 +25,11 @@ from wavecapsdr.dsp.fec.trellis import trellis_decode, trellis_decode_3_4
 
 logger = logging.getLogger(__name__)
 
+_decode_nid_debug_count = 0
+_decode_nid_decode_count = 0
+_decode_tsdu_debug_count = 0
+_extract_tsbk_blocks_debug_done = False
+
 
 # P25 Phase 1 data deinterleave pattern (196 bits)
 # From SDRTrunk P25P1Interleave.java DATA_DEINTERLEAVE array
@@ -401,12 +406,11 @@ def decode_nid(
         return None
 
     # Debug: log first 8 dibits (NAC + DUID) periodically
-    if not hasattr(decode_nid, '_debug_count'):
-        decode_nid._debug_count = 0
-    decode_nid._debug_count += 1
-    if decode_nid._debug_count <= 10 or decode_nid._debug_count % 100 == 0:
+    global _decode_nid_debug_count
+    _decode_nid_debug_count += 1
+    if _decode_nid_debug_count <= 10 or _decode_nid_debug_count % 100 == 0:
         dibit_str = ' '.join(str(d) for d in clean_dibits[:8])
-        logger.info(f"decode_nid #{decode_nid._debug_count}: dibits[0:8]={dibit_str}")
+        logger.info(f"decode_nid #{_decode_nid_debug_count}: dibits[0:8]={dibit_str}")
 
     # Convert dibits to bits for BCH decoder (32 dibits = 64 bits)
     bits = np.zeros(64, dtype=np.uint8)
@@ -472,10 +476,9 @@ def decode_nid(
         nac_tracker.track(nac)
 
     # Debug logging (first 10 decodes only)
-    if not hasattr(decode_nid, '_decode_count'):
-        decode_nid._decode_count = 0
-    decode_nid._decode_count += 1
-    if decode_nid._decode_count <= 10:
+    global _decode_nid_decode_count
+    _decode_nid_decode_count += 1
+    if _decode_nid_decode_count <= 10:
         tracked_nac_str = f"0x{tracked_nac:03x}" if tracked_nac else "0x000"
         logger.info(
             f"decode_nid: NAC=0x{nac:03x}, DUID=0x{duid_val:x}, "
@@ -677,10 +680,9 @@ def decode_tsdu(dibits: np.ndarray, soft: np.ndarray | None = None) -> TSDUFrame
     nid_dibits = dibits[nid_start:nid_end]
 
     # Debug: log first 15 NID dibits
-    if not hasattr(decode_tsdu, '_debug_count'):
-        decode_tsdu._debug_count = 0
-    decode_tsdu._debug_count += 1
-    if decode_tsdu._debug_count <= 10:
+    global _decode_tsdu_debug_count
+    _decode_tsdu_debug_count += 1
+    if _decode_tsdu_debug_count <= 10:
         logger.info(f"decode_tsdu: nid_dibits[0:15]={list(nid_dibits[:15])}, len={len(nid_dibits)}")
 
     nid = decode_nid(nid_dibits, skip_status_at_10=True)
@@ -688,7 +690,7 @@ def decode_tsdu(dibits: np.ndarray, soft: np.ndarray | None = None) -> TSDUFrame
         logger.debug("TSDU: NID decode failed")
         return None
 
-    if decode_tsdu._debug_count <= 10:
+    if _decode_tsdu_debug_count <= 10:
         logger.info(f"decode_tsdu: NID decoded: nac=0x{nid.nac:03x}, duid={nid.duid}")
 
     # Extract TSBK data and remove status symbols
@@ -949,8 +951,9 @@ def extract_tsbk_blocks(dibits: np.ndarray, soft: np.ndarray | None = None) -> l
             break
 
         # DEBUG: Log raw dibits and bits before deinterleave (first block only)
-        if block_idx == 0 and not hasattr(extract_tsbk_blocks, '_debug_done'):
-            extract_tsbk_blocks._debug_done = True
+        global _extract_tsbk_blocks_debug_done
+        if block_idx == 0 and not _extract_tsbk_blocks_debug_done:
+            _extract_tsbk_blocks_debug_done = True
             dibit_hex = ''.join(f'{d:01x}' for d in tsbk_dibits[:24])
             bit_str = ''.join(str(b) for b in interleaved_bits[:48])
             logger.info(f"TSBK DEBUG: raw dibits[0:24]={dibit_hex}")

@@ -156,6 +156,8 @@ def _write_header(
     timestamp: float = 0.0,
 ) -> None:
     """Write header to shared memory."""
+    if shm.buf is None:
+        raise RuntimeError("Shared memory buffer is not available")
     struct.pack(
         HEADER_FORMAT,
         write_idx,
@@ -776,8 +778,10 @@ class SDRplayWorker:
         )
 
         # Force memory synchronization - Python's mmap on macOS may need this
-        with contextlib.suppress(Exception):
-            self.shm.buf.flush() if hasattr(self.shm.buf, 'flush') else None
+        if self.shm is not None and self.shm.buf is not None:
+            with contextlib.suppress(Exception):
+                if hasattr(self.shm.buf, "flush"):
+                    self.shm.buf.flush()
 
         # Log first few header writes for debugging
         if self._stream_call_count <= 5:

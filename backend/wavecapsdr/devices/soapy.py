@@ -168,8 +168,6 @@ def _enumerate_worker(driver_name: str, queue: MPQueue[Any]) -> None:
                         continue
                     # Note: SoapySDRKwargs doesn't have .get() method, use direct access
                     v = args[k]
-                    if v is None:
-                        continue
                     items.append(f"{k}={v}")
                 id_ = ",".join(items) if items else driver
             except Exception:
@@ -413,6 +411,7 @@ class _SoapyDevice(Device):
         antenna: str | None = None,
         device_settings: dict[str, Any] | None = None,
         element_gains: dict[str, float] | None = None,
+        agc_enabled: bool = False,
         stream_format: str | None = None,
         dc_offset_auto: bool = True,
         iq_balance_auto: bool = True,

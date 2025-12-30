@@ -311,7 +311,7 @@ class P25EventTrackerManager:
 
         # Recent events for deduplication
         # (tgid, freq, timestamp_ms)
-        self._recent_grants: list[tuple] = []
+        self._recent_grants: list[tuple[int, float, float]] = []
 
         # Callbacks
         self.on_call_start: Callable[[P25CallEvent], None] | None = None

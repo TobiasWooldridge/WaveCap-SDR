@@ -47,7 +47,7 @@ class _C4FMDemodulatorWrapper:
     This wrapper provides both outputs for streaming framer support.
     """
 
-    def __init__(self, sample_rate: int):
+    def __init__(self, sample_rate: int) -> None:
         self._demod = _WorkingC4FMDemodulator(sample_rate=sample_rate)
 
     def demodulate(self, iq: np.ndarray) -> np.ndarray:
@@ -76,7 +76,7 @@ class DibitRingBuffer:
     Uses a simple circular buffer with head/tail pointers.
     """
 
-    def __init__(self, capacity: int = 8000):
+    def __init__(self, capacity: int = 8000) -> None:
         self._buffer = np.zeros(capacity, dtype=np.uint8)
         self._capacity = capacity
         self._head = 0  # Write position
@@ -139,7 +139,7 @@ class DibitRingBuffer:
 
         if self._tail + length <= self._capacity:
             # No wrap-around, return view (or copy for safety)
-            return self._buffer[self._tail:self._tail + length].copy()
+            return np.asarray(self._buffer[self._tail:self._tail + length].copy(), dtype=np.uint8)
         else:
             # Handle wrap-around
             result = np.empty(length, dtype=np.uint8)
@@ -217,7 +217,7 @@ class CQPSKDemodulator:
     MMSE_NTAPS = 32
     MMSE_NSTEPS = 128
 
-    def __init__(self, sample_rate: int = 19200, symbol_rate: int = 4800):
+    def __init__(self, sample_rate: int = 19200, symbol_rate: int = 4800) -> None:
         self.sample_rate = sample_rate
         self.symbol_rate = symbol_rate
         self.samples_per_symbol = sample_rate / symbol_rate  # Float for fractional
@@ -376,7 +376,7 @@ class CQPSKDemodulator:
         normalized_cutoff = min(0.99, max(0.01, normalized_cutoff))
 
         taps = scipy_signal.firwin(num_taps, normalized_cutoff, window='hamming')
-        return taps.astype(np.float32)
+        return np.asarray(taps, dtype=np.float32)
 
     def _design_rrc_filter(self, alpha: float = 0.2, num_taps: int = 65) -> np.ndarray:
         """Design Root-Raised Cosine filter for P25."""
@@ -413,7 +413,7 @@ class CQPSKDemodulator:
             Array of dibits (0-3) as uint8
         """
         if iq.size == 0:
-            return cast(np.ndarray, np.array([], dtype=np.uint8))
+            return np.array([], dtype=np.uint8)
 
         # Ensure complex input
         if not np.iscomplexobj(iq):
@@ -421,7 +421,7 @@ class CQPSKDemodulator:
             if len(iq) % 2 == 0:
                 iq = iq[::2] + 1j * iq[1::2]
             else:
-                return cast(np.ndarray, np.array([], dtype=np.uint8))
+                return np.array([], dtype=np.uint8)
 
         x: np.ndarray = iq.astype(np.complex64, copy=False)
 
@@ -511,7 +511,7 @@ class CQPSKDemodulator:
 
                 # Track raw symbol for constellation analysis
                 self._symbol_mags.append(abs(curr))
-                self._symbol_phases.append(np.angle(curr))
+                self._symbol_phases.append(float(np.angle(curr)))
                 if len(self._symbol_mags) > 1000:
                     self._symbol_mags.pop(0)
                     self._symbol_phases.pop(0)
@@ -699,7 +699,7 @@ class C4FMDemodulator:
         [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0],  # 128/128 (1.0)
     ], dtype=np.float32)
 
-    def __init__(self, sample_rate: int = 19200, symbol_rate: int = 4800):
+    def __init__(self, sample_rate: int = 19200, symbol_rate: int = 4800) -> None:
         self.sample_rate = sample_rate
         self.symbol_rate = symbol_rate
         self.samples_per_symbol = sample_rate / symbol_rate  # Float for fractional
@@ -822,7 +822,7 @@ class C4FMDemodulator:
 
         # Design low-pass FIR filter with Hamming window
         taps = scipy_signal.firwin(num_taps, normalized_cutoff, window='hamming')
-        return taps.astype(np.float32)
+        return np.asarray(taps, dtype=np.float32)
 
     def _design_rrc_filter(self, alpha: float = 0.2, num_taps: int = 65) -> np.ndarray:
         """Design Root-Raised Cosine filter for P25 C4FM."""
@@ -860,7 +860,7 @@ class C4FMDemodulator:
             Array of dibits (0-3) as uint8
         """
         if iq.size == 0:
-            return cast(np.ndarray, np.array([], dtype=np.uint8))
+            return np.array([], dtype=np.uint8)
 
         # Validate input - must be complex
         if not np.iscomplexobj(iq):
@@ -868,7 +868,7 @@ class C4FMDemodulator:
             if len(iq) % 2 == 0:
                 iq = iq[::2] + 1j * iq[1::2]
             else:
-                return cast(np.ndarray, np.array([], dtype=np.uint8))
+                return np.array([], dtype=np.uint8)
 
         # FM discriminator (quadrature demodulation)
         x: np.ndarray = iq.astype(np.complex64, copy=False)
@@ -878,7 +878,7 @@ class C4FMDemodulator:
         inst_freq = cast(np.ndarray, np.angle(prod)) * self.sample_rate / (2 * np.pi * self.deviation_hz)
 
         if len(inst_freq) < len(self._rrc_taps):
-            return cast(np.ndarray, np.array([], dtype=np.uint8))
+            return np.array([], dtype=np.uint8)
 
         # Debug: Log raw FM discriminator output
         if self._symbol_count % 10000 == 0 and len(inst_freq) > 10:
@@ -1097,7 +1097,7 @@ class DiscriminatorDemodulator:
     MMSE_NTAPS = 8
     MMSE_NSTEPS = 128
 
-    def __init__(self, sample_rate: int = 48000, symbol_rate: int = 4800):
+    def __init__(self, sample_rate: int = 48000, symbol_rate: int = 4800) -> None:
         self.sample_rate = sample_rate
         self.symbol_rate = symbol_rate
         self.samples_per_symbol = sample_rate / symbol_rate
@@ -1170,7 +1170,7 @@ class DiscriminatorDemodulator:
         ntaps = 65
         cutoff = self.BASEBAND_CUTOFF_HZ / (self.sample_rate / 2)
         cutoff = min(cutoff, 0.99)
-        return firwin(ntaps, cutoff, window='hamming').astype(np.float32)
+        return np.asarray(firwin(ntaps, cutoff, window='hamming'), dtype=np.float32)
 
     def demodulate(self, audio: np.ndarray) -> np.ndarray:
         """
@@ -1183,7 +1183,7 @@ class DiscriminatorDemodulator:
             Array of dibits (0-3) as uint8
         """
         if audio.size == 0:
-            return cast(np.ndarray, np.array([], dtype=np.uint8))
+            return np.array([], dtype=np.uint8)
 
         # Ensure float32
         samples = audio.astype(np.float32, copy=False)
@@ -1333,7 +1333,7 @@ class P25TrellisDecoder:
     - 49 * 4 bits = 196 transmitted bits = 98 dibits
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._decoder = TrellisDecoder()
 
     def decode(self, dibits: np.ndarray) -> tuple[np.ndarray | None, int]:
@@ -1697,9 +1697,14 @@ class P25Decoder:
     # Minimum sample rate for C4FM demodulation (4 samples/symbol at 4800 baud)
     MIN_SAMPLE_RATE = 19200  # 4 sps
 
-    def __init__(self, sample_rate: int = 48000, modulation: P25Modulation = P25Modulation.C4FM):
+    def __init__(
+        self,
+        sample_rate: int = 48000,
+        modulation: P25Modulation = P25Modulation.C4FM,
+    ) -> None:
         self.sample_rate = sample_rate
         self.modulation = modulation
+        self.demodulator: CQPSKDemodulator | _C4FMDemodulatorWrapper
 
         # Only resample if input rate is below minimum
         # Resampling degrades signal quality, so avoid when possible
@@ -1780,11 +1785,11 @@ class P25Decoder:
         self._sync_count = 0
         self._tsbk_decode_count = 0
 
-    def _on_framer_message(self, message: P25P1Message):
+    def _on_framer_message(self, message: P25P1Message) -> None:
         """Callback from streaming framer when a message is assembled."""
         self._framed_messages.append(message)
 
-    def _on_phase2_timeslot(self, timeslot: P25P2Timeslot):
+    def _on_phase2_timeslot(self, timeslot: P25P2Timeslot) -> None:
         """Callback from Phase 2 decoder when a timeslot is received."""
         self._phase2_timeslots.append(timeslot)
 
@@ -1999,7 +2004,7 @@ class P25Decoder:
         )
 
         # Use existing TSBK parser for full decoding
-        tsbk_data = self.tsbk_parser.parse_tsbk(opcode, data_bytes)
+        tsbk_data: dict[str, Any] | None = self.tsbk_parser.parse(opcode, mfid, data_bytes)
 
         if tsbk_data:
             tsbk_data['opcode'] = opcode
@@ -2043,19 +2048,24 @@ class P25Decoder:
         for ts in timeslots:
             # Create a P25Frame for each timeslot
             # Phase 2 timeslots contain voice or SACCH/FACCH data
-            frame_type = P25FrameType.VOICE if ts.slot_type == P25P2TimeslotType.VOICE else P25FrameType.TSDU
+            frame_type = (
+                P25FrameType.LDU1
+                if ts.slot_type == P25P2TimeslotType.VOICE
+                else P25FrameType.TSDU
+            )
 
             frame = P25Frame(
                 frame_type=frame_type,
                 nac=0,  # NAC is in ISCH, not decoded yet
-                payload=ts.dibits.tobytes(),
-                decoded={
-                    'phase': 2,
-                    'timeslot': ts.timeslot_number,
-                    'slot_type': ts.slot_type.name,
-                    'isch': ts.isch_dibits.tobytes().hex(),
+                duid=0,
+                voice_data=ts.dibits.tobytes() if ts.slot_type == P25P2TimeslotType.VOICE else None,
+                tsbk_data={
+                    "phase": 2,
+                    "timeslot": ts.timeslot_number,
+                    "slot_type": ts.slot_type.name,
+                    "isch": ts.isch_dibits.tobytes().hex(),
+                    "timestamp": ts.timestamp,
                 },
-                timestamp=ts.timestamp,
             )
             frames.append(frame)
 
@@ -2093,6 +2103,8 @@ class P25Decoder:
 
         # Find frame sync in buffer
         sync_pos, frame_type, nac, duid = self.frame_sync.find_sync(buffer_data)
+        if frame_type is None:
+            frame_type = P25FrameType.UNKNOWN
 
         if sync_pos is None:
             self._no_sync_count += 1
@@ -2254,6 +2266,8 @@ class P25Decoder:
         # From here, use the same frame decoding logic as process_iq
         buffer_data = self._dibit_buffer.get_contiguous()
         sync_pos, frame_type, nac, duid = self.frame_sync.find_sync(buffer_data)
+        if frame_type is None:
+            frame_type = P25FrameType.UNKNOWN
 
         if sync_pos is None:
             self._no_sync_count += 1
@@ -2545,7 +2559,7 @@ class P25Decoder:
                 status_vals = [dibits[i] for i in skipped[:3]]
                 logger.info(f"Status symbol values at skipped positions: {status_vals}")
 
-        return dibits[valid_indices].astype(np.uint8)
+        return np.asarray(dibits[valid_indices], dtype=np.uint8)
 
     def _decode_tsdu(self, dibits: np.ndarray) -> P25Frame | None:
         """

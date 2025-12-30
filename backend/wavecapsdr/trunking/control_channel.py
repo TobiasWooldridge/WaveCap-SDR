@@ -91,6 +91,7 @@ class ControlChannelMonitor:
     tsbk_attempts: int = 0  # Number of TSBK blocks we tried to decode
     tsbk_crc_pass: int = 0  # Number that passed CRC
     tsbk_error_sum: int = 0  # Sum of bit errors for failed CRCs (for averaging)
+    _dibit_debug_count: int = 0
 
     # Callbacks
     on_tsbk: Callable[[bytes], None] | None = None
@@ -315,7 +316,7 @@ class ControlChannelMonitor:
 
             # Verify sync pattern at start of frame using soft correlation
             frame_sync = frame_dibits[:self.FRAME_SYNC_DIBITS]
-            sync_score = self._soft_correlation(frame_sync.tolist())
+            sync_score, _ = self._soft_correlation(frame_sync.tolist())
             if sync_score < self.SOFT_SYNC_THRESHOLD:  # Match search tolerance
                 # Lost sync
                 self.sync_state = SyncState.SEARCHING
@@ -506,7 +507,7 @@ class ControlChannelMonitor:
     # Raise to 130 to eliminate false positive sync detection on noise
     SOFT_SYNC_THRESHOLD = 130  # 60% of max (216), equivalent to SDRTrunk's 80/133
 
-    def _soft_correlation(self, dibits: list[int], detect_polarity: bool = False) -> float | tuple[float, bool]:
+    def _soft_correlation(self, dibits: list[int], detect_polarity: bool = False) -> tuple[float, bool]:
         """Compute soft correlation score between dibits and sync pattern.
 
         SDRTrunk-style: dot product of received symbols with ideal sync symbols.
@@ -527,11 +528,9 @@ class ControlChannelMonitor:
         normal_score = float(np.dot(symbols, self.SYNC_PATTERN_SYMBOLS))
         rev_score = float(np.dot(symbols, self.SYNC_PATTERN_SYMBOLS_REV))
 
-        if detect_polarity:
-            if rev_score > normal_score:
-                return rev_score, True
-            return normal_score, False
-        return max(normal_score, rev_score)
+        if detect_polarity and rev_score > normal_score:
+            return rev_score, True
+        return max(normal_score, rev_score), False
 
     def _find_sync_in_buffer(self) -> int:
         """Find frame sync pattern in dibit buffer using soft correlation.
@@ -624,7 +623,7 @@ class ControlChannelMonitor:
         Returns:
             True if sync pattern matches (above soft correlation threshold)
         """
-        score = self._soft_correlation(dibits.tolist())
+        score, _ = self._soft_correlation(dibits.tolist())
         # Use same threshold as search for consistency
         return score >= self.SOFT_SYNC_THRESHOLD
 

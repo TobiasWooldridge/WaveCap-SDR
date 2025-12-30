@@ -515,11 +515,15 @@ class TestSyntheticSignalGeneration:
         """Signal generator should produce valid IQ samples."""
         gen = P25SignalGenerator(sample_rate=48000)
 
-        # Generate 1 second of signal
-        signal = gen.generate_signal(duration_seconds=1.0)
+        # Generate a short signal sample
+        duration_seconds = 0.2
+        signal = gen.generate_signal(duration_seconds=duration_seconds)
 
         # Check basic properties
-        assert len(signal) == 48000, f"Expected 48000 samples, got {len(signal)}"
+        expected_samples = int(duration_seconds * gen.sample_rate)
+        assert len(signal) == expected_samples, (
+            f"Expected {expected_samples} samples, got {len(signal)}"
+        )
         assert signal.dtype == np.complex64, f"Expected complex64, got {signal.dtype}"
 
         # Should have non-zero power
@@ -666,7 +670,7 @@ class TestSignalNoiseRobustness:
             protocol=TrunkingProtocol.P25_PHASE1, sample_rate=48000
         )
 
-        chunk_size = 4800
+        chunk_size = 2400
         for i in range(0, len(noisy_signal), chunk_size):
             chunk = noisy_signal[i : i + chunk_size]
             if len(chunk) < chunk_size:

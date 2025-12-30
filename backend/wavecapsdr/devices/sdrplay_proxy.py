@@ -169,6 +169,9 @@ class SDRplayProxyStream(StreamHandle):
                     f"shared memory buffer unavailable (count={self._buf_none_count})"
                 )
             return np.empty(0, dtype=np.complex64), False
+        buf = self.shm.buf
+        if buf is None:
+            return np.empty(0, dtype=np.complex64), False
         else:
             self._buf_none_count = 0  # Reset counter on successful read
 
@@ -302,11 +305,11 @@ class SDRplayProxyStream(StreamHandle):
 
         if bytes_to_read <= bytes_to_end:
             # Single read (no wrap)
-            samples_bytes = bytes(self.shm.buf[buffer_start + read_offset:buffer_start + read_offset + bytes_to_read])
+            samples_bytes = bytes(buf[buffer_start + read_offset:buffer_start + read_offset + bytes_to_read])
         else:
             # Split read (wrap around)
-            part1 = bytes(self.shm.buf[buffer_start + read_offset:buffer_start + BUFFER_SAMPLES * 8])
-            part2 = bytes(self.shm.buf[buffer_start:buffer_start + bytes_to_read - bytes_to_end])
+            part1 = bytes(buf[buffer_start + read_offset:buffer_start + BUFFER_SAMPLES * 8])
+            part2 = bytes(buf[buffer_start:buffer_start + bytes_to_read - bytes_to_end])
             samples_bytes = part1 + part2
 
         # Convert to numpy array (copy to make writeable)

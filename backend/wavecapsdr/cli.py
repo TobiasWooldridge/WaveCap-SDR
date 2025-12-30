@@ -20,6 +20,7 @@ import signal
 import sys
 import time
 import wave
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,16 @@ from typing import Any
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class TrunkingWatchStats:
+    calls_started: int = 0
+    calls_ended: int = 0
+    total_call_duration: float = 0.0
+    tsbk_count: int = 0
+    last_nac: int | None = None
+    start_time: float = field(default_factory=time.time)
 
 
 def get_rspdx_max_lna(frequency_hz: float) -> int:
@@ -72,7 +83,7 @@ def cmd_list_devices(args: argparse.Namespace) -> int:
             if args.verbose:
                 # Open device to get more info
                 try:
-                    sdr = SoapySDR.Device(dev)
+                    sdr = SoapySDR.Device(dict(dev))
                     antennas = sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0)
                     print(f"    Antennas: {', '.join(antennas)}")
 
@@ -83,7 +94,6 @@ def cmd_list_devices(args: argparse.Namespace) -> int:
 
                     rng = sdr.getGainRange(SoapySDR.SOAPY_SDR_RX, 0)
                     print(f"    Overall Gain: {rng.minimum():.0f} to {rng.maximum():.0f} dB")
-                    sdr = None
                 except Exception as e:
                     print(f"    (Could not get details: {e})")
             print()
@@ -159,7 +169,7 @@ def cmd_capture_iq(args: argparse.Namespace) -> int:
     print(f"  Device: {dev_info.get('label', dev_info.get('serial', 'unknown'))}")
 
     # Open device
-    sdr = SoapySDR.Device(results[0])
+    sdr: Any = SoapySDR.Device(dict(results[0]))
 
     # Configure antenna for RSP devices
     if args.antenna:
@@ -238,18 +248,20 @@ def cmd_capture_iq(args: argparse.Namespace) -> int:
 
     print(f"\nCapturing {total_samples} samples...")
     start_time = time.time()
-    last_update = 0
+    last_update = 0.0
     error_count = 0
     max_errors = 10
+    timeout_code = getattr(SoapySDR, "SOAPY_SDR_TIMEOUT", -6)
 
     try:
         while samples_captured < total_samples:
             buff = np.zeros(buffer_size, dtype=np.complex64)
             # Use 100ms timeout
             sr = sdr.readStream(stream, [buff], buffer_size, timeoutUs=100000)
-            if sr.ret > 0:
-                all_samples.append(buff[:sr.ret].copy())
-                samples_captured += sr.ret
+            ret = sr.ret if hasattr(sr, "ret") else sr[0]
+            if ret > 0:
+                all_samples.append(buff[:ret].copy())
+                samples_captured += ret
                 error_count = 0  # Reset on success
 
                 # Progress update every second
@@ -258,18 +270,18 @@ def cmd_capture_iq(args: argparse.Namespace) -> int:
                     pct = 100 * samples_captured / total_samples
                     print(f"  {pct:.0f}% ({samples_captured}/{total_samples} samples, {elapsed:.1f}s)")
                     last_update = elapsed
-            elif sr.ret == SoapySDR.SOAPY_SDR_TIMEOUT:
+            elif ret == timeout_code:
                 # Timeout is normal, just retry
                 error_count += 1
                 if error_count > max_errors:
                     print(f"Too many timeouts, stopping capture")
                     break
-            elif sr.ret == SoapySDR.SOAPY_SDR_OVERFLOW:
+            elif ret == getattr(SoapySDR, "SOAPY_SDR_OVERFLOW", -4):
                 # Overflow - data was lost, continue
                 print("  (overflow - samples dropped)")
                 error_count += 1
-            elif sr.ret < 0:
-                print(f"Stream error: {sr.ret}")
+            elif ret < 0:
+                print(f"Stream error: {ret}")
                 error_count += 1
                 if error_count > max_errors:
                     break
@@ -278,7 +290,6 @@ def cmd_capture_iq(args: argparse.Namespace) -> int:
     finally:
         sdr.deactivateStream(stream)
         sdr.closeStream(stream)
-        sdr = None
 
     # Combine all samples
     if not all_samples:
@@ -376,7 +387,7 @@ def apply_freq_correction(iq: np.ndarray, offset_hz: float, sample_rate: int) ->
     """Apply frequency correction by mixing with complex exponential."""
     t = np.arange(len(iq)) / sample_rate
     correction = np.exp(-1j * 2 * np.pi * offset_hz * t)
-    return iq * correction
+    return np.asarray(iq * correction, dtype=np.complex64)
 
 
 def cmd_decode_audio(args: argparse.Namespace) -> int:
@@ -565,7 +576,8 @@ def cmd_decode_audio(args: argparse.Namespace) -> int:
             print("  Warning: Output file not created")
             # DSD-FME may have printed to stdout instead
             if stdout:
-                print(f"  stdout: {stdout[:200]}")
+                stdout_text = stdout[:200].decode(errors="replace")
+                print(f"  stdout: {stdout_text}")
 
         print("\nDone!")
         return 0
@@ -656,7 +668,7 @@ def cmd_decode_iq(args: argparse.Namespace) -> int:
     from wavecapsdr.decoders.p25_framer import P25P1MessageFramer
 
     messages = []
-    def on_message(msg):
+    def on_message(msg: Any) -> None:
         messages.append({
             'nac': msg.nac,
             'duid': str(msg.duid.name if hasattr(msg.duid, 'name') else msg.duid),
@@ -680,7 +692,7 @@ def cmd_decode_iq(args: argparse.Namespace) -> int:
     if messages:
         print("\n=== Decoded Messages ===")
         # Group by DUID
-        duid_counts = {}
+        duid_counts: dict[str, int] = {}
         for msg in messages:
             duid = msg.get('duid', 'UNKNOWN')
             duid_counts[duid] = duid_counts.get(duid, 0) + 1
@@ -702,7 +714,7 @@ def cmd_decode_iq(args: argparse.Namespace) -> int:
     return 0
 
 
-def demod_c4fm(iq: np.ndarray, sample_rate: int, symbol_rate: int = 4800) -> tuple:
+def demod_c4fm(iq: np.ndarray, sample_rate: int, symbol_rate: int = 4800) -> tuple[np.ndarray, np.ndarray]:
     """C4FM demodulation using proper SDRTrunk-style demodulator."""
     from wavecapsdr.dsp.p25.c4fm import C4FMDemodulator
 
@@ -721,7 +733,7 @@ def demod_c4fm(iq: np.ndarray, sample_rate: int, symbol_rate: int = 4800) -> tup
     return dibits, soft_symbols
 
 
-def demod_cqpsk(iq: np.ndarray, sample_rate: int, symbol_rate: int = 4800) -> tuple:
+def demod_cqpsk(iq: np.ndarray, sample_rate: int, symbol_rate: int = 4800) -> tuple[np.ndarray, np.ndarray]:
     """CQPSK/LSM demodulation (π/4-DQPSK)."""
     from scipy.signal import firwin, lfilter
 
@@ -746,29 +758,29 @@ def demod_cqpsk(iq: np.ndarray, sample_rate: int, symbol_rate: int = 4800) -> tu
         prev = curr
         pos += sps
 
-    symbols = np.array(symbols)
-    print(f"  Extracted {len(symbols)} phase changes")
-    print(f"  Phase stats: mean={np.mean(symbols):.4f}, std={np.std(symbols):.4f}")
+    symbols_arr = np.array(symbols, dtype=np.float32)
+    print(f"  Extracted {len(symbols_arr)} phase changes")
+    print(f"  Phase stats: mean={np.mean(symbols_arr):.4f}, std={np.std(symbols_arr):.4f}")
 
     # π/4-DQPSK slicing
     half_pi = np.pi / 2
-    dibits = np.zeros(len(symbols), dtype=np.uint8)
-    dibits[symbols >= half_pi] = 1
-    dibits[(symbols >= 0) & (symbols < half_pi)] = 0
-    dibits[(symbols >= -half_pi) & (symbols < 0)] = 2
-    dibits[symbols < -half_pi] = 3
+    dibits = np.zeros(len(symbols_arr), dtype=np.uint8)
+    dibits[symbols_arr >= half_pi] = 1
+    dibits[(symbols_arr >= 0) & (symbols_arr < half_pi)] = 0
+    dibits[(symbols_arr >= -half_pi) & (symbols_arr < 0)] = 2
+    dibits[symbols_arr < -half_pi] = 3
 
     unique, counts = np.unique(dibits, return_counts=True)
     print(f"  Dibit distribution: {dict(zip(unique.tolist(), counts.tolist()))}")
 
-    return dibits, symbols
+    return dibits, symbols_arr
 
 
 # P25 sync pattern (48 bits = 24 dibits)
 P25_SYNC_DIBITS = np.array([1,1,1,1,1,3,1,1,3,3,1,1,3,3,3,3,1,3,1,3,3,3,3,3], dtype=np.uint8)
 
 
-def find_p25_syncs(dibits: np.ndarray, min_match: int = 18) -> list:
+def find_p25_syncs(dibits: np.ndarray, min_match: int = 18) -> list[tuple[int, int]]:
     """Find P25 sync patterns in dibit stream."""
     sync_len = len(P25_SYNC_DIBITS)
     matches = []
@@ -782,7 +794,7 @@ def find_p25_syncs(dibits: np.ndarray, min_match: int = 18) -> list:
     return matches
 
 
-def decode_tsbks(dibits: np.ndarray, syncs: list) -> None:
+def decode_tsbks(dibits: np.ndarray, syncs: list[tuple[int, int]]) -> None:
     """Attempt to decode TSBK messages after sync patterns."""
     # NID is 64 bits (32 dibits) after sync
     # TSBK is after NID
@@ -906,14 +918,7 @@ def cmd_trunking(args: argparse.Namespace) -> int:
     print()
 
     # Stats tracking
-    stats = {
-        "calls_started": 0,
-        "calls_ended": 0,
-        "total_call_duration": 0.0,
-        "tsbk_count": 0,
-        "last_nac": None,
-        "start_time": time.time(),
-    }
+    stats = TrunkingWatchStats()
 
     def format_call_event(event_type: str, call: ActiveCall) -> str:
         """Format a call event for display."""
@@ -929,7 +934,7 @@ def cmd_trunking(args: argparse.Namespace) -> int:
                 "source_id": call.source_id,
                 "frequency": call.frequency_hz,
                 "encrypted": call.encrypted,
-                "duration": call.duration if event_type == "call_end" else None,
+                "duration": call.duration_seconds if event_type == "call_end" else None,
                 "recording_path": getattr(call, "recording_path", None),
             })
         else:
@@ -937,7 +942,7 @@ def cmd_trunking(args: argparse.Namespace) -> int:
                 tg_display = f"{tg} ({tg_name})" if tg_name else str(tg)
                 return f"[CALL START] TG={tg_display} SRC={call.source_id} FREQ={call.frequency_hz/1e6:.4f} MHz"
             elif event_type == "call_end":
-                return f"[CALL END] TG={tg} duration={call.duration:.1f}s"
+                return f"[CALL END] TG={tg} duration={call.duration_seconds:.1f}s"
             elif event_type == "call_update":
                 return f"[CALL UPDATE] TG={tg} SRC={call.source_id}"
             else:
@@ -949,7 +954,7 @@ def cmd_trunking(args: argparse.Namespace) -> int:
         if allowed_tgs and call.talkgroup_id not in allowed_tgs:
             return
 
-        stats["calls_started"] += 1
+        stats.calls_started += 1
         print(format_call_event("call_start", call))
 
     def on_call_end(call: ActiveCall) -> None:
@@ -957,8 +962,8 @@ def cmd_trunking(args: argparse.Namespace) -> int:
         if allowed_tgs and call.talkgroup_id not in allowed_tgs:
             return
 
-        stats["calls_ended"] += 1
-        stats["total_call_duration"] += call.duration
+        stats.calls_ended += 1
+        stats.total_call_duration += call.duration_seconds
         print(format_call_event("call_end", call))
 
     def on_call_update(call: ActiveCall) -> None:
@@ -970,9 +975,9 @@ def cmd_trunking(args: argparse.Namespace) -> int:
 
     def on_message(message: dict[str, Any]) -> None:
         """Handle TSBK message event."""
-        stats["tsbk_count"] += 1
+        stats.tsbk_count += 1
         if message.get("nac"):
-            stats["last_nac"] = message["nac"]
+            stats.last_nac = message["nac"]
 
         if args.verbose:
             opcode = message.get("opcode_name", message.get("opcode", "?"))
@@ -991,14 +996,14 @@ def cmd_trunking(args: argparse.Namespace) -> int:
 
     def print_stats() -> None:
         """Print current statistics."""
-        elapsed = time.time() - stats["start_time"]
+        elapsed = time.time() - stats.start_time
         print(f"\n--- Stats ({datetime.now().strftime('%H:%M:%S')}) ---")
         print(f"Uptime: {elapsed:.0f}s")
-        print(f"Calls: {stats['calls_started']} started, {stats['calls_ended']} ended")
-        print(f"Total call duration: {stats['total_call_duration']:.1f}s")
-        print(f"TSBK messages: {stats['tsbk_count']}")
-        if stats["last_nac"]:
-            print(f"NAC: 0x{stats['last_nac']:03X}")
+        print(f"Calls: {stats.calls_started} started, {stats.calls_ended} ended")
+        print(f"Total call duration: {stats.total_call_duration:.1f}s")
+        print(f"TSBK messages: {stats.tsbk_count}")
+        if stats.last_nac:
+            print(f"NAC: 0x{stats.last_nac:03X}")
         print()
 
     async def run() -> int:
@@ -1149,7 +1154,8 @@ def main() -> int:
         format="%(asctime)s %(levelname)s %(message)s"
     )
 
-    return args.func(args)
+    result = args.func(args)
+    return 0 if result is None else int(result)
 
 
 if __name__ == "__main__":

@@ -115,9 +115,7 @@ class VoiceDecoder:
             if not native_only:
                 return IMBEDecoderThreaded.is_available()
             return False
-        elif vocoder_type == VocoderType.AMBE2:
-            return AMBEDecoder.is_available()
-        return False
+        return AMBEDecoder.is_available()
 
     @staticmethod
     def check_availability() -> dict[str, Any]:

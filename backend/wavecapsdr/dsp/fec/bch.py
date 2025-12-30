@@ -17,19 +17,26 @@ Reference: TIA-102.BAAA-A Network ID specification
 from __future__ import annotations
 
 import logging
+from typing import Any, Callable, TypeVar, cast
 
 import numpy as np
 
+F = TypeVar("F", bound=Callable[..., Any])
+
+def _fallback_jit(*args: Any, **kwargs: Any) -> Callable[[F], F]:
+    def decorator(func: F) -> F:
+        return func
+    return decorator
+
 # Try to import numba for JIT compilation
 try:
-    from numba import jit
+    from numba import jit as _numba_jit
     NUMBA_AVAILABLE = True
 except ImportError:
+    _numba_jit = cast(Callable[..., Any], _fallback_jit)
     NUMBA_AVAILABLE = False
-    def jit(*args, **kwargs):  # type: ignore
-        def decorator(func):  # type: ignore
-            return func
-        return decorator
+
+jit = _numba_jit
 
 logger = logging.getLogger(__name__)
 
@@ -235,12 +242,12 @@ class BCH_63_16_23:
 
     MESSAGE_NOT_CORRECTED = -1
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize BCH decoder with lookup tables."""
         self._init_galois_tables()
         self._init_degree2_table()
 
-    def _init_galois_tables(self):
+    def _init_galois_tables(self) -> None:
         """Initialize Galois Field logarithm and antilog tables."""
         self.a_pow_tab = np.zeros(self.N + 1, dtype=np.int32)
         self.a_log_tab = np.zeros(self.N + 1, dtype=np.int32)
@@ -258,7 +265,7 @@ class BCH_63_16_23:
         self.a_pow_tab[self.N] = 1
         self.a_log_tab[0] = 0
 
-    def _init_degree2_table(self):
+    def _init_degree2_table(self) -> None:
         """Initialize lookup table for degree-2 polynomial roots."""
         self.xi_tab = np.zeros(self.M, dtype=np.int32)
 
@@ -293,25 +300,25 @@ class BCH_63_16_23:
 
     def _a_pow(self, i: int) -> int:
         """Get alpha^i from power table."""
-        return self.a_pow_tab[i % self.N]
+        return int(self.a_pow_tab[i % self.N])
 
     def _a_log(self, x: int) -> int:
         """Get log_alpha(x) from log table."""
         if x == 0:
             return 0
-        return self.a_log_tab[x]
+        return int(self.a_log_tab[x])
 
     def _gf_sqr(self, x: int) -> int:
         """Square x in GF(2^M)."""
         if x == 0:
             return 0
-        return self.a_pow_tab[(2 * self.a_log_tab[x]) % self.N]
+        return int(self.a_pow_tab[(2 * self.a_log_tab[x]) % self.N])
 
     def _gf_mul(self, a: int, b: int) -> int:
         """Multiply two GF elements."""
         if a == 0 or b == 0:
             return 0
-        return self.a_pow_tab[(self.a_log_tab[a] + self.a_log_tab[b]) % self.N]
+        return int(self.a_pow_tab[(self.a_log_tab[a] + self.a_log_tab[b]) % self.N])
 
     def _gf_mul_vec(self, a: np.ndarray, b: np.ndarray) -> np.ndarray:
         """Vectorized GF multiply for arrays."""
@@ -371,7 +378,7 @@ class BCH_63_16_23:
         # XOR reduce along axis 1 (positions)
         syndromes = np.bitwise_xor.reduce(powers, axis=1)
 
-        return syndromes.astype(np.int32)
+        return np.asarray(syndromes, dtype=np.int32)
 
     def _find_error_locator_poly(self, syndromes: np.ndarray) -> tuple[np.ndarray, int]:
         """Find error locator polynomial using Berlekamp-Massey algorithm.
@@ -458,7 +465,7 @@ class BCH_63_16_23:
         """Compute multiplicative inverse in GF."""
         if x == 0:
             return 0
-        return self.a_pow_tab[(self.N - self.a_log_tab[x]) % self.N]
+        return int(self.a_pow_tab[(self.N - self.a_log_tab[x]) % self.N])
 
     def _find_roots_chien_search(self, poly: np.ndarray, degree: int) -> np.ndarray:
         """Find roots of error locator polynomial using Chien search.

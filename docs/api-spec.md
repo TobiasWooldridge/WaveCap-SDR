@@ -270,7 +270,7 @@ These scripts automatically:
 
 Behavior on startup:
 - If `device.driver=soapy` and no SoapySDR devices are detected at runtime, the server falls back to the built‑in Fake driver so the app remains usable without hardware.
-- If no captures are configured in `config/wavecapsdr.yaml`, the server initializes a single default capture (using the first preset if present) but does not auto‑start it. This ensures the UI/API display a capture immediately while avoiding hardware hangs.
+- If no captures are configured in `config/wavecapsdr.yaml` (with optional overrides in `config/wavecapsdr.local.yaml`), the server initializes a single default capture (using the first preset if present) but does not auto‑start it. This ensures the UI/API display a capture immediately while avoiding hardware hangs.
 - Capture definitions are materialized even when the requested SDR cannot be opened (USB permissions, unplugged hardware, etc.). Such captures surface with `state=failed` and automatically retry acquisition so configs never vanish simply because the radio was offline during boot.
 - The fallback/default capture seeds channel entries from the preset offsets so the UI always shows at least one channel to start/stop even before any manual configuration.
 - When a capture transitions to `running`, any existing channels auto-start so streaming clients can immediately subscribe. Channels created while a capture is running also auto-start.
@@ -283,13 +283,13 @@ Configuration via environment variables:
 - `CONFIG`: path to YAML configuration file (optional)
 
 ## Configuration
-- File: `config/wavecapsdr.yaml` (or environment variables). Document all options in `docs/configuration.md`.
+- Files: `config/wavecapsdr.yaml` with optional overrides in `config/wavecapsdr.local.yaml` (gitignored), plus environment variables. Document all options in `docs/configuration.md`.
 - Examples:
   - `bindAddress` (default `127.0.0.1`), `port` (default `8087`).
   - `auth.token` for simple bearer auth (optional, disabled by default).
   - `recording.rootDir` and filename pattern.
   - `limits.maxConcurrentCaptures`, `limits.maxChannelsPerCapture`, `limits.maxSampleRate`.
-- Each successful save creates/refreshes a sibling `wavecapsdr.yaml.bak` so operators can recover if a UI action overwrote capture configs unexpectedly.
+- Each successful save creates/refreshes a sibling `wavecapsdr.local.yaml.bak` (or `wavecapsdr.yaml.bak` if no local file is used) so operators can recover if a UI action overwrote capture configs unexpectedly.
 
 ## Security
 - Default bind is loopback only. Provide opt‑in network exposure with explicit config.

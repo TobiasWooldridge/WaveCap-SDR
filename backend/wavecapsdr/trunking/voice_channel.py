@@ -21,6 +21,7 @@ from typing import Any
 
 import numpy as np
 
+from wavecapsdr.decoders.lrrp import RadioLocation
 from wavecapsdr.decoders.voice import VocoderType, VoiceDecoder, VoiceDecoderError
 
 logger = logging.getLogger(__name__)
@@ -31,46 +32,6 @@ def pack_pcm16(samples: np.ndarray) -> bytes:
     clipped = np.clip(samples, -1.0, 1.0)
     return (clipped * 32767.0).astype(np.int16).tobytes()
 
-
-@dataclass
-class RadioLocation:
-    """GPS location report from a radio unit."""
-    unit_id: int
-    latitude: float
-    longitude: float
-    altitude_m: float | None = None
-    speed_kmh: float | None = None
-    heading_deg: float | None = None
-    accuracy_m: float | None = None
-    timestamp: float = 0.0
-    source: str = "unknown"  # "lrrp", "elc", "gps_tsbk"
-
-    def __post_init__(self) -> None:
-        if self.timestamp == 0.0:
-            self.timestamp = time.time()
-
-    def is_valid(self) -> bool:
-        """Check if coordinates are valid."""
-        return -90 <= self.latitude <= 90 and -180 <= self.longitude <= 180
-
-    def age_seconds(self) -> float:
-        """Get age of location report."""
-        return time.time() - self.timestamp
-
-    def to_dict(self) -> dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return {
-            "unitId": self.unit_id,
-            "latitude": self.latitude,
-            "longitude": self.longitude,
-            "altitude": self.altitude_m,
-            "speed": self.speed_kmh,
-            "heading": self.heading_deg,
-            "accuracy": self.accuracy_m,
-            "timestamp": self.timestamp,
-            "ageSeconds": self.age_seconds(),
-            "source": self.source,
-        }
 
 
 @dataclass

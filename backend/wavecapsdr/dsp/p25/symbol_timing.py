@@ -154,7 +154,7 @@ class GardnerTED:
         c2 = s[0] - 5 * s[1] / 2 + 2 * s[2] - s[3] / 2
         c3 = (s[3] - s[0]) / 2 + 3 * (s[1] - s[2]) / 2
 
-        return c0 + mu * (c1 + mu * (c2 + mu * c3))
+        return float(c0 + mu * (c1 + mu * (c2 + mu * c3)))
 
     def process_block(self, samples: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Process a block of samples.
@@ -302,12 +302,12 @@ class MuellerMullerTED:
         ]
 
         # Interpolate real and imaginary separately
-        def interp_1d(vals: list, mu: float) -> float:
+        def interp_1d(vals: list[float], mu: float) -> float:
             c0 = vals[1]
             c1 = (vals[2] - vals[0]) / 2
             c2 = vals[0] - 5 * vals[1] / 2 + 2 * vals[2] - vals[3] / 2
             c3 = (vals[3] - vals[0]) / 2 + 3 * (vals[1] - vals[2]) / 2
-            return c0 + mu * (c1 + mu * (c2 + mu * c3))
+            return float(c0 + mu * (c1 + mu * (c2 + mu * c3)))
 
         real_part = interp_1d([x.real for x in s], mu)
         imag_part = interp_1d([x.imag for x in s], mu)
@@ -324,7 +324,7 @@ class MuellerMullerTED:
             Nearest constellation point
         """
         distances = np.abs(self.QPSK_CONSTELLATION - symbol)
-        return self.QPSK_CONSTELLATION[np.argmin(distances)]
+        return complex(self.QPSK_CONSTELLATION[np.argmin(distances)])
 
     def process_block(
         self, samples: np.ndarray

@@ -20,6 +20,8 @@ from .dsp.fft import get_backend as get_fft_backend
 
 logger = logging.getLogger(__name__)
 
+_decimate_debug_count = 0
+
 import contextlib
 
 from .channel_classifier import ChannelClassifier
@@ -204,10 +206,9 @@ def decimate_iq_for_p25(iq: np.ndarray, sample_rate: int) -> tuple[np.ndarray, i
         from scipy import signal as scipy_signal
 
         # Debug: log before/after magnitudes periodically
-        if not hasattr(decimate_iq_for_p25, '_debug_count'):
-            decimate_iq_for_p25._debug_count = 0
-        decimate_iq_for_p25._debug_count += 1
-        _debug = decimate_iq_for_p25._debug_count <= 10 or decimate_iq_for_p25._debug_count % 100 == 0
+        global _decimate_debug_count
+        _decimate_debug_count += 1
+        _debug = _decimate_debug_count <= 10 or _decimate_debug_count % 100 == 0
 
         before_mean = np.mean(np.abs(iq)) if _debug else 0
 
@@ -234,7 +235,7 @@ def decimate_iq_for_p25(iq: np.ndarray, sample_rate: int) -> tuple[np.ndarray, i
                 after_mean = np.mean(np.abs(result))
                 ratio = before_mean / after_mean if after_mean > 1e-10 else 0
                 print(
-                    f"[DECIM] #{decimate_iq_for_p25._debug_count}: "
+                    f"[DECIM] #{_decimate_debug_count}: "
                     f"before={before_mean:.4f}, after={after_mean:.4f}, "
                     f"ratio={ratio:.1f}x, decim={decim_factor}x (simple), "
                     f"output_rate={output_rate}",
@@ -254,7 +255,7 @@ def decimate_iq_for_p25(iq: np.ndarray, sample_rate: int) -> tuple[np.ndarray, i
             after_mean = np.mean(np.abs(result))
             ratio = before_mean / after_mean if after_mean > 1e-10 else 0
             print(
-                f"[DECIM] #{decimate_iq_for_p25._debug_count}: "
+                f"[DECIM] #{_decimate_debug_count}: "
                 f"before={before_mean:.4f}, after={after_mean:.4f}, "
                 f"ratio={ratio:.1f}x, resample={up}/{down}, "
                 f"output_rate={output_rate}",
@@ -530,6 +531,10 @@ class Channel:
     _last_drop_log_time: float = 0.0
     # Metrics counter for throttled signal metrics calculation
     _metrics_counter: int = 0
+    _p25_diag_count: int = 0
+    _nxdn_warned: bool = False
+    _dstar_warned: bool = False
+    _ysf_warned: bool = False
 
     def start(self) -> None:
         self.state = "running"
@@ -1531,7 +1536,7 @@ class Channel:
         import time
 
         # Check if we already have a voice channel for this frequency
-        for chan_id, info in list(self._voice_channels.items()):
+        for existing_chan_id, info in list(self._voice_channels.items()):
             if info.get("freq_hz") == freq_hz:
                 # Update last grant time (call is continuing)
                 info["last_grant_time"] = time.time()
@@ -1559,9 +1564,9 @@ class Channel:
         )
 
         try:
-            chan_id = self._voice_channel_factory(tgid, freq_hz, source_id)
-            if chan_id:
-                self._voice_channels[chan_id] = {
+            new_chan_id = self._voice_channel_factory(tgid, freq_hz, source_id)
+            if new_chan_id:
+                self._voice_channels[new_chan_id] = {
                     "tgid": tgid,
                     "freq_hz": freq_hz,
                     "source_id": source_id,
@@ -1569,7 +1574,7 @@ class Channel:
                     "last_grant_time": time.time(),
                 }
                 logger.info(
-                    f"Channel {self.cfg.id}: Voice channel {chan_id} created for "
+                    f"Channel {self.cfg.id}: Voice channel {new_chan_id} created for "
                     f"TGID {tgid}"
                 )
         except Exception as e:
@@ -2463,7 +2468,7 @@ class Capture:
 
             # Get frequency-shifted IQ for P25 decoding
             base = freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate) if ch.cfg.offset_hz != 0.0 else iq
-            decoded_audio: np.ndarray | None = None
+            p25_decoded_audio: np.ndarray | None = None
 
             if base.size > 0:
                 # Diagnostic: Log raw and frequency-shifted IQ magnitude
@@ -2487,12 +2492,19 @@ class Capture:
                 # Initialize P25 frame decoder with the decimated sample rate
                 if ch._p25_decoder is None:
                     # Use modulation from channel if set (e.g., by TrunkingSystem)
-                    from wavecapsdr.trunking.config import P25Modulation as P25Mod
-                    modulation = ch.p25_modulation if ch.p25_modulation else P25Mod.LSM
-                    ch._p25_decoder = P25Decoder(p25_rate, modulation=modulation)
+                    from wavecapsdr.decoders.p25 import P25Modulation as DecoderMod
+                    from wavecapsdr.trunking.config import P25Modulation as TrunkingMod
+
+                    modulation = ch.p25_modulation if ch.p25_modulation else TrunkingMod.LSM
+                    decoder_mod = DecoderMod(modulation.value)
+                    ch._p25_decoder = P25Decoder(p25_rate, modulation=decoder_mod)
                     ch._p25_decoder.on_voice_frame = lambda voice_data: ch._handle_p25_voice(voice_data)
                     # NOTE: on_grant is not wired - trunking uses VoiceRecorder pool
-                    logger.info(f"Channel {ch.cfg.id}: P25 decoder initialized (sample_rate={p25_rate}, decimation={self.cfg.sample_rate // p25_rate}x, modulation={modulation.value})")
+                    logger.info(
+                        f"Channel {ch.cfg.id}: P25 decoder initialized "
+                        f"(sample_rate={p25_rate}, decimation={self.cfg.sample_rate // p25_rate}x, "
+                        f"modulation={decoder_mod.value})"
+                    )
 
                 # Initialize IMBE voice decoder for P25 voice decoding via DSD-FME
                 if ch._imbe_decoder is None and IMBEDecoder.is_available():
@@ -2525,25 +2537,25 @@ class Capture:
                 if ch._imbe_decoder is not None and ch._imbe_decoder.running and p25_iq.size > 0:
                     try:
                         # Compute FM discriminator (same as C4FM demodulation)
-                        iq_c64: np.ndarray = p25_iq.astype(np.complex64, copy=False)
-                        prod = iq_c64[1:] * np.conj(iq_c64[:-1])
+                        p25_iq_c64: np.ndarray = p25_iq.astype(np.complex64, copy=False)
+                        prod = p25_iq_c64[1:] * np.conj(p25_iq_c64[:-1])
                         discriminator = np.angle(prod) * p25_rate / (2 * np.pi)
 
                         # Queue discriminator audio for IMBE decoding (non-blocking)
                         ch._imbe_decoder.decode_sync(discriminator)
 
                         # Get any decoded audio available from previous frames
-                        decoded_audio = ch._imbe_decoder.get_audio_sync()
-                        if decoded_audio is not None and decoded_audio.size > 0:
-                            ch._update_audio_metrics(decoded_audio)
+                        p25_decoded_audio = ch._imbe_decoder.get_audio_sync()
+                        if p25_decoded_audio is not None and p25_decoded_audio.size > 0:
+                            ch._update_audio_metrics(p25_decoded_audio)
                     except Exception as e:
                         logger.error(f"Channel {ch.cfg.id}: IMBE decoding error: {e}")
 
-            return decoded_audio
+            return p25_decoded_audio
 
         # DMR decoding (requires stateful decoder, processes IQ not audio)
         if ch.cfg.mode == "dmr":
-            decoded_audio: np.ndarray | None = None
+            dmr_decoded_audio: np.ndarray | None = None
 
             # Get frequency-shifted IQ for DMR decoding
             base = freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate) if ch.cfg.offset_hz != 0.0 else iq
@@ -2577,21 +2589,21 @@ class Capture:
                 if ch._dmr_voice_decoder is not None and ch._dmr_voice_decoder.running and base.size > 0:
                     try:
                         # Compute FM discriminator (same as DMR 4FSK demodulation)
-                        iq_c64: np.ndarray = base.astype(np.complex64, copy=False)
-                        prod = iq_c64[1:] * np.conj(iq_c64[:-1])
+                        dmr_iq_c64: np.ndarray = base.astype(np.complex64, copy=False)
+                        prod = dmr_iq_c64[1:] * np.conj(dmr_iq_c64[:-1])
                         discriminator = np.angle(prod) * self.cfg.sample_rate / (2 * np.pi)
 
                         # Queue discriminator audio for AMBE decoding (non-blocking)
                         ch._dmr_voice_decoder.decode_sync(discriminator)
 
                         # Get any decoded audio available from previous frames
-                        decoded_audio = ch._dmr_voice_decoder.get_audio_sync()
-                        if decoded_audio is not None and decoded_audio.size > 0:
-                            ch._update_audio_metrics(decoded_audio)
+                        dmr_decoded_audio = ch._dmr_voice_decoder.get_audio_sync()
+                        if dmr_decoded_audio is not None and dmr_decoded_audio.size > 0:
+                            ch._update_audio_metrics(dmr_decoded_audio)
                     except Exception as e:
                         logger.error(f"Channel {ch.cfg.id}: DMR voice decoding error: {e}")
 
-            return decoded_audio
+            return dmr_decoded_audio
 
         # NXDN decoding (stub - not yet implemented)
         if ch.cfg.mode == "nxdn":
@@ -2785,15 +2797,14 @@ class Capture:
         self._last_iq_time = time.time()
         import time as time_module  # Explicit import for perf_counter
         _capture_loop_counter = 0
+        stream = self._stream
         while not self._stop_event.is_set():
             _capture_loop_counter += 1
             if _capture_loop_counter <= 5 or _capture_loop_counter % 100000 == 0:
                 logger.debug(f"Capture {self.cfg.id}: loop iteration {_capture_loop_counter}, calling read()")
             loop_start = time_module.perf_counter()
             try:
-                if self._stream is None:
-                    break
-                samples, overflow = self._stream.read(chunk)
+                samples, overflow = stream.read(chunk)
                 # Track overflow for this cycle (passed to callbacks for state reset)
                 self._iq_overflow_current = overflow
                 if overflow:
@@ -3058,6 +3069,12 @@ class CaptureManager:
 
     def get_capture(self, cid: str) -> Capture | None:
         return self._captures.get(cid)
+
+    async def stop_capture(self, cid: str) -> None:
+        """Stop a capture by id without removing it from the manager."""
+        cap = self._captures.get(cid)
+        if cap is not None:
+            await cap.stop()
 
     def create_capture(
         self,

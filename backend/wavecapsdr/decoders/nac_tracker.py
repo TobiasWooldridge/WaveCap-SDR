@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +31,11 @@ class NACTracker:
     MAX_TRACKER_COUNT = 3
     MIN_OBSERVATION_THRESHOLD = 3
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize NAC tracker."""
         self._trackers: dict[int, _NACObservation] = {}
 
-    def reset(self):
+    def reset(self) -> None:
         """Remove all tracked NAC values.
 
         Invoke this after extended loss of sync.
@@ -42,7 +43,7 @@ class NACTracker:
         self._trackers.clear()
         logger.debug("NAC tracker reset")
 
-    def track(self, nac: int):
+    def track(self, nac: int) -> None:
         """Track an observed NAC value.
 
         Each observation increments the count and updates the timestamp.
@@ -90,7 +91,7 @@ class NACTracker:
 
         return 0
 
-    def get_statistics(self) -> list[dict[str, any]]:
+    def get_statistics(self) -> list[dict[str, Any]]:
         """Get statistics for all tracked NACs.
 
         Returns:
@@ -108,7 +109,7 @@ class _NACObservation:
     Tracks observation count and last seen timestamp for a NAC value.
     """
 
-    def __init__(self, nac: int):
+    def __init__(self, nac: int) -> None:
         """Initialize observation tracker.
 
         Args:
@@ -118,7 +119,7 @@ class _NACObservation:
         self.count = 1
         self.timestamp = time.time()
 
-    def increment(self):
+    def increment(self) -> None:
         """Increment observation count and update timestamp."""
         self.count += 1
         self.timestamp = time.time()

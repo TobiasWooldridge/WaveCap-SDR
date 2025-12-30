@@ -4,10 +4,11 @@ Control channels transmit continuously with low power variance.
 Voice channels transmit intermittently with high power variance.
 """
 
+import math
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 
@@ -43,7 +44,7 @@ class BinStats:
 
     @property
     def std_dev(self) -> float:
-        return max(0.0, self.variance) ** 0.5
+        return math.sqrt(max(0.0, self.variance))
 
 
 @dataclass
@@ -52,7 +53,10 @@ class ClassifiedChannel:
     freq_hz: float
     power_db: float
     std_dev_db: float
-    channel_type: Literal["control", "voice", "variable", "unknown"]
+    channel_type: "ChannelType"
+
+
+ChannelType = Literal["control", "voice", "variable", "unknown"]
 
 
 @dataclass
@@ -196,7 +200,7 @@ class ChannelClassifier:
 
                 # Classify
                 if avg < noise_floor + 5:
-                    channel_type = "unknown"
+                    channel_type: ChannelType = "unknown"
                 elif std_dev < self.control_variance_threshold:
                     channel_type = "control"
                 elif std_dev > self.voice_variance_threshold:
@@ -219,7 +223,7 @@ class ChannelClassifier:
 
             return classified.copy()
 
-    def get_status(self) -> dict:
+    def get_status(self) -> dict[str, Any]:
         """Get current classifier status."""
         return {
             "elapsed_seconds": round(self.elapsed_seconds, 1),

@@ -6,6 +6,7 @@ Reference: SDRTrunk (https://github.com/DSheirer/sdrtrunk)
 """
 
 import pytest
+from collections.abc import Iterator
 from fastapi.testclient import TestClient
 
 from wavecapsdr.app import create_app
@@ -22,12 +23,13 @@ from wavecapsdr.trunking.voice_channel import (
 # ============================================================================
 
 @pytest.fixture
-def client() -> TestClient:
+def client() -> Iterator[TestClient]:
     """Create a test client with a fake driver."""
     cfg = AppConfig()
     cfg.device = DeviceConfig(driver="fake")
     app = create_app(cfg)
-    return TestClient(app)
+    with TestClient(app) as client:
+        yield client
 
 
 @pytest.fixture

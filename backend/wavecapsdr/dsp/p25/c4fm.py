@@ -21,21 +21,27 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Any, Callable, TypeVar, cast
 
 import numpy as np
 from scipy import signal
 
+F = TypeVar("F", bound=Callable[..., Any])
+
+def _fallback_jit(*args: Any, **kwargs: Any) -> Callable[[F], F]:
+    def decorator(func: F) -> F:
+        return func
+    return decorator
+
 # Try to import numba for JIT compilation - fall back gracefully if not available
 try:
-    from numba import jit
+    from numba import jit as _numba_jit
     NUMBA_AVAILABLE = True
 except ImportError:
+    _numba_jit = cast(Callable[..., Any], _fallback_jit)
     NUMBA_AVAILABLE = False
-    # Create a no-op decorator when numba is not available
-    def jit(*args, **kwargs):  # type: ignore
-        def decorator(func):  # type: ignore
-            return func
-        return decorator
+
+jit = _numba_jit
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +123,7 @@ def design_baseband_lpf(
         # Fall back to windowed sinc if remez fails
         h = signal.firwin(num_taps, passband_hz, fs=sample_rate, window='hamming')
 
-    return h.astype(np.float32)
+    return np.asarray(h, dtype=np.float32)
 
 
 def design_rrc_filter(
@@ -201,12 +207,12 @@ class _Equalizer:
     FM-demodulated phase samples.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.pll = 0.0
         self.gain = EQUALIZER_INITIAL_GAIN
         self.initialized = False
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset equalizer to initial state."""
         self.pll = 0.0
         self.gain = EQUALIZER_INITIAL_GAIN
@@ -247,7 +253,7 @@ class _Equalizer:
             interpolated = buffer[max(0, min(offset, len(buffer) - 1))]
         return self.equalize(interpolated)
 
-    def apply_correction(self, pll_adj: float, gain_adj: float):
+    def apply_correction(self, pll_adj: float, gain_adj: float) -> None:
         """Apply correction with loop gain."""
         if self.initialized:
             self.pll += pll_adj * EQUALIZER_LOOP_GAIN
@@ -276,7 +282,7 @@ class _FMDemodulator:
     Reference: SDRTrunk DifferentialDemodulatorFloatScalar.java
     """
 
-    def __init__(self, samples_per_symbol: float = 10.0):
+    def __init__(self, samples_per_symbol: float = 10.0) -> None:
         """Initialize demodulator with fractional samples per symbol.
 
         Args:
@@ -306,7 +312,7 @@ class _FMDemodulator:
         self._i_buffer = np.zeros(20, dtype=np.float32)
         self._q_buffer = np.zeros(20, dtype=np.float32)
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset demodulator state."""
         self._i_buffer = np.zeros(20, dtype=np.float32)
         self._q_buffer = np.zeros(20, dtype=np.float32)
@@ -1085,7 +1091,7 @@ class _SoftSyncDetector:
     # For normalized ±3 scale (max correlation 216), equivalent is 130 (60% of 216)
     SYNC_THRESHOLD = 130.0
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Pre-compute ideal symbol values for sync pattern
         self._sync_symbols = self._pattern_to_symbols()
         # Circular buffer for 24 symbols (doubled for easy wraparound)
@@ -1102,7 +1108,7 @@ class _SoftSyncDetector:
             symbols[i] = 3.0 if dibit == 1 else -3.0
         return symbols
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset detector state."""
         self._buffer.fill(0.0)
         self._pointer = 0
@@ -1143,7 +1149,7 @@ class _TimingOptimizer:
     Reference: SDRTrunk P25P1DemodulatorC4FM.Equalizer.optimize()
     """
 
-    def __init__(self, samples_per_symbol: float):
+    def __init__(self, samples_per_symbol: float) -> None:
         self.samples_per_symbol = samples_per_symbol
         # Pre-compute sync pattern symbols (needed for JIT functions)
         self._sync_symbols = _SoftSyncDetector()._pattern_to_symbols()
@@ -1217,8 +1223,8 @@ class C4FMDemodulator:
         self,
         sample_rate: int = 19200,  # SDRTrunk uses ~19.2 kHz (4 SPS)
         symbol_rate: int = 4800,
-        **kwargs  # Accept but ignore other params for API compatibility
-    ):
+        **kwargs: Any  # Accept but ignore other params for API compatibility
+    ) -> None:
         """Initialize C4FM demodulator.
 
         Args:
@@ -1399,7 +1405,7 @@ class C4FMDemodulator:
         # Process sync detection on extracted symbols (much faster than per-sample)
         # This runs in Python but only for ~960 symbols instead of ~10,000 samples
         _c4fm_profiler.start("sync_detection")
-        for i, soft_symbol_norm in enumerate(soft_symbols_arr):
+        for sym_idx, soft_symbol_norm in enumerate(soft_symbols_arr):
             self._symbols_since_sync += 1
             sync_score_primary = self._sync_detector.process(soft_symbol_norm)
 
@@ -1409,12 +1415,12 @@ class C4FMDemodulator:
 
             if self._fine_sync:
                 sync_score = sync_score_primary
-            elif symbol_indices[i] < 0:
+            elif symbol_indices[sym_idx] < 0:
                 # Symbol index invalid (shifted out of buffer) - skip lagging check
                 sync_score = sync_score_primary
             else:
                 # In coarse mode, check lagging detector too
-                lag_pos = symbol_indices[i] - int(self._lagging_offset)
+                lag_pos = symbol_indices[sym_idx] - int(self._lagging_offset)
                 if lag_pos >= 4:
                     lag_mu = 1.0 - (self._lagging_offset - int(self._lagging_offset))
                     lag_offset = lag_pos - 4
@@ -1438,12 +1444,12 @@ class C4FMDemodulator:
 
             if sync_score >= self.SYNC_THRESHOLD_DETECTION:
                 # Skip if buffer index is invalid (shifted out of buffer)
-                if symbol_indices[i] < 0:
+                if symbol_indices[sym_idx] < 0:
                     continue
 
                 # ASSERTION: Buffer index must be within buffer bounds
-                assert 0 <= symbol_indices[i] < len(self._buffer), (
-                    f"symbol_indices[{i}]={symbol_indices[i]} out of buffer bounds [0, {len(self._buffer)})"
+                assert 0 <= symbol_indices[sym_idx] < len(self._buffer), (
+                    f"symbol_indices[{sym_idx}]={symbol_indices[sym_idx]} out of buffer bounds [0, {len(self._buffer)})"
                 )
 
                 # Run timing optimization
@@ -1451,7 +1457,7 @@ class C4FMDemodulator:
                 timing_adj, opt_score, pll_adj, gain_adj = \
                     self._timing_optimizer.optimize(
                         self._buffer,
-                        symbol_indices[i] + mu + additional_offset,
+                        symbol_indices[sym_idx] + mu + additional_offset,
                         self._equalizer,
                         fine_sync=self._fine_sync
                     )
@@ -1477,15 +1483,15 @@ class C4FMDemodulator:
                     # with the corrected timing, PLL, and gain.
                     # This matches SDRTrunk's approach of resampling after timing optimization.
                     #
-                    # symbol_indices[i] is buffer position of LAST sync symbol (index 23).
+                    # symbol_indices[sym_idx] is buffer position of LAST sync symbol (index 23).
                     # Sync starts 23 symbols earlier. Add timing correction.
-                    sync_sample_start = (symbol_indices[i]
+                    sync_sample_start = (symbol_indices[sym_idx]
                                         - 23 * self.samples_per_symbol
                                         + timing_adj + additional_offset)
 
                     # Calculate how many symbols we can resample
                     # (limited by remaining buffer and output array size)
-                    remaining_output = len(dibits_arr) - (i + 1)
+                    remaining_output = len(dibits_arr) - (sym_idx + 1)
                     max_resample = min(TSDU_MESSAGE_DIBITS, remaining_output)
 
                     msg_dibits, msg_soft = _resample_message_jit(
@@ -1502,7 +1508,7 @@ class C4FMDemodulator:
                         msg_start_sample = int(sync_sample_start + 24 * self.samples_per_symbol)
                         logger.info(
                             f"Message resample #{self._sync_count}: "
-                            f"symbol_idx={symbol_indices[i]}, sync_start={sync_sample_start:.1f}, "
+                            f"symbol_idx={symbol_indices[sym_idx]}, sync_start={sync_sample_start:.1f}, "
                             f"msg_start_sample={msg_start_sample}, buf_ptr={self._buffer_pointer}, "
                             f"buffer[msg_start]={self._buffer[msg_start_sample]:.4f}, "
                             f"pll={self._equalizer.pll:.4f}, gain={self._equalizer.gain:.3f}, "
@@ -1514,7 +1520,7 @@ class C4FMDemodulator:
                     # Replace message symbols in output arrays
                     # Symbol i is the last sync symbol (index 23 in frame).
                     # Message starts at frame position 24, which is i+1 in output array.
-                    msg_output_start = i + 1
+                    msg_output_start = sym_idx + 1
                     msg_output_end = min(msg_output_start + max_resample, len(dibits_arr))
                     msg_len = msg_output_end - msg_output_start
                     if msg_len > 0:
@@ -1670,7 +1676,7 @@ class C4FMDemodulator:
 
         # Sync detection on extracted symbols
         _c4fm_profiler.start("sync_detection")
-        for i, soft_symbol_norm in enumerate(soft_symbols_arr):
+        for sym_idx, soft_symbol_norm in enumerate(soft_symbols_arr):
             self._symbols_since_sync += 1
             sync_score_primary = self._sync_detector.process(soft_symbol_norm)
 
@@ -1679,11 +1685,11 @@ class C4FMDemodulator:
 
             if self._fine_sync:
                 sync_score = sync_score_primary
-            elif symbol_indices[i] < 0:
+            elif symbol_indices[sym_idx] < 0:
                 # Symbol index invalid (shifted out of buffer) - skip lagging check
                 sync_score = sync_score_primary
             else:
-                lag_pos = symbol_indices[i] - int(self._lagging_offset)
+                lag_pos = symbol_indices[sym_idx] - int(self._lagging_offset)
                 if lag_pos >= 4:
                     lag_mu = 1.0 - (self._lagging_offset - int(self._lagging_offset))
                     lag_offset = lag_pos - 4
@@ -1707,12 +1713,12 @@ class C4FMDemodulator:
 
             if sync_score >= self.SYNC_THRESHOLD_DETECTION:
                 # Skip if buffer index is invalid (shifted out of buffer)
-                if symbol_indices[i] < 0:
+                if symbol_indices[sym_idx] < 0:
                     continue
 
                 # ASSERTION: Buffer index must be within buffer bounds
-                assert 0 <= symbol_indices[i] < len(self._buffer), (
-                    f"symbol_indices[{i}]={symbol_indices[i]} out of buffer bounds [0, {len(self._buffer)})"
+                assert 0 <= symbol_indices[sym_idx] < len(self._buffer), (
+                    f"symbol_indices[{sym_idx}]={symbol_indices[sym_idx]} out of buffer bounds [0, {len(self._buffer)})"
                 )
 
                 self._symbols_since_sync = 0

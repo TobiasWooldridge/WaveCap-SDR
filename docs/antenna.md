@@ -32,7 +32,7 @@ curl -X PATCH http://localhost:8087/api/v1/captures/{id} \
 
 ### Configuration
 
-Presets can specify antenna selection in `backend/config/wavecapsdr.yaml`:
+Presets can specify antenna selection in `backend/config/wavecapsdr.yaml` (or `backend/config/wavecapsdr.local.yaml` overrides):
 ```yaml
 presets:
   kexp:

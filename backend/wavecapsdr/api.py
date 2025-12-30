@@ -375,7 +375,7 @@ _FRONTEND_LOG_MAX = 500  # Keep last 500 log entries
 
 
 @router.post("/frontend-logs")
-async def receive_frontend_logs(request: Request) -> dict[str, str]:
+async def receive_frontend_logs(request: Request) -> dict[str, Any]:
     """Receive console logs from the frontend for debugging."""
     global _frontend_logs
     try:
@@ -419,7 +419,7 @@ def get_frontend_logs(
 
 
 @router.delete("/frontend-logs")
-def clear_frontend_logs() -> dict[str, str]:
+def clear_frontend_logs() -> dict[str, Any]:
     """Clear all stored frontend logs."""
     global _frontend_logs
     count = len(_frontend_logs)
@@ -994,10 +994,10 @@ async def power_cycle_all_usb(
         if capture.state == "running":
             try:
                 await capture.stop()
-                stopped_captures.append(capture.id)
-                logger.info(f"Stopped capture {capture.id} before USB power cycle")
+                stopped_captures.append(capture.cfg.id)
+                logger.info(f"Stopped capture {capture.cfg.id} before USB power cycle")
             except Exception as e:
-                logger.warning(f"Failed to stop capture {capture.id}: {e}")
+                logger.warning(f"Failed to stop capture {capture.cfg.id}: {e}")
 
     # Power cycle all ports
     success, message, ports_cycled = power_cycle_all_ports(delay=2.0)

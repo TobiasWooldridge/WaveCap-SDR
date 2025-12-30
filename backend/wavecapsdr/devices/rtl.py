@@ -12,7 +12,7 @@ from .base import Device, DeviceDriver, DeviceInfo, StreamHandle
 
 def _import_pyrtlsdr() -> type[Any]:
     try:
-        from rtlsdr import RtlSdr  # type: ignore
+        from rtlsdr import RtlSdr
 
         return cast(type[Any], RtlSdr)
     except Exception as exc:  # pragma: no cover
@@ -48,6 +48,7 @@ class _RtlDevice(Device):
         antenna: str | None = None,
         device_settings: dict[str, Any] | None = None,
         element_gains: dict[str, float] | None = None,
+        agc_enabled: bool = False,
         stream_format: str | None = None,
         dc_offset_auto: bool = True,
         iq_balance_auto: bool = True,
