@@ -12,7 +12,7 @@ from .base import Device, DeviceDriver, DeviceInfo, StreamHandle
 
 def _import_pyrtlsdr() -> type[Any]:
     try:
-        from rtlsdr import RtlSdr  # type: ignore
+        from rtlsdr import RtlSdr
 
         return cast(type[Any], RtlSdr)
     except Exception as exc:  # pragma: no cover
