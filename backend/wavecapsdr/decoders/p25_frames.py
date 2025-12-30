@@ -249,12 +249,16 @@ def bits_to_int(bits: np.ndarray, start: int, length: int) -> int:
 def deinterleave_data(bits: np.ndarray) -> np.ndarray:
     """Deinterleave 196-bit block using P25 data deinterleave pattern.
 
-    Uses SDRTrunk's deinterleave logic: for each OUTPUT position i,
-    read from DATA_DEINTERLEAVE[i] in the INPUT.
+    Uses SDRTrunk's deinterleave logic: for each INPUT position i,
+    place the bit at OUTPUT position DATA_DEINTERLEAVE[i].
 
-    From SDRTrunk P25P1Interleave.java:
-        for(int i = 0; i < message.size(); i++)
-            temp[i] = message.get(DATA_DEINTERLEAVE[i])
+    From SDRTrunk P25P1Interleave.java deinterleaveChunk():
+        for(int i = interleaved.nextSetBit(0); i >= 0 && i < pattern.length;
+            i = interleaved.nextSetBit(i + 1)) {
+            deinterleaved.set(pattern[i]);
+        }
+
+    This means: output[pattern[i]] = input[i]
 
     Args:
         bits: Interleaved bit array (must be 196 bits)
@@ -266,11 +270,11 @@ def deinterleave_data(bits: np.ndarray) -> np.ndarray:
         logger.warning(f"deinterleave_data: expected 196 bits, got {len(bits)}")
         return bits
 
-    # SDRTrunk deinterleave logic: output[i] = input[DATA_DEINTERLEAVE[i]]
-    # For each position i in the OUTPUT, read from DATA_DEINTERLEAVE[i] in INPUT
+    # SDRTrunk deinterleave logic: output[pattern[i]] = input[i]
+    # For each position i in the INPUT, place at OUTPUT position DATA_DEINTERLEAVE[i]
     deinterleaved = np.zeros(196, dtype=np.uint8)
     for i in range(196):
-        deinterleaved[i] = bits[DATA_DEINTERLEAVE[i]]
+        deinterleaved[DATA_DEINTERLEAVE[i]] = bits[i]
 
     return deinterleaved
 

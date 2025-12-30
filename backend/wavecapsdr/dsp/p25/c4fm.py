@@ -683,6 +683,16 @@ def _symbol_recovery_jit(
                 buffer[i] = 0.0
             buffer_pointer -= half_buffer
 
+            # CRITICAL FIX: Adjust all previously recorded symbol_indices
+            # After buffer shift, data has moved left by half_buffer.
+            # Symbol indices that were valid before the shift now point
+            # to shifted positions. Adjust them to remain valid.
+            for j in range(symbol_count):
+                symbol_indices[j] -= half_buffer
+                # Mark as invalid if shifted out of buffer
+                if symbol_indices[j] < 0:
+                    symbol_indices[j] = -1
+
         # Store sample
         buffer[buffer_pointer] = phase
 
@@ -740,6 +750,110 @@ def _symbol_recovery_jit(
         buffer_pointer,
         sample_point,
     )
+
+
+# NID length: 33 dibits (24 sync + 33 NID = 57 total frame header)
+NID_LENGTH_DIBITS = 33
+
+# Full TSDU message length (after sync): NID + TSBK data with status symbols
+# 33 NID + ~303 TSBK data = ~336 dibits
+# We use 340 to have some margin
+TSDU_MESSAGE_DIBITS = 340
+
+
+@jit(nopython=True, cache=True)
+def _resample_message_jit(
+    buffer: np.ndarray,
+    sync_sample_pos: float,
+    samples_per_symbol: float,
+    pll: float,
+    gain: float,
+    num_dibits: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Resample message region with corrected timing/PLL/gain.
+
+    This is called after sync detection and timing optimization to fix
+    symbols that were extracted with pre-correction timing.
+
+    SDRTrunk does this after timing optimization - we need to match that behavior.
+
+    Args:
+        buffer: Phase sample buffer
+        sync_sample_pos: Sample position of sync start (after timing correction)
+        samples_per_symbol: Samples per symbol
+        pll: Optimized PLL offset
+        gain: Optimized gain
+        num_dibits: Number of dibits to resample (after sync)
+
+    Returns:
+        Tuple of (dibits, soft_symbols) for the resampled region
+    """
+    dibits = np.empty(num_dibits, dtype=np.uint8)
+    soft_symbols = np.empty(num_dibits, dtype=np.float32)
+
+    boundary = 1.5707963267948966  # np.pi / 2.0
+
+    # Message starts after 24 sync symbols
+    msg_start = sync_sample_pos + 24 * samples_per_symbol
+
+    for i in range(num_dibits):
+        # Sample at symbol center with 2-point linear interpolation
+        # Note: msg_start is already at the symbol CENTER (not start), because
+        # sync_sample_pos comes from symbol_indices which records positions at
+        # the optimal (center) sampling time. So we don't add sps/2 here.
+        sample_pos = msg_start + i * samples_per_symbol
+        idx = int(sample_pos)
+        mu = sample_pos - idx
+
+        if idx >= 0 and idx + 1 < len(buffer):
+            x1 = buffer[idx]
+            x2 = buffer[idx + 1]
+            if mu < 0.0:
+                interpolated = x1
+            elif mu > 1.0:
+                interpolated = x2
+            else:
+                interpolated = x1 + (x2 - x1) * mu
+        else:
+            # Out of bounds - use nearest
+            interpolated = buffer[max(0, min(idx, len(buffer) - 1))]
+
+        # Apply equalization
+        soft_rad = (interpolated + pll) * gain
+        soft_norm = soft_rad * 1.2732395447351628  # 4.0 / np.pi
+
+        # Dibit decision
+        if soft_rad >= boundary:
+            dibit = 1  # +3
+        elif soft_rad >= 0:
+            dibit = 0  # +1
+        elif soft_rad >= -boundary:
+            dibit = 2  # -1
+        else:
+            dibit = 3  # -3
+
+        dibits[i] = dibit
+        soft_symbols[i] = soft_norm
+
+    return dibits, soft_symbols
+
+
+class C4FMSymbolError(Exception):
+    """Raised when C4FM symbols are out of valid range, indicating a bug."""
+    pass
+
+
+def assert_soft_symbol_valid(soft: float, position: str = "") -> None:
+    """Assert soft symbol is within valid range for C4FM.
+
+    Valid C4FM soft symbols should be in range [-4.5, +4.5] approximately.
+    Values outside [-6, +6] indicate a bug in the demodulator.
+    """
+    if abs(soft) > 6.0:
+        raise C4FMSymbolError(
+            f"Soft symbol out of range at {position}: {soft:.3f} "
+            f"(valid range approximately [-4.5, +4.5])"
+        )
 
 
 class _Interpolator:
@@ -1152,7 +1266,10 @@ class C4FMDemodulator:
 
         # Symbol timing state
         self._sample_point = self.samples_per_symbol
-        self._buffer = np.zeros(2048, dtype=np.float32)
+        # Buffer sized for ~1.3 seconds at 50kHz without shifting
+        # (65536 samples / 50000 Hz = 1.31s)
+        # This ensures symbol_indices remain valid for timing optimization
+        self._buffer = np.zeros(65536, dtype=np.float32)
         self._buffer_pointer = 0
 
         # Statistics
@@ -1292,6 +1409,9 @@ class C4FMDemodulator:
 
             if self._fine_sync:
                 sync_score = sync_score_primary
+            elif symbol_indices[i] < 0:
+                # Symbol index invalid (shifted out of buffer) - skip lagging check
+                sync_score = sync_score_primary
             else:
                 # In coarse mode, check lagging detector too
                 lag_pos = symbol_indices[i] - int(self._lagging_offset)
@@ -1317,6 +1437,15 @@ class C4FMDemodulator:
                     sync_score = sync_score_primary
 
             if sync_score >= self.SYNC_THRESHOLD_DETECTION:
+                # Skip if buffer index is invalid (shifted out of buffer)
+                if symbol_indices[i] < 0:
+                    continue
+
+                # ASSERTION: Buffer index must be within buffer bounds
+                assert 0 <= symbol_indices[i] < len(self._buffer), (
+                    f"symbol_indices[{i}]={symbol_indices[i]} out of buffer bounds [0, {len(self._buffer)})"
+                )
+
                 # Run timing optimization
                 mu = 0.5  # Approximate - we don't have exact mu from JIT
                 timing_adj, opt_score, pll_adj, gain_adj = \
@@ -1341,6 +1470,63 @@ class C4FMDemodulator:
                     self._sync_count += 1
                     self._fine_sync = True
                     self._symbols_since_sync = 0
+
+                    # NID RESAMPLING FIX:
+                    # The message symbols (after sync) were extracted with
+                    # pre-optimization timing. Now resample the ENTIRE message
+                    # with the corrected timing, PLL, and gain.
+                    # This matches SDRTrunk's approach of resampling after timing optimization.
+                    #
+                    # symbol_indices[i] is buffer position of LAST sync symbol (index 23).
+                    # Sync starts 23 symbols earlier. Add timing correction.
+                    sync_sample_start = (symbol_indices[i]
+                                        - 23 * self.samples_per_symbol
+                                        + timing_adj + additional_offset)
+
+                    # Calculate how many symbols we can resample
+                    # (limited by remaining buffer and output array size)
+                    remaining_output = len(dibits_arr) - (i + 1)
+                    max_resample = min(TSDU_MESSAGE_DIBITS, remaining_output)
+
+                    msg_dibits, msg_soft = _resample_message_jit(
+                        self._buffer,
+                        sync_sample_start,
+                        self.samples_per_symbol,
+                        self._equalizer.pll,
+                        self._equalizer.gain,
+                        max_resample,
+                    )
+
+                    # DEBUG: Log NID resampling results (first 6 are NAC)
+                    if self._sync_count <= 5:
+                        msg_start_sample = int(sync_sample_start + 24 * self.samples_per_symbol)
+                        logger.info(
+                            f"Message resample #{self._sync_count}: "
+                            f"symbol_idx={symbol_indices[i]}, sync_start={sync_sample_start:.1f}, "
+                            f"msg_start_sample={msg_start_sample}, buf_ptr={self._buffer_pointer}, "
+                            f"buffer[msg_start]={self._buffer[msg_start_sample]:.4f}, "
+                            f"pll={self._equalizer.pll:.4f}, gain={self._equalizer.gain:.3f}, "
+                            f"max_resample={max_resample}, "
+                            f"nac_dibits[0:6]={list(msg_dibits[:6])}, "
+                            f"nac_soft[0:6]={[f'{s:.2f}' for s in msg_soft[:6]]}"
+                        )
+
+                    # Replace message symbols in output arrays
+                    # Symbol i is the last sync symbol (index 23 in frame).
+                    # Message starts at frame position 24, which is i+1 in output array.
+                    msg_output_start = i + 1
+                    msg_output_end = min(msg_output_start + max_resample, len(dibits_arr))
+                    msg_len = msg_output_end - msg_output_start
+                    if msg_len > 0:
+                        dibits_arr[msg_output_start:msg_output_end] = msg_dibits[:msg_len]
+                        soft_symbols_arr[msg_output_start:msg_output_end] = msg_soft[:msg_len]
+
+                        if self._sync_count <= 3:
+                            logger.debug(
+                                f"Message resampled: positions {msg_output_start}-{msg_output_end} "
+                                f"({msg_len} dibits), "
+                                f"pll={self._equalizer.pll:.4f}, gain={self._equalizer.gain:.3f}"
+                            )
 
                     if self._sync_count <= 5 or self._sync_count % 100 == 0:
                         detector_type = "LAG" if use_lagging else "PRI"
@@ -1493,6 +1679,9 @@ class C4FMDemodulator:
 
             if self._fine_sync:
                 sync_score = sync_score_primary
+            elif symbol_indices[i] < 0:
+                # Symbol index invalid (shifted out of buffer) - skip lagging check
+                sync_score = sync_score_primary
             else:
                 lag_pos = symbol_indices[i] - int(self._lagging_offset)
                 if lag_pos >= 4:
@@ -1517,6 +1706,15 @@ class C4FMDemodulator:
                     sync_score = sync_score_primary
 
             if sync_score >= self.SYNC_THRESHOLD_DETECTION:
+                # Skip if buffer index is invalid (shifted out of buffer)
+                if symbol_indices[i] < 0:
+                    continue
+
+                # ASSERTION: Buffer index must be within buffer bounds
+                assert 0 <= symbol_indices[i] < len(self._buffer), (
+                    f"symbol_indices[{i}]={symbol_indices[i]} out of buffer bounds [0, {len(self._buffer)})"
+                )
+
                 self._symbols_since_sync = 0
 
                 if not self._fine_sync:
