@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
+import type { ReactNode } from "react";
 import { Radio, Volume2, VolumeX, Activity } from "lucide-react";
 import type { TrunkingSystem } from "../../types/trunking";
 import Flex from "../../components/primitives/Flex.react";
 import InfoTooltip from "../../components/primitives/InfoTooltip.react";
-import { formatFrequencyMHz } from "../../utils/frequency";
+import { FrequencyDisplay } from "../../components/primitives/FrequencyDisplay.react";
 import { formatHex } from "../../utils/formatting";
 import {
   getUnifiedSystemStatus,
@@ -42,9 +43,8 @@ function getSnrBackgroundClass(snrDb: number | null): string {
 
 interface StatBoxProps {
   label: string;
-  value: string | number;
+  value: ReactNode;
   unit?: string;
-  detail?: string;
   highlight?: boolean;
   bgClass?: string; // Custom background class (overrides highlight)
   info?: string;
@@ -54,7 +54,6 @@ function StatBox({
   label,
   value,
   unit,
-  detail,
   highlight,
   bgClass,
   info,
@@ -70,11 +69,6 @@ function StatBox({
         {value}
         {unit && <small className="text-muted ms-1">{unit}</small>}
       </div>
-      {detail && (
-        <div className="text-muted" style={{ fontSize: "0.65rem" }}>
-          {detail}
-        </div>
-      )}
     </div>
   );
 }
@@ -183,12 +177,12 @@ export function SystemStatusPanel({
             <StatBox
               label="Control Freq"
               value={
-                system.controlChannelFreqHz
-                  ? formatFrequencyMHz(system.controlChannelFreqHz, 4)
-                  : "---"
+                <FrequencyDisplay
+                  frequencyHz={system.controlChannelFreqHz}
+                  decimals={4}
+                  name={controlName}
+                />
               }
-              unit="MHz"
-              detail={controlName}
               highlight={system.controlChannelState === "locked"}
               info="The current control channel frequency. P25 systems broadcast call setup and system info on this channel."
             />
