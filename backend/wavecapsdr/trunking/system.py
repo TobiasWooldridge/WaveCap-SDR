@@ -44,6 +44,7 @@ from wavecapsdr.trunking.control_channel import (
     create_control_monitor,
 )
 from wavecapsdr.trunking.voice_channel import VoiceChannel, VoiceChannelConfig
+from wavecapsdr.validation import validate_discriminator_samples, validate_finite_array
 
 if TYPE_CHECKING:
     from wavecapsdr.capture import Capture, CaptureManager, Channel
@@ -512,6 +513,20 @@ class VoiceRecorder:
         """
         if self.state != "recording" or self._voice_channel is None:
             return
+        if iq.size == 0:
+            return
+        if not validate_finite_array(iq):
+            now = time.time()
+            last = getattr(self, "_invalid_iq_log_time", 0.0)
+            count = getattr(self, "_invalid_iq_log_count", 0) + 1
+            setattr(self, "_invalid_iq_log_count", count)
+            if now - last >= 5.0:
+                logger.warning(
+                    f"VoiceRecorder {self.id}: non-finite IQ samples, dropped {count} chunks"
+                )
+                setattr(self, "_invalid_iq_log_time", now)
+                setattr(self, "_invalid_iq_log_count", 0)
+            return
 
         # ASSERTION: Voice frequency must be within capture bandwidth
         # If offset > half the sample rate, signal is outside the captured spectrum
@@ -627,6 +642,19 @@ class VoiceRecorder:
         else:
             decimated_iq = decimated1
 
+        if decimated_iq.size > 0 and not validate_finite_array(decimated_iq):
+            now = time.time()
+            last = getattr(self, "_invalid_decim_log_time", 0.0)
+            count = getattr(self, "_invalid_decim_log_count", 0) + 1
+            setattr(self, "_invalid_decim_log_count", count)
+            if now - last >= 5.0:
+                logger.warning(
+                    f"VoiceRecorder {self.id}: non-finite decimated IQ, dropped {count} chunks"
+                )
+                setattr(self, "_invalid_decim_log_time", now)
+                setattr(self, "_invalid_decim_log_count", 0)
+            return
+
         # Measure power after decimation - ASSERT signal is valid
         decim_power = float(np.mean(np.abs(decimated_iq) ** 2))
         decim_peak = float(np.max(np.abs(decimated_iq)))
@@ -681,6 +709,20 @@ class VoiceRecorder:
         disc_min = float(disc_audio.min())
         disc_max = float(disc_audio.max())
         disc_range = disc_max - disc_min
+        ok, reason = validate_discriminator_samples(disc_audio)
+        if not ok:
+            now = time.time()
+            last = getattr(self, "_invalid_disc_log_time", 0.0)
+            count = getattr(self, "_invalid_disc_log_count", 0) + 1
+            setattr(self, "_invalid_disc_log_count", count)
+            if now - last >= 5.0:
+                logger.warning(
+                    f"VoiceRecorder {self.id}: invalid discriminator audio ({reason}), "
+                    f"dropped {count} chunks"
+                )
+                setattr(self, "_invalid_disc_log_time", now)
+                setattr(self, "_invalid_disc_log_count", 0)
+            return
 
         # Track discriminator range for diagnostics
         # Note: During silence, discriminator produces noise (±π range).

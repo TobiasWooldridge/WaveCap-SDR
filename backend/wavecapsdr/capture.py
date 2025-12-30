@@ -21,6 +21,9 @@ from .dsp.fft import get_backend as get_fft_backend
 logger = logging.getLogger(__name__)
 
 _decimate_debug_count = 0
+_invalid_audio_log_times: dict[str, float] = {}
+_invalid_audio_log_counts: dict[str, int] = {}
+_invalid_audio_log_lock = threading.Lock()
 
 import contextlib
 
@@ -41,6 +44,7 @@ from .dsp.rds import RDSData, RDSDecoder
 from .dsp.sam import sam_demod_simple
 from .encoders import AudioEncoder, create_encoder
 from .trunking.config import P25Modulation
+from .validation import validate_audio_samples, validate_finite_array
 
 F = TypeVar('F', bound=Callable[..., Any])
 
@@ -137,6 +141,25 @@ def pack_f32(samples: np.ndarray) -> bytes:
     np.clip(x, -1.0, 1.0, out=x)
     result: bytes = x.tobytes()
     return result
+
+
+def _validate_audio_output(audio: np.ndarray, context: str) -> bool:
+    ok, reason = validate_audio_samples(audio)
+    if not ok:
+        now = time.time()
+        with _invalid_audio_log_lock:
+            last = _invalid_audio_log_times.get(context, 0.0)
+            _invalid_audio_log_counts[context] = _invalid_audio_log_counts.get(context, 0) + 1
+            if now - last >= 5.0:
+                count = _invalid_audio_log_counts[context]
+                logger.warning(
+                    f"{context}: invalid audio samples ({reason}), "
+                    f"dropped {count} chunks"
+                )
+                _invalid_audio_log_times[context] = now
+                _invalid_audio_log_counts[context] = 0
+        return False
+    return True
 
 
 # Cache for frequency shift exponentials using LRU cache (proper eviction)
@@ -293,6 +316,11 @@ def _process_channel_dsp_stateless(
         Tuple of (audio_samples or None, metrics_dict)
     """
     metrics: dict[str, Any] = {}
+    if samples.size == 0:
+        return None, metrics
+    if not validate_finite_array(samples):
+        logger.warning(f"Channel {cfg.id}: non-finite IQ samples, dropping DSP chunk")
+        return None, metrics
 
     # Frequency shift to channel offset
     base = samples if cfg.offset_hz == 0.0 else freq_shift(samples, cfg.offset_hz, sample_rate)
@@ -401,6 +429,8 @@ def _process_channel_dsp_stateless(
 
     # Calculate signal power from audio
     if audio is not None and audio.size > 0:
+        if not _validate_audio_output(audio, f"Channel {cfg.id}"):
+            return None, metrics
         power = np.mean(audio ** 2)
         metrics['signal_power_db'] = float(10.0 * np.log10(power + 1e-10))
 
@@ -900,6 +930,11 @@ class Channel:
     async def process_iq_chunk(self, iq: np.ndarray, sample_rate: int) -> None:
         if self.state != "running":
             return
+        if iq.size == 0:
+            return
+        if not validate_finite_array(iq):
+            logger.warning(f"Channel {self.cfg.id}: non-finite IQ samples, dropping chunk")
+            return
 
         if self.cfg.mode in ("wbfm", "nbfm"):
             # FM demodulation (wide or narrow band)
@@ -978,6 +1013,8 @@ class Channel:
                         logger.error(f"Channel {self.cfg.id}: POCSAG decoding error: {e}")
 
             # Calculate signal power in dB (always, for metrics)
+            if not _validate_audio_output(audio, f"Channel {self.cfg.id}"):
+                return
             if audio.size > 0:
                 power = np.mean(audio ** 2)
                 power_db = 10.0 * np.log10(power + 1e-10)  # Add small value to avoid log(0)
@@ -1017,6 +1054,8 @@ class Channel:
             )
 
             # Calculate signal power in dB (always, for metrics)
+            if not _validate_audio_output(audio, f"Channel {self.cfg.id}"):
+                return
             if audio.size > 0:
                 power = np.mean(audio ** 2)
                 power_db = 10.0 * np.log10(power + 1e-10)
@@ -1052,6 +1091,8 @@ class Channel:
             )
 
             # Calculate signal power in dB (always, for metrics)
+            if not _validate_audio_output(audio, f"Channel {self.cfg.id}"):
+                return
             if audio.size > 0:
                 power = np.mean(audio ** 2)
                 power_db = 10.0 * np.log10(power + 1e-10)
@@ -1087,6 +1128,8 @@ class Channel:
             )
 
             # Calculate signal power in dB (always, for metrics)
+            if not _validate_audio_output(audio, f"Channel {self.cfg.id}"):
+                return
             if audio.size > 0:
                 power = np.mean(audio ** 2)
                 power_db = 10.0 * np.log10(power + 1e-10)
@@ -1131,6 +1174,9 @@ class Channel:
 
             # Frequency shift to channel offset
             base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+            if base.size > 0 and not validate_finite_array(base):
+                logger.warning(f"Channel {self.cfg.id}: non-finite P25 baseband, dropping chunk")
+                return
 
             # Calculate signal power for metrics
             if base.size > 0:
@@ -1174,8 +1220,9 @@ class Channel:
                     # Get decoded audio if available
                     decoded_audio = await self._imbe_decoder.get_audio()
                     if decoded_audio is not None and decoded_audio.size > 0:
-                        self._update_audio_metrics(decoded_audio)
-                        await self._broadcast(decoded_audio)
+                        if _validate_audio_output(decoded_audio, f"Channel {self.cfg.id}"):
+                            self._update_audio_metrics(decoded_audio)
+                            await self._broadcast(decoded_audio)
                 except Exception as e:
                     logger.error(f"Channel {self.cfg.id}: IMBE decoding error: {e}")
 
@@ -1190,6 +1237,9 @@ class Channel:
 
             # Frequency shift to channel offset
             base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+            if base.size > 0 and not validate_finite_array(base):
+                logger.warning(f"Channel {self.cfg.id}: non-finite DMR baseband, dropping chunk")
+                return
 
             # Calculate signal power for metrics
             if base.size > 0:
@@ -1230,6 +1280,8 @@ class Channel:
             iq_interleaved = np.empty(base.size * 2, dtype=np.float32)
             iq_interleaved[0::2] = base.real
             iq_interleaved[1::2] = base.imag
+            if not _validate_audio_output(iq_interleaved, f"Channel {self.cfg.id}"):
+                return
 
             await self._broadcast(iq_interleaved)
 
@@ -1248,6 +1300,11 @@ class Channel:
             Processed audio data (np.ndarray) or None if channel not running/no output.
         """
         if self.state != "running":
+            return None
+        if iq.size == 0:
+            return None
+        if not validate_finite_array(iq):
+            logger.warning(f"Channel {self.cfg.id}: non-finite IQ samples, dropping chunk")
             return None
 
         audio: np.ndarray | None = None
@@ -1326,6 +1383,8 @@ class Channel:
 
             # Calculate signal power in dB
             if audio is not None and audio.size > 0:
+                if not _validate_audio_output(audio, f"Channel {self.cfg.id}"):
+                    return None
                 power = np.mean(audio ** 2)
                 power_db = 10.0 * np.log10(power + 1e-10)
                 self.signal_power_db = float(power_db)
@@ -1354,6 +1413,8 @@ class Channel:
             )
 
             if audio is not None and audio.size > 0:
+                if not _validate_audio_output(audio, f"Channel {self.cfg.id}"):
+                    return None
                 power = np.mean(audio ** 2)
                 power_db = 10.0 * np.log10(power + 1e-10)
                 self.signal_power_db = float(power_db)
@@ -1382,6 +1443,8 @@ class Channel:
             )
 
             if audio is not None and audio.size > 0:
+                if not _validate_audio_output(audio, f"Channel {self.cfg.id}"):
+                    return None
                 power = np.mean(audio ** 2)
                 power_db = 10.0 * np.log10(power + 1e-10)
                 self.signal_power_db = float(power_db)
@@ -1410,6 +1473,8 @@ class Channel:
             )
 
             if audio is not None and audio.size > 0:
+                if not _validate_audio_output(audio, f"Channel {self.cfg.id}"):
+                    return None
                 power = np.mean(audio ** 2)
                 power_db = 10.0 * np.log10(power + 1e-10)
                 self.signal_power_db = float(power_db)
@@ -1430,6 +1495,9 @@ class Channel:
                 logger.info(f"Channel {self.cfg.id}: P25 decoder initialized")
 
             base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+            if base.size > 0 and not validate_finite_array(base):
+                logger.warning(f"Channel {self.cfg.id}: non-finite P25 baseband, dropping chunk")
+                return None
             if base.size > 0:
                 power = np.mean(np.abs(base) ** 2)
                 power_db = 10.0 * np.log10(power + 1e-10)
@@ -1463,6 +1531,9 @@ class Channel:
                 logger.info(f"Channel {self.cfg.id}: DMR decoder initialized")
 
             base = freq_shift(iq, self.cfg.offset_hz, sample_rate)
+            if base.size > 0 and not validate_finite_array(base):
+                logger.warning(f"Channel {self.cfg.id}: non-finite DMR baseband, dropping chunk")
+                return None
             if base.size > 0:
                 power = np.mean(np.abs(base) ** 2)
                 power_db = 10.0 * np.log10(power + 1e-10)
@@ -1491,6 +1562,8 @@ class Channel:
             iq_interleaved = np.empty(base.size * 2, dtype=np.float32)
             iq_interleaved[0::2] = base.real
             iq_interleaved[1::2] = base.imag
+            if not _validate_audio_output(iq_interleaved, f"Channel {self.cfg.id}"):
+                return None
             audio = iq_interleaved
 
         return audio
@@ -2453,6 +2526,11 @@ class Capture:
         """
         # P25 decoding (requires stateful decoder, processes IQ not audio)
         if ch.cfg.mode == "p25":
+            if iq.size == 0:
+                return None
+            if not validate_finite_array(iq):
+                logger.warning(f"Channel {ch.cfg.id}: non-finite IQ samples, dropping P25 chunk")
+                return None
             # Call raw IQ callback for trunking/scanning integration
             # This is called with wideband IQ samples BEFORE frequency shifting
             # Pass overflow flag so callback can reset filter/demod state after sample loss
@@ -2468,6 +2546,9 @@ class Capture:
 
             # Get frequency-shifted IQ for P25 decoding
             base = freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate) if ch.cfg.offset_hz != 0.0 else iq
+            if base.size > 0 and not validate_finite_array(base):
+                logger.warning(f"Channel {ch.cfg.id}: non-finite P25 baseband, dropping chunk")
+                return None
             p25_decoded_audio: np.ndarray | None = None
 
             if base.size > 0:
@@ -2547,7 +2628,10 @@ class Capture:
                         # Get any decoded audio available from previous frames
                         p25_decoded_audio = ch._imbe_decoder.get_audio_sync()
                         if p25_decoded_audio is not None and p25_decoded_audio.size > 0:
-                            ch._update_audio_metrics(p25_decoded_audio)
+                            if not _validate_audio_output(p25_decoded_audio, f"Channel {ch.cfg.id}"):
+                                p25_decoded_audio = None
+                            else:
+                                ch._update_audio_metrics(p25_decoded_audio)
                     except Exception as e:
                         logger.error(f"Channel {ch.cfg.id}: IMBE decoding error: {e}")
 
@@ -2557,8 +2641,16 @@ class Capture:
         if ch.cfg.mode == "dmr":
             dmr_decoded_audio: np.ndarray | None = None
 
+            if iq.size == 0:
+                return None
+            if not validate_finite_array(iq):
+                logger.warning(f"Channel {ch.cfg.id}: non-finite IQ samples, dropping DMR chunk")
+                return None
             # Get frequency-shifted IQ for DMR decoding
             base = freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate) if ch.cfg.offset_hz != 0.0 else iq
+            if base.size > 0 and not validate_finite_array(base):
+                logger.warning(f"Channel {ch.cfg.id}: non-finite DMR baseband, dropping chunk")
+                return None
 
             if base.size > 0:
                 # Initialize DMR frame decoder
@@ -2599,7 +2691,10 @@ class Capture:
                         # Get any decoded audio available from previous frames
                         dmr_decoded_audio = ch._dmr_voice_decoder.get_audio_sync()
                         if dmr_decoded_audio is not None and dmr_decoded_audio.size > 0:
-                            ch._update_audio_metrics(dmr_decoded_audio)
+                            if not _validate_audio_output(dmr_decoded_audio, f"Channel {ch.cfg.id}"):
+                                dmr_decoded_audio = None
+                            else:
+                                ch._update_audio_metrics(dmr_decoded_audio)
                     except Exception as e:
                         logger.error(f"Channel {ch.cfg.id}: DMR voice decoding error: {e}")
 

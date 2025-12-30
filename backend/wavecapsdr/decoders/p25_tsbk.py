@@ -27,6 +27,26 @@ from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
+from wavecapsdr.validation import (
+    BASE_FREQ_MAX_MHZ,
+    BASE_FREQ_MIN_MHZ,
+    CHANNEL_ID_MAX,
+    CHANNEL_ID_MIN,
+    CHANNEL_SPACING_MAX_KHZ,
+    CHANNEL_SPACING_MIN_KHZ,
+    IDENTIFIER_MAX,
+    RFSS_ID_MAX,
+    SITE_ID_MAX,
+    SYSTEM_ID_MAX,
+    TGID_MAX,
+    TX_OFFSET_MAX_MHZ,
+    UNIT_ID_MAX,
+    WACN_MAX,
+    validate_float_range,
+    validate_frequency_hz,
+    validate_int_range,
+)
+
 
 class TSBKOpcode(IntEnum):
     """TSBK Opcode values (6 bits) - per SDRTrunk Opcode.java.
@@ -263,6 +283,8 @@ class TSBKParser:
                 result['type'] = 'UNKNOWN'
                 result['data'] = data.hex()
                 logger.debug(f"Unknown TSBK opcode 0x{opcode:02X}: {data.hex()}")
+
+            self._validate_result(result)
         except Exception as e:
             logger.warning(f"Error parsing TSBK opcode {opcode:02X}: {e}")
             result['type'] = 'PARSE_ERROR'
@@ -277,6 +299,125 @@ class TSBKParser:
             return TSBKOpcode(opcode).name
         except ValueError:
             return f"UNKNOWN_0x{opcode:02X}"
+
+    def _require_int_range(
+        self,
+        value: Any,
+        min_value: int,
+        max_value: int,
+        label: str,
+    ) -> int:
+        ok, reason = validate_int_range(value, min_value, max_value, label)
+        if not ok:
+            raise ValueError(reason)
+        return int(value)
+
+    def _require_float_range(
+        self,
+        value: Any,
+        min_value: float,
+        max_value: float,
+        label: str,
+    ) -> float:
+        ok, reason = validate_float_range(value, min_value, max_value, label)
+        if not ok:
+            raise ValueError(reason)
+        return float(value)
+
+    def _require_frequency(self, value: Any, label: str) -> float:
+        value_f = float(value)
+        ok, reason = validate_frequency_hz(value_f)
+        if not ok:
+            raise ValueError(f"{label}: {reason}")
+        return value_f
+
+    def _validate_grant_fields(self, grant: dict[str, Any], id_label: str) -> None:
+        self._require_int_range(grant.get("channel"), CHANNEL_ID_MIN, CHANNEL_ID_MAX, "channel")
+        self._require_int_range(grant.get(id_label), 1, TGID_MAX, id_label)
+        freq = grant.get("frequency_hz")
+        if freq is not None and float(freq) > 0:
+            self._require_frequency(freq, "frequency_hz")
+
+    def _validate_result(self, result: dict[str, Any]) -> None:
+        msg_type = result.get("type")
+        if msg_type in ("UNKNOWN", "MANUFACTURER_SPECIFIC"):
+            return
+
+        if msg_type == "GROUP_VOICE_GRANT":
+            self._require_int_range(result.get("tgid"), 1, TGID_MAX, "tgid")
+            self._require_int_range(result.get("source_id"), 0, UNIT_ID_MAX, "source_id")
+            self._require_int_range(result.get("channel"), CHANNEL_ID_MIN, CHANNEL_ID_MAX, "channel")
+            freq = result.get("frequency_hz")
+            if freq is not None and float(freq) > 0:
+                self._require_frequency(freq, "frequency_hz")
+            return
+
+        if msg_type == "GROUP_VOICE_GRANT_UPDATE_EXPLICIT":
+            self._require_int_range(result.get("tgid"), 1, TGID_MAX, "tgid")
+            dl = result.get("downlink_channel")
+            if dl is not None:
+                self._require_int_range(dl, CHANNEL_ID_MIN, CHANNEL_ID_MAX, "downlink_channel")
+            ul = result.get("uplink_channel")
+            if ul is not None:
+                self._require_int_range(ul, CHANNEL_ID_MIN, CHANNEL_ID_MAX, "uplink_channel")
+            return
+
+        if msg_type in ("GROUP_VOICE_GRANT_UPDATE", "UNIT_TO_UNIT_GRANT_UPDATE"):
+            grant1 = result.get("grant1")
+            if isinstance(grant1, dict):
+                id_label = "target_id" if msg_type == "UNIT_TO_UNIT_GRANT_UPDATE" else "tgid"
+                self._validate_grant_fields(grant1, id_label)
+            grant2 = result.get("grant2")
+            if isinstance(grant2, dict):
+                id_label = "target_id" if msg_type == "UNIT_TO_UNIT_GRANT_UPDATE" else "tgid"
+                self._validate_grant_fields(grant2, id_label)
+            return
+
+        if msg_type == "UNIT_TO_UNIT_GRANT":
+            self._require_int_range(result.get("target_id"), 0, UNIT_ID_MAX, "target_id")
+            self._require_int_range(result.get("source_id"), 0, UNIT_ID_MAX, "source_id")
+            self._require_int_range(result.get("channel"), CHANNEL_ID_MIN, CHANNEL_ID_MAX, "channel")
+            freq = result.get("frequency_hz")
+            if freq is not None and float(freq) > 0:
+                self._require_frequency(freq, "frequency_hz")
+            return
+
+        if msg_type in ("RFSS_STATUS", "ADJACENT_STATUS"):
+            self._require_int_range(result.get("system_id"), 0, SYSTEM_ID_MAX, "system_id")
+            self._require_int_range(result.get("rfss_id"), 0, RFSS_ID_MAX, "rfss_id")
+            self._require_int_range(result.get("site_id"), 0, SITE_ID_MAX, "site_id")
+            self._require_int_range(result.get("channel"), 0, CHANNEL_ID_MAX, "channel")
+            return
+
+        if msg_type == "NETWORK_STATUS":
+            self._require_int_range(result.get("wacn"), 0, WACN_MAX, "wacn")
+            self._require_int_range(result.get("system_id"), 0, SYSTEM_ID_MAX, "system_id")
+            self._require_int_range(result.get("channel"), 0, CHANNEL_ID_MAX, "channel")
+            return
+
+        if msg_type in ("IDENTIFIER_UPDATE_VU", "IDENTIFIER_UPDATE_TDMA", "IDENTIFIER_UPDATE"):
+            self._require_int_range(result.get("identifier"), 0, IDENTIFIER_MAX, "identifier")
+            self._require_float_range(
+                result.get("channel_spacing_khz"),
+                CHANNEL_SPACING_MIN_KHZ,
+                CHANNEL_SPACING_MAX_KHZ,
+                "channel_spacing_khz",
+            )
+            self._require_float_range(
+                result.get("base_freq_mhz"),
+                BASE_FREQ_MIN_MHZ,
+                BASE_FREQ_MAX_MHZ,
+                "base_freq_mhz",
+            )
+            tx_offset_mhz = result.get("tx_offset_mhz")
+            if tx_offset_mhz is not None:
+                self._require_float_range(
+                    tx_offset_mhz,
+                    -TX_OFFSET_MAX_MHZ,
+                    TX_OFFSET_MAX_MHZ,
+                    "tx_offset_mhz",
+                )
+            return
 
     def _parse_grp_v_ch_grant(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Group Voice Channel Grant.

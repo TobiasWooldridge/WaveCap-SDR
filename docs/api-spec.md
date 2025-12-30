@@ -246,6 +246,12 @@ Modes: `sequential`, `priority`, `activity`
 Protocol: `p25_phase1` | `p25_phase2`
 States: `stopped`, `starting`, `running`, `failed`
 
+Trunking stats (in `stats` field on system responses):
+- `control_monitor.tsbk_rejected`: count of TSBK blocks dropped due to invalid/out-of-range fields.
+
+Fast-fail validation:
+- Non-finite IQ/audio samples and out-of-range trunking fields are dropped early to prevent propagating bogus values.
+
 ### Active Call
 ```
 { callId, talkgroupId, talkgroupName, frequency, startTime, duration,

@@ -92,6 +92,7 @@ class ControlChannelMonitor:
     tsbk_crc_pass: int = 0  # Number that passed CRC
     tsbk_error_sum: int = 0  # Sum of bit errors for failed CRCs (for averaging)
     _dibit_debug_count: int = 0
+    tsbk_rejected: int = 0  # TSBKs rejected due to invalid fields
 
     # Callbacks
     on_tsbk: Callable[[bytes], None] | None = None
@@ -661,7 +662,11 @@ class ControlChannelMonitor:
             return None
 
         try:
-            return self._tsbk_parser.parse(opcode, mfid, data)
+            result = self._tsbk_parser.parse(opcode, mfid, data)
+            if result.get("type") == "PARSE_ERROR":
+                self.tsbk_rejected += 1
+                return None
+            return result
         except Exception as e:
             logger.error(f"ControlChannelMonitor: TSBK parse error (opcode=0x{opcode:02X}): {e}")
             return None
@@ -678,6 +683,7 @@ class ControlChannelMonitor:
             "modulation": self.modulation.value,
             "frames_decoded": self.frames_decoded,
             "tsbk_decoded": self.tsbk_decoded,
+            "tsbk_rejected": self.tsbk_rejected,
             "sync_losses": self.sync_losses,
             "buffer_dibits": len(self._dibit_buffer),
             # TSBK FEC debug stats

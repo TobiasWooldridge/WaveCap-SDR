@@ -23,6 +23,7 @@ import numpy as np
 
 from wavecapsdr.decoders.lrrp import RadioLocation
 from wavecapsdr.decoders.voice import VocoderType, VoiceDecoder, VoiceDecoderError
+from wavecapsdr.validation import validate_audio_samples, validate_discriminator_samples
 
 logger = logging.getLogger(__name__)
 
@@ -275,6 +276,21 @@ class VoiceChannel:
             self.state = "active"
             logger.info(f"VoiceChannel {self.id}: Revived from silent state by incoming audio")
 
+        ok, reason = validate_discriminator_samples(disc_audio)
+        if not ok:
+            now = time.time()
+            last = getattr(self, "_invalid_disc_log_time", 0.0)
+            count = getattr(self, "_invalid_disc_log_count", 0) + 1
+            setattr(self, "_invalid_disc_log_count", count)
+            if now - last >= 5.0:
+                logger.warning(
+                    f"VoiceChannel {self.id}: invalid discriminator audio ({reason}), "
+                    f"dropped {count} chunks"
+                )
+                setattr(self, "_invalid_disc_log_time", now)
+                setattr(self, "_invalid_disc_log_count", 0)
+            return
+
         await self._voice_decoder.decode(disc_audio)
 
     async def _read_decoder_output(self) -> None:
@@ -305,6 +321,20 @@ class VoiceChannel:
 
     async def _broadcast(self, audio: np.ndarray) -> None:
         """Broadcast audio to all subscribers with metadata."""
+        ok, reason = validate_audio_samples(audio)
+        if not ok:
+            now = time.time()
+            last = getattr(self, "_invalid_audio_log_time", 0.0)
+            count = getattr(self, "_invalid_audio_log_count", 0) + 1
+            setattr(self, "_invalid_audio_log_count", count)
+            if now - last >= 5.0:
+                logger.warning(
+                    f"VoiceChannel {self.id}: invalid audio output ({reason}), "
+                    f"dropped {count} chunks"
+                )
+                setattr(self, "_invalid_audio_log_time", now)
+                setattr(self, "_invalid_audio_log_count", 0)
+            return
         # Apply audio gain
         if self.cfg.audio_gain != 1.0:
             audio = audio * self.cfg.audio_gain

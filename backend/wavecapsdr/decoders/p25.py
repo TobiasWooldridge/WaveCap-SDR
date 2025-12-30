@@ -36,6 +36,7 @@ from wavecapsdr.decoders.p25_phase2 import (
 from wavecapsdr.dsp.fec.bch import bch_decode
 from wavecapsdr.dsp.fec.trellis import TrellisDecoder
 from wavecapsdr.dsp.p25.c4fm import C4FMDemodulator as _WorkingC4FMDemodulator
+from wavecapsdr.validation import validate_finite_array
 
 logger = logging.getLogger(__name__)
 
@@ -1808,6 +1809,11 @@ class P25Decoder:
         Returns:
             List of decoded P25 frames
         """
+        if iq.size == 0:
+            return []
+        if not validate_finite_array(iq):
+            logger.warning("P25: non-finite IQ samples, dropping")
+            return []
         self._process_count += 1
 
         # Upsample IQ if input sample rate is below minimum for accurate demodulation
@@ -2006,7 +2012,7 @@ class P25Decoder:
         # Use existing TSBK parser for full decoding
         tsbk_data: dict[str, Any] | None = self.tsbk_parser.parse(opcode, mfid, data_bytes)
 
-        if tsbk_data:
+        if tsbk_data and tsbk_data.get("type") != "PARSE_ERROR":
             tsbk_data['opcode'] = opcode
             tsbk_data['mfid'] = mfid
             tsbk_data['last_block'] = lb
@@ -2227,6 +2233,11 @@ class P25Decoder:
         Returns:
             List of decoded P25 frames
         """
+        if audio.size == 0:
+            return []
+        if not validate_finite_array(audio):
+            logger.warning("P25: non-finite discriminator samples, dropping")
+            return []
         # Create discriminator demodulator on demand with correct sample rate
         if self._discriminator_demod is None or self._discriminator_demod.sample_rate != sample_rate:
             self._discriminator_demod = DiscriminatorDemodulator(sample_rate=sample_rate)

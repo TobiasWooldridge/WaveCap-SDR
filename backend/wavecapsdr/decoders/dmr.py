@@ -11,6 +11,8 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+from wavecapsdr.validation import validate_finite_array
+
 
 class DMRSlot(Enum):
     """DMR time slot"""
@@ -93,6 +95,11 @@ class DMRDecoder:
 
     def process_iq(self, iq: np.ndarray) -> list[DMRFrame]:
         """Process IQ and decode DMR frames"""
+        if iq.size == 0:
+            return []
+        if not validate_finite_array(iq):
+            logger.warning("DMR: non-finite IQ samples, dropping")
+            return []
         dibits = self.demodulator.demodulate(iq)
 
         if len(dibits) == 0:
