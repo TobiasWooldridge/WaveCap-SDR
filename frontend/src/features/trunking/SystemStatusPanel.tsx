@@ -44,6 +44,7 @@ interface StatBoxProps {
   label: string;
   value: string | number;
   unit?: string;
+  detail?: string;
   highlight?: boolean;
   bgClass?: string; // Custom background class (overrides highlight)
   info?: string;
@@ -53,6 +54,7 @@ function StatBox({
   label,
   value,
   unit,
+  detail,
   highlight,
   bgClass,
   info,
@@ -68,6 +70,11 @@ function StatBox({
         {value}
         {unit && <small className="text-muted ms-1">{unit}</small>}
       </div>
+      {detail && (
+        <div className="text-muted" style={{ fontSize: "0.65rem" }}>
+          {detail}
+        </div>
+      )}
     </div>
   );
 }
@@ -107,6 +114,14 @@ export function SystemStatusPanel({
 
   const status = getUnifiedSystemStatus(system);
   const snr = getChannelSnr(system);
+  const currentChannel =
+    system.controlChannels?.find((c) => c.isCurrent) ||
+    (system.controlChannelFreqHz
+      ? system.controlChannels?.find(
+          (c) => Math.abs(c.frequencyHz - system.controlChannelFreqHz!) < 1000,
+        )
+      : undefined);
+  const controlName = currentChannel?.name;
 
   return (
     <div className="card">
@@ -173,6 +188,7 @@ export function SystemStatusPanel({
                   : "---"
               }
               unit="MHz"
+              detail={controlName}
               highlight={system.controlChannelState === "locked"}
               info="The current control channel frequency. P25 systems broadcast call setup and system info on this channel."
             />
