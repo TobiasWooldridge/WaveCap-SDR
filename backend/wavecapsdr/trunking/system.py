@@ -64,22 +64,11 @@ def _get_state_file(system_id: str) -> Path:
     return _STATE_DIR / f"{system_id}.json"
 
 
-def _save_state(system_id: str, hunt_mode: str, locked_freq_hz: float | None) -> None:
-    """Save trunking system state to disk.
-
-    Args:
-        system_id: The trunking system ID
-        hunt_mode: The current hunt mode (auto, manual, scan_once)
-        locked_freq_hz: The locked frequency in Hz, or None
-    """
+def _write_state(system_id: str, state: dict[str, Any]) -> None:
+    """Write trunking state to disk."""
     try:
         _STATE_DIR.mkdir(parents=True, exist_ok=True)
         state_file = _get_state_file(system_id)
-        state = {
-            "hunt_mode": hunt_mode,
-            "locked_freq_hz": locked_freq_hz,
-            "saved_at": time.time(),
-        }
         with open(state_file, "w") as f:
             json.dump(state, f)
         logger.debug(f"Saved trunking state for {system_id}: {state}")
@@ -107,6 +96,70 @@ def _load_state(system_id: str) -> dict | None:
     except Exception as e:
         logger.warning(f"Failed to load trunking state for {system_id}: {e}")
         return None
+
+
+def _save_state(system_id: str, hunt_mode: str, locked_freq_hz: float | None) -> None:
+    """Save trunking system state to disk (preserves other cached fields)."""
+    state = _load_state(system_id) or {}
+    state.update(
+        {
+            "hunt_mode": hunt_mode,
+            "locked_freq_hz": locked_freq_hz,
+            "saved_at": time.time(),
+        }
+    )
+    _write_state(system_id, state)
+
+
+def _serialize_channel_identifiers(
+    channel_identifiers: dict[int, ChannelIdentifier],
+) -> dict[str, dict[str, float]]:
+    """Serialize channel identifiers for persistence."""
+    payload: dict[str, dict[str, float]] = {}
+    for ident, chan in channel_identifiers.items():
+        payload[str(ident)] = {
+            "identifier": int(ident),
+            "base_freq_mhz": float(chan.base_freq),
+            "channel_spacing_khz": float(chan.channel_spacing),
+            "bandwidth_khz": float(chan.bw),
+            "tx_offset_mhz": float(chan.tx_offset),
+        }
+    return payload
+
+
+def _save_channel_identifiers(
+    system_id: str,
+    channel_identifiers: dict[int, ChannelIdentifier],
+) -> None:
+    """Persist channel identifiers to the trunking state cache."""
+    state = _load_state(system_id) or {}
+    state["channel_identifiers"] = _serialize_channel_identifiers(channel_identifiers)
+    state["saved_at"] = time.time()
+    _write_state(system_id, state)
+
+
+def _parse_cached_channel_identifier(
+    identifier: int,
+    data: Any,
+) -> ChannelIdentifier | None:
+    """Parse cached channel identifier payload."""
+    if not isinstance(data, dict):
+        return None
+    base_freq_mhz = data.get("base_freq_mhz")
+    channel_spacing_khz = data.get("channel_spacing_khz")
+    if base_freq_mhz is None or channel_spacing_khz is None:
+        return None
+    tx_offset_mhz = data.get("tx_offset_mhz", 0.0)
+    tx_offset_hz = data.get("tx_offset_hz")
+    if tx_offset_hz is not None:
+        tx_offset_mhz = float(tx_offset_hz) / 1e6
+    return ChannelIdentifier(
+        identifier=int(identifier),
+        bw=float(data.get("bandwidth_khz", 12.5)),
+        tx_offset=float(tx_offset_mhz),
+        channel_spacing=float(channel_spacing_khz),
+        base_freq=float(base_freq_mhz),
+    )
 
 
 class TrunkingSystemState(str, Enum):
@@ -436,6 +489,23 @@ class VoiceRecorder:
         if self.state != "recording" or self._voice_channel is None:
             return
 
+        # ASSERTION: Voice frequency must be within capture bandwidth
+        # If offset > half the sample rate, signal is outside the captured spectrum
+        max_offset = sample_rate / 2 - 50000  # Leave 50 kHz margin for filter rolloff
+        if abs(self.offset_hz) > max_offset:
+            if not hasattr(self, '_bandwidth_fail_count'):
+                self._bandwidth_fail_count = 0
+            self._bandwidth_fail_count += 1
+            # Only log first few and periodically
+            if self._bandwidth_fail_count <= 3 or self._bandwidth_fail_count % 100 == 0:
+                logger.error(
+                    f"VoiceRecorder {self.id}: VOICE CHANNEL OUTSIDE BANDWIDTH - "
+                    f"offset={self.offset_hz/1e3:.1f} kHz exceeds max ±{max_offset/1e3:.0f} kHz, "
+                    f"voice_freq={self.frequency_hz/1e6:.4f} MHz. "
+                    f"Need to adjust capture center or widen sample_rate!"
+                )
+            return  # Skip processing - can't receive this frequency
+
         # Phase-continuous frequency shift to center on voice channel
         # Unlike simple freq_shift(), this maintains phase across IQ chunks
         # to prevent discontinuities that corrupt the FM demod output
@@ -468,11 +538,39 @@ class VoiceRecorder:
         if self._vr_power_diag_count <= 5:
             raw_power = float(np.mean(np.abs(iq) ** 2))
             centered_power = float(np.mean(np.abs(centered_iq) ** 2))
-            logger.info(
-                f"VoiceRecorder {self.id}: freq_shift diag #{self._vr_power_diag_count}, "
-                f"offset={self.offset_hz/1e3:.1f}kHz, raw_power={raw_power:.6f}, "
-                f"centered_power={centered_power:.6f}"
-            )
+
+            # Spectral analysis: check where power is concentrated
+            # Compute FFT and measure power in DC band (±25 kHz) vs total
+            fft_len = min(4096, len(centered_iq))
+            if fft_len >= 256:
+                fft_data = np.fft.fft(centered_iq[:fft_len])
+                fft_power = np.abs(fft_data) ** 2
+                # DC band: ±25 kHz = ±(25000/sample_rate * fft_len) bins
+                dc_bins = int(25000 / sample_rate * fft_len)
+                dc_power = float(np.sum(fft_power[:dc_bins]) + np.sum(fft_power[-dc_bins:]))
+                total_fft_power = float(np.sum(fft_power))
+                dc_ratio = dc_power / total_fft_power if total_fft_power > 0 else 0
+
+                # Also check power at expected voice offset (should be low if shift worked)
+                voice_bin = int(abs(self.offset_hz) / sample_rate * fft_len)
+                if voice_bin > 0 and voice_bin < fft_len // 2:
+                    voice_band_power = float(np.sum(fft_power[voice_bin-dc_bins:voice_bin+dc_bins]))
+                    voice_ratio = voice_band_power / total_fft_power if total_fft_power > 0 else 0
+                else:
+                    voice_ratio = 0.0
+
+                logger.info(
+                    f"VoiceRecorder {self.id}: freq_shift diag #{self._vr_power_diag_count}, "
+                    f"offset={self.offset_hz/1e3:.1f}kHz, raw_power={raw_power:.6f}, "
+                    f"centered_power={centered_power:.6f}, "
+                    f"DC_band_ratio={dc_ratio:.3f}, orig_offset_ratio={voice_ratio:.3f}"
+                )
+            else:
+                logger.info(
+                    f"VoiceRecorder {self.id}: freq_shift diag #{self._vr_power_diag_count}, "
+                    f"offset={self.offset_hz/1e3:.1f}kHz, raw_power={raw_power:.6f}, "
+                    f"centered_power={centered_power:.6f}"
+                )
 
         # Two-stage decimation for better anti-aliasing
         # Stage 1: First decimation (e.g., 6 MHz → 240 kHz for 25:1)
@@ -505,11 +603,36 @@ class VoiceRecorder:
         else:
             decimated_iq = decimated1
 
-        # Diagnostic: measure power after decimation and check if centered
+        # Measure power after decimation - ASSERT signal is valid
+        decim_power = float(np.mean(np.abs(decimated_iq) ** 2))
+        decim_peak = float(np.max(np.abs(decimated_iq)))
+
+        # Track signal quality for this recorder
+        if not hasattr(self, '_signal_quality_fail_count'):
+            self._signal_quality_fail_count = 0
+            self._signal_quality_total_count = 0
+        self._signal_quality_total_count += 1
+
+        # Track signal power levels for diagnostics
+        # Note: P25 voice grants are issued BEFORE transmission starts, so
+        # silence (low power) is expected and normal. We continue processing
+        # to be ready when voice actually appears.
+        MIN_DECIM_POWER = 1e-8  # Below this is silence/noise floor
+        if decim_power < MIN_DECIM_POWER:
+            self._signal_quality_fail_count += 1
+            # Only log first few and periodically after that
+            if self._signal_quality_fail_count <= 3 or self._signal_quality_fail_count % 500 == 0:
+                fail_rate = 100 * self._signal_quality_fail_count / self._signal_quality_total_count
+                logger.debug(
+                    f"VoiceRecorder {self.id}: Silence detected - "
+                    f"decim_power={decim_power:.2e}, offset={self.offset_hz/1e3:.1f}kHz, "
+                    f"silence_rate={fail_rate:.0f}% ({self._signal_quality_fail_count}/{self._signal_quality_total_count})"
+                )
+            # Continue processing - voice may start any moment
+
+        # Diagnostic logging for first 5 calls
         if self._vr_power_diag_count <= 5:
-            decim_power = float(np.mean(np.abs(decimated_iq) ** 2))
             decim_dc = np.abs(np.mean(decimated_iq))
-            decim_peak = float(np.max(np.abs(decimated_iq)))
             dc_ratio = decim_dc / decim_peak if decim_peak > 0 else 0.0
             logger.info(
                 f"VoiceRecorder {self.id}: decim diag #{self._vr_power_diag_count}, "
@@ -527,6 +650,37 @@ class VoiceRecorder:
         self._last_phase = phase_unwrapped[-1] if len(phase_unwrapped) > 1 else self._last_phase
         # Differentiate to get frequency
         disc_audio = np.diff(phase_unwrapped)
+
+        # ASSERTION: Discriminator range should be valid for P25 C4FM
+        # Valid P25: deviation ≈ ±1.8 kHz at 4800 symbols/sec → ±0.24 rad at 48kHz
+        # Random noise: phase jumps ±π (3.14159) between samples
+        disc_min = float(disc_audio.min())
+        disc_max = float(disc_audio.max())
+        disc_range = disc_max - disc_min
+
+        # Track discriminator range for diagnostics
+        # Note: During silence, discriminator produces noise (±π range).
+        # This is expected for P25 - voice may start any moment. The P25 decoder
+        # handles noise gracefully - frame sync simply won't detect anything.
+        MAX_VALID_DISC_RANGE = 2.0  # Above this is noise (during silence)
+        is_silence = disc_range > MAX_VALID_DISC_RANGE
+
+        if is_silence:
+            if not hasattr(self, '_disc_range_fail_count'):
+                self._disc_range_fail_count = 0
+                self._disc_range_total_count = 0
+            self._disc_range_total_count += 1
+            self._disc_range_fail_count += 1
+
+            # Only log first few and periodically after that
+            if self._disc_range_fail_count <= 3 or self._disc_range_fail_count % 500 == 0:
+                fail_rate = 100 * self._disc_range_fail_count / self._disc_range_total_count
+                logger.debug(
+                    f"VoiceRecorder {self.id}: Noise detected (silence) - "
+                    f"disc_range={disc_range:.2f} rad, "
+                    f"silence_rate={fail_rate:.0f}% ({self._disc_range_fail_count}/{self._disc_range_total_count})"
+                )
+            # Continue processing - frame sync handles noise correctly
 
         # Update activity time
         self.last_activity = time.time()
@@ -730,12 +884,15 @@ class TrunkingSystem:
             saved_mode = saved_state.get("hunt_mode")
 
             # Restore locked frequency if it's still a valid control channel
-            if saved_freq is not None and saved_freq in self.cfg.control_channels:
-                self._locked_frequency = saved_freq
-                logger.info(
-                    f"TrunkingSystem {self.cfg.id}: Restored locked frequency "
-                    f"{saved_freq/1e6:.4f} MHz from saved state"
-                )
+            if saved_freq is not None:
+                for freq in self.cfg.control_channel_frequencies:
+                    if abs(freq - saved_freq) < 1000:
+                        self._locked_frequency = saved_freq
+                        logger.info(
+                            f"TrunkingSystem {self.cfg.id}: Restored locked frequency "
+                            f"{saved_freq/1e6:.4f} MHz from saved state"
+                        )
+                        break
 
                 # If we have a locked frequency, skip the initial scan
                 # and start directly on that frequency
@@ -746,6 +903,9 @@ class TrunkingSystem:
                         f"TrunkingSystem {self.cfg.id}: Skipping initial scan, "
                         f"starting on saved frequency"
                     )
+
+        # Seed channel identifiers from config/cache
+        self._seed_channel_identifiers(saved_state)
 
         # Create TSBK parser
         self._tsbk_parser = TSBKParser()
@@ -777,6 +937,45 @@ class TrunkingSystem:
             f"control_channels={len(self.cfg.control_channels)}, "
             f"voice_recorders={len(self._voice_recorders)}"
         )
+
+    def _seed_channel_identifiers(self, saved_state: dict | None) -> None:
+        """Seed channel identifiers from config and cached state."""
+        config_count = 0
+        for ident_cfg in self.cfg.channel_identifiers.values():
+            self._channel_identifiers[ident_cfg.identifier] = ChannelIdentifier(
+                identifier=ident_cfg.identifier,
+                bw=ident_cfg.bandwidth_khz,
+                tx_offset=ident_cfg.tx_offset_mhz,
+                channel_spacing=ident_cfg.channel_spacing_khz,
+                base_freq=ident_cfg.base_freq_mhz,
+            )
+            config_count += 1
+
+        cached_count = 0
+        if saved_state:
+            cached = saved_state.get("channel_identifiers", {})
+            if isinstance(cached, dict):
+                for key, entry in cached.items():
+                    ident = entry.get("identifier") if isinstance(entry, dict) else None
+                    if ident is None:
+                        try:
+                            ident = int(key)
+                        except (TypeError, ValueError):
+                            continue
+                    ident = int(ident)
+                    if ident in self._channel_identifiers:
+                        continue
+                    parsed = _parse_cached_channel_identifier(ident, entry)
+                    if parsed is None:
+                        continue
+                    self._channel_identifiers[ident] = parsed
+                    cached_count += 1
+
+        if config_count or cached_count:
+            logger.info(
+                f"TrunkingSystem {self.cfg.id}: Loaded {len(self._channel_identifiers)} "
+                f"channel identifiers (config={config_count}, cache={cached_count})"
+            )
 
     async def start(self, capture_manager: CaptureManager) -> None:
         """Start the trunking system.
@@ -1934,14 +2133,25 @@ class TrunkingSystem:
             base_freq=result.get("base_freq_mhz", 0.0),
         )
 
-        # Store in our map
-        self._channel_identifiers[chan_id.identifier] = chan_id
-
-        logger.info(
-            f"TrunkingSystem {self.cfg.id}: Channel ID {chan_id.identifier}: "
-            f"base={chan_id.base_freq:.4f} MHz, "
-            f"spacing={chan_id.channel_spacing} kHz"
+        existing = self._channel_identifiers.get(chan_id.identifier)
+        changed = (
+            existing is None
+            or abs(existing.base_freq - chan_id.base_freq) > 1e-6
+            or abs(existing.channel_spacing - chan_id.channel_spacing) > 1e-6
+            or abs(existing.tx_offset - chan_id.tx_offset) > 1e-6
+            or abs(existing.bw - chan_id.bw) > 1e-6
         )
+
+        if changed:
+            # Store in our map
+            self._channel_identifiers[chan_id.identifier] = chan_id
+            _save_channel_identifiers(self.cfg.id, self._channel_identifiers)
+
+            logger.info(
+                f"TrunkingSystem {self.cfg.id}: Channel ID {chan_id.identifier}: "
+                f"base={chan_id.base_freq:.4f} MHz, "
+                f"spacing={chan_id.channel_spacing} kHz"
+            )
 
     def _check_control_channel_hunt(self) -> None:
         """Check if we need to hunt for a different control channel.

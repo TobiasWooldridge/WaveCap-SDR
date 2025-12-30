@@ -359,6 +359,7 @@ Configuration via environment variables:
 P25 trunking specifics:
 - TSBK CRC uses CRC-16 CCITT with init 0x0000, 16-bit flush, and final XOR 0xFFFF.
 - Status symbols are stripped every 36 dibits (positions 36, 72, 108, ...).
+- IDEN_UP channel identifiers are cached per system and can be preseeded via `channel_identifiers` in trunking config to resolve voice frequencies during weak CRC periods.
 
 ## Open Questions
 - Preferred on‑disk container for IQ (raw vs. WAV container with metadata)?

@@ -27,7 +27,7 @@ from wavecapsdr.trunking import (
     SyncState,
     create_control_monitor,
 )
-from wavecapsdr.trunking.config import load_talkgroups_csv
+from wavecapsdr.trunking.config import ChannelIdentifierConfig, load_talkgroups_csv
 
 
 class MockCapture:
@@ -152,6 +152,14 @@ class TestTrunkingSystemConfig:
             "control_channels": [851.0e6, 851.1e6],
             "center_hz": 855.0e6,
             "sample_rate": 4000000,
+            "channel_identifiers": {
+                "2": {
+                    "base_freq_mhz": 420.0125,
+                    "channel_spacing_khz": 6.25,
+                    "bandwidth_khz": 12.5,
+                    "tx_offset_mhz": 5.2,
+                },
+            },
             "talkgroups": {
                 "100": {"name": "Admin", "category": "Admin", "priority": 5},
                 "200": "Fire Dispatch",  # Simple format
@@ -163,6 +171,7 @@ class TestTrunkingSystemConfig:
         assert len(cfg.talkgroups) == 2
         assert cfg.talkgroups[100].name == "Admin"
         assert cfg.talkgroups[200].name == "Fire Dispatch"
+        assert cfg.channel_identifiers[2].base_freq_mhz == 420.0125
 
     def test_to_dict(self):
         """Test serialization to dictionary."""
@@ -174,11 +183,21 @@ class TestTrunkingSystemConfig:
             talkgroups={
                 100: TalkgroupConfig(tgid=100, name="TG 100"),
             },
+            channel_identifiers={
+                2: ChannelIdentifierConfig(
+                    identifier=2,
+                    base_freq_mhz=420.0125,
+                    channel_spacing_khz=6.25,
+                    bandwidth_khz=12.5,
+                    tx_offset_mhz=5.2,
+                ),
+            },
         )
         d = cfg.to_dict()
         assert d["id"] == "test"
         assert d["protocol"] == "p25_phase1"
         assert 100 in d["talkgroups"]
+        assert "2" in d["channel_identifiers"]
 
     def test_talkgroup_methods(self):
         """Test talkgroup query methods."""
@@ -263,6 +282,28 @@ class TestTrunkingSystem:
         assert system.state == TrunkingSystemState.STOPPED
         assert system.control_channel_state == ControlChannelState.UNLOCKED
         assert len(system._voice_recorders) == 4
+
+    def test_channel_identifier_seed(self):
+        """Test channel identifier seeding from config."""
+        cfg = TrunkingSystemConfig(
+            id="test",
+            name="Test System",
+            control_channels=[851.0e6],
+            channel_identifiers={
+                1: ChannelIdentifierConfig(
+                    identifier=1,
+                    base_freq_mhz=412.4750,
+                    channel_spacing_khz=12.5,
+                    bandwidth_khz=12.5,
+                    tx_offset_mhz=0.0,
+                ),
+            },
+        )
+        system = TrunkingSystem(cfg=cfg)
+        channel_id = (1 << 12) | 10
+        freq_hz = system._calculate_frequency(channel_id)
+        assert freq_hz is not None
+        assert abs(freq_hz - 412_600_000.0) < 1.0
 
     @pytest.mark.anyio
     async def test_start_stop(self, mock_capture_manager):

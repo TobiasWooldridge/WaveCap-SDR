@@ -624,6 +624,27 @@ trunking:
         name: Pt Adelaide 2
       - frequency: 417.7625 MHz
         name: Mt Lofty 2
+      channel_identifiers:
+        0:
+          base_freq_mhz: 412.4750
+          channel_spacing_khz: 12.5
+          bandwidth_khz: 12.5
+          tx_offset_mhz: 0.0
+        1:
+          base_freq_mhz: 415.1250
+          channel_spacing_khz: 12.5
+          bandwidth_khz: 12.5
+          tx_offset_mhz: 0.0
+        2:
+          base_freq_mhz: 420.0125
+          channel_spacing_khz: 6.25
+          bandwidth_khz: 12.5
+          tx_offset_mhz: 5.2
+        3:
+          base_freq_mhz: 467.5000
+          channel_spacing_khz: 6.25
+          bandwidth_khz: 12.5
+          tx_offset_mhz: -10.0
       device_id: driver=sdrplay,serial=240309F070
       # Use element gains to precisely control LNA and IFGR
       # RFGR=0 means LNAstate=0 (max LNA gain), IFGR=30 matches SDRTrunk

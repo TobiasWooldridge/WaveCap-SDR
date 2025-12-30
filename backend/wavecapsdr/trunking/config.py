@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 
 def parse_frequency(value: str | int | float) -> float:
@@ -74,6 +75,50 @@ class HuntMode(str, Enum):
     AUTO = "auto"           # Default: hunt continuously, roam if better channel found
     MANUAL = "manual"       # Lock to specified channel, no hunting ever
     SCAN_ONCE = "scan_once" # Scan all channels once, lock to best, stay there
+
+
+@dataclass
+class ChannelIdentifierConfig:
+    """Channel identifier configuration (IDEN_UP seed data).
+
+    Uses MHz/kHz units to match IDEN_UP fields and avoid rounding.
+    """
+    identifier: int  # 4-bit band identifier (0-15)
+    base_freq_mhz: float
+    channel_spacing_khz: float
+    bandwidth_khz: float = 12.5
+    tx_offset_mhz: float = 0.0
+
+    @classmethod
+    def from_dict(cls, identifier: int, data: dict[str, Any]) -> "ChannelIdentifierConfig":
+        """Parse a channel identifier from config data."""
+        base_freq_mhz = data.get("base_freq_mhz", data.get("base_freq"))
+        channel_spacing_khz = data.get("channel_spacing_khz", data.get("spacing_khz"))
+        if base_freq_mhz is None or channel_spacing_khz is None:
+            raise ValueError("channel_identifiers entry requires base_freq_mhz and channel_spacing_khz")
+
+        tx_offset_mhz = data.get("tx_offset_mhz", data.get("tx_offset", 0.0))
+        tx_offset_hz = data.get("tx_offset_hz")
+        if tx_offset_hz is not None:
+            tx_offset_mhz = float(tx_offset_hz) / 1e6
+
+        return cls(
+            identifier=int(identifier),
+            base_freq_mhz=float(base_freq_mhz),
+            channel_spacing_khz=float(channel_spacing_khz),
+            bandwidth_khz=float(data.get("bandwidth_khz", data.get("bandwidth", 12.5))),
+            tx_offset_mhz=float(tx_offset_mhz),
+        )
+
+    def to_dict(self) -> dict[str, float]:
+        """Serialize to config-friendly dict."""
+        return {
+            "identifier": int(self.identifier),
+            "base_freq_mhz": float(self.base_freq_mhz),
+            "channel_spacing_khz": float(self.channel_spacing_khz),
+            "bandwidth_khz": float(self.bandwidth_khz),
+            "tx_offset_mhz": float(self.tx_offset_mhz),
+        }
 
 
 @dataclass
@@ -153,6 +198,7 @@ class TrunkingSystemConfig:
         record_unknown: Whether to record unknown talkgroups
         min_call_duration: Minimum call duration to save (seconds)
         squelch_db: Squelch level for voice channels
+        channel_identifiers: Optional IDEN_UP seed data for channel-to-frequency lookup
     """
     id: str
     name: str
@@ -188,17 +234,25 @@ class TrunkingSystemConfig:
     roam_threshold_db: float = 6.0  # SNR improvement required to trigger roaming
     initial_scan_enabled: bool = True  # Whether to scan all channels at startup
     default_hunt_mode: HuntMode = HuntMode.AUTO  # Default control channel hunting mode
+    channel_identifiers: dict[int, ChannelIdentifierConfig] = field(default_factory=dict)
 
     @property
     def control_channel_frequencies(self) -> list[float]:
         """Get list of control channel frequencies (Hz) for backward compatibility."""
-        return [cc.frequency_hz for cc in self.control_channels]
+        freqs: list[float] = []
+        for cc in self.control_channels:
+            if isinstance(cc, ControlChannelConfig):
+                freqs.append(cc.frequency_hz)
+            else:
+                freqs.append(parse_frequency(cc))
+        return freqs
 
     def get_control_channel_name(self, frequency_hz: float) -> str:
         """Get the name for a control channel frequency, or empty string if not named."""
         for cc in self.control_channels:
-            if abs(cc.frequency_hz - frequency_hz) < 1000:  # 1 kHz tolerance
-                return cc.name
+            if isinstance(cc, ControlChannelConfig):
+                if abs(cc.frequency_hz - frequency_hz) < 1000:  # 1 kHz tolerance
+                    return cc.name
         return ""
 
     def get_talkgroup(self, tgid: int) -> TalkgroupConfig | None:
@@ -281,6 +335,28 @@ class TrunkingSystemConfig:
         if gain is not None:
             gain = float(gain)
 
+        channel_identifiers: dict[int, ChannelIdentifierConfig] = {}
+        channel_raw = data.get("channel_identifiers", {})
+        if isinstance(channel_raw, dict):
+            for key, entry in channel_raw.items():
+                if not isinstance(entry, dict):
+                    continue
+                ident = entry.get("identifier")
+                if ident is None:
+                    try:
+                        ident = int(key)
+                    except (TypeError, ValueError):
+                        continue
+                channel_identifiers[int(ident)] = ChannelIdentifierConfig.from_dict(int(ident), entry)
+        elif isinstance(channel_raw, list):
+            for entry in channel_raw:
+                if not isinstance(entry, dict):
+                    continue
+                ident = entry.get("identifier")
+                if ident is None:
+                    continue
+                channel_identifiers[int(ident)] = ChannelIdentifierConfig.from_dict(int(ident), entry)
+
         return cls(
             id=data.get("id", "system"),
             name=data.get("name", "P25 System"),
@@ -308,6 +384,7 @@ class TrunkingSystemConfig:
             roam_threshold_db=float(data.get("roam_threshold_db", 6.0)),
             initial_scan_enabled=data.get("initial_scan_enabled", True),
             default_hunt_mode=HuntMode(data.get("default_hunt_mode", "auto")),
+            channel_identifiers=channel_identifiers,
         )
 
     def to_dict(self) -> dict:
@@ -342,6 +419,10 @@ class TrunkingSystemConfig:
             "squelch_db": self.squelch_db,
             "auto_start": self.auto_start,
             "default_hunt_mode": self.default_hunt_mode.value,
+            "channel_identifiers": {
+                str(ident): ident_cfg.to_dict()
+                for ident, ident_cfg in self.channel_identifiers.items()
+            },
         }
 
 

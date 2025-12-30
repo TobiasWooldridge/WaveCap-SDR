@@ -66,6 +66,13 @@ Trunking Systems
   - See `backend/wavecapsdr/trunking/` for detailed configuration options.
   - P25 Phase 1 trunking is supported with voice channel following.
   - SA-GRN P25 Phase 1 spec: `docs/sa-grn-p25-spec.md`.
+  - `channel_identifiers` (dict|array, optional): Seed IDEN_UP channel band data so voice grants can resolve even when CRC is weak.
+    - Map form (keyed by identifier 0-15):
+      - `base_freq_mhz` (float): Base frequency in MHz.
+      - `channel_spacing_khz` (float): Channel spacing in kHz.
+      - `bandwidth_khz` (float, default 12.5): Channel bandwidth in kHz.
+      - `tx_offset_mhz` (float, default 0.0): TX offset in MHz.
+    - Values are merged with cached IDEN_UP data persisted under `~/.wavecapsdr/trunking_state/<system_id>.json`.
 
 Captures (auto-start on boot)
 - `captures[]` (array): List of captures to auto-start on server launch.
