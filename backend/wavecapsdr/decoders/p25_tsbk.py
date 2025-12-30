@@ -200,6 +200,9 @@ class TSBKParser:
         Returns:
             Dict with parsed message fields
         """
+        if len(data) != 8:
+            raise ValueError(f"TSBK data must be 8 bytes (got {len(data)})")
+
         result: dict[str, Any] = {
             'opcode': opcode,
             'opcode_name': self._opcode_name(opcode),
@@ -738,6 +741,12 @@ class TSBKParser:
         else:
             bw_khz = 0
 
+        if spacing == 0 or base_freq <= 0:
+            raise ValueError(
+                f"IDEN_UP_VU invalid values: ident={ident} base={base_freq} "
+                f"spacing={spacing} bw_khz={bw_khz}"
+            )
+
         result['identifier'] = ident
         result['bandwidth_khz'] = bw_khz
         result['bandwidth_code'] = bw
@@ -800,6 +809,11 @@ class TSBKParser:
         tx_offset_hz = tx_offset * (spacing * 125)
         if not tx_offset_sign:
             tx_offset_hz *= -1
+
+        if spacing == 0 or base_freq <= 0:
+            raise ValueError(
+                f"IDEN_UP_TDMA invalid values: ident={ident} base={base_freq} spacing={spacing}"
+            )
 
         # Decode channel type (per SDRTrunk ChannelType.java)
         # Common values: 0x0=FDMA, 0x2=TDMA_2SLOT, 0x3=TDMA_4SLOT, 0x6=TDMA_6SLOT

@@ -66,6 +66,7 @@ Trunking Systems
   - See `backend/wavecapsdr/trunking/` for detailed configuration options.
   - P25 Phase 1 trunking is supported with voice channel following.
   - SA-GRN P25 Phase 1 spec: `docs/sa-grn-p25-spec.md`.
+  - Control channel frequencies must fall within `center_hz ± (sample_rate / 2)` and `sample_rate` must be > 0.
   - `channel_identifiers` (dict|array, optional): Seed IDEN_UP channel band data so voice grants can resolve even when CRC is weak.
     - Map form (keyed by identifier 0-15):
       - `base_freq_mhz` (float): Base frequency in MHz.

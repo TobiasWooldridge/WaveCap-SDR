@@ -104,6 +104,11 @@ class ControlChannelMonitor:
 
     def __post_init__(self) -> None:
         """Initialize demodulators and parser."""
+        if self.sample_rate <= 0:
+            raise ValueError(
+                f"ControlChannelMonitor: sample_rate must be > 0 (got {self.sample_rate})"
+            )
+
         # P25 control channels can use either C4FM or LSM (CQPSK) modulation.
         # - C4FM: Standard non-simulcast systems
         # - LSM/CQPSK: Simulcast systems (like SA-GRN with 240+ sites)
@@ -176,6 +181,8 @@ class ControlChannelMonitor:
 
         if iq.size == 0:
             return []
+        if not np.isfinite(iq).all():
+            raise ValueError("ControlChannelMonitor.process_iq: non-finite IQ samples")
 
         # DEBUG: Track call count
         if not hasattr(self, '_process_iq_calls'):
@@ -236,6 +243,11 @@ class ControlChannelMonitor:
             List of parsed TSBK results
         """
         results: list[dict[str, Any]] = []
+
+        if dibits.size > 0 and ((dibits < 0).any() or (dibits > 3).any()):
+            raise ValueError("ControlChannelMonitor._process_dibits: dibits out of range")
+        if soft is not None and len(soft) != len(dibits):
+            raise ValueError("ControlChannelMonitor._process_dibits: soft length mismatch")
 
         # Apply polarity correction if needed (OP25-style)
         if self._reverse_p:

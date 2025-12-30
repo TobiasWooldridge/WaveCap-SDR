@@ -339,6 +339,53 @@ class TestTrunkingSystem:
         await system.start(mock_capture_manager)
         assert system.state == TrunkingSystemState.FAILED
 
+    @pytest.mark.anyio
+    async def test_invalid_sample_rate_fails(self, mock_capture_manager):
+        """Test that invalid sample rate fails fast."""
+        cfg = TrunkingSystemConfig(
+            id="test",
+            name="Test System",
+            control_channels=[851.0e6],
+            center_hz=851.0e6,
+            sample_rate=0,
+        )
+        system = TrunkingSystem(cfg=cfg)
+
+        await system.start(mock_capture_manager)
+        assert system.state == TrunkingSystemState.FAILED
+
+    @pytest.mark.anyio
+    async def test_control_channel_out_of_band_fails(self, mock_capture_manager):
+        """Test that out-of-band control channels fail fast."""
+        cfg = TrunkingSystemConfig(
+            id="test",
+            name="Test System",
+            control_channels=[852.0e6],
+            center_hz=851.0e6,
+            sample_rate=1_000_000,
+        )
+        system = TrunkingSystem(cfg=cfg)
+
+        await system.start(mock_capture_manager)
+        assert system.state == TrunkingSystemState.FAILED
+
+    def test_voice_grant_invalid_tgid(self):
+        """Test that invalid talkgroup IDs are rejected."""
+        cfg = TrunkingSystemConfig(
+            id="test",
+            name="Test System",
+            control_channels=[851.0e6],
+            center_hz=851.0e6,
+            sample_rate=2_000_000,
+            talkgroups={
+                100: TalkgroupConfig(tgid=100, name="Test TG", monitor=True, record=True),
+            },
+        )
+        system = TrunkingSystem(cfg=cfg)
+
+        system._handle_voice_grant({"tgid": 0, "channel": 0x1000})
+        assert system._calls_total == 0
+
     def test_to_dict(self):
         """Test serialization to dictionary."""
         cfg = TrunkingSystemConfig(
@@ -530,6 +577,7 @@ class TestActiveCall:
             id="test123",
             talkgroup_id=1217,
             talkgroup_name="Kirkland PD",
+            talkgroup_category="",
             source_id=12345,
             frequency_hz=851_012_500,
             channel_id=0x1234,

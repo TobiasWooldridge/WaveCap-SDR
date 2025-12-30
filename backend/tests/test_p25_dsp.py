@@ -156,8 +156,9 @@ class TestC4FMDemodulator:
         """Test RRC filter design."""
         rrc = design_rrc_filter(samples_per_symbol=10.0, num_taps=101, alpha=0.2)
         assert len(rrc) == 101
-        # Filter should be roughly normalized
-        assert 0.9 < np.sqrt(np.sum(rrc**2)) < 1.1
+        # Filter should be normalized to unity DC gain
+        assert abs(np.sum(rrc) - 1.0) < 1e-3
+        assert np.sum(rrc**2) > 0
 
     def test_empty_input(self):
         """Test handling of empty input."""
