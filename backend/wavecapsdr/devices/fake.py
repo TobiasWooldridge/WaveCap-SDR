@@ -43,6 +43,7 @@ class _FakeDevice(Device):
         antenna: str | None = None,
         device_settings: dict[str, Any] | None = None,
         element_gains: dict[str, float] | None = None,
+        agc_enabled: bool = False,
         stream_format: str | None = None,
         dc_offset_auto: bool = True,
         iq_balance_auto: bool = True,

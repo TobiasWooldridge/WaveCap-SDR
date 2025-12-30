@@ -236,6 +236,16 @@ class TrunkingSystemConfig:
     default_hunt_mode: HuntMode = HuntMode.AUTO  # Default control channel hunting mode
     channel_identifiers: dict[int, ChannelIdentifierConfig] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        """Normalize control channel entries to ControlChannelConfig."""
+        normalized: list[ControlChannelConfig] = []
+        for cc in self.control_channels:
+            if isinstance(cc, ControlChannelConfig):
+                normalized.append(cc)
+            else:
+                normalized.append(ControlChannelConfig.from_value(cc))
+        self.control_channels = normalized
+
     @property
     def control_channel_frequencies(self) -> list[float]:
         """Get list of control channel frequencies (Hz) for backward compatibility."""

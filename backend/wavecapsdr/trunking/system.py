@@ -17,6 +17,7 @@ Architecture:
 from __future__ import annotations
 
 import asyncio
+import math
 import json
 import logging
 import os
@@ -333,6 +334,21 @@ class VoiceRecorder:
         min_call_duration: float = 1.0,
     ) -> None:
         """Assign recorder to a call (sync part - sets up state)."""
+        if not call_id:
+            raise ValueError("VoiceRecorder.assign: call_id must be non-empty")
+        if frequency_hz <= 0:
+            raise ValueError(
+                f"VoiceRecorder.assign: frequency_hz must be > 0 (got {frequency_hz})"
+            )
+        if center_hz <= 0:
+            raise ValueError(
+                f"VoiceRecorder.assign: center_hz must be > 0 (got {center_hz})"
+            )
+        if talkgroup_id <= 0:
+            raise ValueError(
+                f"VoiceRecorder.assign: talkgroup_id must be > 0 (got {talkgroup_id})"
+            )
+
         self.state = "tuning"
         self.call_id = call_id
         self.frequency_hz = frequency_hz
@@ -1007,6 +1023,47 @@ class TrunkingSystem:
         # Validate config
         if not self.cfg.control_channels:
             logger.error(f"TrunkingSystem {self.cfg.id}: No control channels configured")
+            self._set_state(TrunkingSystemState.FAILED)
+            return
+        if self.cfg.sample_rate <= 0:
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: Invalid sample_rate={self.cfg.sample_rate}"
+            )
+            self._set_state(TrunkingSystemState.FAILED)
+            return
+        if self.cfg.center_hz <= 0:
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: Invalid center_hz={self.cfg.center_hz}"
+            )
+            self._set_state(TrunkingSystemState.FAILED)
+            return
+        if self.cfg.max_voice_recorders < 1:
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: Invalid max_voice_recorders={self.cfg.max_voice_recorders}"
+            )
+            self._set_state(TrunkingSystemState.FAILED)
+            return
+
+        control_freqs = self.cfg.control_channel_frequencies
+        invalid_freqs = [freq for freq in control_freqs if freq <= 0]
+        if invalid_freqs:
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: Invalid control channel frequencies: {invalid_freqs}"
+            )
+            self._set_state(TrunkingSystemState.FAILED)
+            return
+
+        half_bw = self.cfg.sample_rate / 2.0
+        out_of_band = [
+            freq for freq in control_freqs
+            if abs(freq - self.cfg.center_hz) > half_bw
+        ]
+        if out_of_band:
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: Control channels outside capture bandwidth "
+                f"(center={self.cfg.center_hz/1e6:.4f} MHz, bw={self.cfg.sample_rate/1e6:.1f} Msps): "
+                f"{[round(f / 1e6, 6) for f in out_of_band]} MHz"
+            )
             self._set_state(TrunkingSystemState.FAILED)
             return
 
@@ -1886,11 +1943,35 @@ class TrunkingSystem:
         if tgid is None:
             logger.warning(f"TrunkingSystem {self.cfg.id}: Voice grant missing tgid")
             return
+        try:
+            tgid = int(tgid)
+        except (TypeError, ValueError):
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: Voice grant invalid tgid={tgid!r}"
+            )
+            return
+        if tgid <= 0:
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: Voice grant invalid tgid={tgid}"
+            )
+            return
 
         self._grant_count += 1
 
         source_id = result.get("source_id", 0)
         channel_id = result.get("channel", 0)
+        try:
+            channel_id = int(channel_id)
+        except (TypeError, ValueError):
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: Voice grant invalid channel_id={channel_id!r}"
+            )
+            return
+        if channel_id <= 0 or channel_id > 0xFFFF:
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: Voice grant invalid channel_id=0x{channel_id:X}"
+            )
+            return
         encrypted = result.get("encrypted", False)
 
         # Get talkgroup config
@@ -1907,6 +1988,19 @@ class TrunkingSystem:
             logger.warning(
                 f"TrunkingSystem {self.cfg.id}: Cannot calculate frequency for "
                 f"channel ID 0x{channel_id:04X} (no IDEN_UP received for band {(channel_id >> 12) & 0xF})"
+            )
+            return
+        if not math.isfinite(freq_hz) or freq_hz <= 0:
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: Invalid voice frequency {freq_hz} Hz "
+                f"for channel ID 0x{channel_id:04X}"
+            )
+            return
+        if abs(freq_hz - self.cfg.center_hz) > self.cfg.sample_rate / 2.0:
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: Voice frequency outside capture bandwidth "
+                f"(freq={freq_hz/1e6:.6f} MHz, center={self.cfg.center_hz/1e6:.6f} MHz, "
+                f"bw={self.cfg.sample_rate/1e6:.1f} Msps)"
             )
             return
 
@@ -2121,16 +2215,58 @@ class TrunkingSystem:
         if ident is None:
             logger.warning(f"TrunkingSystem {self.cfg.id}: IDEN_UP missing identifier")
             return
+        try:
+            ident = int(ident)
+        except (TypeError, ValueError):
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: IDEN_UP invalid identifier={ident!r}"
+            )
+            return
+        if ident < 0 or ident > 0xF:
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: IDEN_UP identifier out of range: {ident}"
+            )
+            return
+
+        spacing_khz = result.get("channel_spacing_khz", 12.5)
+        base_mhz = result.get("base_freq_mhz", 0.0)
+        bw_khz = result.get("bandwidth_khz", 12.5)
+        try:
+            spacing_khz = float(spacing_khz)
+            base_mhz = float(base_mhz)
+            bw_khz = float(bw_khz)
+        except (TypeError, ValueError):
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: IDEN_UP contains non-numeric values "
+                f"(base={base_mhz}, spacing={spacing_khz}, bw={bw_khz})"
+            )
+            return
+        if not (
+            math.isfinite(spacing_khz)
+            and math.isfinite(base_mhz)
+            and math.isfinite(bw_khz)
+        ):
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: IDEN_UP contains non-finite values "
+                f"(base={base_mhz}, spacing={spacing_khz}, bw={bw_khz})"
+            )
+            return
+        if spacing_khz <= 0 or base_mhz <= 0 or bw_khz <= 0:
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: IDEN_UP invalid values "
+                f"(base={base_mhz} MHz, spacing={spacing_khz} kHz, bw={bw_khz} kHz)"
+            )
+            return
 
         # Create ChannelIdentifier from parser fields
         # IMPORTANT: channel_spacing must be float to preserve 12.5 kHz precision!
         # Using int() would round 12.5 to 12, causing ~100 kHz errors for high channel numbers
         chan_id = ChannelIdentifier(
             identifier=ident,
-            bw=result.get("bandwidth_khz", 12.5),
+            bw=bw_khz,
             tx_offset=result.get("tx_offset_hz", 0) / 1e6,
-            channel_spacing=result.get("channel_spacing_khz", 12.5),  # Keep as float!
-            base_freq=result.get("base_freq_mhz", 0.0),
+            channel_spacing=spacing_khz,  # Keep as float!
+            base_freq=base_mhz,
         )
 
         existing = self._channel_identifiers.get(chan_id.identifier)
@@ -2365,6 +2501,12 @@ class TrunkingSystem:
 
         Returns frequency in Hz.
         """
+        if channel_id <= 0 or channel_id > 0xFFFF:
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: Invalid channel_id=0x{channel_id:X}"
+            )
+            return None
+
         iden = (channel_id >> 12) & 0xF
         channel = channel_id & 0xFFF
 
@@ -2376,11 +2518,24 @@ class TrunkingSystem:
             )
             return None
 
+        if chan_info.base_freq <= 0 or chan_info.channel_spacing <= 0:
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: Invalid channel identifier for IDEN {iden}: "
+                f"base={chan_info.base_freq} MHz spacing={chan_info.channel_spacing} kHz"
+            )
+            return None
+
         # ChannelIdentifier has base_freq in MHz and channel_spacing in kHz
         # Convert to Hz for calculation
         base_freq_hz = chan_info.base_freq * 1e6
         channel_spacing_hz = chan_info.channel_spacing * 1e3
         freq_hz = base_freq_hz + (channel * channel_spacing_hz)
+        if not math.isfinite(freq_hz) or freq_hz <= 0:
+            logger.error(
+                f"TrunkingSystem {self.cfg.id}: Calculated invalid frequency {freq_hz} Hz "
+                f"for channel ID 0x{channel_id:04X}"
+            )
+            return None
         return freq_hz
 
     def _get_available_recorder(self, talkgroup_id: int) -> VoiceRecorder | None:

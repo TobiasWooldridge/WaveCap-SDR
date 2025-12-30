@@ -125,6 +125,7 @@ Base path: `/api/v1`
 - POST `/trunking/systems/{id}/start`
   - Start control channel monitoring and voice tracking.
   - C4FM control-channel decode uses soft-decision trellis when available.
+  - Fails fast when `sampleRate`/`centerHz` are invalid or control channels fall outside the capture bandwidth.
 - POST `/trunking/systems/{id}/stop`
   - Stop trunking system.
 - GET `/trunking/systems/{id}/talkgroups`

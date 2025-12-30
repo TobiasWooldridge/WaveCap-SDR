@@ -1,8 +1,11 @@
 """Test CQPSK demodulator with known-good sample files."""
 
-import wave
-import numpy as np
 import logging
+import os
+import wave
+
+import numpy as np
+import pytest
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -73,6 +76,8 @@ def load_iq_wav(filepath: str) -> tuple[np.ndarray, int]:
 def test_cqpsk_control_channel():
     """Test CQPSK demodulator on control channel sample."""
     filepath = "tests/fixtures/p25_samples/P25_CQPSK-CC_IF.wav"
+    if not os.path.exists(filepath):
+        pytest.skip(f"Missing CQPSK fixture: {filepath}")
 
     # Load IQ data
     iq, sample_rate = load_iq_wav(filepath)
@@ -116,6 +121,8 @@ def test_with_control_monitor():
     from wavecapsdr.trunking.config import TrunkingProtocol
 
     filepath = "tests/fixtures/p25_samples/P25_CQPSK-CC_IF.wav"
+    if not os.path.exists(filepath):
+        pytest.skip(f"Missing CQPSK fixture: {filepath}")
 
     # Load IQ data
     iq, sample_rate = load_iq_wav(filepath)
