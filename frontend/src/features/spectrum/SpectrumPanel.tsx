@@ -4,6 +4,7 @@ import type { Capture, Channel } from "../../types";
 import { useUpdateCapture } from "../../hooks/useCaptures";
 import { useCreateChannel, useStartChannel } from "../../hooks/useChannels";
 import { useToast } from "../../hooks/useToast";
+import { formatFrequencyWithUnit } from "../../utils/frequency";
 import SpectrumAnalyzer from "../../components/primitives/SpectrumAnalyzer.react";
 import WaterfallDisplay from "../../components/primitives/WaterfallDisplay.react";
 import ChannelClassifierBar from "../../components/primitives/ChannelClassifierBar.react";
@@ -65,7 +66,7 @@ export function SpectrumPanel({ capture, channels }: SpectrumPanelProps) {
 
       if (existingChannel) {
         // If clicking near an existing channel, just tune to it
-        toast.info(`Channel exists at ${(frequencyHz / 1e6).toFixed(3)} MHz`);
+        toast.info(`Channel exists at ${formatFrequencyWithUnit(frequencyHz, 3)}`);
         return;
       }
 
@@ -82,7 +83,7 @@ export function SpectrumPanel({ capture, channels }: SpectrumPanelProps) {
         });
 
         await startChannel.mutateAsync(result.id);
-        toast.success(`Channel created at ${(frequencyHz / 1e6).toFixed(3)} MHz`);
+        toast.success(`Channel created at ${formatFrequencyWithUnit(frequencyHz, 3)}`);
       } catch (error) {
         toast.error("Failed to create channel");
       }

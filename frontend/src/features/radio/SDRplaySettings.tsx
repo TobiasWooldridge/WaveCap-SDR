@@ -3,6 +3,7 @@ import { Radio, Zap, Volume2, Settings2, Sliders } from "lucide-react";
 import type { Capture, Device } from "../../types";
 import { useDebouncedMutation } from "../../hooks/useDebouncedMutation";
 import { useUpdateCapture } from "../../hooks/useCaptures";
+import { formatFrequencyWithUnit } from "../../utils/frequency";
 import Flex from "../../components/primitives/Flex.react";
 import InfoTooltip from "../../components/primitives/InfoTooltip.react";
 
@@ -451,7 +452,7 @@ export function SDRplaySettings({ capture, device: _device }: SDRplaySettingsPro
       {/* Band Pass Filter Info */}
       <div className="small text-muted">
         <em>
-          Band pass filters are automatic: 380-420 MHz (P25 UHF) is active at {centerMHz.toFixed(1)} MHz
+          Band pass filters are automatic: 380-420 MHz (P25 UHF) is active at {formatFrequencyWithUnit(capture.centerHz, 1)}
         </em>
       </div>
 

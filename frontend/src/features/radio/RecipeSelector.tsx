@@ -5,6 +5,7 @@ import { useRecipes } from "../../hooks/useRecipes";
 import { useUpdateCapture } from "../../hooks/useCaptures";
 import { useCreateChannel, useStartChannel, useDeleteChannel, useChannels } from "../../hooks/useChannels";
 import { useToast } from "../../hooks/useToast";
+import { formatFrequencyMHz } from "../../utils/frequency";
 import Button from "../../components/primitives/Button.react";
 import Flex from "../../components/primitives/Flex.react";
 
@@ -150,7 +151,7 @@ function RecipeItem({ recipe, isApplying, customFrequency, onCustomFrequencyChan
     if (recipe.allowFrequencyInput) {
       setShowFreqInput(!showFreqInput);
       if (!showFreqInput) {
-        onCustomFrequencyChange(recipe.centerHz / 1_000_000);
+        onCustomFrequencyChange(parseFloat(formatFrequencyMHz(recipe.centerHz, 3)));
       }
     } else {
       onApply();
@@ -189,7 +190,7 @@ function RecipeItem({ recipe, isApplying, customFrequency, onCustomFrequencyChan
               type="number"
               className="form-control form-control-sm"
               style={{ width: "100px" }}
-              value={customFrequency ?? recipe.centerHz / 1_000_000}
+              value={customFrequency ?? formatFrequencyMHz(recipe.centerHz, 3)}
               onChange={(e) => onCustomFrequencyChange(parseFloat(e.target.value))}
               step="0.001"
               placeholder="MHz"

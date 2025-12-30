@@ -2,7 +2,7 @@
  * Shared status utilities for trunking systems
  */
 import type { TrunkingSystem } from "../types/trunking";
-import { formatFrequencyWithUnit } from "./frequency";
+import { formatFrequencyMHz, formatFrequencyWithUnit } from "./frequency";
 
 export interface UnifiedStatus {
   label: string;
@@ -97,7 +97,7 @@ export function getChannelSnr(system: TrunkingSystem): number | null {
     return null;
   }
 
-  const currentMHz = (scanner.current_channel_hz / 1e6).toFixed(4);
+  const currentMHz = formatFrequencyMHz(scanner.current_channel_hz, 4);
   const key = `${currentMHz}_MHz`;
   const measurement = scanner.measurements[key];
 

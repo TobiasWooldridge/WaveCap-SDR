@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronUp, ChevronDown, Minus, Plus } from "lucide-react";
 import type { Capture, Channel } from "../../types";
 import { useSpectrumData } from "../../hooks/useSpectrumData";
+import { formatBandwidth, formatFrequencyWithUnit } from "../../utils/frequency";
 import {
   getCaptureStatusMessage,
   drawCaptureStatusOnCanvas,
@@ -476,9 +477,9 @@ export default function SpectrumAnalyzer({
 
     // Draw frequency labels with backgrounds
     ctx.font = "10px monospace";
-    const freqMinText = `${(freqMin / 1e6).toFixed(3)} MHz`;
-    const freqMidText = `${(freqMid / 1e6).toFixed(3)} MHz`;
-    const freqMaxText = `${(freqMax / 1e6).toFixed(3)} MHz`;
+    const freqMinText = formatFrequencyWithUnit(freqMin, 3);
+    const freqMidText = formatFrequencyWithUnit(freqMid, 3);
+    const freqMaxText = formatFrequencyWithUnit(freqMax, 3);
 
     // Draw backgrounds for frequency labels
     ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
@@ -515,13 +516,6 @@ export default function SpectrumAnalyzer({
       if (rate >= 1e6) return `${(rate / 1e6).toFixed(2)} MS/s`;
       if (rate >= 1e3) return `${(rate / 1e3).toFixed(2)} kS/s`;
       return `${rate.toFixed(0)} S/s`;
-    };
-
-    const formatBandwidth = (bw: number): string => {
-      if (bw >= 1e9) return `${(bw / 1e9).toFixed(2)} GHz`;
-      if (bw >= 1e6) return `${(bw / 1e6).toFixed(2)} MHz`;
-      if (bw >= 1e3) return `${(bw / 1e3).toFixed(2)} kHz`;
-      return `${bw.toFixed(0)} Hz`;
     };
 
     // Draw Sample Rate overlay (full width)
@@ -899,7 +893,7 @@ export default function SpectrumAnalyzer({
               boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
             }}
           >
-            {(hoverFrequency / 1e6).toFixed(4)} MHz
+            {formatFrequencyWithUnit(hoverFrequency, 4)}
             {onFrequencyClick && (
               <div style={{ fontSize: "10px", opacity: 0.8, marginTop: "2px" }}>
                 Click to tune

@@ -16,6 +16,7 @@ import {
 import type { Scanner, CreateScannerRequest } from "../types";
 import Flex from "./primitives/Flex.react";
 import Button from "./primitives/Button.react";
+import { FrequencyDisplay } from "./primitives/FrequencyDisplay.react";
 
 interface ScannerControlProps {
   captureId: string;
@@ -186,7 +187,7 @@ function ScannerDetail({ scanner, onBack, onDelete }: ScannerDetailProps) {
           CURRENT FREQUENCY
         </div>
         <div style={{ fontSize: "24px", fontWeight: 700, color: "#ffffff", fontFamily: "monospace" }}>
-          {(scanner.currentFrequency / 1_000_000).toFixed(4)} MHz
+          <FrequencyDisplay frequencyHz={scanner.currentFrequency} decimals={4} />
         </div>
         <div style={{ fontSize: "11px", color: "#6c757d", marginTop: "4px" }}>
           {scanner.currentIndex + 1} / {scanner.scanList.length}
@@ -243,7 +244,9 @@ function ScannerDetail({ scanner, onBack, onDelete }: ScannerDetailProps) {
           <div style={{ fontSize: "11px", fontFamily: "monospace" }}>
             {scanner.lockoutList.map((freq, idx) => (
               <Flex key={idx} direction="row" justify="between" align="center">
-                <span>{(freq / 1_000_000).toFixed(4)} MHz</span>
+                <span>
+                  <FrequencyDisplay frequencyHz={freq} decimals={4} />
+                </span>
                 <button
                   onClick={() => clearLockout.mutate({ scannerId: scanner.id, frequency: freq })}
                   style={{
@@ -270,7 +273,8 @@ function ScannerDetail({ scanner, onBack, onDelete }: ScannerDetailProps) {
           <div style={{ maxHeight: "120px", overflowY: "auto", fontSize: "11px", fontFamily: "monospace" }}>
             {scanner.hits.slice().reverse().map((hit, idx) => (
               <div key={idx} style={{ padding: "3px 0" }}>
-                {new Date(hit.timestamp).toLocaleTimeString()} - {(hit.frequencyHz / 1_000_000).toFixed(4)} MHz
+                {new Date(hit.timestamp).toLocaleTimeString()} -{" "}
+                <FrequencyDisplay frequencyHz={hit.frequencyHz} decimals={4} />
               </div>
             ))}
           </div>

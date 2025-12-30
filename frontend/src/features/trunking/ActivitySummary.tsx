@@ -1,15 +1,12 @@
 import { useMemo, useCallback } from "react";
 import { Copy } from "lucide-react";
 import type { TrunkingSystem, ActiveCall, P25Message } from "../../types/trunking";
+import { formatFrequencyWithUnit } from "../../utils/frequency";
 
 interface ActivitySummaryProps {
   system: TrunkingSystem;
   activeCalls: ActiveCall[];
   messages: P25Message[];
-}
-
-function formatFrequency(hz: number): string {
-  return (hz / 1_000_000).toFixed(4);
 }
 
 function formatHex(value: number | null | undefined, digits: number = 3): string {
@@ -44,7 +41,7 @@ export function ActivitySummary({ system, activeCalls, messages }: ActivitySumma
     lines.push(`  RFSS: ${system.rfssId !== null ? system.rfssId : "(pending)"}`);
     lines.push(`  Site ID: ${system.siteId !== null ? system.siteId : "(pending)"}`);
     if (system.controlChannelFreqHz) {
-      lines.push(`  Control Channel: ${formatFrequency(system.controlChannelFreqHz)} MHz`);
+      lines.push(`  Control Channel: ${formatFrequencyWithUnit(system.controlChannelFreqHz, 4)}`);
     }
     lines.push("");
 
@@ -55,7 +52,7 @@ export function ActivitySummary({ system, activeCalls, messages }: ActivitySumma
       const snr = cc.snrDb !== null ? `SNR: ${cc.snrDb.toFixed(1)} dB` : "SNR: ---";
       const sync = cc.syncDetected ? " SYNC" : "";
       const enabled = cc.enabled ? "" : " (disabled)";
-      lines.push(`  ${formatFrequency(cc.frequencyHz)} MHz - ${snr}${sync}${marker}${enabled}`);
+      lines.push(`  ${formatFrequencyWithUnit(cc.frequencyHz, 4)} - ${snr}${sync}${marker}${enabled}`);
     }
     lines.push("");
 
@@ -76,7 +73,7 @@ export function ActivitySummary({ system, activeCalls, messages }: ActivitySumma
       for (const call of activeCalls) {
         const enc = call.encrypted ? " [ENC]" : "";
         const source = call.sourceId ? ` RU:${call.sourceId}` : "";
-        lines.push(`  TG ${call.talkgroupId} (${call.talkgroupName}) @ ${formatFrequency(call.frequencyHz)}${source}${enc}`);
+        lines.push(`  TG ${call.talkgroupId} (${call.talkgroupName}) @ ${formatFrequencyWithUnit(call.frequencyHz, 4)}${source}${enc}`);
       }
     }
     lines.push("");

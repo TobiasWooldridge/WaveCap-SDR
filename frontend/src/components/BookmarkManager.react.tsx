@@ -4,8 +4,10 @@ import { useBookmarks, Bookmark } from "../hooks/useBookmarks";
 import { useFrequencyHistory } from "../hooks/useFrequencyHistory";
 import { useMemoryBanks } from "../hooks/useMemoryBanks";
 import type { Capture, Channel } from "../types";
+import { formatFrequency, formatSampleRate } from "../utils/frequency";
 import Button from "./primitives/Button.react";
 import Flex from "./primitives/Flex.react";
+import { FrequencyDisplay } from "./primitives/FrequencyDisplay.react";
 
 interface BookmarkManagerProps {
   currentFrequency: number;
@@ -89,17 +91,6 @@ export const BookmarkManager = ({ currentFrequency, onTuneToFrequency, currentCa
     saveToMemoryBank(memoryBankName.trim(), currentCapture, currentChannels);
     setMemoryBankName("");
     setShowSaveMemoryModal(false);
-  };
-
-  const formatFrequency = (hz: number) => {
-    if (hz >= 1e9) {
-      return `${(hz / 1e9).toFixed(3)} GHz`;
-    } else if (hz >= 1e6) {
-      return `${(hz / 1e6).toFixed(3)} MHz`;
-    } else if (hz >= 1e3) {
-      return `${(hz / 1e3).toFixed(3)} kHz`;
-    }
-    return `${hz} Hz`;
   };
 
   return (
@@ -231,7 +222,10 @@ export const BookmarkManager = ({ currentFrequency, onTuneToFrequency, currentCa
                             >
                               <div style={{ fontWeight: 500 }}>{bookmark.name}</div>
                               <div style={{ fontSize: "12px", color: "#6c757d" }}>
-                                {formatFrequency(bookmark.frequency)}
+                                <FrequencyDisplay
+                                  frequencyHz={bookmark.frequency}
+                                  decimals={4}
+                                />
                               </div>
                               {bookmark.notes && (
                                 <div style={{ fontSize: "12px", color: "#6c757d", marginTop: "2px" }}>
@@ -295,7 +289,10 @@ export const BookmarkManager = ({ currentFrequency, onTuneToFrequency, currentCa
                           <Flex justify="between" align="center">
                             <div style={{ flex: 1 }}>
                               <div style={{ fontWeight: 500, fontSize: "14px" }}>
-                                {formatFrequency(entry.frequencyHz)}
+                                <FrequencyDisplay
+                                  frequencyHz={entry.frequencyHz}
+                                  decimals={4}
+                                />
                               </div>
                               <div style={{ fontSize: "11px", color: "#6c757d" }}>
                                 {new Date(entry.timestamp).toLocaleString()}
@@ -334,8 +331,12 @@ export const BookmarkManager = ({ currentFrequency, onTuneToFrequency, currentCa
                             <div style={{ flex: 1 }}>
                               <div style={{ fontWeight: 500 }}>{bank.name}</div>
                               <div style={{ fontSize: "11px", color: "#6c757d" }}>
-                                {formatFrequency(bank.captureConfig.centerHz)} •
-                                {(bank.captureConfig.sampleRate / 1e6).toFixed(1)} MS/s •
+                                <FrequencyDisplay
+                                  frequencyHz={bank.captureConfig.centerHz}
+                                  decimals={4}
+                                />{" "}
+                                •
+                                {formatSampleRate(bank.captureConfig.sampleRate)} •
                                 {bank.channels.length} channel{bank.channels.length !== 1 ? 's' : ''}
                               </div>
                               <div style={{ fontSize: "10px", color: "#6c757d", marginTop: "2px" }}>
@@ -560,8 +561,14 @@ export const BookmarkManager = ({ currentFrequency, onTuneToFrequency, currentCa
               <div className="mb-3">
                 <div className="small text-muted">This will save:</div>
                 <ul className="small mb-0" style={{ paddingLeft: "20px" }}>
-                  <li>Center: {formatFrequency(currentCapture.centerHz)}</li>
-                  <li>Sample Rate: {(currentCapture.sampleRate / 1e6).toFixed(1)} MS/s</li>
+                  <li>
+                    Center:{" "}
+                    <FrequencyDisplay
+                      frequencyHz={currentCapture.centerHz}
+                      decimals={4}
+                    />
+                  </li>
+                  <li>Sample Rate: {formatSampleRate(currentCapture.sampleRate)}</li>
                   <li>Channels: {currentChannels?.length || 0}</li>
                   {currentCapture.gain !== null && <li>Gain: {currentCapture.gain} dB</li>}
                 </ul>

@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { FrequencyDisplay } from "../../components/primitives/FrequencyDisplay.react";
+import { formatFrequencyMHz } from "../../utils/frequency";
 
 export interface CallEvent {
   id: string;
@@ -48,7 +49,7 @@ function formatMillis(timestamp: number): string {
 }
 
 function formatFrequency(hz: number): string {
-  return (hz / 1_000_000).toFixed(4);
+  return formatFrequencyMHz(hz, 4);
 }
 
 function formatDuration(seconds: number | undefined): string {

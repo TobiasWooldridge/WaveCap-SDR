@@ -10,6 +10,7 @@ import type {
   HuntMode,
   ControlChannel,
 } from "../types/trunking";
+import { formatFrequencyMHz } from "../utils/frequency";
 
 const API_BASE = "/api/v1/trunking";
 
@@ -330,7 +331,7 @@ export function useSetChannelEnabled() {
     { systemId: string; frequencyHz: number; enabled: boolean }
   >({
     mutationFn: async ({ systemId, frequencyHz, enabled }) => {
-      const freqMhz = frequencyHz / 1_000_000;
+      const freqMhz = formatFrequencyMHz(frequencyHz, 6);
       const response = await fetch(
         `${API_BASE}/systems/${systemId}/channels/${freqMhz}/enabled`,
         {
@@ -360,7 +361,7 @@ export function useLockToChannel() {
     { systemId: string; frequencyHz: number }
   >({
     mutationFn: async ({ systemId, frequencyHz }) => {
-      const freqMhz = frequencyHz / 1_000_000;
+      const freqMhz = formatFrequencyMHz(frequencyHz, 6);
       const response = await fetch(
         `${API_BASE}/systems/${systemId}/channels/${freqMhz}/lock`,
         { method: "POST" }

@@ -7,6 +7,7 @@ import { useCreateChannel } from "../hooks/useChannels";
 import { useToast } from "../hooks/useToast";
 import type { Recipe } from "../types";
 import { getDeviceDisplayName } from "../utils/device";
+import { formatFrequencyMHz, formatFrequencyWithUnit } from "../utils/frequency";
 import Flex from "./primitives/Flex.react";
 import Button from "./primitives/Button.react";
 import Spinner from "./primitives/Spinner.react";
@@ -69,7 +70,7 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
 
   const handleSelectRecipe = (recipe: Recipe) => {
     setSelectedRecipe(recipe);
-    setCustomFrequency(recipe.centerHz / 1_000_000);
+    setCustomFrequency(parseFloat(formatFrequencyMHz(recipe.centerHz, 3)));
     setStep("configure");
   };
 
@@ -169,7 +170,7 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
                           <div>
                             <div className="fw-semibold">{getDeviceDisplayName(device)}</div>
                             <small className={selectedDeviceId === device.id ? "text-white-50" : "text-muted"}>
-                              {device.driver} • {(device.freqMinHz / 1e6).toFixed(0)}-{(device.freqMaxHz / 1e6).toFixed(0)} MHz
+                              {device.driver} • {formatFrequencyWithUnit(device.freqMinHz, 0)}-{formatFrequencyWithUnit(device.freqMaxHz, 0)}
                             </small>
                           </div>
                           {selectedDeviceId === device.id && (

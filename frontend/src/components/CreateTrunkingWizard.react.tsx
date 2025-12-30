@@ -5,6 +5,7 @@ import { useCaptures } from "../hooks/useCaptures";
 import { useTrunkingRecipes, useCreateTrunkingSystem, useTrunkingSystems } from "../hooks/useTrunking";
 import type { TrunkingRecipe, TrunkingProtocol } from "../types/trunking";
 import { getDeviceDisplayName } from "../utils/device";
+import { formatFrequencyMHz, formatFrequencyWithUnit } from "../utils/frequency";
 import Flex from "./primitives/Flex.react";
 import Button from "./primitives/Button.react";
 import Spinner from "./primitives/Spinner.react";
@@ -208,7 +209,7 @@ export function CreateTrunkingWizard({ onClose, onSuccess }: CreateTrunkingWizar
                           <div>
                             <div className="fw-semibold">{getDeviceDisplayName(device)}</div>
                             <small className={selectedDeviceId === device.id ? "text-white-50" : "text-muted"}>
-                              {device.driver} - {(device.freqMinHz / 1e6).toFixed(0)}-{(device.freqMaxHz / 1e6).toFixed(0)} MHz
+                              {device.driver} - {formatFrequencyWithUnit(device.freqMinHz, 0)}-{formatFrequencyWithUnit(device.freqMaxHz, 0)}
                             </small>
                           </div>
                           {selectedDeviceId === device.id && (
@@ -348,7 +349,7 @@ export function CreateTrunkingWizard({ onClose, onSuccess }: CreateTrunkingWizar
                         <input
                           type="number"
                           className="form-control"
-                          value={(freq / 1_000_000).toFixed(5)}
+                          value={formatFrequencyMHz(freq, 5)}
                           onChange={(e) => handleUpdateFrequency(index, parseFloat(e.target.value) || 0)}
                           step="0.00625"
                           min="1"

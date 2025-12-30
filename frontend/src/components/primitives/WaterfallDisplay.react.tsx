@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { ChevronUp, ChevronDown, Minus, Plus } from "lucide-react";
 import type { Capture, Channel } from "../../types";
 import { useSpectrumData } from "../../hooks/useSpectrumData";
+import { formatBandwidth, formatFrequencyWithUnit } from "../../utils/frequency";
 import {
   getCaptureStatusMessage,
   drawCaptureStatusOnCanvas,
@@ -329,13 +330,6 @@ export default function WaterfallDisplay({
         return `${rate.toFixed(0)} S/s`;
       };
 
-      const formatBandwidth = (bw: number): string => {
-        if (bw >= 1e9) return `${(bw / 1e9).toFixed(2)} GHz`;
-        if (bw >= 1e6) return `${(bw / 1e6).toFixed(2)} MHz`;
-        if (bw >= 1e3) return `${(bw / 1e3).toFixed(2)} kHz`;
-        return `${bw.toFixed(0)} Hz`;
-      };
-
       // Draw Sample Rate overlay (full width) at top
       if (spectrumInfo && spectrumData) {
         const sampleRateY = height * 0.05;
@@ -461,9 +455,9 @@ export default function WaterfallDisplay({
         const freqMax = centerHz + freqs[freqs.length - 1];
 
         ctx.font = "10px monospace";
-        const freqMinText = `${(freqMin / 1e6).toFixed(3)} MHz`;
-        const freqMidText = `${(centerHz / 1e6).toFixed(3)} MHz`;
-        const freqMaxText = `${(freqMax / 1e6).toFixed(3)} MHz`;
+        const freqMinText = formatFrequencyWithUnit(freqMin, 3);
+        const freqMidText = formatFrequencyWithUnit(centerHz, 3);
+        const freqMaxText = formatFrequencyWithUnit(freqMax, 3);
 
         // Measure text widths
         const freqMinWidth = ctx.measureText(freqMinText).width;
