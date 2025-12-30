@@ -27,6 +27,9 @@ from wavecapsdr.dsp.p25.c4fm import C4FMDemodulator
 
 logger = logging.getLogger(__name__)
 
+# P25 Phase 1 LDU length: 1728 bits = 864 dibits (180 ms at 9600 bps)
+LDU_DIBITS = 864
+
 
 class IMBENativeError(Exception):
     """Raised when native IMBE decoder fails."""
@@ -373,16 +376,15 @@ class IMBEDecoderNative:
 
         # Check if we have a pending LDU frame waiting for more data
         if self._pending_ldu_type is not None:
-            ldu_frame_len = 360
-            if self._frame_position >= ldu_frame_len:
+            if self._frame_position >= LDU_DIBITS:
                 # We have enough data to process the pending LDU
                 buffer_view = self._dibit_buffer[:self._frame_position]
                 if self._pending_polarity:
                     buffer_view = buffer_view ^ 2
-                frame_dibits = buffer_view[:ldu_frame_len]
+                frame_dibits = buffer_view[:LDU_DIBITS]
                 is_ldu1 = (self._pending_ldu_type == 1)
                 self._process_ldu(frame_dibits, is_ldu1=is_ldu1)
-                self._consume_dibits(ldu_frame_len)
+                self._consume_dibits(LDU_DIBITS)
                 self._pending_ldu_type = None
                 self._pending_polarity = False
             # Else: keep waiting for more dibits
@@ -444,9 +446,7 @@ class IMBEDecoderNative:
         if self._nac_tracker and nid.nac != 0:
             self._nac_tracker.track(nid.nac)
 
-        # LDU frames are about 360 dibits total
-        ldu_frame_len = 360
-        frame_end = sync_pos + ldu_frame_len
+        frame_end = sync_pos + LDU_DIBITS
 
         # Process based on DUID
         if nid.duid == DUID.LDU1:

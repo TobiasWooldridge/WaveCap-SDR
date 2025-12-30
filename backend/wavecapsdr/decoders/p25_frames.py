@@ -502,7 +502,7 @@ def decode_hdu(dibits: np.ndarray) -> HDUFrame | None:
         return None
 
     # Decode NID
-    nid = decode_nid(dibits[:32])
+    nid = decode_nid(dibits[:33], skip_status_at_10=True)
     if nid is None:
         return None
 
@@ -558,7 +558,7 @@ def decode_ldu1(dibits: np.ndarray) -> LDUFrame | None:
         return None
 
     # Decode NID
-    nid = decode_nid(dibits[:32])
+    nid = decode_nid(dibits[:33], skip_status_at_10=True)
     if nid is None:
         return None
 
