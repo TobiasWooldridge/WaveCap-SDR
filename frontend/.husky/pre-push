@@ -40,9 +40,9 @@ cd "$REPO_ROOT/backend"
 if [ -d ".venv" ] && [ -f ".venv/bin/pytest" ]; then
     echo "Running pytest (with 120s timeout)..."
 
-    # Run tests with timeout to prevent hanging
-    if [ -f "$REPO_ROOT/scripts/run-with-timeout.sh" ]; then
-        PYTHONPATH=. "$REPO_ROOT/scripts/run-with-timeout.sh" --seconds 120 -- \
+# Run tests with timeout to prevent hanging
+if [ -f "$REPO_ROOT/scripts/run-with-timeout.sh" ]; then
+        PYTHONPATH=. NUMBA_DISABLE_JIT=1 "$REPO_ROOT/scripts/run-with-timeout.sh" --seconds 120 -- \
             .venv/bin/pytest tests/ -x --tb=short -q 2>&1 || {
             echo ""
             echo "Tests failed! Push aborted."
@@ -50,7 +50,7 @@ if [ -d ".venv" ] && [ -f ".venv/bin/pytest" ]; then
         }
     else
         # Fallback if timeout script doesn't exist
-        PYTHONPATH=. timeout 120 .venv/bin/pytest tests/ -x --tb=short -q 2>&1 || {
+        PYTHONPATH=. NUMBA_DISABLE_JIT=1 timeout 120 .venv/bin/pytest tests/ -x --tb=short -q 2>&1 || {
             echo ""
             echo "Tests failed! Push aborted."
             exit 1
