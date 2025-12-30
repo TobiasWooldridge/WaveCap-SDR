@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import type { ActiveCall } from "../../types/trunking";
 import { TRUNKING_VOICE_STREAM_FORMATS } from "../../components/StreamLinks";
+import { FrequencyDisplay } from "../../components/primitives/FrequencyDisplay.react";
 
 interface ActiveCallsTableProps {
   calls: ActiveCall[];
@@ -17,10 +18,6 @@ interface ActiveCallsTableProps {
   onPlayAudio?: (callId: string, streamId: string) => void;
   playingCallId?: string | null;
   onCopyUrl?: (url: string) => void;
-}
-
-function formatFrequency(hz: number): string {
-  return (hz / 1_000_000).toFixed(4);
 }
 
 function formatDuration(seconds: number): string {
@@ -238,7 +235,7 @@ export function ActiveCallsTable({
                     )}
                   </td>
                   <td className="text-end font-monospace">
-                    {formatFrequency(call.frequencyHz)}
+                    <FrequencyDisplay frequencyHz={call.frequencyHz} decimals={4} />
                   </td>
                   <td className="text-end font-monospace">
                     {formatDuration(getCallDuration(call))}
