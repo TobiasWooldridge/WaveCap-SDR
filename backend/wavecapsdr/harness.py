@@ -28,7 +28,15 @@ import contextlib
 import uvicorn
 
 from .app import create_app
-from .config import AppConfig, DeviceConfig, LimitsConfig, ServerConfig, StreamConfig
+from .config import (
+    AppConfig,
+    DeviceConfig,
+    LimitsConfig,
+    ServerConfig,
+    StreamConfig,
+    default_config_path,
+    load_config,
+)
 
 
 @dataclass
@@ -87,32 +95,19 @@ def build_config_for_server(args: argparse.Namespace) -> AppConfig:
     return cfg
 
 
-def _default_config_path() -> Path:
-    # backend/wavecapsdr/harness.py -> backend/config/wavecapsdr.yaml
-    return Path(__file__).resolve().parents[1] / "config" / "wavecapsdr.yaml"
-
-
 def preset_channels(preset: str, cfg_path: str | None) -> tuple[float, int, list[float]]:
     # Try config-defined presets first
-    path = Path(cfg_path) if cfg_path else _default_config_path()
-    if path.exists():
-        try:
-            import yaml
-
-            with path.open("r", encoding="utf-8") as f:
-                data = yaml.safe_load(f) or {}
-            presets = (data or {}).get("presets", {}) or {}
-            if preset in presets:
-                spec = presets[preset] or {}
-                center_val = spec.get("center_hz")
-                if center_val is None:
-                    raise ValueError("center_hz is required")
-                center = float(center_val)
-                sr = int(spec.get("sample_rate", 1_000_000))
-                offsets = [float(x) for x in (spec.get("offsets") or [0.0])]
-                return center, sr, offsets
-        except Exception:
-            pass
+    path = cfg_path or default_config_path()
+    try:
+        config = load_config(path)
+        preset_cfg = config.presets.get(preset)
+        if preset_cfg is not None:
+            center = float(preset_cfg.center_hz)
+            sr = int(preset_cfg.sample_rate)
+            offsets = [float(x) for x in (preset_cfg.offsets or [0.0])]
+            return center, sr, offsets
+    except Exception:
+        pass
 
     if preset == "marine":
         # Small subset of US VHF Marine band (MHz)

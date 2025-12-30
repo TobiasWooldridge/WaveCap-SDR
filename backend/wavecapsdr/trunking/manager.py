@@ -22,7 +22,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from wavecapsdr.config import update_trunking_system_state
+from wavecapsdr.config import default_config_path, update_trunking_system_state
 from wavecapsdr.trunking.config import TrunkingSystemConfig, load_talkgroups_csv
 from wavecapsdr.trunking.system import (
     ActiveCall,
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Default config file path
-DEFAULT_CONFIG_PATH = "config/wavecapsdr.yaml"
+DEFAULT_CONFIG_PATH = default_config_path()
 
 
 @dataclass

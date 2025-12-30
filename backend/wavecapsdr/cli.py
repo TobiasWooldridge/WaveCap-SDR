@@ -816,14 +816,14 @@ def cmd_trunking(args: argparse.Namespace) -> int:
     import asyncio
     from pathlib import Path
 
-    from wavecapsdr.config import load_config, AppConfig, DeviceConfig
+    from wavecapsdr.config import default_config_path, load_config, AppConfig, DeviceConfig
     from wavecapsdr.trunking.config import TrunkingSystemConfig
     from wavecapsdr.trunking.system import TrunkingSystem, TrunkingSystemState, ActiveCall
     from wavecapsdr.devices.soapy import SoapyDriver
     from wavecapsdr.capture import CaptureManager
 
     # Default config path
-    config_path = args.config or "config/wavecapsdr.yaml"
+    config_path = args.config or default_config_path()
 
     # Load config
     if not Path(config_path).exists():
@@ -1124,7 +1124,11 @@ def main() -> int:
     # trunking - P25 trunking with channel following
     p_trunking = subparsers.add_parser("trunking", help="Run P25 trunking system with channel following")
     p_trunking.add_argument("system", nargs="?", help="System ID from config (e.g., 'sa_grn')")
-    p_trunking.add_argument("-c", "--config", help="Path to config file (default: config/wavecapsdr.yaml)")
+    p_trunking.add_argument(
+        "-c",
+        "--config",
+        help="Path to config file (default: config/wavecapsdr.local.yaml if present, else config/wavecapsdr.yaml)",
+    )
     p_trunking.add_argument("--list", action="store_true", help="List available trunking systems")
     p_trunking.add_argument("--no-record", action="store_true", help="Disable WAV recording")
     p_trunking.add_argument("--tg", type=str, help="Filter talkgroups (comma-separated, e.g., '100,101,200')")

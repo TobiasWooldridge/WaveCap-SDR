@@ -225,6 +225,7 @@ export const BookmarkManager = ({ currentFrequency, onTuneToFrequency, currentCa
                                 <FrequencyDisplay
                                   frequencyHz={bookmark.frequency}
                                   decimals={4}
+                                  unit="MHz"
                                 />
                               </div>
                               {bookmark.notes && (
@@ -292,6 +293,7 @@ export const BookmarkManager = ({ currentFrequency, onTuneToFrequency, currentCa
                                 <FrequencyDisplay
                                   frequencyHz={entry.frequencyHz}
                                   decimals={4}
+                                  unit="MHz"
                                 />
                               </div>
                               <div style={{ fontSize: "11px", color: "#6c757d" }}>
@@ -334,6 +336,7 @@ export const BookmarkManager = ({ currentFrequency, onTuneToFrequency, currentCa
                                 <FrequencyDisplay
                                   frequencyHz={bank.captureConfig.centerHz}
                                   decimals={4}
+                                  unit="MHz"
                                 />{" "}
                                 •
                                 {formatSampleRate(bank.captureConfig.sampleRate)} •
@@ -566,6 +569,7 @@ export const BookmarkManager = ({ currentFrequency, onTuneToFrequency, currentCa
                     <FrequencyDisplay
                       frequencyHz={currentCapture.centerHz}
                       decimals={4}
+                      unit="MHz"
                     />
                   </li>
                   <li>Sample Rate: {formatSampleRate(currentCapture.sampleRate)}</li>

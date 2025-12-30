@@ -111,7 +111,7 @@ export function NetworkConfigPanel({ system }: NetworkConfigPanelProps) {
                     <td className="text-muted py-0" style={{ width: "80px" }}>Current</td>
                     <td className="py-0 font-monospace">
                       {currentCC ? (
-                        <FrequencyDisplay frequencyHz={currentCC.frequencyHz} decimals={4} />
+                        <FrequencyDisplay frequencyHz={currentCC.frequencyHz} decimals={4}  unit="MHz"/>
                       ) : (
                         "---"
                       )}
@@ -164,7 +164,7 @@ export function NetworkConfigPanel({ system }: NetworkConfigPanelProps) {
                           className={cc.isCurrent ? "table-success" : cc.isLocked ? "table-warning" : ""}
                         >
                           <td className="py-1 font-monospace">
-                            <FrequencyDisplay frequencyHz={cc.frequencyHz} decimals={4} />
+                            <FrequencyDisplay frequencyHz={cc.frequencyHz} decimals={4}  unit="MHz"/>
                           </td>
                           <td className="py-1">
                             {cc.snrDb !== null ? `${cc.snrDb.toFixed(1)} dB` : "---"}

@@ -12,6 +12,9 @@ if TYPE_CHECKING:
 
 DriverName = Literal["soapy", "fake", "rtl"]
 
+CONFIG_FILENAME = "wavecapsdr.yaml"
+LOCAL_CONFIG_FILENAME = "wavecapsdr.local.yaml"
+
 
 @dataclass
 class ServerConfig:
@@ -162,6 +165,16 @@ def _read_yaml(path: Path) -> dict[str, Any]:
         return data
 
 
+def _config_chain(path: Path) -> list[Path]:
+    if path.is_dir():
+        return [path / CONFIG_FILENAME, path / LOCAL_CONFIG_FILENAME]
+    if path.name == LOCAL_CONFIG_FILENAME:
+        return [path.with_name(CONFIG_FILENAME), path]
+    if path.name == CONFIG_FILENAME:
+        return [path, path.with_name(LOCAL_CONFIG_FILENAME)]
+    return [path]
+
+
 def _overlay(dst: dict[str, Any], src: dict[str, Any]) -> dict[str, Any]:
     for k, v in src.items():
         if isinstance(v, dict) and isinstance(dst.get(k), dict):
@@ -173,7 +186,9 @@ def _overlay(dst: dict[str, Any], src: dict[str, Any]) -> dict[str, Any]:
 
 def load_config(path_str: str) -> AppConfig:
     path = Path(path_str)
-    raw: dict[str, Any] = _read_yaml(path)
+    raw: dict[str, Any] = {}
+    for config_path in _config_chain(path):
+        _overlay(raw, _read_yaml(config_path))
 
     # Environment overrides (prefix WAVECAPSDR__SECTION__KEY)
     # Example: WAVECAPSDR__SERVER__PORT=8089
@@ -307,6 +322,16 @@ def os_environ_items() -> list[tuple[str, str]]:
     from os import environ
 
     return [(k, v) for k, v in environ.items()]
+
+
+def default_config_path() -> str:
+    module_dir = Path(__file__).resolve().parent
+    config_dir = module_dir.parent / "config"
+    local_path = config_dir / LOCAL_CONFIG_FILENAME
+    if local_path.exists():
+        return str(local_path)
+    base_path = config_dir / CONFIG_FILENAME
+    return str(base_path)
 
 
 def save_config(config: AppConfig, path_str: str) -> None:

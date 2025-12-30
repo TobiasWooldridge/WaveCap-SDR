@@ -103,6 +103,7 @@ export function SystemConfigPanel({ system }: SystemConfigPanelProps) {
                     frequencyHz={currentFreq}
                     decimals={4}
                     name={currentName}
+                    unit="MHz"
                   />
                 </span>
               )}
@@ -254,6 +255,7 @@ export function SystemConfigPanel({ system }: SystemConfigPanelProps) {
                         frequencyHz={currentFreq}
                         decimals={4}
                         name={currentName}
+                        unit="MHz"
                       />
                     </span>
                     {channels.find((c) => c.isCurrent)?.snrDb != null && (

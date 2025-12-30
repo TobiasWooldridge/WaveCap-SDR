@@ -95,7 +95,7 @@ export const ChannelCard = memo(function ChannelCard({ channel, capture, readOnl
         <Flex justify="between" align="center">
           <div className="small fw-semibold text-truncate" style={{ flex: 1, minWidth: 0 }}>
             {formatChannelId(channel.id)} •{" "}
-            <FrequencyDisplay frequencyHz={channelFrequency} decimals={4} />
+            <FrequencyDisplay frequencyHz={channelFrequency} decimals={4}  unit="MHz"/>
           </div>
           <Flex gap={1}>
             <Button

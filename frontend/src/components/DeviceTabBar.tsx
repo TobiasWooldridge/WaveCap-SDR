@@ -308,7 +308,7 @@ function DeviceTabItem({
           }}
         >
           {tab.frequencyHz > 0 ? (
-            <FrequencyDisplay frequencyHz={tab.frequencyHz} decimals={4} />
+            <FrequencyDisplay frequencyHz={tab.frequencyHz} decimals={4}  unit="MHz"/>
           ) : (
             "No frequency set"
           )}

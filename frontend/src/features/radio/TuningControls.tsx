@@ -290,7 +290,7 @@ export function TuningAccordions({ capture, device, trunkingSystem }: TuningCont
           <span className="small">
             <span className="fw-semibold">Frequency:</span>{" "}
             <span className={freqPending ? "text-warning" : ""}>
-              <FrequencyDisplay frequencyHz={freq} decimals={4} />
+              <FrequencyDisplay frequencyHz={freq} decimals={4}  unit="MHz"/>
             </span>
             {isTrunkingManaged && (
               <span className="ms-1 text-info">

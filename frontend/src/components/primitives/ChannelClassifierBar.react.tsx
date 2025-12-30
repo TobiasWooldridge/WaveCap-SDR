@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { Radio, RotateCcw, ChevronDown, ChevronUp } from "lucide-react";
 import type { Capture } from "../../types";
-import { formatFrequencyMHz, formatFrequencyWithUnit } from "../../utils/frequency";
+import { formatFrequencyWithUnit } from "../../utils/frequency";
 import { FrequencyDisplay } from "./FrequencyDisplay.react";
 
 interface ClassifiedChannel {
@@ -209,7 +209,7 @@ export default function ChannelClassifierBar({
                       </span>
                     </td>
                     <td>
-                      <FrequencyDisplay frequencyHz={ch.freqHz} decimals={4} />
+                      <FrequencyDisplay frequencyHz={ch.freqHz} decimals={4}  unit="MHz"/>
                     </td>
                     <td>{ch.powerDb.toFixed(1)} dB</td>
                     <td>{ch.stdDevDb.toFixed(2)}</td>
@@ -234,7 +234,7 @@ export default function ChannelClassifierBar({
                 }}
                 title={`${formatFreq(ch.freqHz)} - ${ch.powerDb.toFixed(1)} dB, std ${ch.stdDevDb.toFixed(2)}`}
               >
-                {formatFrequencyMHz(ch.freqHz, 3)}
+                <FrequencyDisplay frequencyHz={ch.freqHz} decimals={3} unit="MHz" />
               </span>
             ))}
             {channels.length > 5 && (

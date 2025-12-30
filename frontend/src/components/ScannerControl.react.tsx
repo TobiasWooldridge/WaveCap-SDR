@@ -187,7 +187,7 @@ function ScannerDetail({ scanner, onBack, onDelete }: ScannerDetailProps) {
           CURRENT FREQUENCY
         </div>
         <div style={{ fontSize: "24px", fontWeight: 700, color: "#ffffff", fontFamily: "monospace" }}>
-          <FrequencyDisplay frequencyHz={scanner.currentFrequency} decimals={4} />
+          <FrequencyDisplay frequencyHz={scanner.currentFrequency} decimals={4}  unit="MHz"/>
         </div>
         <div style={{ fontSize: "11px", color: "#6c757d", marginTop: "4px" }}>
           {scanner.currentIndex + 1} / {scanner.scanList.length}
@@ -245,7 +245,7 @@ function ScannerDetail({ scanner, onBack, onDelete }: ScannerDetailProps) {
             {scanner.lockoutList.map((freq, idx) => (
               <Flex key={idx} direction="row" justify="between" align="center">
                 <span>
-                  <FrequencyDisplay frequencyHz={freq} decimals={4} />
+                  <FrequencyDisplay frequencyHz={freq} decimals={4}  unit="MHz"/>
                 </span>
                 <button
                   onClick={() => clearLockout.mutate({ scannerId: scanner.id, frequency: freq })}
@@ -274,7 +274,7 @@ function ScannerDetail({ scanner, onBack, onDelete }: ScannerDetailProps) {
             {scanner.hits.slice().reverse().map((hit, idx) => (
               <div key={idx} style={{ padding: "3px 0" }}>
                 {new Date(hit.timestamp).toLocaleTimeString()} -{" "}
-                <FrequencyDisplay frequencyHz={hit.frequencyHz} decimals={4} />
+                <FrequencyDisplay frequencyHz={hit.frequencyHz} decimals={4}  unit="MHz"/>
               </div>
             ))}
           </div>

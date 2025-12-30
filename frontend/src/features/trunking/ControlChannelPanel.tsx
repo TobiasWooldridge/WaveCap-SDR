@@ -90,6 +90,7 @@ export function ControlChannelPanel({ system }: ControlChannelPanelProps) {
                 frequencyHz={currentFreq}
                 decimals={4}
                 name={currentName}
+                unit="MHz"
               />
             </span>
           )}

@@ -11,7 +11,7 @@ from pathlib import Path
 import uvicorn
 
 from .app import create_app
-from .config import load_config
+from .config import default_config_path, load_config
 
 
 def _get_lock_file_path(port: int) -> Path:
@@ -85,13 +85,7 @@ def _release_lock(port: int) -> None:
 
 def _default_config_path() -> str:
     """Get default config path relative to module location."""
-    # Look for config in: backend/config/wavecapsdr.yaml (relative to this module)
-    module_dir = Path(__file__).resolve().parent
-    config_path = module_dir.parent / "config" / "wavecapsdr.yaml"
-    if config_path.exists():
-        return str(config_path)
-    # Fallback to relative path (for backwards compatibility)
-    return "config/wavecapsdr.yaml"
+    return default_config_path()
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -159,4 +153,3 @@ def main(argv: list[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main(sys.argv[1:])
-

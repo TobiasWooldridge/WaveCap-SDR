@@ -91,3 +91,6 @@ reference-captures/
 
 # Backup files
 *.bak
+
+# Local config overrides (device IDs, per-user settings)
+backend/config/wavecapsdr.local.yaml

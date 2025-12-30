@@ -181,6 +181,7 @@ export function SystemStatusPanel({
                   frequencyHz={system.controlChannelFreqHz}
                   decimals={4}
                   name={controlName}
+                  unit="MHz"
                 />
               }
               highlight={system.controlChannelState === "locked"}

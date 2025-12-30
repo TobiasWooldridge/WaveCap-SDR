@@ -90,7 +90,7 @@ export function ControlChannelRow({
         />
       </td>
       <td className="font-monospace" style={{ width: "110px", padding: "6px 12px" }}>
-        <FrequencyDisplay frequencyHz={channel.frequencyHz} decimals={4} />
+        <FrequencyDisplay frequencyHz={channel.frequencyHz} decimals={4}  unit="MHz"/>
       </td>
       <td style={{ width: "100px", padding: "6px 12px" }}>
         <SignalBar snrDb={channel.snrDb} />

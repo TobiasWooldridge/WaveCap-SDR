@@ -235,7 +235,7 @@ export function ActiveCallsTable({
                     )}
                   </td>
                   <td className="text-end font-monospace">
-                    <FrequencyDisplay frequencyHz={call.frequencyHz} decimals={4} />
+                    <FrequencyDisplay frequencyHz={call.frequencyHz} decimals={4}  unit="MHz"/>
                   </td>
                   <td className="text-end font-monospace">
                     {formatDuration(getCallDuration(call))}

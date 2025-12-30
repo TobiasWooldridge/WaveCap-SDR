@@ -106,7 +106,7 @@ export function RadioPanel({ capture, device }: RadioPanelProps) {
         <Radio size={18} className="flex-shrink-0" />
         <div className="d-flex flex-column flex-grow-1 overflow-hidden">
           <span className="fw-bold" style={{ fontSize: "1.1rem" }}>
-            <FrequencyDisplay frequencyHz={capture.centerHz} decimals={4} />
+            <FrequencyDisplay frequencyHz={capture.centerHz} decimals={4}  unit="MHz"/>
           </span>
           <span className="text-white-50 text-truncate" style={{ fontSize: "0.7rem" }}>
             {device ? getDeviceDisplayName(device) : "Unknown Device"}

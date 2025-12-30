@@ -1,20 +1,7 @@
 captures: []
 device:
   driver: soapy
-  device_args: driver=rtlsdr
-device_names:
-  'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog V4,serial=00000001': RTL-SDR
-    Blog V4
-  ? 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
-    V4,serial=00000001,tuner=Rafael Micro R828D'
-  : RTLSDR
-  driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240305E670,serial=240305E670: RSPdx-R2
-    E670
-  driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070: RSPdx-R2
-    F070
-  driver=sdrplay,label=SDRplay Dev1 RSPdx-R2 240305E670,serial=240305E670: RSPdx-R2
-    E670
-  driver=sdrplay,serial=240305E670: RSPdx-R2 E670
+device_names: {}
 limits:
   max_concurrent_captures: 2
   max_channels_per_capture: 8

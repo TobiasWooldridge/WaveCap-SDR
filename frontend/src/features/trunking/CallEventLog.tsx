@@ -396,7 +396,7 @@ export function CallEventLog({ events, maxHeight = 400 }: CallEventLogProps) {
                   style={{ minWidth: "60px" }}
                   title="Voice Channel Frequency"
                 >
-                  <FrequencyDisplay frequencyHz={event.frequencyHz} decimals={4} />
+                  <FrequencyDisplay frequencyHz={event.frequencyHz} decimals={4}  unit="MHz"/>
                 </span>
 
                 {/* Duration (for end events) */}
