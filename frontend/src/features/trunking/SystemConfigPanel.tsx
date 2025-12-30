@@ -54,6 +54,13 @@ export function SystemConfigPanel({ system }: SystemConfigPanelProps) {
   const currentFreq = system.controlChannelFreqHz;
   const enabledCount = channels.filter((c) => c.enabled).length;
   const lockedChannel = channels.find((c) => c.isLocked);
+  const currentChannel =
+    channels.find((c) => c.isCurrent) ||
+    (currentFreq
+      ? channels.find((c) => Math.abs(c.frequencyHz - currentFreq) < 1000)
+      : undefined) ||
+    lockedChannel;
+  const currentName = currentChannel?.name;
 
   return (
     <div className="card">
@@ -95,6 +102,11 @@ export function SystemConfigPanel({ system }: SystemConfigPanelProps) {
               {currentFreq && (
                 <span className="font-monospace fw-semibold">
                   {formatFrequencyMHz(currentFreq)} MHz
+                  {currentName && (
+                    <span className="ms-1 text-muted" style={{ fontSize: "0.7rem" }}>
+                      {currentName}
+                    </span>
+                  )}
                 </span>
               )}
               {/* SNR if available */}
@@ -243,6 +255,9 @@ export function SystemConfigPanel({ system }: SystemConfigPanelProps) {
                     <span className="font-monospace fw-semibold">
                       {formatFrequencyWithUnit(currentFreq)}
                     </span>
+                    {currentName && (
+                      <span className="text-muted ms-1">{currentName}</span>
+                    )}
                     {channels.find((c) => c.isCurrent)?.snrDb != null && (
                       <span className="text-muted">
                         {channels.find((c) => c.isCurrent)?.snrDb?.toFixed(1)}{" "}

@@ -209,7 +209,17 @@ export function ActiveCallsTable({
                     <div className="fw-semibold" title={call.talkgroupName}>
                       {call.talkgroupName}
                     </div>
-                    <small className="text-muted">TG {call.talkgroupId}</small>
+                    <div className="d-flex align-items-center gap-2">
+                      <small className="text-muted">TG {call.talkgroupId}</small>
+                      {call.encrypted && (
+                        <span
+                          className="badge bg-danger"
+                          style={{ fontSize: "0.65rem" }}
+                        >
+                          Encrypted
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td>
                     {call.talkgroupCategory && (

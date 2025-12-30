@@ -45,6 +45,13 @@ export function ControlChannelPanel({ system }: ControlChannelPanelProps) {
   const currentFreq = system.controlChannelFreqHz;
   const enabledCount = channels.filter(c => c.enabled).length;
   const lockedChannel = channels.find(c => c.isLocked);
+  const currentChannel =
+    channels.find((c) => c.isCurrent) ||
+    (currentFreq
+      ? channels.find((c) => Math.abs(c.frequencyHz - currentFreq) < 1000)
+      : undefined) ||
+    lockedChannel;
+  const currentName = currentChannel?.name;
 
   return (
     <div className="card mt-2">
@@ -79,6 +86,11 @@ export function ControlChannelPanel({ system }: ControlChannelPanelProps) {
           {currentFreq && (
             <span className="font-monospace text-muted" style={{ fontSize: "0.75rem" }}>
               {formatFrequencyMHz(currentFreq)}
+              {currentName && (
+                <span className="ms-1 text-muted" style={{ fontSize: "0.7rem" }}>
+                  {currentName}
+                </span>
+              )}
             </span>
           )}
           <span className="text-muted" style={{ fontSize: "0.7rem" }}>

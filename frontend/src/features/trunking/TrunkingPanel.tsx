@@ -24,6 +24,7 @@ import { useTrunkingSystemAudio } from "../../hooks/useAudio";
 import { useToast } from "../../hooks/useToast";
 import { copyToClipboard } from "../../utils/clipboard";
 import type { ActiveCall } from "../../types/trunking";
+import { ControlChannelPanel } from "./ControlChannelPanel";
 import { SystemStatusPanel } from "./SystemStatusPanel";
 import { SystemConfigPanel } from "./SystemConfigPanel";
 import { ActiveCallsTable } from "./ActiveCallsTable";
@@ -264,6 +265,9 @@ export function TrunkingPanel({
 
   return (
     <Flex direction="column" gap={2} className="p-2">
+      {/* Control channel panel */}
+      <ControlChannelPanel system={system} />
+
       {/* System status panel */}
       <SystemStatusPanel
         system={system}
