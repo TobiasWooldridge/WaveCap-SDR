@@ -9,6 +9,7 @@ import {
   Download,
   X,
 } from "lucide-react";
+import { FrequencyDisplay } from "../../components/primitives/FrequencyDisplay.react";
 
 export interface CallEvent {
   id: string;
@@ -394,7 +395,7 @@ export function CallEventLog({ events, maxHeight = 400 }: CallEventLogProps) {
                   style={{ minWidth: "60px" }}
                   title="Voice Channel Frequency"
                 >
-                  {formatFrequency(event.frequencyHz)}
+                  <FrequencyDisplay frequencyHz={event.frequencyHz} decimals={4} />
                 </span>
 
                 {/* Duration (for end events) */}

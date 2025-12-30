@@ -3,9 +3,10 @@ import { Radio, RefreshCw, ChevronDown, ChevronRight, HelpCircle } from "lucide-
 import type { TrunkingSystem, HuntMode } from "../../types/trunking";
 import { useSetHuntMode, useTriggerScan } from "../../hooks/useTrunking";
 import Flex from "../../components/primitives/Flex.react";
-import { formatFrequencyMHz, formatFrequencyWithUnit } from "../../utils/frequency";
+import { formatFrequencyWithUnit } from "../../utils/frequency";
 import { getControlChannelStatusBadge } from "../../utils/trunkingStatus";
 import { ControlChannelRow, ControlChannelHeaders, HuntModeHelp } from "../../components/trunking";
+import { FrequencyDisplay } from "../../components/primitives/FrequencyDisplay.react";
 
 interface ControlChannelPanelProps {
   system: TrunkingSystem;
@@ -85,12 +86,11 @@ export function ControlChannelPanel({ system }: ControlChannelPanelProps) {
           </span>
           {currentFreq && (
             <span className="font-monospace text-muted" style={{ fontSize: "0.75rem" }}>
-              {formatFrequencyMHz(currentFreq)}
-              {currentName && (
-                <span className="ms-1 text-muted" style={{ fontSize: "0.7rem" }}>
-                  {currentName}
-                </span>
-              )}
+              <FrequencyDisplay
+                frequencyHz={currentFreq}
+                decimals={4}
+                name={currentName}
+              />
             </span>
           )}
           <span className="text-muted" style={{ fontSize: "0.7rem" }}>

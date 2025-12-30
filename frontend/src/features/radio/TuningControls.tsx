@@ -3,7 +3,8 @@ import type { Capture, Device } from "../../types";
 import type { TrunkingSystem } from "../../types/trunking";
 import { useDebouncedMutation } from "../../hooks/useDebouncedMutation";
 import { useUpdateCapture } from "../../hooks/useCaptures";
-import { formatFrequencyMHz, formatSampleRate, formatBandwidth } from "../../utils/frequency";
+import { formatSampleRate, formatBandwidth } from "../../utils/frequency";
+import { FrequencyDisplay } from "../../components/primitives/FrequencyDisplay.react";
 import FrequencySelector from "../../components/primitives/FrequencySelector.react";
 import NumericSelector, { type UnitConfig } from "../../components/primitives/NumericSelector.react";
 import Slider from "../../components/primitives/Slider.react";
@@ -289,7 +290,7 @@ export function TuningAccordions({ capture, device, trunkingSystem }: TuningCont
           <span className="small">
             <span className="fw-semibold">Frequency:</span>{" "}
             <span className={freqPending ? "text-warning" : ""}>
-              {formatFrequencyMHz(freq)} MHz
+              <FrequencyDisplay frequencyHz={freq} decimals={4} />
             </span>
             {isTrunkingManaged && (
               <span className="ms-1 text-info">

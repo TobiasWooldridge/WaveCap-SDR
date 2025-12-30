@@ -5,7 +5,7 @@ import { useMemoryBanks } from "../../hooks/useMemoryBanks";
 import { useUpdateCapture } from "../../hooks/useCaptures";
 import { useCreateChannel } from "../../hooks/useChannels";
 import { useTrunkingSystems } from "../../hooks/useTrunking";
-import { formatFrequencyMHz } from "../../utils/frequency";
+import { FrequencyDisplay } from "../../components/primitives/FrequencyDisplay.react";
 import { getDeviceDisplayName } from "../../utils/device";
 import { AccordionGroup, AccordionItem } from "../../components/primitives/Accordion.react";
 import { TuningAccordions } from "./TuningControls";
@@ -106,7 +106,7 @@ export function RadioPanel({ capture, device }: RadioPanelProps) {
         <Radio size={18} className="flex-shrink-0" />
         <div className="d-flex flex-column flex-grow-1 overflow-hidden">
           <span className="fw-bold" style={{ fontSize: "1.1rem" }}>
-            {formatFrequencyMHz(capture.centerHz)} MHz
+            <FrequencyDisplay frequencyHz={capture.centerHz} decimals={4} />
           </span>
           <span className="text-white-50 text-truncate" style={{ fontSize: "0.7rem" }}>
             {device ? getDeviceDisplayName(device) : "Unknown Device"}

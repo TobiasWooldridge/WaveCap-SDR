@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Radio, Antenna, Plus, X, Settings } from "lucide-react";
 import type { DeviceTab } from "../types";
 import type { ViewMode } from "./ModeTabBar";
-import { formatFrequencyMHz } from "../utils/frequency";
+import { FrequencyDisplay } from "./primitives/FrequencyDisplay.react";
 import Button from "./primitives/Button.react";
 import {
   StatusPill,
@@ -307,9 +307,11 @@ function DeviceTabItem({
             color: isSelected ? "#6c757d" : "#adb5bd",
           }}
         >
-          {tab.frequencyHz > 0
-            ? `${formatFrequencyMHz(tab.frequencyHz)} MHz`
-            : "No frequency set"}
+          {tab.frequencyHz > 0 ? (
+            <FrequencyDisplay frequencyHz={tab.frequencyHz} decimals={4} />
+          ) : (
+            "No frequency set"
+          )}
         </span>
       </div>
 

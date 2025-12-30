@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Radio, Antenna, Plus, X, Settings } from "lucide-react";
 import type { RadioTab, RadioTabType } from "../../types";
-import { formatFrequencyMHz } from "../../utils/frequency";
+import { FrequencyDisplay } from "../../components/primitives/FrequencyDisplay.react";
 import Button from "../../components/primitives/Button.react";
 import { StatusPill, getRadioTabStatusProps } from "../../components/primitives/StatusPill.react";
 
@@ -291,7 +291,12 @@ function TabItem({
           style={{ fontSize: "0.7rem", maxWidth: "200px", color: isSelected ? "#6c757d" : "#adb5bd" }}
         >
           {tab.deviceName}
-          {tab.frequencyHz > 0 && ` - ${formatFrequencyMHz(tab.frequencyHz)} MHz`}
+          {tab.frequencyHz > 0 && (
+            <>
+              {" "}
+              - <FrequencyDisplay frequencyHz={tab.frequencyHz} decimals={4} />
+            </>
+          )}
         </span>
       </div>
 

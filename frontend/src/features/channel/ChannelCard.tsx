@@ -4,7 +4,7 @@ import type { Capture, Channel } from "../../types";
 import { useUpdateChannel, useDeleteChannel } from "../../hooks/useChannels";
 import { useChannelAudio } from "../../hooks/useAudio";
 import { useToast } from "../../hooks/useToast";
-import { formatFrequencyMHz } from "../../utils/frequency";
+import { FrequencyDisplay } from "../../components/primitives/FrequencyDisplay.react";
 import { copyToClipboard } from "../../utils/clipboard";
 import Button from "../../components/primitives/Button.react";
 import Flex from "../../components/primitives/Flex.react";
@@ -94,7 +94,8 @@ export const ChannelCard = memo(function ChannelCard({ channel, capture, readOnl
       <div className="card-header bg-body-tertiary p-2">
         <Flex justify="between" align="center">
           <div className="small fw-semibold text-truncate" style={{ flex: 1, minWidth: 0 }}>
-            {formatChannelId(channel.id)} • {formatFrequencyMHz(channelFrequency)} MHz
+            {formatChannelId(channel.id)} •{" "}
+            <FrequencyDisplay frequencyHz={channelFrequency} decimals={4} />
           </div>
           <Flex gap={1}>
             <Button

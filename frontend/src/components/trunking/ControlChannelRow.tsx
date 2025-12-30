@@ -9,6 +9,7 @@ import {
   useSetChannelEnabled,
 } from "../../hooks/useTrunking";
 import { formatFrequencyWithUnit } from "../../utils/frequency";
+import { FrequencyDisplay } from "../primitives/FrequencyDisplay.react";
 import { SignalBar } from "./SignalBar";
 
 interface ControlChannelRowProps {
@@ -89,7 +90,7 @@ export function ControlChannelRow({
         />
       </td>
       <td className="font-monospace" style={{ width: "110px", padding: "6px 12px" }}>
-        {formatFrequencyWithUnit(channel.frequencyHz)}
+        <FrequencyDisplay frequencyHz={channel.frequencyHz} decimals={4} />
       </td>
       <td style={{ width: "100px", padding: "6px 12px" }}>
         <SignalBar snrDb={channel.snrDb} />

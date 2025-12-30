@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Network, Radio, MapPin, Server } from "lucide-react";
 import type { TrunkingSystem } from "../../types/trunking";
+import { FrequencyDisplay } from "../../components/primitives/FrequencyDisplay.react";
 
 interface NetworkConfigPanelProps {
   system: TrunkingSystem;
@@ -9,10 +10,6 @@ interface NetworkConfigPanelProps {
 function formatHex(value: number | null | undefined, digits: number = 3): string {
   if (value === null || value === undefined) return "---";
   return `0x${value.toString(16).toUpperCase().padStart(digits, "0")}`;
-}
-
-function formatFrequency(hz: number): string {
-  return (hz / 1_000_000).toFixed(4);
 }
 
 export function NetworkConfigPanel({ system }: NetworkConfigPanelProps) {
@@ -113,7 +110,11 @@ export function NetworkConfigPanel({ system }: NetworkConfigPanelProps) {
                   <tr>
                     <td className="text-muted py-0" style={{ width: "80px" }}>Current</td>
                     <td className="py-0 font-monospace">
-                      {currentCC ? `${formatFrequency(currentCC.frequencyHz)} MHz` : "---"}
+                      {currentCC ? (
+                        <FrequencyDisplay frequencyHz={currentCC.frequencyHz} decimals={4} />
+                      ) : (
+                        "---"
+                      )}
                     </td>
                   </tr>
                   <tr>
@@ -163,7 +164,7 @@ export function NetworkConfigPanel({ system }: NetworkConfigPanelProps) {
                           className={cc.isCurrent ? "table-success" : cc.isLocked ? "table-warning" : ""}
                         >
                           <td className="py-1 font-monospace">
-                            {formatFrequency(cc.frequencyHz)} MHz
+                            <FrequencyDisplay frequencyHz={cc.frequencyHz} decimals={4} />
                           </td>
                           <td className="py-1">
                             {cc.snrDb !== null ? `${cc.snrDb.toFixed(1)} dB` : "---"}

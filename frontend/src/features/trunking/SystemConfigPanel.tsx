@@ -11,10 +11,7 @@ import {
 import type { TrunkingSystem, HuntMode } from "../../types/trunking";
 import { useSetHuntMode, useTriggerScan } from "../../hooks/useTrunking";
 import Flex from "../../components/primitives/Flex.react";
-import {
-  formatFrequencyMHz,
-  formatFrequencyWithUnit,
-} from "../../utils/frequency";
+import { formatFrequencyWithUnit } from "../../utils/frequency";
 import { formatHex } from "../../utils/formatting";
 import { getControlChannelStatusBadge } from "../../utils/trunkingStatus";
 import {
@@ -22,6 +19,7 @@ import {
   ControlChannelHeaders,
   HuntModeHelp,
 } from "../../components/trunking";
+import { FrequencyDisplay } from "../../components/primitives/FrequencyDisplay.react";
 
 interface SystemConfigPanelProps {
   system: TrunkingSystem;
@@ -101,12 +99,11 @@ export function SystemConfigPanel({ system }: SystemConfigPanelProps) {
               {/* Current frequency - most important */}
               {currentFreq && (
                 <span className="font-monospace fw-semibold">
-                  {formatFrequencyMHz(currentFreq)} MHz
-                  {currentName && (
-                    <span className="ms-1 text-muted" style={{ fontSize: "0.7rem" }}>
-                      {currentName}
-                    </span>
-                  )}
+                  <FrequencyDisplay
+                    frequencyHz={currentFreq}
+                    decimals={4}
+                    name={currentName}
+                  />
                 </span>
               )}
               {/* SNR if available */}
@@ -253,11 +250,12 @@ export function SystemConfigPanel({ system }: SystemConfigPanelProps) {
                 {currentFreq ? (
                   <>
                     <span className="font-monospace fw-semibold">
-                      {formatFrequencyWithUnit(currentFreq)}
+                      <FrequencyDisplay
+                        frequencyHz={currentFreq}
+                        decimals={4}
+                        name={currentName}
+                      />
                     </span>
-                    {currentName && (
-                      <span className="text-muted ms-1">{currentName}</span>
-                    )}
                     {channels.find((c) => c.isCurrent)?.snrDb != null && (
                       <span className="text-muted">
                         {channels.find((c) => c.isCurrent)?.snrDb?.toFixed(1)}{" "}
