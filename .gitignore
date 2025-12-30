@@ -63,6 +63,8 @@ backend/harness_out/
 harness_out/
 logs/
 *.pid
+recordings/
+backend/recordings/
 
 # Frontend build artifacts source maps (generated files committed for out-of-box use)
 backend/wavecapsdr/static/assets/*.js.map
@@ -75,6 +77,9 @@ backend/wavecapsdr/static/assets/index-*.css
 make_wav.py
 record_test.py
 test_stream.py
+
+# Debug journals
+*-JOURNAL.md
 
 # Do not ignore audio fixtures in tests; avoid global *.wav ignores
 
