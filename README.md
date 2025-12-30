@@ -120,7 +120,7 @@ HOST=127.0.0.1 PORT=8088 ./start-app.sh
 DEVICE_ARGS="driver=rtlsdr" ./start-app.sh
 
 # All options
-HOST=0.0.0.0 PORT=8087 DRIVER=soapy CONFIG=backend/config/wavecapsdr.yaml ./start-app.sh
+HOST=0.0.0.0 PORT=8087 DRIVER=soapy CONFIG=backend/config/wavecapsdr.local.yaml ./start-app.sh
 ```
 
 For Windows PowerShell:
@@ -171,7 +171,7 @@ Supported P25 modulations:
 - **C4FM**: Standard P25 Phase 1 (12.5 kHz channel spacing)
 - **CQPSK/LSM**: Simulcast-compatible modulation (used by many large metro systems)
 
-Configuration is done via `backend/config/wavecapsdr.yaml` in the `trunking.systems` section. See the `sa_grn` example for a complete configuration.
+Configuration is done via `backend/config/wavecapsdr.yaml` with optional local overrides in `backend/config/wavecapsdr.local.yaml` (gitignored) in the `trunking.systems` section. See the `sa_grn` example for a complete configuration.
 
 ## Relation to WaveCap
 - WaveCap (control/UI) lives in `~/speaker/WaveCap` (also symlinked as `~/speaker/smart-speaker`). WaveCap‑SDR provides the radio server component and a lightweight web UI for local monitoring/tuning. Together they form one product.
@@ -218,7 +218,7 @@ Configuration is done via `backend/config/wavecapsdr.yaml` in the `trunking.syst
 - **Troubleshooting**: See `docs/troubleshooting.md`
 - **Development Guidelines**: See `AGENTS.md`
 - **Claude Code Instructions**: See `CLAUDE.md`
-- **Trunking Configuration**: See `trunking.systems` section in `backend/config/wavecapsdr.yaml`
+- **Trunking Configuration**: See `trunking.systems` section in `backend/config/wavecapsdr.yaml` (or `backend/config/wavecapsdr.local.yaml` overrides)
 
 ## SDRplay Service Recovery
 

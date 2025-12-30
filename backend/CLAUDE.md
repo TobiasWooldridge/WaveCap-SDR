@@ -48,7 +48,7 @@ backend/wavecapsdr/
 ├── app.py           # FastAPI app factory, startup, static file serving
 ├── api.py           # REST/WebSocket endpoints (/api/v1/*)
 ├── capture.py       # Core: Capture, Channel, CaptureManager classes
-├── config.py        # YAML config loading (wavecapsdr.yaml)
+├── config.py        # YAML config loading (wavecapsdr.yaml + local overrides)
 ├── encoders.py      # Audio encoders (mp3/opus/aac via ffmpeg)
 ├── state.py         # AppState - runtime state container
 ├── models.py        # Pydantic models for API serialization
@@ -122,7 +122,7 @@ frontend/src/
 
 ### Configuration
 
-Configuration lives in `backend/config/wavecapsdr.yaml`:
+Configuration lives in `backend/config/wavecapsdr.yaml` with optional overrides in `backend/config/wavecapsdr.local.yaml` (gitignored):
 - `presets`: Named RF configurations (center_hz, sample_rate, gain, etc.)
 - `recipes`: Templates for common setups (Marine VHF, FM Broadcast, etc.)
 - `captures`: Auto-start captures on server launch

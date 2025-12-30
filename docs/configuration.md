@@ -1,7 +1,7 @@
 Configuration — WaveCap‑SDR
 
-Location: `config/wavecapsdr.yaml` by default. Overrides via env vars with prefix `WAVECAPSDR__SECTION__KEY`.
-Whenever the server persists changes (e.g., when tuning a preset through the UI) it first writes a sibling backup `wavecapsdr.yaml.bak`, so you can recover prior settings if a save goes sideways.
+Location: `config/wavecapsdr.yaml` by default, with optional local overrides in `config/wavecapsdr.local.yaml` (gitignored). The server loads the base config first, then overlays the local file. Overrides via env vars with prefix `WAVECAPSDR__SECTION__KEY`.
+Whenever the server persists changes (e.g., when tuning a preset through the UI) it first writes a sibling backup `wavecapsdr.local.yaml.bak` (or `wavecapsdr.yaml.bak` if no local file is used), so you can recover prior settings if a save goes sideways.
 
 Server
 - `server.bind_address` (string, default `127.0.0.1`): Bind address.

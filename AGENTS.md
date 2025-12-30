@@ -80,7 +80,7 @@ Use the built‑in harness to spin up a local server, create a capture, add chan
   - Ensure SoapySDR and the appropriate module (e.g., `SoapyRTLSDR` or `SoapySDRPlay3`) are installed on the host.
   - KEXP preset (90.3 MHz, WBFM):
     - `bash scripts/harness-kexp.sh`
-      - Defaults to config at `backend/config/wavecapsdr.yaml` containing `presets.kexp`.
+      - Defaults to `backend/config/wavecapsdr.local.yaml` if present (overlays `backend/config/wavecapsdr.yaml`), which contains `presets.kexp`.
       - Optional device selection:
       - RTL‑SDR: `DEVICE_ARGS="driver=rtlsdr" bash scripts/harness-kexp.sh`
       - RSPdx‑r2: `DEVICE_ARGS="driver=sdrplay" bash scripts/harness-kexp.sh`
