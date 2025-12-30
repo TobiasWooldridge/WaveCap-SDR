@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Capture voice channel basebands from live WaveCap-SDR trunking.
+"""Capture voice channel PCM audio from live WaveCap-SDR trunking.
 
 This script connects to a running WaveCap-SDR server with trunking enabled
-and saves voice channel IQ basebands to WAV files for offline analysis.
+and saves decoded voice PCM audio to WAV files for offline analysis.
 
 Usage:
     1. Start WaveCap-SDR: ./start-app.sh
@@ -44,16 +44,14 @@ async def get_trunking_status(session: aiohttp.ClientSession, base_url: str, sys
         return {}
 
 
-async def get_active_calls(session: aiohttp.ClientSession, base_url: str, system_id: str) -> list:
-    """Get list of active voice calls."""
-    url = f"{base_url}/api/v1/trunking/systems/{system_id}/calls"
+async def get_voice_streams(session: aiohttp.ClientSession, base_url: str, system_id: str) -> list:
+    """Get list of active voice streams."""
+    url = f"{base_url}/api/v1/trunking/systems/{system_id}/voice-streams"
     try:
         async with session.get(url) as resp:
             if resp.status == 200:
-                data = await resp.json()
-                return data.get("calls", [])
-            else:
-                return []
+                return await resp.json()
+            return []
     except Exception:
         return []
 
@@ -63,12 +61,12 @@ async def stream_voice_pcm(
     host: str,
     port: int,
     system_id: str,
-    recorder_id: str,
+    stream_id: str,
     output_path: Path,
     duration_s: float = 10.0,
 ) -> bool:
     """Stream decoded PCM audio and save to WAV file."""
-    url = f"http://{host}:{port}/api/v1/trunking/stream/{system_id}/voice/{recorder_id}.pcm"
+    url = f"http://{host}:{port}/api/v1/trunking/stream/{system_id}/voice/{stream_id}.pcm"
 
     samples = []
     start_time = time.time()
@@ -80,7 +78,7 @@ async def stream_voice_pcm(
                 print(f"  Error: HTTP {resp.status}")
                 return False
 
-            print(f"  Streaming from recorder {recorder_id}...")
+            print(f"  Streaming from voice stream {stream_id}...")
 
             async for chunk in resp.content.iter_any():
                 if chunk:
@@ -142,42 +140,37 @@ async def monitor_and_capture(
                     await asyncio.sleep(5)
                     continue
 
-                # Check voice recorders for active calls
-                voice_recorders = status.get("voiceRecorders", [])
-                for vr in voice_recorders:
-                    if vr.get("state") == "recording":
-                        talkgroup = vr.get("talkgroup")
-                        freq_hz = vr.get("frequency_hz", 0)
-                        recorder_id = vr.get("id")
+                # Check active voice streams
+                voice_streams = await get_voice_streams(session, base_url, system_id)
+                for stream in voice_streams:
+                    if stream.get("state") not in ("active", "silent"):
+                        continue
 
-                        # Create unique key for this call
-                        call_key = f"{recorder_id}_{talkgroup}_{freq_hz}_{int(time.time() // capture_duration)}"
+                    talkgroup = stream.get("talkgroupId")
+                    stream_id = stream.get("id")
+                    start_time = stream.get("startTime", 0)
 
-                        if call_key not in seen_calls:
-                            seen_calls.add(call_key)
+                    # Create unique key for this call
+                    call_key = f"{stream_id}_{talkgroup}_{start_time}"
 
-                            # Generate filename
-                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                            freq_mhz = freq_hz / 1e6
-                            filename = f"{timestamp}_{freq_mhz:.3f}MHz_TG{talkgroup}_baseband.wav"
-                            output_path = output_dir / filename
+                    if call_key not in seen_calls:
+                        seen_calls.add(call_key)
 
-                            print(f"[{datetime.now().strftime('%H:%M:%S')}] Voice detected!")
-                            print(f"  TG: {talkgroup}, Freq: {freq_mhz:.3f} MHz, Recorder: {recorder_id}")
+                        # Generate filename
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        filename = f"{timestamp}_TG{talkgroup}_voice_pcm.wav"
+                        output_path = output_dir / filename
 
-                            # Capture in background
-                            asyncio.create_task(
-                                stream_voice_pcm(
-                                    session, host, port, system_id, f"vr{recorder_id}",
-                                    output_path, capture_duration
-                                )
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] Voice stream detected!")
+                        print(f"  TG: {talkgroup}, Stream: {stream_id}")
+
+                        # Capture in background
+                        asyncio.create_task(
+                            stream_voice_pcm(
+                                session, host, port, system_id, stream_id,
+                                output_path, capture_duration
                             )
-
-                # Also check active calls API
-                calls = await get_active_calls(session, base_url, system_id)
-                if calls:
-                    # Just log, we capture from voice recorders
-                    pass
+                        )
 
                 await asyncio.sleep(poll_interval)
 
