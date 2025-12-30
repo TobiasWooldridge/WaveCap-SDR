@@ -77,7 +77,7 @@ def design_rrc_filter_phase2(
 
     # Normalize
     h = h / np.sqrt(np.sum(h**2))
-    return h.astype(np.float32)
+    return np.asarray(h, dtype=np.float32)
 
 
 class CostasLoop:
@@ -151,7 +151,7 @@ class CostasLoop:
         while self._phase < -np.pi:
             self._phase += 2 * np.pi
 
-        return corrected
+        return complex(corrected)
 
     def _phase_detector_qpsk(self, sample: complex) -> float:
         """QPSK phase detector.

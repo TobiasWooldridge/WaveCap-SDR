@@ -27,19 +27,23 @@ from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 import numpy as np
 from scipy import signal as scipy_signal
 
-from wavecapsdr.decoders.lrrp import LocationCache
+from wavecapsdr.decoders.lrrp import LocationCache, RadioLocation
 from wavecapsdr.decoders.p25 import P25Decoder
 from wavecapsdr.decoders.p25_tsbk import ChannelIdentifier, TSBKParser
 from wavecapsdr.decoders.voice import VocoderType
 from wavecapsdr.trunking.cc_scanner import ControlChannelScanner
 from wavecapsdr.trunking.config import HuntMode, TrunkingProtocol, TrunkingSystemConfig
-from wavecapsdr.trunking.control_channel import ControlChannelMonitor, create_control_monitor
-from wavecapsdr.trunking.voice_channel import RadioLocation, VoiceChannel, VoiceChannelConfig
+from wavecapsdr.trunking.control_channel import (
+    ControlChannelMonitor,
+    P25Modulation as ControlChannelModulation,
+    create_control_monitor,
+)
+from wavecapsdr.trunking.voice_channel import VoiceChannel, VoiceChannelConfig
 
 if TYPE_CHECKING:
     from wavecapsdr.capture import Capture, CaptureManager, Channel
@@ -60,6 +64,13 @@ _iq_profiler = get_profiler("TrunkingIQ", enabled=True)
 _STATE_DIR = Path.home() / ".wavecapsdr" / "trunking_state"
 
 
+def _format_freq_mhz(freq_hz: float | None) -> str:
+    """Format a frequency in MHz for logging."""
+    if freq_hz is None:
+        return "unknown"
+    return f"{freq_hz/1e6:.4f} MHz"
+
+
 def _get_state_file(system_id: str) -> Path:
     """Get the state file path for a trunking system."""
     return _STATE_DIR / f"{system_id}.json"
@@ -77,7 +88,7 @@ def _write_state(system_id: str, state: dict[str, Any]) -> None:
         logger.warning(f"Failed to save trunking state for {system_id}: {e}")
 
 
-def _load_state(system_id: str) -> dict | None:
+def _load_state(system_id: str) -> dict[str, Any] | None:
     """Load trunking system state from disk.
 
     Args:
@@ -91,7 +102,7 @@ def _load_state(system_id: str) -> dict | None:
         if not state_file.exists():
             return None
         with open(state_file) as f:
-            state = json.load(f)
+            state = cast(dict[str, Any], json.load(f))
         logger.debug(f"Loaded trunking state for {system_id}: {state}")
         return state
     except Exception as e:
@@ -414,12 +425,9 @@ class VoiceRecorder:
         await self._voice_channel.start(vocoder_type=vocoder_type)
         self.state = "recording"
 
-        # Create P25 decoder for extracting GPS from LDU frames
-        # Uses discriminator input mode (48kHz discriminator audio)
-        self._p25_decoder = P25Decoder(
-            sample_rate=48000,
-            use_discriminator_input=True,
-        )
+        # Create P25 decoder for extracting GPS from LDU frames.
+        # Uses process_discriminator() with 48kHz discriminator audio.
+        self._p25_decoder = P25Decoder(sample_rate=48000)
         # Wire the on_location callback if set
         if self.on_location:
             self._p25_decoder.on_location = self.on_location
@@ -704,9 +712,9 @@ class VoiceRecorder:
         # Feed discriminator audio to P25 decoder for GPS extraction
         # The decoder uses DiscriminatorDemodulator which expects float discriminator samples
         if self._p25_decoder is not None:
-            # process_iq with discriminator input will extract LDU frames and call on_location
-            # when GPS data is found in Extended Link Control
-            self._p25_decoder.process_iq(disc_audio.astype(np.float32))
+            # process_discriminator will extract LDU frames and call on_location
+            # when GPS data is found in Extended Link Control.
+            self._p25_decoder.process_discriminator(disc_audio.astype(np.float32), sample_rate=48000)
 
         # Feed to voice channel (async, schedule on event loop)
         loop = self._event_loop
@@ -954,7 +962,7 @@ class TrunkingSystem:
             f"voice_recorders={len(self._voice_recorders)}"
         )
 
-    def _seed_channel_identifiers(self, saved_state: dict | None) -> None:
+    def _seed_channel_identifiers(self, saved_state: dict[str, Any] | None) -> None:
         """Seed channel identifiers from config and cached state."""
         config_count = 0
         for ident_cfg in self.cfg.channel_identifiers.values():
@@ -1161,7 +1169,7 @@ class TrunkingSystem:
 
         logger.info(
             f"TrunkingSystem {self.cfg.id}: Searching for control channel "
-            f"at {self.control_channel_freq_hz/1e6:.4f} MHz"
+            f"at {_format_freq_mhz(self.control_channel_freq_hz)}"
         )
 
         # Start background hunt check loop
@@ -1219,29 +1227,34 @@ class TrunkingSystem:
         total_decim = stage1_factor * stage2_factor
 
         # Create ControlChannelMonitor with actual sample rate for correct timing
+        control_modulation = (
+            ControlChannelModulation(self.cfg.modulation.value)
+            if self.cfg.modulation
+            else None
+        )
         self._control_monitor = create_control_monitor(
             protocol=self.cfg.protocol,
             sample_rate=actual_sample_rate,  # Use actual ~19.2 kHz
-            modulation=self.cfg.modulation,
+            modulation=control_modulation,
         )
 
         # Wire up sync callbacks for SDRTrunk-compatible lock behavior
         # Lock when sync is detected, not when TSBK is received
-        def on_sync_acquired():
+        def on_sync_acquired() -> None:
             if self.control_channel_state == ControlChannelState.SEARCHING:
                 self.control_channel_state = ControlChannelState.LOCKED
                 self._has_ever_locked = True  # Track for dynamic hunt timeouts
                 self._set_state(TrunkingSystemState.SYNCED)
                 logger.info(
                     f"TrunkingSystem {self.cfg.id}: Sync acquired - "
-                    f"locked to {self.control_channel_freq_hz/1e6:.4f} MHz"
+                    f"locked to {_format_freq_mhz(self.control_channel_freq_hz)}"
                 )
 
-        def on_sync_lost():
+        def on_sync_lost() -> None:
             if self.control_channel_state == ControlChannelState.LOCKED:
                 logger.warning(
                     f"TrunkingSystem {self.cfg.id}: Sync lost on "
-                    f"{self.control_channel_freq_hz/1e6:.4f} MHz"
+                    f"{_format_freq_mhz(self.control_channel_freq_hz)}"
                 )
                 # Don't immediately unlock - let _check_control_channel_hunt handle it
                 # This allows for brief sync drops without losing lock
@@ -1289,7 +1302,7 @@ class TrunkingSystem:
         # zi values start as None - will be initialized with first sample to prevent transient
         # lfilter_zi returns step response initial conditions (~1.0), but signal is ~0.004
         # Multiplying by first sample scales zi to match signal level
-        filter_state = {
+        filter_state: dict[str, np.ndarray | None] = {
             "stage1_zi": None,  # Initialized on first chunk
             "stage2_zi": None,  # Initialized on first chunk
         }
@@ -1391,9 +1404,9 @@ class TrunkingSystem:
                         f"[DIAG-STAGE2b] AFTER shift: peak_bin={peak_bin_after}, peak_freq={peak_freq_after/1e3:.1f}kHz, "
                         f"baseband_power_ratio={baseband_ratio:.4f} (should be >0.8 if signal centered)"
                     )
-                return shifted_iq
+                return np.asarray(shifted_iq, dtype=np.complex64)
 
-            return (iq.astype(np.complex64, copy=False) * shift).astype(np.complex64)
+            return np.asarray(iq.astype(np.complex64, copy=False) * shift, dtype=np.complex64)
 
         # IQ buffer for control channel - accumulate decimated samples before processing
         # SDRplay returns small chunks (~8192 samples), after decimation we get only ~26 samples
@@ -1510,7 +1523,7 @@ class TrunkingSystem:
                         else:
                             logger.warning(
                                 f"TrunkingSystem {self.cfg.id}: No control channels detected, "
-                                f"staying on {system.control_channel_freq_hz/1e6:.4f} MHz"
+                                f"staying on {_format_freq_mhz(system.control_channel_freq_hz)}"
                             )
 
                     system._initial_scan_complete = True
@@ -1541,15 +1554,21 @@ class TrunkingSystem:
                         # Check if we should roam (skip if in MANUAL mode - stay locked)
                         if system._hunt_mode != HuntMode.MANUAL:
                             current_freq = system.control_channel_freq_hz
-                            roam_to = system._cc_scanner.should_roam(
-                                current_freq,
-                                roam_threshold_db=system._roam_threshold_db,
-                            )
+                            if current_freq is None:
+                                logger.warning(
+                                    f"TrunkingSystem {self.cfg.id}: Cannot roam without current control channel"
+                                )
+                                roam_to = None
+                            else:
+                                roam_to = system._cc_scanner.should_roam(
+                                    current_freq,
+                                    roam_threshold_db=system._roam_threshold_db,
+                                )
 
                             if roam_to is not None:
                                 logger.info(
                                     f"TrunkingSystem {self.cfg.id}: Roaming from "
-                                    f"{current_freq/1e6:.4f} MHz to {roam_to/1e6:.4f} MHz"
+                                    f"{_format_freq_mhz(current_freq)} to {roam_to/1e6:.4f} MHz"
                                 )
                                 # Update scanner's current channel tracking
                                 system._cc_scanner._current_channel_hz = roam_to
@@ -1756,7 +1775,7 @@ class TrunkingSystem:
             self._set_state(TrunkingSystemState.SYNCED)
             logger.info(
                 f"TrunkingSystem {self.cfg.id}: Locked to control channel "
-                f"at {self.control_channel_freq_hz/1e6:.4f} MHz"
+                f"at {_format_freq_mhz(self.control_channel_freq_hz)}"
             )
 
         # Handle the TSBK based on opcode name (parser returns numeric in 'opcode', string in 'opcode_name')
@@ -1853,79 +1872,9 @@ class TrunkingSystem:
                 except Exception as e:
                     logger.error(f"Error in on_system_update callback: {e}")
 
-    def process_tsbk(self, tsbk_data: bytes) -> None:
-        """Process a TSBK (Trunking Signaling Block).
-
-        Called by the control channel decoder when a valid TSBK is received.
-
-        Args:
-            tsbk_data: Raw TSBK data (12 bytes)
-        """
-        if self._tsbk_parser is None:
-            return
-
-        try:
-            result = self._tsbk_parser.parse(tsbk_data)
-            if result is None:
-                return
-
-            # Update stats
-            self._tsbk_count += 1
-            now = time.time()
-            if self._last_tsbk_time > 0:
-                elapsed = now - self._last_tsbk_time
-                if elapsed > 0:
-                    # Exponential moving average of decode rate
-                    instant_rate = 1.0 / elapsed
-                    self.decode_rate = 0.9 * self.decode_rate + 0.1 * instant_rate
-            self._last_tsbk_time = now
-
-            # If we were searching, we're now synced
-            if self.control_channel_state == ControlChannelState.SEARCHING:
-                self.control_channel_state = ControlChannelState.LOCKED
-                self._set_state(TrunkingSystemState.SYNCED)
-                logger.info(
-                    f"TrunkingSystem {self.cfg.id}: Locked to control channel "
-                    f"at {self.control_channel_freq_hz/1e6:.4f} MHz"
-                )
-
-            # Handle different TSBK types
-            # Use opcode_name (string) not opcode (numeric int) for matching
-            opcode = result.get("opcode_name")
-
-            # Voice grants - normalize different formats before handling
-            if opcode == "GRP_V_CH_GRANT":
-                self._handle_voice_grant(result)
-
-            elif opcode == "GRP_V_CH_GRANT_UPDT":
-                self._handle_grant_update(result)
-
-            elif opcode == "GRP_V_CH_GRANT_UPDT_EXP":
-                normalized = dict(result)
-                normalized["channel"] = result.get("downlink_channel", 0)
-                self._handle_voice_grant(normalized)
-
-            elif opcode == "UU_V_CH_GRANT":
-                normalized = dict(result)
-                normalized["tgid"] = result.get("target_id", 0)
-                normalized["is_unit_to_unit"] = True
-                self._handle_voice_grant(normalized)
-
-            elif opcode == "UU_V_CH_GRANT_UPDT":
-                self._handle_uu_grant_update(result)
-
-            # Channel identifiers
-            elif opcode in ("IDEN_UP", "IDEN_UP_VU"):
-                self._handle_channel_identifier(result)
-
-            # System status
-            elif opcode == "RFSS_STS_BCAST":
-                self._handle_rfss_status(result)
-            elif opcode == "NET_STS_BCAST":
-                self._handle_net_status(result)
-
-        except Exception as e:
-            logger.error(f"TrunkingSystem {self.cfg.id}: Error processing TSBK: {e}")
+    def process_tsbk(self, tsbk_data: dict[str, Any]) -> None:
+        """Process a parsed TSBK (Trunking Signaling Block) result."""
+        self._handle_parsed_tsbk(tsbk_data)
 
     def _handle_voice_grant(self, result: dict[str, Any]) -> None:
         """Handle a voice channel grant TSBK.
@@ -2369,9 +2318,11 @@ class TrunkingSystem:
                         self._hunt_mode.value,
                         self._locked_frequency
                     )
+                    freq_hz = self.control_channel_freq_hz
+                    freq_label = f"{freq_hz/1e6:.4f} MHz" if freq_hz is not None else "unknown"
                     logger.info(
                         f"TrunkingSystem {self.cfg.id}: SCAN_ONCE complete, "
-                        f"locked to {self.control_channel_freq_hz/1e6:.4f} MHz (saved)"
+                        f"locked to {freq_label} (saved)"
                     )
                 return
 
@@ -2423,7 +2374,7 @@ class TrunkingSystem:
 
         logger.info(
             f"TrunkingSystem {self.cfg.id}: Control channel hunt - "
-            f"trying {self.control_channel_freq_hz/1e6:.4f} MHz "
+            f"trying {_format_freq_mhz(self.control_channel_freq_hz)} "
             f"(channel {next_idx + 1}/{num_enabled} enabled, "
             f"offset={new_offset_hz/1e3:.1f} kHz)"
         )
@@ -2664,7 +2615,7 @@ class TrunkingSystem:
 
     def get_stats(self) -> dict[str, Any]:
         """Get system statistics."""
-        stats = {
+        stats: dict[str, Any] = {
             "tsbk_count": int(self._tsbk_count),
             "grant_count": int(self._grant_count),
             "calls_total": int(self._calls_total),
@@ -2846,7 +2797,7 @@ class TrunkingSystem:
             return True
         return freq_hz in self._enabled_channels
 
-    def trigger_scan(self) -> dict[float, dict]:
+    def trigger_scan(self) -> dict[float, dict[str, Any]]:
         """Trigger an immediate scan of all control channels.
 
         Returns:
@@ -2872,7 +2823,7 @@ class TrunkingSystem:
         logger.info(f"TrunkingSystem {self.cfg.id}: Returning {len(result)} channel measurements")
         return result
 
-    def get_control_channels_info(self) -> list[dict]:
+    def get_control_channels_info(self) -> list[dict[str, Any]]:
         """Get detailed info about all control channels.
 
         Returns:

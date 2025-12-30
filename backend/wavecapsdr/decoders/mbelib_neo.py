@@ -19,6 +19,7 @@ import platform
 from ctypes import POINTER, Structure, c_char, c_float, c_int, c_short, c_uint32
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 
@@ -104,9 +105,7 @@ def _find_mbelib_neo() -> str | None:
         ]
     elif system == "Windows":
         lib_names = ["mbe-neo.dll", "libmbe-neo.dll"]
-        search_paths = [
-            os.environ.get("PATH", "").split(os.pathsep),
-        ]
+        search_paths = os.environ.get("PATH", "").split(os.pathsep)
     else:
         return None
 
@@ -227,7 +226,8 @@ def _setup_function_signatures(lib: ctypes.CDLL) -> None:
 def get_version() -> str:
     """Get mbelib-neo version string."""
     lib = _get_lib()
-    return lib.mbe_versionString().decode("utf-8")
+    version_bytes = cast(bytes, lib.mbe_versionString())
+    return version_bytes.decode("utf-8")
 
 
 def is_available() -> bool:
@@ -243,7 +243,8 @@ def check_available() -> tuple[bool, str]:
     """Check availability with message."""
     try:
         lib = _get_lib()
-        version = lib.mbe_versionString().decode("utf-8")
+        version_bytes = cast(bytes, lib.mbe_versionString())
+        version = version_bytes.decode("utf-8")
         return True, f"mbelib-neo {version} available at {_lib_path}"
     except MbelibNeoError as e:
         return False, str(e)
@@ -287,12 +288,12 @@ class IMBEDecoderNeo:
 
     # Buffers (pre-allocated for performance)
     _audio_buf: np.ndarray | None = field(default=None, repr=False)
-    _audio_buf_ptr: ctypes.POINTER | None = field(default=None, repr=False)
-    _imbe_frame: ctypes.Array | None = field(default=None, repr=False)
-    _imbe_data: ctypes.Array | None = field(default=None, repr=False)
+    _audio_buf_ptr: ctypes._Pointer[c_float] | None = field(default=None, repr=False)
+    _imbe_frame: ctypes.Array[ctypes.Array[c_char]] | None = field(default=None, repr=False)
+    _imbe_data: ctypes.Array[c_char] | None = field(default=None, repr=False)
     _errs: ctypes.c_int = field(default_factory=lambda: ctypes.c_int(0), repr=False)
     _errs2: ctypes.c_int = field(default_factory=lambda: ctypes.c_int(0), repr=False)
-    _err_str: bytes = field(default=b"\x00" * 64, repr=False)
+    _err_str: ctypes.Array[c_char] | None = field(default=None, repr=False)
 
     # Resampling (8kHz -> output_rate)
     _resample_ratio: float = field(default=1.0, init=False)
@@ -318,20 +319,24 @@ class IMBEDecoderNeo:
 
         # Load library
         self._lib = _get_lib()
+        lib = self._lib
 
         # Set thread RNG seed for deterministic output
-        self._lib.mbe_setThreadRngSeed(12345)
+        lib.mbe_setThreadRngSeed(12345)
 
         # Allocate parameter structures
         self._cur_mp = MbeParms()
         self._prev_mp = MbeParms()
         self._prev_mp_enhanced = MbeParms()
+        cur_mp = self._cur_mp
+        prev_mp = self._prev_mp
+        prev_mp_enhanced = self._prev_mp_enhanced
 
         # Initialize parameters
-        self._lib.mbe_initMbeParms(
-            ctypes.byref(self._cur_mp),
-            ctypes.byref(self._prev_mp),
-            ctypes.byref(self._prev_mp_enhanced),
+        lib.mbe_initMbeParms(
+            ctypes.byref(cur_mp),
+            ctypes.byref(prev_mp),
+            ctypes.byref(prev_mp_enhanced),
         )
 
         # Allocate audio buffer (160 samples at 8kHz = 20ms)
@@ -355,7 +360,8 @@ class IMBEDecoderNeo:
         self.total_errors = 0
         self.running = True
 
-        version = self._lib.mbe_versionString().decode("utf-8")
+        version_bytes = cast(bytes, self._lib.mbe_versionString())
+        version = version_bytes.decode("utf-8")
         logger.info(f"IMBEDecoderNeo started (mbelib-neo {version}, output_rate={self.output_rate})")
 
     def stop(self) -> None:
@@ -403,26 +409,48 @@ class IMBEDecoderNeo:
             self.frames_errored += 1
             return None
 
+        lib = self._lib
+        audio_buf = self._audio_buf
+        audio_buf_ptr = self._audio_buf_ptr
+        imbe_frame = self._imbe_frame
+        imbe_data = self._imbe_data
+        cur_mp = self._cur_mp
+        prev_mp = self._prev_mp
+        prev_mp_enhanced = self._prev_mp_enhanced
+        err_str = self._err_str
+        if (
+            lib is None
+            or audio_buf is None
+            or audio_buf_ptr is None
+            or imbe_frame is None
+            or imbe_data is None
+            or cur_mp is None
+            or prev_mp is None
+            or prev_mp_enhanced is None
+            or err_str is None
+        ):
+            return None
+
         # Copy bits to ctypes buffer
         for row in range(8):
             for col in range(23):
                 bit_idx = row * 23 + col
                 if bit_idx < len(frame_bits):
-                    self._imbe_frame[row][col] = bytes([frame_bits[bit_idx]])
+                    imbe_frame[row][col] = bytes([frame_bits[bit_idx]])
                 else:
-                    self._imbe_frame[row][col] = b'\x00'
+                    imbe_frame[row][col] = b"\x00"
 
         # Decode frame
-        self._lib.mbe_processImbe7200x4400Framef(
-            self._audio_buf_ptr,
+        lib.mbe_processImbe7200x4400Framef(
+            audio_buf_ptr,
             ctypes.byref(self._errs),
             ctypes.byref(self._errs2),
-            self._err_str,
-            self._imbe_frame,
-            self._imbe_data,
-            ctypes.byref(self._cur_mp),
-            ctypes.byref(self._prev_mp),
-            ctypes.byref(self._prev_mp_enhanced),
+            err_str,
+            imbe_frame,
+            imbe_data,
+            ctypes.byref(cur_mp),
+            ctypes.byref(prev_mp),
+            ctypes.byref(prev_mp_enhanced),
             self.uvquality,
         )
 
@@ -431,13 +459,13 @@ class IMBEDecoderNeo:
         self.total_errors += self._errs.value + self._errs2.value
 
         # Check if frame should be muted
-        if self._lib.mbe_requiresMuting(ctypes.byref(self._cur_mp)):
+        if lib.mbe_requiresMuting(ctypes.byref(cur_mp)):
             self.frames_errored += 1
             # Return comfort noise instead of silence
-            self._lib.mbe_synthesizeComfortNoisef(self._audio_buf_ptr)
+            lib.mbe_synthesizeComfortNoisef(audio_buf_ptr)
 
         # Get audio (already in self._audio_buf)
-        audio = self._audio_buf.copy()
+        audio = np.asarray(audio_buf.copy(), dtype=np.float32)
 
         # Normalize to [-1, 1] range (mbelib outputs ~[-8000, 8000])
         audio = audio / 8000.0
@@ -485,11 +513,11 @@ class IMBEDecoderNeo:
 
     def decode_silence(self) -> np.ndarray:
         """Generate a frame of silence."""
-        if not self.running or self._lib is None:
+        if not self.running or self._lib is None or self._audio_buf is None or self._audio_buf_ptr is None:
             return np.zeros(int(SAMPLES_PER_FRAME * self._resample_ratio), dtype=np.float32)
 
         self._lib.mbe_synthesizeSilencef(self._audio_buf_ptr)
-        audio = self._audio_buf.copy() / 8000.0
+        audio = np.asarray(self._audio_buf.copy(), dtype=np.float32) / 8000.0
 
         if self._resample_ratio != 1.0:
             from scipy import signal

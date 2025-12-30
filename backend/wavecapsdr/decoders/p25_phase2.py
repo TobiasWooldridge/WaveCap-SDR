@@ -166,7 +166,7 @@ class P25P2SyncDetector:
     DIBIT_TO_SYMBOL = np.array([1.0, 3.0, -1.0, -3.0], dtype=np.float32)
     SYNC_PATTERN_SYMBOLS = DIBIT_TO_SYMBOL[P25_PHASE2_SYNC_DIBITS]
 
-    def __init__(self, threshold: int = 4):
+    def __init__(self, threshold: int = 4) -> None:
         """Initialize sync detector.
 
         Args:
@@ -179,7 +179,7 @@ class P25P2SyncDetector:
         self._pointer = 0
         self._dibits_processed = 0
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset detector state."""
         self._dibits.fill(0)
         self._pointer = 0
@@ -219,13 +219,13 @@ class P25P2SyncDetector:
 class DibitDelayBuffer:
     """Circular delay buffer for dibits."""
 
-    def __init__(self, size: int):
+    def __init__(self, size: int) -> None:
         self._buffer = np.zeros(size, dtype=np.uint8)
         self._size = size
         self._pointer = 0
         self._filled = False
 
-    def put(self, dibit: int):
+    def put(self, dibit: int) -> None:
         """Add a dibit to the buffer."""
         self._buffer[self._pointer] = dibit & 0x3
         self._pointer = (self._pointer + 1) % self._size
@@ -289,7 +289,7 @@ class P25P2SuperFrameDetector:
     # Sync loss broadcast interval (dibits per second at 6000 baud)
     SYNC_LOSS_INTERVAL = 3720
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Fragment buffer (oversized for alignment)
         buffer_size = self.FRAGMENT_LENGTH + 2 * self.BUFFER_OVERSIZE
         self._fragment_buffer = DibitDelayBuffer(buffer_size)
@@ -311,15 +311,15 @@ class P25P2SuperFrameDetector:
         # Timestamp tracking
         self._reference_timestamp = 0
 
-    def set_fragment_listener(self, listener: Callable[[P25P2SuperFrameFragment], None]):
+    def set_fragment_listener(self, listener: Callable[[P25P2SuperFrameFragment], None]) -> None:
         """Set callback for assembled SuperFrame fragments."""
         self._fragment_listener = listener
 
-    def set_sync_listener(self, listener: Callable[[bool, int], None]):
+    def set_sync_listener(self, listener: Callable[[bool, int], None]) -> None:
         """Set callback for sync status changes."""
         self._sync_listener = listener
 
-    def set_timestamp(self, timestamp: int):
+    def set_timestamp(self, timestamp: int) -> None:
         """Set reference timestamp."""
         self._reference_timestamp = timestamp
 
@@ -329,7 +329,7 @@ class P25P2SuperFrameDetector:
             return self._reference_timestamp + int(1000.0 * self._dibits_processed / 6000)
         return 0
 
-    def process(self, dibit: int):
+    def process(self, dibit: int) -> None:
         """Process one dibit through the SuperFrame detector."""
         self._dibits_processed += 1
 
@@ -356,14 +356,14 @@ class P25P2SuperFrameDetector:
             if self._sync_listener:
                 self._sync_listener(False, 3000)
 
-    def _on_sync_detected(self, bit_errors: int):
+    def _on_sync_detected(self, bit_errors: int) -> None:
         """Handle sync pattern detection."""
         self._check_fragment_sync(bit_errors)
 
         if self._sync_listener:
             self._sync_listener(True, bit_errors)
 
-    def _check_fragment_sync(self, sync_detector_errors: int):
+    def _check_fragment_sync(self, sync_detector_errors: int) -> None:
         """Check and broadcast SuperFrame fragment."""
         if self._dibits_processed <= 0:
             return
@@ -400,7 +400,7 @@ class P25P2SuperFrameDetector:
         dibits = self._fragment_buffer.get_buffer(position, 20)
         return P25P2SyncPattern.get_bit_error_count(dibits)
 
-    def _broadcast_fragment(self, bit_errors: int, offset: int):
+    def _broadcast_fragment(self, bit_errors: int, offset: int) -> None:
         """Broadcast a complete SuperFrame fragment."""
         self._dibits_processed = offset
 
@@ -422,7 +422,7 @@ class P25P2SuperFrameDetector:
             except Exception as e:
                 logger.error(f"Error in fragment listener: {e}")
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset detector to initial state."""
         self._dibits_processed = 0
         self._synchronized = False
@@ -437,7 +437,7 @@ class P25P2Decoder:
     and outputs individual timeslot data.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._superframe_detector = P25P2SuperFrameDetector()
         self._superframe_detector.set_fragment_listener(self._on_fragment)
 
@@ -447,7 +447,9 @@ class P25P2Decoder:
         # Callbacks
         self.on_timeslot: Callable[[P25P2Timeslot], None] | None = None
 
-    def process_dibits(self, dibits: np.ndarray, soft_symbols: np.ndarray | None = None):
+    def process_dibits(
+        self, dibits: np.ndarray, soft_symbols: np.ndarray | None = None
+    ) -> list[P25P2Timeslot]:
         """Process demodulated dibits.
 
         Args:
@@ -462,7 +464,7 @@ class P25P2Decoder:
 
         return self._timeslots.copy()
 
-    def _on_fragment(self, fragment: P25P2SuperFrameFragment):
+    def _on_fragment(self, fragment: P25P2SuperFrameFragment) -> None:
         """Handle complete SuperFrame fragment."""
         # Extract 4 timeslots from fragment
         for i in range(4):
@@ -485,7 +487,7 @@ class P25P2Decoder:
             if self.on_timeslot:
                 self.on_timeslot(timeslot)
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset decoder state."""
         self._superframe_detector.reset()
         self._timeslots.clear()

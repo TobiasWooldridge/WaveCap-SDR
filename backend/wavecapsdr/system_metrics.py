@@ -133,7 +133,7 @@ def get_capture_metrics(state: AppState) -> list[CaptureMetrics]:
     metrics: list[CaptureMetrics] = []
     for cap in state.captures.list_captures():
         # Get performance stats
-        perf = cap.get_performance_stats()
+        perf = cap.get_perf_stats()
 
         # Get channel stats
         total_subscribers = 0

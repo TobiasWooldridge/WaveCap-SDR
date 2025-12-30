@@ -14,7 +14,7 @@ than pure Python) or pure Python as last resort.
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Any, Callable, TypeVar, cast
 
 import numpy as np
 
@@ -25,17 +25,23 @@ try:
 except ImportError:
     SCIPY_AVAILABLE = False
 
+F = TypeVar("F", bound=Callable[..., Any])
+
+def _fallback_jit(*args: Any, **kwargs: Any) -> Callable[[F], F]:
+    """No-op decorator when numba is not available."""
+    def decorator(func: F) -> F:
+        return func
+    return decorator
+
 # Try to import numba for JIT compilation (fallback when scipy unavailable)
 try:
-    from numba import jit
+    from numba import jit as _numba_jit
     NUMBA_AVAILABLE = True
 except ImportError:
+    _numba_jit = cast(Callable[..., Any], _fallback_jit)
     NUMBA_AVAILABLE = False
-    def jit(*args, **kwargs):  # type: ignore
-        """No-op decorator when numba is not available."""
-        def decorator(func):  # type: ignore
-            return func
-        return decorator
+
+jit = _numba_jit
 
 # Soft clipping constants
 _SOFT_CLIP_K = np.float32(1.5)  # Knee factor for tanh soft clipping

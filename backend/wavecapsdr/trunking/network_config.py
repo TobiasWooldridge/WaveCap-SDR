@@ -68,7 +68,7 @@ class SiteStatus:
     service_class: int  # Service class flags
     last_update: float = 0.0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.last_update == 0.0:
             self.last_update = time.time()
 
@@ -99,7 +99,7 @@ class NetworkStatus:
     channel: int  # Network control channel
     last_update: float = 0.0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.last_update == 0.0:
             self.last_update = time.time()
 
@@ -124,7 +124,7 @@ class AdjacentSite:
     service_class: int
     last_update: float = 0.0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.last_update == 0.0:
             self.last_update = time.time()
 
@@ -159,7 +159,7 @@ class SystemServices:
     REGISTRATION = 0x100000
     AUTHENTICATION = 0x080000
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.last_update == 0.0:
             self.last_update = time.time()
 

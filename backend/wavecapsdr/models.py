@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -492,7 +492,7 @@ class ClassifiedChannelModel(BaseModel):
 class ClassifiedChannelsResponse(BaseModel):
     """Response for channel classification endpoint."""
     channels: list[ClassifiedChannelModel]
-    status: dict  # elapsed_seconds, sample_count, is_ready, remaining_seconds
+    status: dict[str, Any]  # elapsed_seconds, sample_count, is_ready, remaining_seconds
 
 
 class ExtendedMetricsModel(BaseModel):

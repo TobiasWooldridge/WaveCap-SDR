@@ -4,8 +4,9 @@ import logging
 import logging.handlers
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Callable, cast
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -158,7 +159,8 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
     # Configure rate limiting
     limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
     app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    rate_limit_handler = cast(Callable[[Request, Exception], Response], _rate_limit_exceeded_handler)
+    app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 
     app.state.app_state = AppState.from_config(config, config_path)
 

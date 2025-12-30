@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Coroutine
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, TypeVar, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -45,7 +46,7 @@ class MCPTool:
     name: str
     description: str
     input_schema: MCPToolInput
-    handler: Callable[[AppState, dict[str, Any]], Coroutine[Any, Any, Any]]
+    handler: "ToolHandler"
 
 
 class MCPRequest(BaseModel):
@@ -70,18 +71,19 @@ class MCPToolCallParams(BaseModel):
 
 TOOLS: dict[str, MCPTool] = {}
 
+ToolHandler = Callable[["AppState", dict[str, Any]], Coroutine[Any, Any, Any]]
+F = TypeVar("F", bound=ToolHandler)
+
 
 def register_tool(
     name: str,
     description: str,
     properties: dict[str, Any] | None = None,
     required: list[str] | None = None,
-):
+) -> Callable[[F], F]:
     """Decorator to register an MCP tool handler."""
 
-    def decorator(
-        func: Callable[[AppState, dict[str, Any]], Coroutine[Any, Any, Any]]
-    ) -> Callable[[AppState, dict[str, Any]], Coroutine[Any, Any, Any]]:
+    def decorator(func: F) -> F:
         TOOLS[name] = MCPTool(
             name=name,
             description=description,
@@ -111,13 +113,11 @@ async def list_devices(state: AppState, args: dict[str, Any]) -> dict[str, Any]:
     return {
         "devices": [
             {
-                "id": d.device_id,
-                "name": state.config.device_names.get(d.device_id, d.label),
+                "id": d.id,
+                "name": state.config.device_names.get(d.id, d.label),
                 "label": d.label,
                 "driver": d.driver,
-                "freq_range": {"min": d.freq_range[0], "max": d.freq_range[1]}
-                if d.freq_range
-                else None,
+                "freq_range": {"min": d.freq_min_hz, "max": d.freq_max_hz},
                 "sample_rates": d.sample_rates,
                 "gains": d.gains,
                 "antennas": d.antennas,
@@ -134,7 +134,7 @@ async def list_devices(state: AppState, args: dict[str, Any]) -> dict[str, Any]:
 async def refresh_devices(state: AppState, args: dict[str, Any]) -> dict[str, Any]:
     """Refresh device list."""
     # The driver re-enumerates on each call
-    devices = state.driver.enumerate()
+    devices = list(state.driver.enumerate())
     return {"message": f"Found {len(devices)} device(s)", "count": len(devices)}
 
 
@@ -144,10 +144,22 @@ async def refresh_devices(state: AppState, args: dict[str, Any]) -> dict[str, An
 )
 async def get_device_health(state: AppState, args: dict[str, Any]) -> dict[str, Any]:
     """Check SDRplay service health."""
-    from wavecapsdr.sdrplay_recovery import check_sdrplay_service_health
+    from wavecapsdr.sdrplay_recovery import get_recovery
 
-    health = check_sdrplay_service_health()
-    return {"sdrplay": health}
+    recovery = get_recovery()
+    stats = recovery.stats
+    return {
+        "sdrplay": {
+            "enabled": recovery.enabled,
+            "cooldown_seconds": recovery.cooldown_seconds,
+            "max_restarts_per_hour": recovery.max_restarts_per_hour,
+            "recovery_count": stats.recovery_count,
+            "recovery_failures": stats.recovery_failures,
+            "last_recovery_attempt": stats.last_recovery_attempt,
+            "last_recovery_success": stats.last_recovery_success,
+            "last_error": stats.last_error,
+        }
+    }
 
 
 # -----------------------------------------------------------------------------
@@ -165,14 +177,14 @@ async def list_captures(state: AppState, args: dict[str, Any]) -> dict[str, Any]
     return {
         "captures": [
             {
-                "id": c.id,
-                "state": c.state.value,
-                "device_id": c.device_id,
-                "center_hz": c.center_hz,
-                "sample_rate": c.sample_rate,
-                "gain": c.gain,
-                "bandwidth": c.bandwidth,
-                "channel_count": len(c.channels),
+                "id": c.cfg.id,
+                "state": c.state,
+                "device_id": c.cfg.device_id,
+                "center_hz": c.cfg.center_hz,
+                "sample_rate": c.cfg.sample_rate,
+                "gain": c.cfg.gain,
+                "bandwidth": c.cfg.bandwidth,
+                "channel_count": len(state.captures.list_channels(c.cfg.id)),
             }
             for c in captures
         ]
@@ -212,34 +224,26 @@ async def list_captures(state: AppState, args: dict[str, Any]) -> dict[str, Any]
 )
 async def create_capture(state: AppState, args: dict[str, Any]) -> dict[str, Any]:
     """Create a new capture."""
-    from wavecapsdr.capture import Capture
-
-    # Get device
     device_id = args.get("device_id")
-    if device_id:
-        device = state.driver.open(device_id)
-    else:
-        devices = state.driver.enumerate()
+    if device_id is None:
+        devices = list(state.driver.enumerate())
         if not devices:
             raise ValueError("No SDR devices available")
-        device = state.driver.open(devices[0].device_id)
+        device_id = devices[0].id
 
-    # Create capture
-    capture = Capture(
-        device=device,
+    capture = state.captures.create_capture(
+        device_id=device_id,
         center_hz=args["center_hz"],
         sample_rate=args["sample_rate"],
         gain=args.get("gain"),
         bandwidth=args.get("bandwidth"),
     )
 
-    state.captures.add_capture(capture)
-
     return {
-        "id": capture.id,
-        "state": capture.state.value,
-        "center_hz": capture.center_hz,
-        "sample_rate": capture.sample_rate,
+        "id": capture.cfg.id,
+        "state": capture.state,
+        "center_hz": capture.cfg.center_hz,
+        "sample_rate": capture.cfg.sample_rate,
     }
 
 
@@ -258,22 +262,22 @@ async def get_capture(state: AppState, args: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"Capture not found: {args['capture_id']}")
 
     return {
-        "id": capture.id,
-        "state": capture.state.value,
-        "device_id": capture.device_id,
-        "center_hz": capture.center_hz,
-        "sample_rate": capture.sample_rate,
-        "gain": capture.gain,
-        "bandwidth": capture.bandwidth,
+        "id": capture.cfg.id,
+        "state": capture.state,
+        "device_id": capture.cfg.device_id,
+        "center_hz": capture.cfg.center_hz,
+        "sample_rate": capture.cfg.sample_rate,
+        "gain": capture.cfg.gain,
+        "bandwidth": capture.cfg.bandwidth,
         "channels": [
             {
-                "id": ch.id,
-                "name": ch.name,
-                "offset_hz": ch.offset_hz,
-                "mode": ch.mode,
-                "state": ch.state.value,
+                "id": ch.cfg.id,
+                "name": ch.cfg.name,
+                "offset_hz": ch.cfg.offset_hz,
+                "mode": ch.cfg.mode,
+                "state": ch.state,
             }
-            for ch in capture.channels.values()
+            for ch in state.captures.list_channels(capture.cfg.id)
         ],
     }
 
@@ -293,7 +297,7 @@ async def start_capture(state: AppState, args: dict[str, Any]) -> dict[str, Any]
         raise ValueError(f"Capture not found: {args['capture_id']}")
 
     capture.start()
-    return {"id": capture.id, "state": capture.state.value}
+    return {"id": capture.cfg.id, "state": capture.state}
 
 
 @register_tool(
@@ -310,8 +314,8 @@ async def stop_capture(state: AppState, args: dict[str, Any]) -> dict[str, Any]:
     if not capture:
         raise ValueError(f"Capture not found: {args['capture_id']}")
 
-    capture.stop()
-    return {"id": capture.id, "state": capture.state.value}
+    await capture.stop()
+    return {"id": capture.cfg.id, "state": capture.state}
 
 
 @register_tool(
@@ -331,18 +335,17 @@ async def update_capture(state: AppState, args: dict[str, Any]) -> dict[str, Any
     if not capture:
         raise ValueError(f"Capture not found: {args['capture_id']}")
 
-    if "center_hz" in args:
-        capture.set_center_hz(args["center_hz"])
-    if "gain" in args:
-        capture.set_gain(args["gain"])
-    if "bandwidth" in args:
-        capture.set_bandwidth(args["bandwidth"])
+    await capture.reconfigure(
+        center_hz=args.get("center_hz"),
+        gain=args.get("gain"),
+        bandwidth=args.get("bandwidth"),
+    )
 
     return {
-        "id": capture.id,
-        "center_hz": capture.center_hz,
-        "gain": capture.gain,
-        "bandwidth": capture.bandwidth,
+        "id": capture.cfg.id,
+        "center_hz": capture.cfg.center_hz,
+        "gain": capture.cfg.gain,
+        "bandwidth": capture.cfg.bandwidth,
     }
 
 
@@ -368,15 +371,15 @@ async def list_channels(state: AppState, args: dict[str, Any]) -> dict[str, Any]
     return {
         "channels": [
             {
-                "id": ch.id,
-                "name": ch.name,
-                "offset_hz": ch.offset_hz,
-                "mode": ch.mode,
-                "squelch_db": ch.squelch_db,
-                "state": ch.state.value,
-                "frequency_hz": capture.center_hz + ch.offset_hz,
+                "id": ch.cfg.id,
+                "name": ch.cfg.name,
+                "offset_hz": ch.cfg.offset_hz,
+                "mode": ch.cfg.mode,
+                "squelch_db": ch.cfg.squelch_db,
+                "state": ch.state,
+                "frequency_hz": capture.cfg.center_hz + ch.cfg.offset_hz,
             }
-            for ch in capture.channels.values()
+            for ch in state.captures.list_channels(capture.cfg.id)
         ]
     }
 
@@ -408,19 +411,21 @@ async def create_channel(state: AppState, args: dict[str, Any]) -> dict[str, Any
     if not capture:
         raise ValueError(f"Capture not found: {args['capture_id']}")
 
-    channel = capture.add_channel(
-        offset_hz=args["offset_hz"],
+    channel = state.captures.create_channel(
+        cid=capture.cfg.id,
         mode=args["mode"],
-        name=args.get("name"),
+        offset_hz=args["offset_hz"],
         squelch_db=args.get("squelch_db", -60),
     )
+    if "name" in args:
+        channel.cfg.name = args["name"]
 
     return {
-        "id": channel.id,
-        "name": channel.name,
-        "offset_hz": channel.offset_hz,
-        "mode": channel.mode,
-        "frequency_hz": capture.center_hz + channel.offset_hz,
+        "id": channel.cfg.id,
+        "name": channel.cfg.name,
+        "offset_hz": channel.cfg.offset_hz,
+        "mode": channel.cfg.mode,
+        "frequency_hz": capture.cfg.center_hz + channel.cfg.offset_hz,
     }
 
 
@@ -442,17 +447,17 @@ async def update_channel(state: AppState, args: dict[str, Any]) -> dict[str, Any
         raise ValueError(f"Channel not found: {args['channel_id']}")
 
     if "squelch_db" in args:
-        channel.set_squelch_db(args["squelch_db"])
+        channel.cfg.squelch_db = args["squelch_db"]
     if "name" in args:
-        channel.name = args["name"]
+        channel.cfg.name = args["name"]
     if "offset_hz" in args:
-        channel.set_offset_hz(args["offset_hz"])
+        channel.cfg.offset_hz = args["offset_hz"]
 
     return {
-        "id": channel.id,
-        "name": channel.name,
-        "squelch_db": channel.squelch_db,
-        "offset_hz": channel.offset_hz,
+        "id": channel.cfg.id,
+        "name": channel.cfg.name,
+        "squelch_db": channel.cfg.squelch_db,
+        "offset_hz": channel.cfg.offset_hz,
     }
 
 
@@ -470,9 +475,7 @@ async def delete_channel(state: AppState, args: dict[str, Any]) -> dict[str, Any
     if not channel:
         raise ValueError(f"Channel not found: {args['channel_id']}")
 
-    capture = state.captures.get_capture_for_channel(args["channel_id"])
-    if capture:
-        capture.remove_channel(args["channel_id"])
+    state.captures.delete_channel(args["channel_id"])
 
     return {"deleted": args["channel_id"]}
 
@@ -491,13 +494,12 @@ async def get_channel_metrics(state: AppState, args: dict[str, Any]) -> dict[str
     if not channel:
         raise ValueError(f"Channel not found: {args['channel_id']}")
 
-    metrics = channel.get_extended_metrics()
     return {
         "channel_id": args["channel_id"],
-        "rssi_dbfs": metrics.get("rssi_dbfs"),
-        "snr_db": metrics.get("snr_db"),
-        "s_meter": metrics.get("s_meter"),
-        "noise_floor_dbfs": metrics.get("noise_floor_dbfs"),
+        "rssi_dbfs": channel.rssi_db,
+        "snr_db": channel.snr_db,
+        "s_meter": None,
+        "noise_floor_dbfs": None,
     }
 
 
@@ -516,17 +518,7 @@ async def list_trunking_systems(
     """List trunking systems."""
     systems = state.trunking_manager.list_systems()
     return {
-        "systems": [
-            {
-                "id": s.id,
-                "name": s.name,
-                "state": s.state,
-                "protocol": s.protocol,
-                "nac": s.nac,
-                "active_calls": s.active_calls,
-            }
-            for s in systems
-        ]
+        "systems": [s.to_dict() for s in systems]
     }
 
 
@@ -542,7 +534,7 @@ async def start_trunking(state: AppState, args: dict[str, Any]) -> dict[str, Any
     """Start a trunking system."""
     await state.trunking_manager.start_system(args["system_id"])
     system = state.trunking_manager.get_system(args["system_id"])
-    return {"id": args["system_id"], "state": system.state if system else "unknown"}
+    return {"id": args["system_id"], "state": system.state.value if system else "unknown"}
 
 
 @register_tool(
@@ -557,7 +549,7 @@ async def stop_trunking(state: AppState, args: dict[str, Any]) -> dict[str, Any]
     """Stop a trunking system."""
     await state.trunking_manager.stop_system(args["system_id"])
     system = state.trunking_manager.get_system(args["system_id"])
-    return {"id": args["system_id"], "state": system.state if system else "unknown"}
+    return {"id": args["system_id"], "state": system.state.value if system else "unknown"}
 
 
 @register_tool(
@@ -604,16 +596,19 @@ async def get_talkgroups(state: AppState, args: dict[str, Any]) -> dict[str, Any
     if not system:
         raise ValueError(f"Trunking system not found: {args['system_id']}")
 
-    talkgroups = system.get_talkgroups()
+    talkgroups = system.cfg.talkgroups
     return {
         "talkgroups": [
             {
-                "id": tg.id,
+                "tgid": tg.tgid,
                 "name": tg.name,
+                "alpha_tag": tg.alpha_tag,
                 "category": tg.category,
-                "encrypted": tg.encrypted,
+                "priority": tg.priority,
+                "record": tg.record,
+                "monitor": tg.monitor,
             }
-            for tg in talkgroups
+            for tg in talkgroups.values()
         ]
     }
 
@@ -658,17 +653,17 @@ async def get_recipes(state: AppState, args: dict[str, Any]) -> dict[str, Any]:
 )
 async def identify_frequency(state: AppState, args: dict[str, Any]) -> dict[str, Any]:
     """Identify a frequency."""
-    from wavecapsdr.frequency_db import identify_frequency as lookup_freq
+    from wavecapsdr.frequency_namer import get_frequency_namer
 
     freq_hz = args["frequency_hz"]
-    result = lookup_freq(freq_hz)
+    result = get_frequency_namer().identify_frequency(freq_hz)
 
     return {
         "frequency_hz": freq_hz,
         "frequency_mhz": freq_hz / 1_000_000,
-        "service": result.get("service") if result else None,
-        "description": result.get("description") if result else None,
-        "band": result.get("band") if result else None,
+        "service": result.service_type if result else None,
+        "description": result.description if result else None,
+        "band": result.band_name if result else None,
     }
 
 
@@ -679,12 +674,12 @@ async def identify_frequency(state: AppState, args: dict[str, Any]) -> dict[str,
 async def get_system_health(state: AppState, args: dict[str, Any]) -> dict[str, Any]:
     """Get system health."""
     captures = state.captures.list_captures()
-    devices = state.driver.enumerate()
+    devices = list(state.driver.enumerate())
 
     return {
         "status": "ok",
         "devices_available": len(devices),
-        "captures_active": len([c for c in captures if c.state.value == "running"]),
+        "captures_active": len([c for c in captures if c.state == "running"]),
         "captures_total": len(captures),
         "trunking_systems": len(state.trunking_manager.list_systems()),
     }
@@ -697,7 +692,7 @@ async def get_system_health(state: AppState, args: dict[str, Any]) -> dict[str, 
 
 def get_app_state(request: Request) -> AppState:
     """Dependency to get AppState from request."""
-    return request.app.state.app_state
+    return cast(AppState, request.app.state.app_state)
 
 
 def check_mcp_auth(
@@ -705,7 +700,7 @@ def check_mcp_auth(
     x_mcp_api_key: str | None = Header(None, alias="X-MCP-API-Key"),
 ) -> None:
     """Check MCP API key authentication."""
-    state: AppState = request.app.state.app_state
+    state = cast(AppState, request.app.state.app_state)
 
     if not state.config.mcp.enabled:
         raise HTTPException(status_code=404, detail="MCP endpoint not enabled")
@@ -822,7 +817,7 @@ async def mcp_sse_endpoint(
     The client sends requests via the /message endpoint and receives responses here.
     """
 
-    async def event_generator():
+    async def event_generator() -> AsyncGenerator[str, None]:
         # Send initial connection event
         yield f"event: open\ndata: {json.dumps({'status': 'connected'})}\n\n"
 

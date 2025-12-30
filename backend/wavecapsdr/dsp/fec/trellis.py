@@ -105,7 +105,7 @@ class TrellisDecoder:
     NUM_STATES = 4
     TRACEBACK_DEPTH = 12  # Number of symbols before making decision
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize trellis decoder."""
         self.reset()
 
@@ -294,7 +294,7 @@ def trellis_encode(dibits: np.ndarray) -> np.ndarray:
         Encoded dibits (2x input length)
     """
     state = 0
-    output = []
+    output: list[int] = []
 
     for dibit in dibits:
         dibit = int(dibit) & 0x3
@@ -349,7 +349,7 @@ def trellis_interleave(dibits: np.ndarray, block_size: int = 98) -> np.ndarray:
     matrix = padded.reshape(rows, block_size)
     interleaved = matrix.T.flatten()
 
-    return interleaved[: len(dibits)]
+    return np.asarray(interleaved[: len(dibits)], dtype=np.uint8)
 
 
 def trellis_deinterleave(dibits: np.ndarray, block_size: int = 98) -> np.ndarray:
@@ -372,7 +372,7 @@ def trellis_deinterleave(dibits: np.ndarray, block_size: int = 98) -> np.ndarray
     matrix = padded.reshape(block_size, rows)
     deinterleaved = matrix.T.flatten()
 
-    return deinterleaved[: len(dibits)]
+    return np.asarray(deinterleaved[: len(dibits)], dtype=np.uint8)
 
 
 # =============================================================================
@@ -424,7 +424,7 @@ class TrellisDecoder34:
     NUM_STATES = 8
     MAX_METRIC = 99999
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize 3/4 rate trellis decoder."""
         pass
 
@@ -449,7 +449,7 @@ class TrellisDecoder34:
             logger.info(f"Trellis34 decode: {n_symbols} symbols, first 20: {sym_str}")
 
         # Initialize paths - all start with infinite metric except state 0
-        paths = [
+        paths: list[TrellisPath34 | None] = [
             TrellisPath34(state=i, metric=0 if i == 0 else self.MAX_METRIC, input_values=[])
             for i in range(self.NUM_STATES)
         ]
@@ -457,7 +457,7 @@ class TrellisDecoder34:
         # Process symbols 0 to n-2 with normal add (all inputs allowed)
         for sym_idx in range(n_symbols - 1):
             received_sym = int(symbols[sym_idx]) & 0xF  # Ensure 4-bit nibble
-            new_paths = [None] * self.NUM_STATES
+            new_paths: list[TrellisPath34 | None] = [None] * self.NUM_STATES
 
             # For each possible next state, find best predecessor
             for next_state in range(self.NUM_STATES):
@@ -467,7 +467,8 @@ class TrellisDecoder34:
 
                 # Check all possible transitions to this next_state
                 for prev_state in range(self.NUM_STATES):
-                    if paths[prev_state] is None or paths[prev_state].metric >= self.MAX_METRIC:
+                    prev_path = paths[prev_state]
+                    if prev_path is None or prev_path.metric >= self.MAX_METRIC:
                         continue
 
                     # For 3/4 rate, next state = input tribit
@@ -481,7 +482,7 @@ class TrellisDecoder34:
                     branch_metric = int(HAMMING_WEIGHT[error_mask])
 
                     # Total path metric
-                    path_metric = paths[prev_state].metric + branch_metric
+                    path_metric = prev_path.metric + branch_metric
 
                     if path_metric < best_metric:
                         best_metric = path_metric
@@ -491,6 +492,8 @@ class TrellisDecoder34:
                 # Create new path for this state
                 if best_metric < self.MAX_METRIC:
                     prev_path = paths[best_prev_state]
+                    if prev_path is None:
+                        continue
                     new_paths[next_state] = TrellisPath34(
                         state=next_state,
                         metric=best_metric,
@@ -512,7 +515,8 @@ class TrellisDecoder34:
         best_metric = self.MAX_METRIC
 
         for prev_state in range(self.NUM_STATES):
-            if paths[prev_state] is None or paths[prev_state].metric >= self.MAX_METRIC:
+            prev_path = paths[prev_state]
+            if prev_path is None or prev_path.metric >= self.MAX_METRIC:
                 continue
 
             # Expected output for flushing transition (prev_state -> input 0)
@@ -523,22 +527,24 @@ class TrellisDecoder34:
             branch_metric = int(HAMMING_WEIGHT[error_mask])
 
             # Total path metric
-            path_metric = paths[prev_state].metric + branch_metric
+            path_metric = prev_path.metric + branch_metric
 
             if path_metric < best_metric:
                 best_metric = path_metric
                 best_path = TrellisPath34(
                     state=flush_input,
                     metric=path_metric,
-                    input_values=[*paths[prev_state].input_values, flush_input],
+                    input_values=[*prev_path.input_values, flush_input],
                 )
 
         # If flush didn't find a valid path, fallback to best survivor
         if best_path is None:
             best_path = paths[0]
+            assert best_path is not None
             for p in paths:
                 if p is not None and p.metric < best_path.metric:
                     best_path = p
+        assert best_path is not None
 
         # Extract decoded bits from input values (tribits → bits)
         # Each input tribit represents 3 bits

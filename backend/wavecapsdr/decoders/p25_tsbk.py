@@ -112,9 +112,9 @@ class ChannelIdentifier:
     Used to calculate actual frequencies from channel numbers.
     """
     identifier: int  # 4-bit channel ID
-    bw: int  # Bandwidth (kHz)
-    tx_offset: int  # TX offset (MHz)
-    channel_spacing: int  # Channel spacing (kHz)
+    bw: float  # Bandwidth (kHz)
+    tx_offset: float  # TX offset (MHz)
+    channel_spacing: float  # Channel spacing (kHz)
     base_freq: float  # Base frequency (MHz)
 
     def get_frequency(self, channel_number: int) -> float:

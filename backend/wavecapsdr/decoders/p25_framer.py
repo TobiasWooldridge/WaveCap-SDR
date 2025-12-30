@@ -136,7 +136,7 @@ class P25P1SoftSyncDetector:
     # +3 = dibit 1, -3 = dibit 3
     SYNC_PATTERN_SYMBOLS: np.ndarray = field(default_factory=lambda: np.zeros(24))
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Convert sync pattern to symbol phases
         self.SYNC_PATTERN_SYMBOLS = self._pattern_to_symbols()
 
@@ -157,7 +157,7 @@ class P25P1SoftSyncDetector:
 
         return symbols
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset detector state."""
         self._symbols.fill(0.0)
         self._pointer = 0
@@ -183,7 +183,7 @@ class P25P1SoftSyncDetector:
     def _calculate(self) -> float:
         """Calculate correlation score against sync pattern."""
         # Vectorized dot product instead of Python loop
-        return np.dot(self.SYNC_PATTERN_SYMBOLS, self._symbols[self._pointer:self._pointer + 24])
+        return float(np.dot(self.SYNC_PATTERN_SYMBOLS, self._symbols[self._pointer:self._pointer + 24]))
 
     def process_batch(self, soft_symbols: np.ndarray) -> np.ndarray:
         """
@@ -236,13 +236,13 @@ class P25P1MessageAssembler:
     Reference: SDRTrunk P25P1MessageAssembler.java
     """
 
-    def __init__(self, nac: int, duid: P25P1DataUnitID):
+    def __init__(self, nac: int, duid: P25P1DataUnitID) -> None:
         self.nac = nac
         self.duid = duid
         self._bits: list[int] = []
         self._target_length = duid.get_message_length()
 
-    def receive(self, dibit: int):
+    def receive(self, dibit: int) -> None:
         """Add a dibit (2 bits) to the message."""
         if len(self._bits) < self._target_length:
             self._bits.append((dibit >> 1) & 1)
@@ -261,12 +261,12 @@ class P25P1MessageAssembler:
         """Get current message size in bits."""
         return len(self._bits)
 
-    def reconfigure(self, duid: P25P1DataUnitID):
+    def reconfigure(self, duid: P25P1DataUnitID) -> None:
         """Reconfigure for continuation block assembly."""
         self.duid = duid
         self._target_length = duid.get_message_length()
 
-    def set_duid(self, duid: P25P1DataUnitID):
+    def set_duid(self, duid: P25P1DataUnitID) -> None:
         """Set DUID and update target length."""
         self.duid = duid
         self._target_length = duid.get_message_length()
@@ -314,12 +314,12 @@ class NACTracker:
     Reference: SDRTrunk NACTracker.java
     """
 
-    def __init__(self, min_observations: int = 3):
+    def __init__(self, min_observations: int = 3) -> None:
         self._observations: dict[int, int] = {}
         self._min_observations = min_observations
         self._tracked_nac: int | None = None
 
-    def track(self, nac: int):
+    def track(self, nac: int) -> None:
         """Record a NAC observation."""
         if 0x001 <= nac <= 0xFFE:  # Valid NAC range
             self._observations[nac] = self._observations.get(nac, 0) + 1
@@ -332,7 +332,7 @@ class NACTracker:
         """Get the most frequently observed NAC (0 if not enough data)."""
         return self._tracked_nac or 0
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset tracker state."""
         self._observations.clear()
         self._tracked_nac = None
@@ -366,7 +366,7 @@ class P25P1MessageFramer:
     DIBIT_LENGTH_NID = 33  # 32 dibits + 1 status
     SYNC_DETECTION_THRESHOLD = 60.0
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Sync detection
         self._soft_sync_detector = P25P1SoftSyncDetector()
         self._sync_detected = False
@@ -401,19 +401,19 @@ class P25P1MessageFramer:
         # Running state
         self._running = False
 
-    def start(self):
+    def start(self) -> None:
         """Start message dispatching."""
         self._running = True
 
-    def stop(self):
+    def stop(self) -> None:
         """Stop message dispatching."""
         self._running = False
 
-    def set_listener(self, listener: Callable[[P25P1Message], None]):
+    def set_listener(self, listener: Callable[[P25P1Message], None]) -> None:
         """Set callback for assembled messages."""
         self._message_listener = listener
 
-    def set_timestamp(self, timestamp: int):
+    def set_timestamp(self, timestamp: int) -> None:
         """Set reference timestamp for message timing."""
         self._reference_timestamp = timestamp
         self._dibit_since_timestamp = 0
@@ -497,7 +497,7 @@ class P25P1MessageFramer:
 
         return nid_count
 
-    def _sync_detected_callback(self):
+    def _sync_detected_callback(self) -> None:
         """Called when sync pattern is detected."""
         self._sync_detected = True
         self._nid_pointer = 0
@@ -607,7 +607,7 @@ class P25P1MessageFramer:
 
         return True
 
-    def _nid_detected(self, nac: int, duid: P25P1DataUnitID, bit_errors: int):
+    def _nid_detected(self, nac: int, duid: P25P1DataUnitID, bit_errors: int) -> None:
         """Handle validated NID detection."""
         self._detected_duid = duid
         self._detected_nac = nac
@@ -640,7 +640,7 @@ class P25P1MessageFramer:
         self._dibit_counter = 57
         self._status_symbol_counter = 21  # SDRTrunk value
 
-    def _dispatch_message(self):
+    def _dispatch_message(self) -> None:
         """Dispatch assembled message to listener."""
         if self._message_assembler is None:
             return
@@ -674,7 +674,7 @@ class P25P1MessageFramer:
         else:
             self._dispatch_other()
 
-    def _dispatch_other(self):
+    def _dispatch_other(self) -> None:
         """Dispatch non-TSBK/PDU message."""
         if self._message_assembler is None:
             return
@@ -690,7 +690,7 @@ class P25P1MessageFramer:
         self._broadcast(message)
         self._message_assembler = None
 
-    def _dispatch_tsbk(self):
+    def _dispatch_tsbk(self) -> None:
         """Dispatch TSBK message with multi-block handling."""
         if self._message_assembler is None:
             return
@@ -751,7 +751,7 @@ class P25P1MessageFramer:
                 self._broadcast(message)
             self._message_assembler = None
 
-    def _dispatch_pdu(self):
+    def _dispatch_pdu(self) -> None:
         """Dispatch PDU message with multi-block handling."""
         # Similar structure to TSBK but for PDU blocks
         if self._message_assembler is None:
@@ -767,7 +767,7 @@ class P25P1MessageFramer:
         self._broadcast(message)
         self._message_assembler = None
 
-    def _broadcast(self, message: P25P1Message):
+    def _broadcast(self, message: P25P1Message) -> None:
         """Send message to listener."""
         if self._running and self._message_listener is not None:
             try:
@@ -775,7 +775,7 @@ class P25P1MessageFramer:
             except Exception as e:
                 logger.error(f"Error in message listener: {e}")
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset framer to initial state."""
         self._soft_sync_detector.reset()
         self._sync_detected = False

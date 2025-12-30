@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
 
@@ -362,12 +362,8 @@ class LocationCache:
     Used to attach location metadata to voice calls.
     """
 
-    _locations: dict[int, RadioLocation] = None
+    _locations: dict[int, RadioLocation] = field(default_factory=dict)
     max_age_seconds: float = 300.0  # 5 minutes default
-
-    def __post_init__(self) -> None:
-        if self._locations is None:
-            self._locations = {}
 
     def update(self, location: RadioLocation) -> None:
         """Update or add a location for a radio unit."""

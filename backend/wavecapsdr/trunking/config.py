@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 
 def parse_frequency(value: str | int | float) -> float:
@@ -133,7 +133,10 @@ class ControlChannelConfig:
     name: str = ""
 
     @classmethod
-    def from_value(cls, value: str | int | float | dict) -> "ControlChannelConfig":
+    def from_value(
+        cls,
+        value: str | int | float | dict[str, Any],
+    ) -> "ControlChannelConfig":
         """Parse a control channel from various formats.
 
         Supports:
@@ -239,7 +242,8 @@ class TrunkingSystemConfig:
     def __post_init__(self) -> None:
         """Normalize control channel entries to ControlChannelConfig."""
         normalized: list[ControlChannelConfig] = []
-        for cc in self.control_channels:
+        raw_channels = cast(list[Any], self.control_channels)
+        for cc in raw_channels:
             if isinstance(cc, ControlChannelConfig):
                 normalized.append(cc)
             else:
@@ -251,10 +255,7 @@ class TrunkingSystemConfig:
         """Get list of control channel frequencies (Hz) for backward compatibility."""
         freqs: list[float] = []
         for cc in self.control_channels:
-            if isinstance(cc, ControlChannelConfig):
-                freqs.append(cc.frequency_hz)
-            else:
-                freqs.append(parse_frequency(cc))
+            freqs.append(cc.frequency_hz)
         return freqs
 
     def get_control_channel_name(self, frequency_hz: float) -> str:
@@ -291,7 +292,11 @@ class TrunkingSystemConfig:
         return 10  # Lowest priority for unknown
 
     @classmethod
-    def from_dict(cls, data: dict, config_dir: str | None = None) -> TrunkingSystemConfig:
+    def from_dict(
+        cls,
+        data: dict[str, Any],
+        config_dir: str | None = None,
+    ) -> TrunkingSystemConfig:
         """Create config from dictionary (e.g., from YAML).
 
         Args:
@@ -397,7 +402,7 @@ class TrunkingSystemConfig:
             channel_identifiers=channel_identifiers,
         )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary for serialization."""
         return {
             "id": self.id,

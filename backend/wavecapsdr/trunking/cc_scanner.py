@@ -16,7 +16,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -94,7 +94,7 @@ class ControlChannelScanner:
     _measurement_complete: asyncio.Event = field(default_factory=asyncio.Event)
 
     # P25 sync pattern for detection (48 bits as 24 dibits)
-    _sync_pattern: np.ndarray = field(default=None)
+    _sync_pattern: np.ndarray | None = None
 
     def __post_init__(self) -> None:
         """Initialize the scanner."""
@@ -289,7 +289,10 @@ class ControlChannelScanner:
         """
         # P25 at 4800 symbols/sec, 48000 samples/sec = 10 samples/symbol
         samples_per_symbol = 10
-        sync_len = len(self._sync_pattern)
+        sync_pattern = self._sync_pattern
+        if sync_pattern is None:
+            return False
+        sync_len = len(sync_pattern)
 
         if len(iq) < samples_per_symbol * sync_len + samples_per_symbol:
             return False
@@ -315,7 +318,7 @@ class ControlChannelScanner:
         # Sync pattern dibits: 1=+3, 3=-3 (only uses outer symbols)
         sync_waveform = np.array([
             expected_deviation if d == 1 else -expected_deviation
-            for d in self._sync_pattern
+            for d in sync_pattern
         ])
 
         # Use soft correlation: correlate FM demod output with expected waveform
@@ -490,7 +493,7 @@ class ControlChannelScanner:
 
         logger.info("-" * 60)
 
-    def get_stats(self) -> dict:
+    def get_stats(self) -> dict[str, Any]:
         """Get scanner statistics."""
         return {
             "channels_configured": len(self.control_channels),

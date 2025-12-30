@@ -73,8 +73,14 @@ class IMBEDecoderNative:
 
     # Threading
     _process_thread: threading.Thread | None = field(default=None, repr=False)
-    _input_queue: queue.Queue = field(default_factory=lambda: queue.Queue(maxsize=256), repr=False)
-    _output_queue: queue.Queue = field(default_factory=lambda: queue.Queue(maxsize=128), repr=False)
+    _input_queue: queue.Queue[np.ndarray | None] = field(
+        default_factory=lambda: queue.Queue(maxsize=256),
+        repr=False,
+    )
+    _output_queue: queue.Queue[np.ndarray] = field(
+        default_factory=lambda: queue.Queue(maxsize=128),
+        repr=False,
+    )
 
     # Callback for output audio
     on_audio: Callable[[np.ndarray], None] | None = field(default=None, repr=False)

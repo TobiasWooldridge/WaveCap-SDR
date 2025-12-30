@@ -459,7 +459,7 @@ def spectral_noise_reduction(
 
     # Return original length
     result_len = len(x) - (padded_length - len(x)) if padded_length > len(x) else len(x)
-    return cast(np.ndarray, output[:result_len].astype(np.float32))
+    return output[:result_len].astype(np.float32)
 
 
 # =============================================================================

@@ -25,7 +25,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from typing import Any
+from collections.abc import AsyncGenerator
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
@@ -40,7 +41,8 @@ from wavecapsdr.trunking import (
     TrunkingSystem,
     TrunkingSystemConfig,
 )
-from wavecapsdr.trunking.config import P25Modulation
+from wavecapsdr.trunking.config import ControlChannelConfig, P25Modulation
+from wavecapsdr.trunking.voice_channel import VoiceChannel
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +219,7 @@ def get_trunking_manager(request: Request) -> TrunkingManager:
     if manager is None:
         raise HTTPException(status_code=500, detail="TrunkingManager not initialized")
 
-    return manager
+    return cast(TrunkingManager, manager)
 
 
 def system_to_response(system: TrunkingSystem) -> SystemResponse:
@@ -298,13 +300,17 @@ async def create_system(request: Request, req: CreateSystemRequest) -> SystemRes
                 monitor=tg_req.monitor,
             )
 
+    control_channels = [
+        ControlChannelConfig(frequency_hz=freq) for freq in req.control_channels
+    ]
+
     # Create config
     config = TrunkingSystemConfig(
         id=req.id,
         name=req.name,
         protocol=protocol,
         modulation=modulation,
-        control_channels=req.control_channels,
+        control_channels=control_channels,
         center_hz=req.center_hz,
         sample_rate=req.sample_rate,
         device_id=req.device_id or "",
@@ -1000,7 +1006,7 @@ async def voice_stream_all(websocket: WebSocket, system_id: str) -> None:
     subscribed_queues: list[asyncio.Queue[bytes]] = []
     subscribed_channels: list[str] = []
 
-    async def subscribe_to_channel(voice_channel) -> None:
+    async def subscribe_to_channel(voice_channel: VoiceChannel) -> None:
         """Subscribe to a voice channel's audio stream."""
         queue = await voice_channel.subscribe_audio("json")
         subscribed_queues.append(queue)
@@ -1166,7 +1172,7 @@ async def voice_stream_pcm(request: Request, system_id: str, stream_id: str) -> 
     # Subscribe to raw PCM audio
     queue = await voice_channel.subscribe_audio("pcm16")
 
-    async def generate_pcm():
+    async def generate_pcm() -> AsyncGenerator[bytes, None]:
         """Generator that yields raw PCM bytes."""
         try:
             while True:

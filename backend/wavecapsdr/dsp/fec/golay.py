@@ -21,6 +21,7 @@ Reference: TIA-102.BAAA-A Annex A
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 
 import numpy as np
 
@@ -272,13 +273,13 @@ def golay_decode_soft(
     return -1, -1, 0.0
 
 
-def _combinations(items: np.ndarray, r: int):
+def _combinations(items: np.ndarray, r: int) -> Iterator[tuple[int, ...]]:
     """Generate r-combinations of items."""
     n = len(items)
     if r > n:
         return
     indices = list(range(r))
-    yield tuple(items[i] for i in indices)
+    yield tuple(int(items[i]) for i in indices)
     while True:
         for i in reversed(range(r)):
             if indices[i] != i + n - r:
@@ -288,4 +289,4 @@ def _combinations(items: np.ndarray, r: int):
         indices[i] += 1
         for j in range(i + 1, r):
             indices[j] = indices[j - 1] + 1
-        yield tuple(items[i] for i in indices)
+        yield tuple(int(items[i]) for i in indices)

@@ -50,14 +50,20 @@ class IMBEDecoderThreaded:
     input_rate: int = 48000
 
     # State
-    process: subprocess.Popen | None = field(default=None, repr=False)
+    process: subprocess.Popen[bytes] | None = field(default=None, repr=False)
     running: bool = False
     _write_thread: threading.Thread | None = field(default=None, repr=False)
     _read_thread: threading.Thread | None = field(default=None, repr=False)
 
     # Thread-safe queues
-    _input_queue: queue.Queue = field(default_factory=lambda: queue.Queue(maxsize=512), repr=False)
-    _output_queue: queue.Queue = field(default_factory=lambda: queue.Queue(maxsize=256), repr=False)
+    _input_queue: queue.Queue[np.ndarray | None] = field(
+        default_factory=lambda: queue.Queue(maxsize=512),
+        repr=False,
+    )
+    _output_queue: queue.Queue[np.ndarray] = field(
+        default_factory=lambda: queue.Queue(maxsize=256),
+        repr=False,
+    )
 
     # Callback for output audio (called from read thread)
     on_audio: Callable[[np.ndarray], None] | None = field(default=None, repr=False)
