@@ -112,5 +112,6 @@ python_functions = ["test_*"]
 markers = [
     "hardware: tests that require real SDR hardware to be connected",
     "anyio: mark test as async using anyio",
+    "perf: performance-sensitive checks (opt-in via RUN_PERF_TESTS)",
 ]
 addopts = "-v --tb=short -k 'not trio'"

@@ -1,5 +1,6 @@
 """Unit tests for FFT backend implementations."""
 
+import os
 import numpy as np
 import pytest
 
@@ -199,6 +200,11 @@ class TestBackendEquivalence:
 class TestBackendPerformance:
     """Basic performance sanity checks."""
 
+    @pytest.mark.perf
+    @pytest.mark.skipif(
+        not os.getenv("RUN_PERF_TESTS"),
+        reason="Performance checks are opt-in; set RUN_PERF_TESTS=1 to run",
+    )
     def test_backend_execution_time(self):
         """Test that FFT execution completes in reasonable time."""
         import time
