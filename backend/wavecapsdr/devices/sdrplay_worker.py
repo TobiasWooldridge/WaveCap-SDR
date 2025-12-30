@@ -403,6 +403,7 @@ class SDRplayWorker:
             iq_balance_auto = cmd.get("iq_balance_auto", True)
             device_settings = cmd.get("device_settings", {})
             element_gains = cmd.get("element_gains", {})
+            agc_enabled = cmd.get("agc_enabled", False)
 
             if logger:
                 logger.info(f"Configuring: center={center_hz/1e6:.3f}MHz, rate={sample_rate/1e6:.3f}MHz, antenna={antenna}")
@@ -418,35 +419,86 @@ class SDRplayWorker:
             sdr.setFrequency(SoapySDR.SOAPY_SDR_RX, 0, center_hz)
 
             if device_settings:
+                if logger:
+                    logger.info(f"Applying device settings: {device_settings}")
                 for key, value in device_settings.items():
                     try:
                         sdr.writeSetting(key, str(value))
                         if logger:
-                            logger.debug(f"Applied setting {key}={value}")
+                            logger.info(f"Applied setting {key}={value}")
                     except Exception as e:
                         if logger:
                             logger.warning(f"Setting {key}={value} failed: {e}")
 
             if element_gains:
+                # Disable AGC first so we can set element gains
+                with contextlib.suppress(Exception):
+                    sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, False)
+                if logger:
+                    logger.info(f"Applying element gains: {element_gains}")
                 for elem, g in element_gains.items():
                     try:
                         sdr.setGain(SoapySDR.SOAPY_SDR_RX, 0, elem, g)
                         if logger:
-                            logger.debug(f"Set gain {elem}={g}")
+                            logger.info(f"Set gain element {elem}={g}")
                     except Exception as e:
                         if logger:
                             logger.warning(f"Gain {elem}={g} failed: {e}")
+                # Read back to verify
+                try:
+                    ifgr = sdr.getGain(SoapySDR.SOAPY_SDR_RX, 0, "IFGR")
+                    rfgr = sdr.getGain(SoapySDR.SOAPY_SDR_RX, 0, "RFGR")
+                    if logger:
+                        logger.info(f"Element gains applied: IFGR={ifgr:.0f}, RFGR={rfgr:.0f}")
+                except Exception:
+                    pass
+                # Now enable AGC if requested (AGC will control IFGR, RFGR stays fixed)
+                if agc_enabled:
+                    try:
+                        sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, True)
+                        if logger:
+                            logger.info("AGC enabled (controls IFGR, RFGR stays at configured value)")
+                    except Exception as e:
+                        if logger:
+                            logger.warning(f"Failed to enable AGC: {e}")
             elif gain is not None:
                 with contextlib.suppress(Exception):
                     sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, False)
                 sdr.setGain(SoapySDR.SOAPY_SDR_RX, 0, gain)
-                if logger:
-                    logger.debug(f"Set overall gain={gain}")
-            else:
+                # Read back gain distribution to verify driver mapping
+                try:
+                    actual_gain = sdr.getGain(SoapySDR.SOAPY_SDR_RX, 0)
+                    ifgr = sdr.getGain(SoapySDR.SOAPY_SDR_RX, 0, "IFGR")
+                    rfgr = sdr.getGain(SoapySDR.SOAPY_SDR_RX, 0, "RFGR")
+                    if logger:
+                        logger.info(f"Gain set: requested={gain:.1f}dB -> actual={actual_gain:.1f}dB (IFGR={ifgr:.0f}, RFGR={rfgr:.0f})")
+                except Exception as e:
+                    if logger:
+                        logger.info(f"Set overall gain={gain}dB (readback failed: {e})")
+                # Enable AGC if requested
+                if agc_enabled:
+                    try:
+                        sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, True)
+                        if logger:
+                            logger.info("AGC enabled after setting initial gain")
+                    except Exception as e:
+                        if logger:
+                            logger.warning(f"Failed to enable AGC: {e}")
+            elif agc_enabled:
+                # No specific gain, just enable AGC
                 try:
                     sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, True)
                     if logger:
-                        logger.debug("Enabled AGC mode")
+                        logger.info("AGC enabled (automatic gain control)")
+                except Exception as e:
+                    if logger:
+                        logger.warning(f"Failed to enable AGC: {e}")
+            else:
+                # No gain or AGC specified - enable AGC by default
+                try:
+                    sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, True)
+                    if logger:
+                        logger.debug("Enabled AGC mode (default)")
                 except Exception:
                     pass
 

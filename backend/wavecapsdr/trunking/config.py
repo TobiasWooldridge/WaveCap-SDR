@@ -165,6 +165,8 @@ class TrunkingSystemConfig:
     gain: float | None = None  # RF gain (None = auto)
     antenna: str | None = None  # SDR antenna port
     device_settings: dict[str, str] = field(default_factory=dict)  # Device-specific settings (e.g., rfnotch_ctrl, dabnotch_ctrl)
+    element_gains: dict[str, float] = field(default_factory=dict)  # Per-element gains (e.g., RFGR for SDRplay LNA)
+    agc_enabled: bool = False  # Enable automatic gain control (SDRplay only)
     max_voice_recorders: int = 4
     talkgroups: dict[int, TalkgroupConfig] = field(default_factory=dict)
     talkgroups_file: str | None = None  # External YAML file for talkgroup definitions
@@ -291,6 +293,8 @@ class TrunkingSystemConfig:
             gain=gain,
             antenna=data.get("antenna"),
             device_settings=data.get("device_settings", {}),
+            element_gains=data.get("element_gains", {}),
+            agc_enabled=data.get("agc_enabled", False),
             max_voice_recorders=int(data.get("max_voice_recorders", 4)),
             talkgroups=talkgroups,
             talkgroups_file=talkgroups_file,

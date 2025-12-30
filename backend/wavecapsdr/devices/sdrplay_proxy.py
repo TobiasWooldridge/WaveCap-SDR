@@ -546,6 +546,7 @@ class SDRplayProxyDevice(Device):
         antenna: str | None = None,
         device_settings: dict[str, Any] | None = None,
         element_gains: dict[str, float] | None = None,
+        agc_enabled: bool = False,
         stream_format: str | None = None,
         dc_offset_auto: bool = True,
         iq_balance_auto: bool = True,
@@ -574,6 +575,7 @@ class SDRplayProxyDevice(Device):
                 "antenna": antenna,
                 "device_settings": device_settings or {},
                 "element_gains": element_gains or {},
+                "agc_enabled": agc_enabled,
                 "dc_offset_auto": dc_offset_auto,
                 "iq_balance_auto": iq_balance_auto,
             })
@@ -675,6 +677,7 @@ class SDRplayProxyDevice(Device):
         antenna: str | None = None,
         device_settings: dict[str, Any] | None = None,
         element_gains: dict[str, float] | None = None,
+        agc_enabled: bool = False,
         stream_format: str | None = None,
         dc_offset_auto: bool = True,
         iq_balance_auto: bool = True,
@@ -710,6 +713,7 @@ class SDRplayProxyDevice(Device):
                 "antenna": antenna,
                 "device_settings": device_settings or {},
                 "element_gains": element_gains or {},
+                "agc_enabled": agc_enabled,
                 "dc_offset_auto": dc_offset_auto,
                 "iq_balance_auto": iq_balance_auto,
             })

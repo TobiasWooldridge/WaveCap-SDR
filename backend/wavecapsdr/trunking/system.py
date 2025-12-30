@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 import contextlib
 
 from wavecapsdr.capture import freq_shift
+from wavecapsdr.dsp.filters import fir_filter_complex, NUMBA_AVAILABLE
 from wavecapsdr.utils.profiler import get_profiler
 
 logger = logging.getLogger(__name__)
@@ -215,13 +216,25 @@ class VoiceRecorder:
     # Protocol for vocoder selection
     _protocol: TrunkingProtocol = TrunkingProtocol.P25_PHASE1
 
-    # Decimation filter state for IQ processing
-    _decim_filter_taps: np.ndarray | None = field(default=None, repr=False)
-    _decim_filter_zi: np.ndarray | None = field(default=None, repr=False)
-    _decim_factor: int = 1
+    # Two-stage decimation filter state for IQ processing
+    # Stage 1: High decimation with long filter
+    _stage1_decim_factor: int = 1
+    _stage1_filter_taps: np.ndarray | None = field(default=None, repr=False)
+    _stage1_filter_zi_template: np.ndarray | None = field(default=None, repr=False)
+    _stage1_filter_zi: np.ndarray | None = field(default=None, repr=False)
+    # Stage 2: Lower decimation
+    _stage2_decim_factor: int = 1
+    _stage2_filter_taps: np.ndarray | None = field(default=None, repr=False)
+    _stage2_filter_zi_template: np.ndarray | None = field(default=None, repr=False)
+    _stage2_filter_zi: np.ndarray | None = field(default=None, repr=False)
 
     # FM demodulator state
     _last_phase: float = 0.0
+
+    # Phase-continuous frequency shift state
+    # Track sample index to maintain phase continuity across IQ chunks
+    _freq_shift_sample_idx: int = 0
+    _freq_shift_last_offset_hz: float = 0.0
 
     # Event loop for thread-safe audio scheduling
     _event_loop: asyncio.AbstractEventLoop | None = field(default=None, repr=False)
@@ -278,6 +291,11 @@ class VoiceRecorder:
         self.last_activity = time.time()
         self._protocol = protocol
         self._last_phase = 0.0
+        # Reset filter states for new channel assignment
+        self._stage1_filter_zi = None
+        self._stage2_filter_zi = None
+        self._freq_shift_sample_idx = 0
+        self._freq_shift_last_offset_hz = 0.0
 
         # Recording config
         self.should_record = should_record
@@ -340,21 +358,74 @@ class VoiceRecorder:
         logger.info(f"VoiceRecorder {self.id}: Voice channel started")
 
     def setup_decimation_filter(self, sample_rate: int, target_rate: int = 48000) -> None:
-        """Set up decimation filter for IQ processing."""
-        self._decim_factor = max(1, sample_rate // target_rate)
+        """Set up two-stage decimation filter for IQ processing.
 
-        if self._decim_factor > 1:
-            # Design lowpass filter: cutoff at 0.8 * (target_rate/2) / (sample_rate/2)
-            normalized_cutoff = 0.8 * target_rate / sample_rate
-            num_taps = 65
-            self._decim_filter_taps = scipy_signal.firwin(num_taps, normalized_cutoff)
-            # Store lfilter_zi as template - will be scaled by first sample
-            self._decim_filter_zi_template = scipy_signal.lfilter_zi(self._decim_filter_taps, 1.0).astype(np.complex128)
-            self._decim_filter_zi = None  # Initialized on first sample
+        For 6 MHz → 48 kHz (125:1), uses two stages:
+        - Stage 1: 6 MHz → 240 kHz (25:1) with 157 taps
+        - Stage 2: 240 kHz → 48 kHz (5:1) with 73 taps
+        """
+        total_decim = max(1, sample_rate // target_rate)
+
+        if total_decim <= 1:
+            self._stage1_decim_factor = 1
+            self._stage2_decim_factor = 1
+            return
+
+        # Two-stage decimation: factor into two reasonable stages
+        # For 125:1, use 25:1 then 5:1
+        if total_decim >= 100:
+            # Find reasonable factorization
+            for s1 in [25, 20, 30, 16]:
+                if total_decim % s1 == 0:
+                    s2 = total_decim // s1
+                    if s2 <= 10:
+                        self._stage1_decim_factor = s1
+                        self._stage2_decim_factor = s2
+                        break
+            else:
+                # Fallback to single-stage (shouldn't happen for 125)
+                self._stage1_decim_factor = total_decim
+                self._stage2_decim_factor = 1
         else:
-            self._decim_filter_taps = None
-            self._decim_filter_zi_template = None
-            self._decim_filter_zi = None
+            # For smaller decimation ratios, single stage is OK
+            self._stage1_decim_factor = total_decim
+            self._stage2_decim_factor = 1
+
+        # Stage 1 intermediate rate
+        stage1_rate = sample_rate // self._stage1_decim_factor
+
+        # Design Stage 1 anti-aliasing filter
+        # Cutoff at 0.8 / stage1_factor, Kaiser window for 80 dB stopband
+        stage1_cutoff = 0.8 / self._stage1_decim_factor
+        self._stage1_filter_taps = scipy_signal.firwin(
+            157, stage1_cutoff, window=("kaiser", 7.857)
+        )
+        self._stage1_filter_zi_template = scipy_signal.lfilter_zi(
+            self._stage1_filter_taps, 1.0
+        ).astype(np.complex128)
+        self._stage1_filter_zi = None
+
+        # Design Stage 2 filter (if needed)
+        if self._stage2_decim_factor > 1:
+            stage2_cutoff = 0.8 / self._stage2_decim_factor
+            self._stage2_filter_taps = scipy_signal.firwin(
+                73, stage2_cutoff, window=("kaiser", 7.857)
+            )
+            self._stage2_filter_zi_template = scipy_signal.lfilter_zi(
+                self._stage2_filter_taps, 1.0
+            ).astype(np.complex128)
+            self._stage2_filter_zi = None
+        else:
+            self._stage2_filter_taps = None
+            self._stage2_filter_zi_template = None
+            self._stage2_filter_zi = None
+
+        logger.info(
+            f"VoiceRecorder {self.id}: Two-stage decimation: "
+            f"{sample_rate/1e6:.1f} MHz → {stage1_rate/1e3:.1f} kHz ({self._stage1_decim_factor}:1) → "
+            f"{target_rate/1e3:.1f} kHz ({self._stage2_decim_factor}:1), "
+            f"total {total_decim}:1"
+        )
 
     def process_iq(self, iq: np.ndarray, sample_rate: int) -> None:
         """Process IQ samples for this voice channel.
@@ -365,35 +436,97 @@ class VoiceRecorder:
         if self.state != "recording" or self._voice_channel is None:
             return
 
-        # Frequency shift to center on voice channel
-        centered_iq = freq_shift(iq, self.offset_hz, sample_rate)
+        # Phase-continuous frequency shift to center on voice channel
+        # Unlike simple freq_shift(), this maintains phase across IQ chunks
+        # to prevent discontinuities that corrupt the FM demod output
+        if self.offset_hz == 0.0 or iq.size == 0:
+            centered_iq = iq
+        else:
+            # Reset phase if offset changed (new voice channel assignment)
+            if self.offset_hz != self._freq_shift_last_offset_hz:
+                self._freq_shift_sample_idx = 0
+                self._freq_shift_last_offset_hz = self.offset_hz
 
-        # Apply anti-aliasing filter and decimate
-        if self._decim_factor > 1 and self._decim_filter_taps is not None:
-            # Initialize filter state with first sample to prevent transient
-            if self._decim_filter_zi is None and self._decim_filter_zi_template is not None:
-                self._decim_filter_zi = self._decim_filter_zi_template * centered_iq[0]
-            if self._decim_filter_zi is not None:
-                filtered_iq, self._decim_filter_zi = scipy_signal.lfilter(
-                    self._decim_filter_taps, 1.0, centered_iq,
-                    zi=self._decim_filter_zi
+            # Generate complex exponential starting from current sample index
+            n = np.arange(iq.size, dtype=np.float64) + self._freq_shift_sample_idx
+            phase = -2.0 * np.pi * self.offset_hz * n / sample_rate
+            shift = np.exp(1j * phase).astype(np.complex64)
+
+            # Update sample index for next call
+            self._freq_shift_sample_idx += iq.size
+
+            # Prevent index from growing too large (wrap at 1 second)
+            if self._freq_shift_sample_idx >= sample_rate:
+                self._freq_shift_sample_idx %= sample_rate
+
+            centered_iq = (iq.astype(np.complex64, copy=False) * shift).astype(np.complex64)
+
+        # Diagnostic: measure power before and after frequency shift
+        if not hasattr(self, '_vr_power_diag_count'):
+            self._vr_power_diag_count = 0
+        self._vr_power_diag_count += 1
+        if self._vr_power_diag_count <= 5:
+            raw_power = float(np.mean(np.abs(iq) ** 2))
+            centered_power = float(np.mean(np.abs(centered_iq) ** 2))
+            logger.info(
+                f"VoiceRecorder {self.id}: freq_shift diag #{self._vr_power_diag_count}, "
+                f"offset={self.offset_hz/1e3:.1f}kHz, raw_power={raw_power:.6f}, "
+                f"centered_power={centered_power:.6f}"
+            )
+
+        # Two-stage decimation for better anti-aliasing
+        # Stage 1: First decimation (e.g., 6 MHz → 240 kHz for 25:1)
+        if self._stage1_decim_factor > 1 and self._stage1_filter_taps is not None:
+            if self._stage1_filter_zi is None and self._stage1_filter_zi_template is not None:
+                self._stage1_filter_zi = self._stage1_filter_zi_template * centered_iq[0]
+            if self._stage1_filter_zi is not None:
+                filtered1, self._stage1_filter_zi = scipy_signal.lfilter(
+                    self._stage1_filter_taps, 1.0, centered_iq,
+                    zi=self._stage1_filter_zi
                 )
             else:
-                filtered_iq = scipy_signal.lfilter(self._decim_filter_taps, 1.0, centered_iq)
-            decimated_iq = filtered_iq[::self._decim_factor]
+                filtered1 = scipy_signal.lfilter(self._stage1_filter_taps, 1.0, centered_iq)
+            decimated1 = filtered1[::self._stage1_decim_factor]
         else:
-            decimated_iq = centered_iq
+            decimated1 = centered_iq
+
+        # Stage 2: Second decimation (e.g., 240 kHz → 48 kHz for 5:1)
+        if self._stage2_decim_factor > 1 and self._stage2_filter_taps is not None:
+            if self._stage2_filter_zi is None and self._stage2_filter_zi_template is not None:
+                self._stage2_filter_zi = self._stage2_filter_zi_template * decimated1[0]
+            if self._stage2_filter_zi is not None:
+                filtered2, self._stage2_filter_zi = scipy_signal.lfilter(
+                    self._stage2_filter_taps, 1.0, decimated1,
+                    zi=self._stage2_filter_zi
+                )
+            else:
+                filtered2 = scipy_signal.lfilter(self._stage2_filter_taps, 1.0, decimated1)
+            decimated_iq = filtered2[::self._stage2_decim_factor]
+        else:
+            decimated_iq = decimated1
+
+        # Diagnostic: measure power after decimation and check if centered
+        if self._vr_power_diag_count <= 5:
+            decim_power = float(np.mean(np.abs(decimated_iq) ** 2))
+            decim_dc = np.abs(np.mean(decimated_iq))
+            decim_peak = float(np.max(np.abs(decimated_iq)))
+            dc_ratio = decim_dc / decim_peak if decim_peak > 0 else 0.0
+            logger.info(
+                f"VoiceRecorder {self.id}: decim diag #{self._vr_power_diag_count}, "
+                f"decim_power={decim_power:.6f}, decim_dc={decim_dc:.6f}, "
+                f"peak={decim_peak:.4f}, dc_ratio={dc_ratio:.3f}"
+            )
 
         # FM discriminator - extract instantaneous frequency
         # Phase = angle(iq), frequency = d(phase)/dt
         phase = np.angle(decimated_iq)
-        # Unwrap phase to avoid discontinuities
-        phase_unwrapped = np.unwrap(phase)
-        # Prepend last phase for continuity
-        phase_with_last = np.concatenate([[self._last_phase], phase_unwrapped])
-        self._last_phase = phase_unwrapped[-1] if len(phase_unwrapped) > 0 else self._last_phase
+        # Prepend last phase BEFORE unwrapping for cross-batch continuity
+        # This ensures np.unwrap() can handle 2π jumps at the batch boundary
+        phase_with_last = np.concatenate([[self._last_phase], phase])
+        phase_unwrapped = np.unwrap(phase_with_last)
+        self._last_phase = phase_unwrapped[-1] if len(phase_unwrapped) > 1 else self._last_phase
         # Differentiate to get frequency
-        disc_audio = np.diff(phase_with_last)
+        disc_audio = np.diff(phase_unwrapped)
 
         # Update activity time
         self.last_activity = time.time()
@@ -416,9 +549,9 @@ class VoiceRecorder:
         if self._iq_diag_count <= 5:
             logger.info(
                 f"VoiceRecorder {self.id}: process_iq #{self._iq_diag_count}, "
-                f"disc_audio samples={len(disc_audio)}, loop={loop is not None}, "
-                f"loop_running={loop.is_running() if loop else 'N/A'}, "
-                f"vc={voice_channel is not None}"
+                f"disc_audio samples={len(disc_audio)}, "
+                f"disc_range=[{disc_audio.min():.4f}, {disc_audio.max():.4f}] (expect ±0.24), "
+                f"loop={loop is not None}, vc={voice_channel is not None}"
             )
 
         if loop is None or not loop.is_running() or voice_channel is None:
@@ -460,6 +593,12 @@ class VoiceRecorder:
         self.encrypted = False
         self.offset_hz = 0.0
         self._last_phase = 0.0
+        # Reset phase-continuous freq shift state for clean start
+        self._freq_shift_sample_idx = 0
+        self._freq_shift_last_offset_hz = 0.0
+        # Reset two-stage filter states
+        self._stage1_filter_zi = None
+        self._stage2_filter_zi = None
 
     def is_available(self) -> bool:
         """Check if recorder is available for new assignment."""
@@ -705,6 +844,8 @@ class TrunkingSystem:
                 gain=self.cfg.gain,
                 antenna=self.cfg.antenna,
                 device_settings=self.cfg.device_settings if self.cfg.device_settings else None,
+                element_gains=self.cfg.element_gains if self.cfg.element_gains else None,
+                agc_enabled=self.cfg.agc_enabled,
             )
 
             # Mark capture as owned by this trunking system
@@ -1038,8 +1179,9 @@ class TrunkingSystem:
                 # Clear the IQ buffer (contains corrupted partial data)
                 system._cc_iq_buffer = np.array([], dtype=np.complex128)
                 # Reset the control channel monitor (demodulator, sync state)
+                # IMPORTANT: preserve_polarity=True to avoid flip-flopping on repeated overflows
                 if system._control_monitor is not None:
-                    system._control_monitor.reset()
+                    system._control_monitor.reset(preserve_polarity=True)
                 # Skip processing this batch - let state stabilize
                 return
 
@@ -1140,43 +1282,44 @@ class TrunkingSystem:
                         # Scan all channels
                         system._cc_scanner.scan_all(all_iq)
 
-                        # Check if we should roam
-                        current_freq = system.control_channel_freq_hz
-                        roam_to = system._cc_scanner.should_roam(
-                            current_freq,
-                            roam_threshold_db=system._roam_threshold_db,
-                        )
-
-                        if roam_to is not None:
-                            logger.info(
-                                f"TrunkingSystem {self.cfg.id}: Roaming from "
-                                f"{current_freq/1e6:.4f} MHz to {roam_to/1e6:.4f} MHz"
-                            )
-                            # Update scanner's current channel tracking
-                            system._cc_scanner._current_channel_hz = roam_to
-
-                            system.control_channel_freq_hz = roam_to
-                            system.control_channel_index = (
-                                system.cfg.control_channel_frequencies.index(roam_to)
-                                if roam_to in system.cfg.control_channel_frequencies
-                                else 0
+                        # Check if we should roam (skip if in MANUAL mode - stay locked)
+                        if system._hunt_mode != HuntMode.MANUAL:
+                            current_freq = system.control_channel_freq_hz
+                            roam_to = system._cc_scanner.should_roam(
+                                current_freq,
+                                roam_threshold_db=system._roam_threshold_db,
                             )
 
-                            # Set the control channel offset based on configured center
-                            # DON'T recenter the capture - keep it at the configured center
-                            if system._control_channel is not None:
-                                new_offset = roam_to - system.cfg.center_hz
-                                system._control_channel.cfg.offset_hz = new_offset
+                            if roam_to is not None:
                                 logger.info(
-                                    f"TrunkingSystem {self.cfg.id}: Set control channel offset to "
-                                    f"{new_offset/1e3:.1f} kHz for {roam_to/1e6:.4f} MHz"
+                                    f"TrunkingSystem {self.cfg.id}: Roaming from "
+                                    f"{current_freq/1e6:.4f} MHz to {roam_to/1e6:.4f} MHz"
+                                )
+                                # Update scanner's current channel tracking
+                                system._cc_scanner._current_channel_hz = roam_to
+
+                                system.control_channel_freq_hz = roam_to
+                                system.control_channel_index = (
+                                    system.cfg.control_channel_frequencies.index(roam_to)
+                                    if roam_to in system.cfg.control_channel_frequencies
+                                    else 0
                                 )
 
-                            # Reset control monitor and IQ buffer for new channel
-                            # Preserve polarity: same system = same polarity
-                            if system._control_monitor is not None:
-                                system._control_monitor.reset(preserve_polarity=True)
-                            system._cc_iq_buffer = np.array([], dtype=np.complex128)
+                                # Set the control channel offset based on configured center
+                                # DON'T recenter the capture - keep it at the configured center
+                                if system._control_channel is not None:
+                                    new_offset = roam_to - system.cfg.center_hz
+                                    system._control_channel.cfg.offset_hz = new_offset
+                                    logger.info(
+                                        f"TrunkingSystem {self.cfg.id}: Set control channel offset to "
+                                        f"{new_offset/1e3:.1f} kHz for {roam_to/1e6:.4f} MHz"
+                                    )
+
+                                # Reset control monitor and IQ buffer for new channel
+                                # Preserve polarity: same system = same polarity
+                                if system._control_monitor is not None:
+                                    system._control_monitor.reset(preserve_polarity=True)
+                                system._cc_iq_buffer = np.array([], dtype=np.complex128)
 
                     system._last_roam_check = now
 
@@ -1195,6 +1338,7 @@ class TrunkingSystem:
 
             # ================================================================
             # THREE-STAGE DECIMATION: 6 MHz → 200 kHz → 50 kHz → 25 kHz
+            # Uses Numba-accelerated FIR filter when available (3-5x faster)
             # ================================================================
             # Stage 1: Decimate by 30 (6 MHz → 200 kHz)
             if len(centered_iq) > 0:
@@ -1202,9 +1346,9 @@ class TrunkingSystem:
                     # Initialize stage1_zi with first sample to prevent transient
                     if filter_state["stage1_zi"] is None:
                         filter_state["stage1_zi"] = stage1_zi_template * centered_iq[0]
-                    filtered1, filter_state["stage1_zi"] = scipy_signal.lfilter(
-                        stage1_taps, 1.0, centered_iq,
-                        zi=filter_state["stage1_zi"]
+                    # Use Numba-accelerated filter (or scipy fallback)
+                    filtered1, filter_state["stage1_zi"] = fir_filter_complex(
+                        centered_iq, stage1_taps, zi=filter_state["stage1_zi"]
                     )
                     decimated1 = filtered1[::stage1_factor]
 
@@ -1213,9 +1357,9 @@ class TrunkingSystem:
                     # Initialize stage2_zi with first sample to prevent transient
                     if filter_state["stage2_zi"] is None:
                         filter_state["stage2_zi"] = stage2_zi_template * decimated1[0]
-                    filtered2, filter_state["stage2_zi"] = scipy_signal.lfilter(
-                        stage2_taps, 1.0, decimated1,
-                        zi=filter_state["stage2_zi"]
+                    # Use Numba-accelerated filter (or scipy fallback)
+                    filtered2, filter_state["stage2_zi"] = fir_filter_complex(
+                        decimated1, stage2_taps, zi=filter_state["stage2_zi"]
                     )
                     decimated2 = filtered2[::stage2_factor]
 
@@ -1490,7 +1634,8 @@ class TrunkingSystem:
                 )
 
             # Handle different TSBK types
-            opcode = result.get("opcode")
+            # Use opcode_name (string) not opcode (numeric int) for matching
+            opcode = result.get("opcode_name")
 
             # Voice grants - normalize different formats before handling
             if opcode == "GRP_V_CH_GRANT":
@@ -1779,11 +1924,13 @@ class TrunkingSystem:
             return
 
         # Create ChannelIdentifier from parser fields
+        # IMPORTANT: channel_spacing must be float to preserve 12.5 kHz precision!
+        # Using int() would round 12.5 to 12, causing ~100 kHz errors for high channel numbers
         chan_id = ChannelIdentifier(
             identifier=ident,
-            bw=int(result.get("bandwidth_khz", 12.5)),
-            tx_offset=int(result.get("tx_offset_hz", 0) / 1e6),
-            channel_spacing=int(result.get("channel_spacing_khz", 12.5)),
+            bw=result.get("bandwidth_khz", 12.5),
+            tx_offset=result.get("tx_offset_hz", 0) / 1e6,
+            channel_spacing=result.get("channel_spacing_khz", 12.5),  # Keep as float!
             base_freq=result.get("base_freq_mhz", 0.0),
         )
 

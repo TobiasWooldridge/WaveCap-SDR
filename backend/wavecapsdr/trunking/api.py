@@ -87,13 +87,14 @@ class CreateSystemRequest(BaseModel):
 class ControlChannelResponse(BaseModel):
     """Response containing control channel details."""
     frequencyHz: float
+    name: str = ""
     enabled: bool
     isCurrent: bool
     isLocked: bool
-    snrDb: float | None
-    powerDb: float | None
-    syncDetected: bool
-    measurementTime: float | None
+    snrDb: float | None = None
+    powerDb: float | None = None
+    syncDetected: bool = False
+    measurementTime: float | None = None
 
 
 class SystemResponse(BaseModel):
@@ -656,18 +657,6 @@ class HuntModeRequest(BaseModel):
     lockedFrequency: float | None = Field(None, description="Frequency to lock to (for manual mode)")
 
 
-class ControlChannelResponse(BaseModel):
-    """Control channel info."""
-    frequencyHz: float
-    enabled: bool
-    isCurrent: bool
-    isLocked: bool
-    snrDb: float | None = None
-    powerDb: float | None = None
-    syncDetected: bool = False
-    measurementTime: float | None = None
-
-
 class ChannelEnabledRequest(BaseModel):
     """Request to enable/disable a channel."""
     enabled: bool = Field(..., description="Whether to enable the channel")
@@ -736,6 +725,7 @@ async def get_control_channels(request: Request, system_id: str) -> list[Control
     return [
         ControlChannelResponse(
             frequencyHz=ch["frequencyHz"],
+            name=ch.get("name", ""),
             enabled=ch["enabled"],
             isCurrent=ch["isCurrent"],
             isLocked=ch["isLocked"],

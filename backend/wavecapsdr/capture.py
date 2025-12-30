@@ -1651,6 +1651,7 @@ class CaptureConfig:
     # SoapySDR advanced features
     device_settings: dict[str, Any] = field(default_factory=dict)
     element_gains: dict[str, float] = field(default_factory=dict)
+    agc_enabled: bool = False  # Enable automatic gain control
     stream_format: str | None = None
     dc_offset_auto: bool = True
     iq_balance_auto: bool = True
@@ -2690,6 +2691,7 @@ class Capture:
                     antenna=self.cfg.antenna,
                     device_settings=self.cfg.device_settings,
                     element_gains=self.cfg.element_gains,
+                    agc_enabled=self.cfg.agc_enabled,
                     stream_format=self.cfg.stream_format,
                     dc_offset_auto=self.cfg.dc_offset_auto,
                     iq_balance_auto=self.cfg.iq_balance_auto,
@@ -2705,6 +2707,7 @@ class Capture:
                     antenna=self.cfg.antenna,
                     device_settings=self.cfg.device_settings,
                     element_gains=self.cfg.element_gains,
+                    agc_enabled=self.cfg.agc_enabled,
                     stream_format=self.cfg.stream_format,
                     dc_offset_auto=self.cfg.dc_offset_auto,
                     iq_balance_auto=self.cfg.iq_balance_auto,
@@ -3067,6 +3070,7 @@ class CaptureManager:
         antenna: str | None = None,
         device_settings: dict[str, Any] | None = None,
         element_gains: dict[str, float] | None = None,
+        agc_enabled: bool = False,
         stream_format: str | None = None,
         dc_offset_auto: bool = True,
         iq_balance_auto: bool = True,
@@ -3084,6 +3088,7 @@ class CaptureManager:
             antenna=antenna,
             device_settings=device_settings or {},
             element_gains=element_gains or {},
+            agc_enabled=agc_enabled,
             stream_format=stream_format,
             dc_offset_auto=dc_offset_auto,
             iq_balance_auto=iq_balance_auto,

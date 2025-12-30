@@ -595,30 +595,41 @@ stream:
   default_audio_rate: 48000
 trunking:
   systems:
-    # sa_grn: DISABLED - device 240305E670 not connected
-    # sa_grn_3: DISABLED - RTL-SDR not connected
-
     sa_grn_2:
       antenna: Antenna B
       auto_start: true
       bandwidth: 5000000
       center_hz: 415.375 MHz
       control_channel_timeout: 5
-      # Control channels must be within ±3 MHz of center (6 MHz sample rate)
-      # These are the correct SA-GRN Adelaide Metro control channels from SDRTrunk
       control_channels:
-      - 413.075 MHz    # -2300.0 kHz from center
-      - 413.3125 MHz   # -2062.5 kHz from center
-      - 413.45 MHz     # -1925.0 kHz from center
-      - 414.6875 MHz   # -687.5 kHz from center
-      - 414.7625 MHz   # -612.5 kHz from center
-      - 415.325 MHz    # -50.0 kHz from center
-      - 415.95 MHz     # +575.0 kHz from center
-      - 417.7625 MHz   # +2387.5 kHz from center
+      - frequency: 413.2125 MHz
+        name: One Tree Hill
+      - frequency: 413.225 MHz
+        name: Cherry Gardens
+      - frequency: 413.3125 MHz
+        name: Adelaide Main
+      - frequency: 413.350 MHz
+        name: Hackham West
+      - frequency: 414.5875 MHz
+        name: Banksia Park
+      - frequency: 414.6875 MHz
+        name: Pt Adelaide
+      - frequency: 414.7625 MHz
+        name: Mt Lofty
+      - frequency: 415.8375 MHz
+        name: Banksia Park 2
+      - frequency: 415.9625 MHz
+        name: One Tree Hill 2
+      - frequency: 417.6875 MHz
+        name: Pt Adelaide 2
+      - frequency: 417.7625 MHz
+        name: Mt Lofty 2
       device_id: driver=sdrplay,serial=240309F070
-      # Gain: IFGR for SDRplay (20-59, lower = more gain)
-      # Using 5 for maximum gain
-      gain: 5
+      # Use element gains to precisely control LNA and IFGR
+      # RFGR=0 means LNAstate=0 (max LNA gain), IFGR=30 matches SDRTrunk
+      element_gains:
+        RFGR: 0  # Max LNA gain (min attenuation)
+      agc_enabled: true  # AGC controls IFGR automatically
       sample_rate: 6000000
       id: sa_grn_2
       max_voice_recorders: 2
@@ -631,8 +642,5 @@ trunking:
       squelch_db: -60
       system_id: 988
       wacn: 781056
-      # Load talkgroups from external file (516 SA-GRN talkgroups)
       talkgroups_file: talkgroups/sa_grn.yaml
-      # Hunt mode: scan_once = scan channels on startup, lock to first good one
-      # auto = continuously hunt for best channel, manual = stay on locked frequency
       default_hunt_mode: scan_once

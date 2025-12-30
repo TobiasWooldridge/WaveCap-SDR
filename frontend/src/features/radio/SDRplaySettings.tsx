@@ -1,4 +1,5 @@
-import { Radio, Zap, Volume2, Settings2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Radio, Zap, Volume2, Settings2, Sliders } from "lucide-react";
 import type { Capture, Device } from "../../types";
 import { useDebouncedMutation } from "../../hooks/useDebouncedMutation";
 import { useUpdateCapture } from "../../hooks/useCaptures";
@@ -76,6 +77,66 @@ export function SDRplaySettings({ capture, device: _device }: SDRplaySettingsPro
     { delay: 300 }
   );
 
+  // Gain mode: "overall" (single 0-66 dB slider) or "element" (RFGR + IFGR)
+  // Infer from whether elementGains has RFGR or IFGR set
+  const hasElementGains = capture.elementGains &&
+    (capture.elementGains["RFGR"] !== undefined || capture.elementGains["IFGR"] !== undefined);
+  const [gainMode, setGainMode] = useState<"overall" | "element">(
+    hasElementGains ? "element" : "overall"
+  );
+
+  // Sync gain mode when capture changes
+  useEffect(() => {
+    const hasEG = capture.elementGains &&
+      (capture.elementGains["RFGR"] !== undefined || capture.elementGains["IFGR"] !== undefined);
+    setGainMode(hasEG ? "element" : "overall");
+  }, [capture.id, capture.elementGains]);
+
+  // Overall gain (0-66 dB)
+  const [overallGain, setOverallGain] = useDebouncedMutation(
+    capture.gain ?? 40,
+    (value) => {
+      // Clear element gains when using overall gain
+      updateCapture.mutate({
+        captureId: capture.id,
+        request: { gain: value, elementGains: {} },
+      });
+    },
+    { delay: 100 }
+  );
+
+  // Element gains: RFGR (LNA state 0-27) and IFGR (20-59)
+  const currentRFGR = capture.elementGains?.["RFGR"] ?? 0;
+  const currentIFGR = capture.elementGains?.["IFGR"] ?? 40;
+
+  const [rfgr, setRfgr] = useDebouncedMutation(
+    currentRFGR,
+    (value) => {
+      updateCapture.mutate({
+        captureId: capture.id,
+        request: {
+          gain: undefined, // Clear overall gain
+          elementGains: { ...capture.elementGains, RFGR: value },
+        },
+      });
+    },
+    { delay: 100 }
+  );
+
+  const [ifgr, setIfgr] = useDebouncedMutation(
+    currentIFGR,
+    (value) => {
+      updateCapture.mutate({
+        captureId: capture.id,
+        request: {
+          gain: undefined, // Clear overall gain
+          elementGains: { ...capture.elementGains, IFGR: value },
+        },
+      });
+    },
+    { delay: 100 }
+  );
+
   // Check if we're tuned to a frequency where notch filters are relevant
   const centerMHz = capture.centerHz / 1_000_000;
   const fmNotchRelevant = centerMHz >= 77 && centerMHz <= 115;
@@ -93,6 +154,124 @@ export function SDRplaySettings({ capture, device: _device }: SDRplaySettingsPro
         <Radio size={16} className="text-primary" />
         <span className="fw-semibold small">SDRplay RSPdx Settings</span>
       </Flex>
+
+      {/* Gain Control Section */}
+      <div className="border rounded p-2">
+        <Flex direction="column" gap={2}>
+          <Flex align="center" gap={1}>
+            <Sliders size={14} className="text-muted" />
+            <span className="small fw-semibold">Gain Control</span>
+            <InfoTooltip content="Overall mode: single slider (0-66 dB) auto-distributes between LNA and IF stages. Element mode: direct control of RFGR (LNA attenuation) and IFGR (IF gain reduction)." />
+          </Flex>
+
+          {/* Mode Selector */}
+          <Flex gap={2}>
+            <div className="form-check form-check-inline">
+              <input
+                className="form-check-input"
+                type="radio"
+                name="gainMode"
+                id="gainModeOverall"
+                checked={gainMode === "overall"}
+                onChange={() => setGainMode("overall")}
+              />
+              <label className="form-check-label small" htmlFor="gainModeOverall">
+                Overall
+              </label>
+            </div>
+            <div className="form-check form-check-inline">
+              <input
+                className="form-check-input"
+                type="radio"
+                name="gainMode"
+                id="gainModeElement"
+                checked={gainMode === "element"}
+                onChange={() => setGainMode("element")}
+              />
+              <label className="form-check-label small" htmlFor="gainModeElement">
+                Element (RFGR/IFGR)
+              </label>
+            </div>
+          </Flex>
+
+          {gainMode === "overall" ? (
+            /* Overall Gain Slider (0-66 dB) */
+            <Flex direction="column" gap={1}>
+              <Flex justify="between" align="center">
+                <Flex align="center" gap={1}>
+                  <span className="small">Overall Gain</span>
+                  <InfoTooltip content="Total gain distributed between LNA (RF) and IF stages. Higher values maximize LNA first, then reduce IF attenuation." />
+                </Flex>
+                <span className="badge bg-primary">{overallGain.toFixed(1)} dB</span>
+              </Flex>
+              <input
+                type="range"
+                className="form-range"
+                min={0}
+                max={66}
+                step={1}
+                value={overallGain}
+                onChange={(e) => setOverallGain(parseFloat(e.target.value))}
+              />
+              <Flex justify="between" className="small text-muted">
+                <span>0 dB (min)</span>
+                <span>66 dB (max)</span>
+              </Flex>
+            </Flex>
+          ) : (
+            /* Element Gains: RFGR and IFGR */
+            <Flex direction="column" gap={2}>
+              {/* RFGR (LNA State) - 0-27, lower = more gain */}
+              <Flex direction="column" gap={1}>
+                <Flex justify="between" align="center">
+                  <Flex align="center" gap={1}>
+                    <span className="small">RFGR (LNA State)</span>
+                    <InfoTooltip content="RF Gain Reduction: LNA attenuation level (0-27). Lower = more RF gain (0 = max gain, 27 = max attenuation)." />
+                  </Flex>
+                  <span className="badge bg-secondary">{rfgr}</span>
+                </Flex>
+                <input
+                  type="range"
+                  className="form-range"
+                  min={0}
+                  max={27}
+                  step={1}
+                  value={rfgr}
+                  onChange={(e) => setRfgr(parseInt(e.target.value, 10))}
+                />
+                <Flex justify="between" className="small text-muted">
+                  <span>0 (max RF)</span>
+                  <span>27 (min RF)</span>
+                </Flex>
+              </Flex>
+
+              {/* IFGR (IF Gain Reduction) - 20-59, lower = more gain */}
+              <Flex direction="column" gap={1}>
+                <Flex justify="between" align="center">
+                  <Flex align="center" gap={1}>
+                    <span className="small">IFGR (IF Gain)</span>
+                    <InfoTooltip content="IF Gain Reduction (20-59 dB). Lower = more IF gain (20 = max gain, 59 = max attenuation). Only adjustable when AGC is disabled." />
+                  </Flex>
+                  <span className="badge bg-secondary">{ifgr} dB</span>
+                </Flex>
+                <input
+                  type="range"
+                  className="form-range"
+                  min={20}
+                  max={59}
+                  step={1}
+                  value={ifgr}
+                  onChange={(e) => setIfgr(parseInt(e.target.value, 10))}
+                />
+                <Flex justify="between" className="small text-muted">
+                  <span>20 dB (max IF)</span>
+                  <span>59 dB (min IF)</span>
+                </Flex>
+              </Flex>
+            </Flex>
+          )}
+        </Flex>
+      </div>
 
       {/* Notch Filters Section */}
       <div className="border rounded p-2">

@@ -85,6 +85,10 @@ class IMBEDecoderNative:
     _frame_position: int = 0
     _nac_tracker: NACTracker | None = field(default=None, repr=False)
 
+    # Pending LDU frame state (when sync found at pos 0 but need more data)
+    _pending_ldu_type: int | None = field(default=None, repr=False)  # 1=LDU1, 2=LDU2
+    _pending_polarity: bool = field(default=False, repr=False)  # True if reversed
+
     # Resampling (input_rate -> 50kHz for C4FM)
     _input_resample_up: int = field(default=0, init=False)
     _input_resample_down: int = field(default=0, init=False)
@@ -136,6 +140,8 @@ class IMBEDecoderNative:
         self._dibit_buffer = np.zeros(2000, dtype=np.uint8)
         self._frame_position = 0
         self._sync_state = "searching"
+        self._pending_ldu_type = None
+        self._pending_polarity = False
 
         # Reset statistics
         self.frames_decoded = 0
@@ -314,7 +320,7 @@ class IMBEDecoderNative:
         best_pos = -1
         best_score = 0
         best_is_reversed = False
-        threshold = sync_len - 7  # Allow up to 7 errors (17/24 = 71%)
+        threshold = sync_len - 8  # Allow up to 8 errors (16/24 = 67%)
 
         for i in range(len(dibits) - sync_len + 1):
             window = dibits[i:i + sync_len]
@@ -362,8 +368,25 @@ class IMBEDecoderNative:
         if self._check_frame_count <= 5 or self._check_frame_count % 100 == 0:
             logger.info(
                 f"IMBEDecoderNative: _check_for_frame #{self._check_frame_count}, "
-                f"frame_position={self._frame_position}"
+                f"frame_position={self._frame_position}, pending_ldu={self._pending_ldu_type}"
             )
+
+        # Check if we have a pending LDU frame waiting for more data
+        if self._pending_ldu_type is not None:
+            ldu_frame_len = 360
+            if self._frame_position >= ldu_frame_len:
+                # We have enough data to process the pending LDU
+                buffer_view = self._dibit_buffer[:self._frame_position]
+                if self._pending_polarity:
+                    buffer_view = buffer_view ^ 2
+                frame_dibits = buffer_view[:ldu_frame_len]
+                is_ldu1 = (self._pending_ldu_type == 1)
+                self._process_ldu(frame_dibits, is_ldu1=is_ldu1)
+                self._consume_dibits(ldu_frame_len)
+                self._pending_ldu_type = None
+                self._pending_polarity = False
+            # Else: keep waiting for more dibits
+            return
 
         # Search for frame sync in the buffer
         buffer_view = self._dibit_buffer[:self._frame_position]
@@ -390,6 +413,20 @@ class IMBEDecoderNative:
         nid = decode_nid(nid_dibits, skip_status_at_10=True, nac_tracker=self._nac_tracker)
         if nid is None:
             # Shift buffer past this position and continue
+            self._consume_dibits(sync_pos + 24)
+            return
+
+        # Validate NAC - reject garbage patterns that indicate wrong polarity/noise
+        # 0x555 (010101010101) and 0xAAA (101010101010) are alternating bit patterns
+        # that indicate the data is likely garbage or wrong polarity
+        garbage_nacs = {0x555, 0x55D, 0x55F, 0xAAA, 0xAAD, 0xAAF, 0x5AA, 0xA55}
+        if nid.nac in garbage_nacs and nid.duid in (DUID.LDU1, DUID.LDU2):
+            # Log and skip - this is likely wrong polarity detection
+            if not hasattr(self, '_garbage_nac_count'):
+                self._garbage_nac_count = 0
+            self._garbage_nac_count += 1
+            if self._garbage_nac_count <= 5:
+                logger.debug(f"IMBEDecoderNative: Skipping garbage NAC 0x{nid.nac:03x} for {nid.duid.name}")
             self._consume_dibits(sync_pos + 24)
             return
 
@@ -420,6 +457,10 @@ class IMBEDecoderNative:
             elif sync_pos > 0:
                 # Shift buffer to put sync at start, making room for LDU data
                 self._consume_dibits(sync_pos)
+            else:
+                # Sync at pos 0 but need more data - mark as pending
+                self._pending_ldu_type = 1
+                self._pending_polarity = is_reversed
         elif nid.duid == DUID.LDU2:
             if frame_end <= self._frame_position:
                 frame_dibits = buffer_view[sync_pos:frame_end]
@@ -428,6 +469,10 @@ class IMBEDecoderNative:
             elif sync_pos > 0:
                 # Shift buffer to put sync at start, making room for LDU data
                 self._consume_dibits(sync_pos)
+            else:
+                # Sync at pos 0 but need more data - mark as pending
+                self._pending_ldu_type = 2
+                self._pending_polarity = is_reversed
         else:
             # Other frame types (TDU, HDU, etc.) - skip past
             self._consume_dibits(sync_pos + 24)

@@ -250,8 +250,10 @@ class ControlChannelScanner:
         snr_db = power_db - noise_floor_db
 
         # Check for P25 sync pattern
+        # Only check sync on channels with minimum SNR (reject obvious noise)
         sync_detected = False
-        if self.sync_check_enabled and len(decimated_iq) > 0:
+        min_snr_for_sync = 8.0  # dB - require at least 8 dB SNR for sync detection
+        if self.sync_check_enabled and len(decimated_iq) > 0 and snr_db >= min_snr_for_sync:
             sync_detected = self._detect_sync_pattern(decimated_iq)
 
         return ChannelMeasurement(
@@ -268,8 +270,16 @@ class ControlChannelScanner:
     def _detect_sync_pattern(self, iq: np.ndarray) -> bool:
         """Detect P25 frame sync pattern in IQ samples.
 
-        Uses C4FM FM demodulation to detect the 24-dibit sync pattern.
-        P25 Phase 1 is 4-level FM (C4FM), NOT differential PSK.
+        Uses C4FM FM demodulation with SOFT CORRELATION to detect the 24-dibit
+        sync pattern. This avoids false positives on noise that occur with
+        hard threshold decisions.
+
+        The key insight: random noise FM demod output is uniformly distributed,
+        which biases hard decisions toward outer dibits (1, 3). Since P25 sync
+        only uses outer dibits, hard thresholding gives false positives on noise.
+
+        Instead, we use soft correlation which measures how well the signal
+        matches the expected ±3 pattern of the sync sequence.
 
         Args:
             iq: Decimated IQ samples (~48 kHz rate)
@@ -288,15 +298,6 @@ class ControlChannelScanner:
         # This gives instantaneous frequency deviation
         fm_demod = np.angle(iq[1:] * np.conj(iq[:-1]))
 
-        # Normalize: P25 C4FM uses ±1.8 kHz (±3) and ±0.6 kHz (±1) deviation
-        # At 48 kHz sample rate, 4800 baud, max deviation = 1.8 kHz
-        # Phase per sample at 1.8 kHz = 2π * 1800 / 48000 = 0.2356 rad
-        # So fm_demod values should be approximately:
-        #   +3 symbol: +0.2356 rad
-        #   +1 symbol: +0.0785 rad
-        #   -1 symbol: -0.0785 rad
-        #   -3 symbol: -0.2356 rad
-
         # Sample at symbol rate (take middle sample of each symbol)
         symbols_count = len(fm_demod) // samples_per_symbol
         if symbols_count < sync_len:
@@ -304,43 +305,52 @@ class ControlChannelScanner:
 
         symbol_samples = fm_demod[samples_per_symbol // 2::samples_per_symbol][:symbols_count]
 
-        # Map FM deviation to dibits using thresholds
-        # Thresholds at ±0.1178 rad (halfway between ±1 and ±3 levels)
-        # and 0 (halfway between +1 and -1)
-        threshold_high = 0.12  # Between +1 and +3
-        threshold_low = -0.12  # Between -1 and -3
+        # P25 C4FM deviation: ±1.8 kHz for ±3 symbols, ±0.6 kHz for ±1 symbols
+        # At 48 kHz sample rate: phase/sample = 2π × freq / 48000
+        #   +3 level: 2π × 1800 / 48000 = 0.2356 rad
+        #   -3 level: -0.2356 rad
+        expected_deviation = 0.2356
 
-        # P25 sync uses +3 and -3 (dibits 1 and 3)
-        # +3 = dibit 01 = 1
-        # -3 = dibit 11 = 3
-        # Map: +3 (>+0.12) -> 1, +1 (0 to +0.12) -> 0, -1 (-0.12 to 0) -> 2, -3 (<-0.12) -> 3
-        dibits = np.zeros(len(symbol_samples), dtype=np.uint8)
-        dibits[symbol_samples > threshold_high] = 1   # +3 symbol
-        dibits[(symbol_samples > 0) & (symbol_samples <= threshold_high)] = 0   # +1 symbol
-        dibits[(symbol_samples <= 0) & (symbol_samples > threshold_low)] = 2   # -1 symbol
-        dibits[symbol_samples <= threshold_low] = 3   # -3 symbol
+        # Build the expected sync waveform as FM deviation values
+        # Sync pattern dibits: 1=+3, 3=-3 (only uses outer symbols)
+        sync_waveform = np.array([
+            expected_deviation if d == 1 else -expected_deviation
+            for d in self._sync_pattern
+        ])
 
-        # Search for sync pattern with strict tolerance
-        # 24 dibits total, allow max 3 errors (12.5% error rate)
-        # This is stricter to avoid false positives on noise/interference
-        max_errors = 3
+        # Use soft correlation: correlate FM demod output with expected waveform
+        # For real P25 signal, correlation peak will be high
+        # For noise, correlation will be low (random phases don't correlate)
 
-        for i in range(len(dibits) - sync_len):
-            errors = np.sum(dibits[i:i + sync_len] != self._sync_pattern)
-            if errors <= max_errors:
-                return True
+        # Normalize both signals for correlation
+        # Use a window that's slightly longer than sync to find peak
+        search_len = min(len(symbol_samples) - sync_len, symbols_count - sync_len)
+        if search_len <= 0:
+            return False
 
-        # Also try inverted polarity (180° phase offset inverts all symbols)
-        inverted_dibits = dibits.copy()
-        inverted_dibits[dibits == 0] = 2
-        inverted_dibits[dibits == 2] = 0
-        inverted_dibits[dibits == 1] = 3
-        inverted_dibits[dibits == 3] = 1
+        # Compute correlation at each position
+        best_correlation = 0.0
+        for i in range(search_len):
+            window = symbol_samples[i:i + sync_len]
+            # Normalized cross-correlation
+            # For perfect match: correlation = 1.0
+            # For random noise: correlation ≈ 0.0
+            dot_product = np.sum(window * sync_waveform)
+            norm_window = np.sqrt(np.sum(window ** 2) + 1e-10)
+            norm_sync = np.sqrt(np.sum(sync_waveform ** 2))
+            correlation = dot_product / (norm_window * norm_sync)
+            if abs(correlation) > abs(best_correlation):
+                best_correlation = correlation
 
-        for i in range(len(inverted_dibits) - sync_len):
-            errors = np.sum(inverted_dibits[i:i + sync_len] != self._sync_pattern)
-            if errors <= max_errors:
-                return True
+        # Threshold: require correlation > 0.6 for sync detection
+        # Real P25 sync should give correlation > 0.7 for clean signal
+        # Noise can give correlation up to ~0.5 due to FM demod artifacts
+        # Inverted polarity gives correlation near -0.6 (also valid)
+        # Use 0.6 threshold to eliminate false positives on noise
+        sync_threshold = 0.6
+
+        if abs(best_correlation) > sync_threshold:
+            return True
 
         return False
 

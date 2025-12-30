@@ -243,6 +243,17 @@ class ControlChannelMonitor:
             if soft is not None and self._reverse_p == 2:
                 soft = -soft
 
+        # [DIAG-POLARITY] Log polarity state periodically
+        if not hasattr(self, '_polarity_diag_count'):
+            self._polarity_diag_count = 0
+        self._polarity_diag_count += 1
+        if self._polarity_diag_count % 500 == 1:
+            sample = dibits[:8].tolist() if len(dibits) >= 8 else dibits.tolist()
+            logger.info(
+                f"[DIAG-POLARITY] reverse_p={self._reverse_p}, latched={getattr(self, '_polarity_latched', False)}, "
+                f"first_8_dibits_after_correction={sample}"
+            )
+
         # Add to buffer
         self._dibit_buffer.extend(dibits.tolist())
         if soft is not None:
@@ -478,7 +489,10 @@ class ControlChannelMonitor:
     SYNC_PATTERN_SYMBOLS_REV = np.array([-3, -3, -3, -3, -3, +3, -3, -3, +3, +3, -3, -3,
                                           +3, +3, +3, +3, -3, +3, -3, +3, +3, +3, +3, +3], dtype=np.float32)
     DIBIT_TO_SYMBOL = np.array([+1.0, +3.0, -1.0, -3.0], dtype=np.float32)
-    SOFT_SYNC_THRESHOLD = 80  # Matches SDRTrunk's P25P1DemodulatorC4FM.SYNC_THRESHOLD_DETECTION = 80
+    # SDRTrunk uses 80 with radian-scale symbols (max ~133), which is 60% of max
+    # WaveCap uses ±3 normalized symbols (max 216), so 60% = 130
+    # Raise to 130 to eliminate false positive sync detection on noise
+    SOFT_SYNC_THRESHOLD = 130  # 60% of max (216), equivalent to SDRTrunk's 80/133
 
     def _soft_correlation(self, dibits: list[int], detect_polarity: bool = False) -> float | tuple[float, bool]:
         """Compute soft correlation score between dibits and sync pattern.
