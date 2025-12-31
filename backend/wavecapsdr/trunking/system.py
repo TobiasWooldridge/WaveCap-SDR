@@ -2407,6 +2407,10 @@ class TrunkingSystem:
 
         self.control_channel_freq_hz = next_freq
 
+        # In AUTO mode, rotating channels means we are no longer logically "locked"
+        if self._hunt_mode == HuntMode.AUTO:
+            self._locked_frequency = None
+
         # Calculate offset from SDR center to the control channel
         # NOTE: Do NOT retune the SDR - use frequency shifting instead.
         # Retuning causes glitches and race conditions. The SDR stays at the
@@ -2760,7 +2764,13 @@ class TrunkingSystem:
 
         old_mode = self._hunt_mode
         self._hunt_mode = mode
-        self._locked_frequency = locked_freq
+
+        # In AUTO mode we should not present or persist a lock
+        if mode == HuntMode.AUTO:
+            self._locked_frequency = None
+            locked_freq = None
+        else:
+            self._locked_frequency = locked_freq
 
         # If switching to MANUAL with a specific frequency, tune to it now
         if mode == HuntMode.MANUAL and locked_freq is not None:
@@ -2790,8 +2800,17 @@ class TrunkingSystem:
             self.on_system_update(self)
 
     def get_locked_frequency(self) -> float | None:
-        """Get the currently locked frequency (for MANUAL mode)."""
-        return self._locked_frequency
+        """Get the currently locked frequency (for MANUAL mode).
+
+        Only report a lock when it matches the active control channel.
+        """
+        if (
+            self._locked_frequency is not None
+            and self.control_channel_freq_hz is not None
+            and abs(self._locked_frequency - self.control_channel_freq_hz) < 1000
+        ):
+            return self._locked_frequency
+        return None
 
     def get_enabled_channels(self) -> list[float]:
         """Get list of enabled control channel frequencies.
@@ -2884,13 +2903,19 @@ class TrunkingSystem:
                 self.control_channel_freq_hz is not None
                 and abs(freq - self.control_channel_freq_hz) < 1000
             )
+            # Only mark locked if it matches the active control channel
+            is_locked = (
+                self._locked_frequency is not None
+                and is_current
+                and abs(freq - self._locked_frequency) < 1000
+            )
 
             info = {
                 "frequencyHz": freq,
                 "name": self.cfg.get_control_channel_name(freq),
                 "enabled": self.is_channel_enabled(freq),
                 "isCurrent": is_current,
-                "isLocked": self._locked_frequency is not None and abs(freq - self._locked_frequency) < 1000,
+                "isLocked": is_locked,
                 "snrDb": m.snr_db if m else None,
                 "powerDb": m.power_db if m else None,
                 "syncDetected": m.sync_detected if m else False,

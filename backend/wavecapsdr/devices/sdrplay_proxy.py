@@ -248,6 +248,10 @@ class SDRplayProxyStream(StreamHandle):
                         if header is None:
                             return np.empty(0, dtype=np.complex64), False
                         write_idx, _, sample_count, _overflow_count, sample_rate, flags, _timestamp = header
+                        buf = self.shm.buf
+                        if buf is None:
+                            return np.empty(0, dtype=np.complex64), False
+                        self._buf_none_count = 0
                         available = write_idx - self._last_read_idx
                         if available > 0:
                             logger.info(f"SDRplayProxyStream: Re-attach successful! Now have {available} samples available")
