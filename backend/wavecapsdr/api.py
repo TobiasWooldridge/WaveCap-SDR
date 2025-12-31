@@ -783,8 +783,8 @@ def update_device_name(device_id: str, request: dict[str, Any], _: None = Depend
     # (SDRplay devices don't appear in enumeration when busy streaming)
     device_found = False
     try:
-        devices = state.captures.list_devices()
-        device_found = any(d["id"] == device_id for d in devices)
+        enumerated_devices = state.captures.list_devices()
+        device_found = any(d["id"] == device_id for d in enumerated_devices)
     except Exception:
         pass  # Enumeration may fail if all devices are busy
 
@@ -813,6 +813,9 @@ def update_device_name(device_id: str, request: dict[str, Any], _: None = Depend
         except Exception as e:
             logger.error(f"Failed to save device nickname: {e}")
 
+    device_models = _build_device_models(state)
+    _emit_device_changes(state, device_models)
+
     return {"device_id": device_id, "nickname": nickname}
 
 
@@ -837,8 +840,7 @@ def _get_stable_device_id(device_id: str) -> str:
     return f"{driver}:{serial}" if serial else f"{driver}:{label}"
 
 
-@router.get("/devices", response_model=list[DeviceModel], response_model_by_alias=False)
-def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> list[DeviceModel]:
+def _build_device_models(state: AppState) -> list[DeviceModel]:
     result: list[DeviceModel] = []
     seen_ids = set()  # Full device IDs
     seen_stable_ids = set()  # Stable IDs for deduplication
@@ -923,6 +925,33 @@ def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_st
             result.append(in_use_device)
 
     return result
+
+
+def _emit_device_changes(state: AppState, devices: list[DeviceModel]) -> None:
+    from .state_broadcaster import get_broadcaster
+
+    previous = state.device_snapshot
+    next_snapshot = {device.id: device.model_dump() for device in devices}
+
+    broadcaster = get_broadcaster()
+    for device_id, data in next_snapshot.items():
+        if device_id not in previous:
+            broadcaster.emit_device_change("created", device_id, data)
+        elif previous[device_id] != data:
+            broadcaster.emit_device_change("updated", device_id, data)
+
+    for device_id in list(previous.keys()):
+        if device_id not in next_snapshot:
+            broadcaster.emit_device_change("deleted", device_id, None)
+
+    state.device_snapshot = next_snapshot
+
+
+@router.get("/devices", response_model=list[DeviceModel], response_model_by_alias=False)
+def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> list[DeviceModel]:
+    devices = _build_device_models(state)
+    _emit_device_changes(state, devices)
+    return devices
 
 
 @router.post("/devices/refresh", response_model=list[DeviceModel], response_model_by_alias=False)
@@ -2750,7 +2779,8 @@ async def stream_state(websocket: WebSocket) -> None:
     - {"type": "capture", "action": "created|updated|deleted|started|stopped", "id": "...", "data": {...}}
     - {"type": "channel", "action": "created|updated|deleted|started|stopped", "id": "...", "data": {...}}
     - {"type": "scanner", "action": "created|updated|deleted|started|stopped", "id": "...", "data": {...}}
-    - {"type": "snapshot", "captures": [...], "channels": [...], "scanners": [...]}
+    - {"type": "device", "action": "created|updated|deleted", "id": "...", "data": {...}}
+    - {"type": "snapshot", "captures": [...], "channels": [...], "scanners": [...], "devices": [...]}
 
     On connect, sends a full state snapshot, then pushes incremental changes.
     """
@@ -2781,11 +2811,16 @@ async def stream_state(websocket: WebSocket) -> None:
             _to_scanner_model(sid, s).model_dump()
             for sid, s in app_state.scanners.items()
         ]
+        device_models = _build_device_models(app_state)
+        device_data = [device.model_dump() for device in device_models]
+        devices = device_data
+        app_state.device_snapshot = {device["id"]: device for device in device_data}
         await websocket.send_json({
             "type": "snapshot",
             "captures": captures,
             "channels": channels,
             "scanners": scanners,
+            "devices": devices,
         })
 
     try:

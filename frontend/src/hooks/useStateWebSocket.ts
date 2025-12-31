@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type {
   Capture,
   Channel,
+  Device,
   Scanner,
   StateMessage,
   StateChangeMessage,
@@ -151,6 +152,35 @@ export function useStateWebSocket() {
     [queryClient],
   );
 
+  const updateDeviceCache = useCallback(
+    (action: string, id: string, data: Device | null) => {
+      queryClient.setQueryData<Device[]>(["devices"], (old) => {
+        if (!old) return old;
+
+        switch (action) {
+          case "created":
+            if (data && !old.find((d) => d.id === id)) {
+              return [...old, data];
+            }
+            return old;
+
+          case "updated":
+            if (data) {
+              return old.map((d) => (d.id === id ? { ...d, ...data } : d));
+            }
+            return old;
+
+          case "deleted":
+            return old.filter((d) => d.id !== id);
+
+          default:
+            return old;
+        }
+      });
+    },
+    [queryClient],
+  );
+
   const handleStateChange = useCallback(
     (message: StateChangeMessage) => {
       const { type, action, id, data } = message;
@@ -162,9 +192,16 @@ export function useStateWebSocket() {
         updateChannelCache(action, id, data as Channel | null);
       } else if (type === "scanner") {
         updateScannerCache(action, id, data as Scanner | null);
+      } else if (type === "device") {
+        updateDeviceCache(action, id, data as Device | null);
       }
     },
-    [updateCaptureCache, updateChannelCache, updateScannerCache],
+    [
+      updateCaptureCache,
+      updateChannelCache,
+      updateScannerCache,
+      updateDeviceCache,
+    ],
   );
 
   const handleSnapshot = useCallback(
@@ -173,6 +210,7 @@ export function useStateWebSocket() {
         captures: message.captures.length,
         channels: message.channels.length,
         scanners: message.scanners.length,
+        devices: message.devices.length,
       });
 
       // Update captures cache
@@ -191,6 +229,9 @@ export function useStateWebSocket() {
 
       // Update scanners cache
       queryClient.setQueryData<Scanner[]>(["scanners"], message.scanners);
+
+      // Update devices cache
+      queryClient.setQueryData<Device[]>(["devices"], message.devices);
     },
     [queryClient],
   );

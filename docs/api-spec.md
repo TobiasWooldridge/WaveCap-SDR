@@ -189,6 +189,12 @@ flowchart TD
 - Encoder expectations:
   - Up to 32 packets are buffered per subscriber queue; overflow drops the oldest packet and increments the drop counter surfaced in `/health` streaming stats.
   - Encoder subprocesses (ffmpeg) use the channel’s configured `audioRate` and default to 128 kbps CBR. Bitrate selection will be exposed via config later; until then, consumers should not assume VBR support.
+- WS `/stream/state`
+  - Real-time state updates for captures, channels, scanners, and devices (replaces polling).
+  - On connect, sends a full snapshot: `{ type: "snapshot", captures, channels, scanners, devices }`.
+  - Incremental events: `{ type: "capture|channel|scanner|device", action: "created|updated|deleted|started|stopped", id, data }`.
+  - Channel `updated` events include live metrics (RSSI/SNR/signal power + audio level + RDS when available).
+  - Sends keepalive pings every 30 seconds; on overflow it resends a full snapshot to resync.
 - WS `/stream/trunking/{systemId}`
   - Real-time trunking events (grants, denials, registrations) for a specific system.
   - `message` events include `raw` decoded metadata payloads.

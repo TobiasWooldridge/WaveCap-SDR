@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .config import AppConfig
 
@@ -35,6 +35,8 @@ class AppState:
     capture_presets: dict[str, str] = field(default_factory=dict)
     # Map scanner_id -> ScannerService for active scanners
     scanners: dict[str, ScannerService] = field(default_factory=dict)
+    # Snapshot of devices (device_id -> model dict) for state stream diffs
+    device_snapshot: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @classmethod
     def from_config(cls, cfg: AppConfig, config_path: str | None = None) -> AppState:

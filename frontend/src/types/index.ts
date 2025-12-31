@@ -391,15 +391,17 @@ export type StateChangeAction =
   | "deleted"
   | "started"
   | "stopped";
-export type StateChangeType = "capture" | "channel" | "scanner";
+export type StateChangeType = "capture" | "channel" | "scanner" | "device";
 
 export type StateChangeData =
   | Capture
   | Channel
   | Scanner
+  | Device
   | Partial<Capture>
   | Partial<Channel>
   | Partial<Scanner>
+  | Partial<Device>
   | null;
 
 export interface StateChangeMessage {
@@ -415,6 +417,7 @@ export interface StateSnapshotMessage {
   captures: Capture[];
   channels: Channel[];
   scanners: Scanner[];
+  devices: Device[];
 }
 
 export interface StatePingMessage {
