@@ -262,45 +262,48 @@ export function SystemStatusPanel({
           </div>
         </div>
 
-        {/* Secondary Stats Row - smaller, less prominent */}
-        <div
-          className="d-flex gap-3 mt-2 flex-wrap"
-          style={{ fontSize: "0.75rem" }}
-        >
-          <span className="text-muted">
-            <strong className="text-body">{system.stats.tsbk_count}</strong>{" "}
-            TSBKs
-            <InfoTooltip content="Trunking Signaling Blocks - control channel messages received. Includes channel grants, affiliations, and system info." />
-          </span>
-          <span className="text-muted">
-            <strong className="text-body">{system.stats.grant_count}</strong>{" "}
-            Grants
-            <InfoTooltip content="Voice channel grants - messages that assign a talkgroup to a voice frequency for a call." />
-          </span>
-          <span className="text-muted">
-            <strong className="text-body">{system.stats.calls_total}</strong>{" "}
-            Total calls
-            <InfoTooltip content="Total voice calls detected since the system started." />
-          </span>
-          <span className="text-muted">
-            <strong className="text-body">
-              {system.stats.recorders_active}
-            </strong>
-            /{system.stats.recorders_active + system.stats.recorders_idle}{" "}
-            Recorders
-            <InfoTooltip content="Voice recorders: active/total. Each recorder can capture one voice call at a time." />
-          </span>
-          {system.stats.initial_scan_complete === false && (
-            <span className="text-warning">
-              <Activity
-                size={12}
-                className="me-1"
-                style={{ animation: "pulse 1s infinite" }}
-              />
-              Scanning channels...
-            </span>
-          )}
+        {/* Secondary Stats Row - same card style */}
+        <div className="row g-2 mt-2">
+          <div className="col-6 col-md-3">
+            <StatBox
+              label="TSBKs"
+              value={system.stats.tsbk_count}
+              info="Trunking Signaling Blocks - control channel messages received. Includes channel grants, affiliations, and system info."
+            />
+          </div>
+          <div className="col-6 col-md-3">
+            <StatBox
+              label="Grants"
+              value={system.stats.grant_count}
+              info="Voice channel grants - messages that assign a talkgroup to a voice frequency for a call."
+            />
+          </div>
+          <div className="col-6 col-md-3">
+            <StatBox
+              label="Total calls"
+              value={system.stats.calls_total}
+              info="Total voice calls detected since the system started."
+            />
+          </div>
+          <div className="col-6 col-md-3">
+            <StatBox
+              label="Recorders"
+              value={`${system.stats.recorders_active}/${system.stats.recorders_active + system.stats.recorders_idle}`}
+              info="Voice recorders: active/total. Each recorder can capture one voice call at a time."
+            />
+          </div>
         </div>
+
+        {system.stats.initial_scan_complete === false && (
+          <div className="mt-2 text-warning" style={{ fontSize: "0.75rem" }}>
+            <Activity
+              size={12}
+              className="me-1"
+              style={{ animation: "pulse 1s infinite" }}
+            />
+            Scanning channels...
+          </div>
+        )}
 
         {/* Protocol and Channel Info */}
         <div className="d-flex align-items-center gap-2 mt-2">
