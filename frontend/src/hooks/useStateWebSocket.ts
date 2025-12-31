@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useSyncExternalStore } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type {
   Capture,
@@ -9,6 +9,34 @@ import type {
   StateChangeMessage,
   StateSnapshotMessage,
 } from "../types";
+
+let stateStreamConnected = false;
+const stateStreamListeners = new Set<() => void>();
+
+const notifyStateStreamListeners = () => {
+  for (const listener of stateStreamListeners) {
+    listener();
+  }
+};
+
+const setStateStreamConnected = (connected: boolean) => {
+  if (stateStreamConnected === connected) return;
+  stateStreamConnected = connected;
+  notifyStateStreamListeners();
+};
+
+export function useStateStreamStatus() {
+  return useSyncExternalStore(
+    (listener) => {
+      stateStreamListeners.add(listener);
+      return () => {
+        stateStreamListeners.delete(listener);
+      };
+    },
+    () => stateStreamConnected,
+    () => false,
+  );
+}
 
 /**
  * WebSocket hook for real-time state updates.
@@ -290,6 +318,7 @@ export function useStateWebSocket() {
     ws.onopen = () => {
       console.log("[StateWS] Connected");
       reconnectAttempts.current = 0;
+      setStateStreamConnected(true);
     };
 
     ws.onmessage = (event) => {
@@ -308,10 +337,12 @@ export function useStateWebSocket() {
     ws.onclose = (event) => {
       if (!mountedRef.current || !shouldReconnectRef.current) {
         wsRef.current = null;
+        setStateStreamConnected(false);
         return;
       }
       console.log("[StateWS] Disconnected", event.code, event.reason);
       wsRef.current = null;
+      setStateStreamConnected(false);
 
       // Attempt reconnection with exponential backoff
       if (reconnectAttempts.current < maxReconnectAttempts) {
@@ -339,6 +370,7 @@ export function useStateWebSocket() {
     return () => {
       mountedRef.current = false;
       shouldReconnectRef.current = false;
+      setStateStreamConnected(false);
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }

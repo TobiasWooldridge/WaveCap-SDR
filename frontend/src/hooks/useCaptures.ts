@@ -1,5 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { Capture, UpdateCaptureRequest, CreateCaptureRequest } from "../types";
+import type {
+  Capture,
+  UpdateCaptureRequest,
+  CreateCaptureRequest,
+} from "../types";
+import { useStateStreamStatus } from "./useStateWebSocket";
 
 async function fetchCaptures(): Promise<Capture[]> {
   const response = await fetch("/api/v1/captures");
@@ -103,12 +108,14 @@ async function deleteCapture(captureId: string): Promise<void> {
 }
 
 export function useCaptures() {
+  const isStateStreamConnected = useStateStreamStatus();
+
   return useQuery({
     queryKey: ["captures"],
     queryFn: fetchCaptures,
     // Fallback polling - WebSocket provides real-time updates
     // Polling is kept as backup for reconnection and stale data recovery
-    refetchInterval: 10_000,
+    refetchInterval: isStateStreamConnected ? false : 10_000,
   });
 }
 
@@ -116,8 +123,13 @@ export function useUpdateCapture() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ captureId, request }: { captureId: string; request: UpdateCaptureRequest }) =>
-      updateCapture(captureId, request),
+    mutationFn: ({
+      captureId,
+      request,
+    }: {
+      captureId: string;
+      request: UpdateCaptureRequest;
+    }) => updateCapture(captureId, request),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["captures"] });
     },

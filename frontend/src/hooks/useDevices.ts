@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Device } from "../types";
+import { useStateStreamStatus } from "./useStateWebSocket";
 
 async function fetchDevices(): Promise<Device[]> {
   const response = await fetch("/api/v1/devices");
@@ -32,11 +33,13 @@ async function restartSDRplayService(): Promise<RestartServiceResponse> {
 }
 
 export function useDevices() {
+  const isStateStreamConnected = useStateStreamStatus();
+
   return useQuery({
     queryKey: ["devices"],
     queryFn: fetchDevices,
     staleTime: 30_000, // Cache for 30 seconds
-    refetchInterval: 30_000, // Re-enumerate devices every 30 seconds
+    refetchInterval: isStateStreamConnected ? 120_000 : 30_000,
   });
 }
 
@@ -98,7 +101,9 @@ interface PowerCycleResponse {
   wasRunning: boolean;
 }
 
-async function powerCycleDevice(captureId: string): Promise<PowerCycleResponse> {
+async function powerCycleDevice(
+  captureId: string,
+): Promise<PowerCycleResponse> {
   const response = await fetch(`/api/v1/devices/usb/power-cycle/${captureId}`, {
     method: "POST",
   });

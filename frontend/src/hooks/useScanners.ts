@@ -1,12 +1,20 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { Scanner, CreateScannerRequest, UpdateScannerRequest } from '../types';
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type {
+  Scanner,
+  CreateScannerRequest,
+  UpdateScannerRequest,
+} from "../types";
+import { useStateStreamStatus } from "./useStateWebSocket";
 
-const API_BASE = '/api/v1';
+const API_BASE = "/api/v1";
 
-async function parseErrorMessage(response: Response, fallback: string): Promise<string> {
+async function parseErrorMessage(
+  response: Response,
+  fallback: string,
+): Promise<string> {
   try {
     const error = (await response.json()) as { detail?: unknown };
-    if (typeof error?.detail === 'string') {
+    if (typeof error?.detail === "string") {
       return error.detail;
     }
   } catch {
@@ -44,14 +52,14 @@ async function fetchScanner(scannerId: string): Promise<Scanner> {
 // Create scanner
 async function createScanner(request: CreateScannerRequest): Promise<Scanner> {
   const response = await fetch(`${API_BASE}/scanners`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
   });
   if (!response.ok) {
     const message = await parseErrorMessage(
       response,
-      `Failed to create scanner: ${response.statusText}`
+      `Failed to create scanner: ${response.statusText}`,
     );
     throw new Error(message);
   }
@@ -59,16 +67,19 @@ async function createScanner(request: CreateScannerRequest): Promise<Scanner> {
 }
 
 // Update scanner
-async function updateScanner(scannerId: string, request: UpdateScannerRequest): Promise<Scanner> {
+async function updateScanner(
+  scannerId: string,
+  request: UpdateScannerRequest,
+): Promise<Scanner> {
   const response = await fetch(`${API_BASE}/scanners/${scannerId}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
   });
   if (!response.ok) {
     const message = await parseErrorMessage(
       response,
-      `Failed to update scanner: ${response.statusText}`
+      `Failed to update scanner: ${response.statusText}`,
     );
     throw new Error(message);
   }
@@ -78,7 +89,7 @@ async function updateScanner(scannerId: string, request: UpdateScannerRequest): 
 // Delete scanner
 async function deleteScanner(scannerId: string): Promise<void> {
   const response = await fetch(`${API_BASE}/scanners/${scannerId}`, {
-    method: 'DELETE',
+    method: "DELETE",
   });
   if (!response.ok) {
     throw new Error(`Failed to delete scanner: ${response.statusText}`);
@@ -88,7 +99,7 @@ async function deleteScanner(scannerId: string): Promise<void> {
 // Scanner control actions
 async function startScanner(scannerId: string): Promise<Scanner> {
   const response = await fetch(`${API_BASE}/scanners/${scannerId}/start`, {
-    method: 'POST',
+    method: "POST",
   });
   if (!response.ok) {
     throw new Error(`Failed to start scanner: ${response.statusText}`);
@@ -98,7 +109,7 @@ async function startScanner(scannerId: string): Promise<Scanner> {
 
 async function stopScanner(scannerId: string): Promise<Scanner> {
   const response = await fetch(`${API_BASE}/scanners/${scannerId}/stop`, {
-    method: 'POST',
+    method: "POST",
   });
   if (!response.ok) {
     throw new Error(`Failed to stop scanner: ${response.statusText}`);
@@ -108,7 +119,7 @@ async function stopScanner(scannerId: string): Promise<Scanner> {
 
 async function pauseScanner(scannerId: string): Promise<Scanner> {
   const response = await fetch(`${API_BASE}/scanners/${scannerId}/pause`, {
-    method: 'POST',
+    method: "POST",
   });
   if (!response.ok) {
     throw new Error(`Failed to pause scanner: ${response.statusText}`);
@@ -118,7 +129,7 @@ async function pauseScanner(scannerId: string): Promise<Scanner> {
 
 async function resumeScanner(scannerId: string): Promise<Scanner> {
   const response = await fetch(`${API_BASE}/scanners/${scannerId}/resume`, {
-    method: 'POST',
+    method: "POST",
   });
   if (!response.ok) {
     throw new Error(`Failed to resume scanner: ${response.statusText}`);
@@ -128,7 +139,7 @@ async function resumeScanner(scannerId: string): Promise<Scanner> {
 
 async function lockScanner(scannerId: string): Promise<Scanner> {
   const response = await fetch(`${API_BASE}/scanners/${scannerId}/lock`, {
-    method: 'POST',
+    method: "POST",
   });
   if (!response.ok) {
     throw new Error(`Failed to lock scanner: ${response.statusText}`);
@@ -138,7 +149,7 @@ async function lockScanner(scannerId: string): Promise<Scanner> {
 
 async function unlockScanner(scannerId: string): Promise<Scanner> {
   const response = await fetch(`${API_BASE}/scanners/${scannerId}/unlock`, {
-    method: 'POST',
+    method: "POST",
   });
   if (!response.ok) {
     throw new Error(`Failed to unlock scanner: ${response.statusText}`);
@@ -148,7 +159,7 @@ async function unlockScanner(scannerId: string): Promise<Scanner> {
 
 async function lockoutFrequency(scannerId: string): Promise<Scanner> {
   const response = await fetch(`${API_BASE}/scanners/${scannerId}/lockout`, {
-    method: 'POST',
+    method: "POST",
   });
   if (!response.ok) {
     throw new Error(`Failed to lockout frequency: ${response.statusText}`);
@@ -156,10 +167,16 @@ async function lockoutFrequency(scannerId: string): Promise<Scanner> {
   return response.json();
 }
 
-async function clearLockout(scannerId: string, frequency: number): Promise<Scanner> {
-  const response = await fetch(`${API_BASE}/scanners/${scannerId}/lockout/${frequency}`, {
-    method: 'DELETE',
-  });
+async function clearLockout(
+  scannerId: string,
+  frequency: number,
+): Promise<Scanner> {
+  const response = await fetch(
+    `${API_BASE}/scanners/${scannerId}/lockout/${frequency}`,
+    {
+      method: "DELETE",
+    },
+  );
   if (!response.ok) {
     throw new Error(`Failed to clear lockout: ${response.statusText}`);
   }
@@ -168,7 +185,7 @@ async function clearLockout(scannerId: string, frequency: number): Promise<Scann
 
 async function clearAllLockouts(scannerId: string): Promise<Scanner> {
   const response = await fetch(`${API_BASE}/scanners/${scannerId}/lockouts`, {
-    method: 'DELETE',
+    method: "DELETE",
   });
   if (!response.ok) {
     throw new Error(`Failed to clear all lockouts: ${response.statusText}`);
@@ -178,23 +195,27 @@ async function clearAllLockouts(scannerId: string): Promise<Scanner> {
 
 // Hooks
 export function useScanners() {
+  const isStateStreamConnected = useStateStreamStatus();
+
   return useQuery({
-    queryKey: ['scanners'],
+    queryKey: ["scanners"],
     queryFn: fetchScanners,
     // Fallback polling - WebSocket provides real-time updates
     // Polling is kept as backup for reconnection and stale data recovery
-    refetchInterval: 10_000,
+    refetchInterval: isStateStreamConnected ? false : 10_000,
   });
 }
 
 export function useScanner(scannerId: string | undefined) {
+  const isStateStreamConnected = useStateStreamStatus();
+
   return useQuery({
-    queryKey: ['scanners', scannerId],
+    queryKey: ["scanners", scannerId],
     queryFn: () => fetchScanner(scannerId!),
     enabled: !!scannerId,
     // Active scanners can use faster polling for real-time updates
     // WebSocket handles major state changes, polling for detailed metrics
-    refetchInterval: 5_000,
+    refetchInterval: isStateStreamConnected ? false : 5_000,
   });
 }
 
@@ -203,7 +224,7 @@ export function useCreateScanner() {
   return useMutation({
     mutationFn: createScanner,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['scanners'] });
+      queryClient.invalidateQueries({ queryKey: ["scanners"] });
     },
   });
 }
@@ -211,11 +232,18 @@ export function useCreateScanner() {
 export function useUpdateScanner() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ scannerId, request }: { scannerId: string; request: UpdateScannerRequest }) =>
-      updateScanner(scannerId, request),
+    mutationFn: ({
+      scannerId,
+      request,
+    }: {
+      scannerId: string;
+      request: UpdateScannerRequest;
+    }) => updateScanner(scannerId, request),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['scanners'] });
-      queryClient.invalidateQueries({ queryKey: ['scanners', variables.scannerId] });
+      queryClient.invalidateQueries({ queryKey: ["scanners"] });
+      queryClient.invalidateQueries({
+        queryKey: ["scanners", variables.scannerId],
+      });
     },
   });
 }
@@ -225,7 +253,7 @@ export function useDeleteScanner() {
   return useMutation({
     mutationFn: deleteScanner,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['scanners'] });
+      queryClient.invalidateQueries({ queryKey: ["scanners"] });
     },
   });
 }
@@ -235,8 +263,8 @@ export function useStartScanner() {
   return useMutation({
     mutationFn: startScanner,
     onSuccess: (_data, scannerId) => {
-      queryClient.invalidateQueries({ queryKey: ['scanners'] });
-      queryClient.invalidateQueries({ queryKey: ['scanners', scannerId] });
+      queryClient.invalidateQueries({ queryKey: ["scanners"] });
+      queryClient.invalidateQueries({ queryKey: ["scanners", scannerId] });
     },
   });
 }
@@ -246,8 +274,8 @@ export function useStopScanner() {
   return useMutation({
     mutationFn: stopScanner,
     onSuccess: (_data, scannerId) => {
-      queryClient.invalidateQueries({ queryKey: ['scanners'] });
-      queryClient.invalidateQueries({ queryKey: ['scanners', scannerId] });
+      queryClient.invalidateQueries({ queryKey: ["scanners"] });
+      queryClient.invalidateQueries({ queryKey: ["scanners", scannerId] });
     },
   });
 }
@@ -257,8 +285,8 @@ export function usePauseScanner() {
   return useMutation({
     mutationFn: pauseScanner,
     onSuccess: (_data, scannerId) => {
-      queryClient.invalidateQueries({ queryKey: ['scanners'] });
-      queryClient.invalidateQueries({ queryKey: ['scanners', scannerId] });
+      queryClient.invalidateQueries({ queryKey: ["scanners"] });
+      queryClient.invalidateQueries({ queryKey: ["scanners", scannerId] });
     },
   });
 }
@@ -268,8 +296,8 @@ export function useResumeScanner() {
   return useMutation({
     mutationFn: resumeScanner,
     onSuccess: (_data, scannerId) => {
-      queryClient.invalidateQueries({ queryKey: ['scanners'] });
-      queryClient.invalidateQueries({ queryKey: ['scanners', scannerId] });
+      queryClient.invalidateQueries({ queryKey: ["scanners"] });
+      queryClient.invalidateQueries({ queryKey: ["scanners", scannerId] });
     },
   });
 }
@@ -279,8 +307,8 @@ export function useLockScanner() {
   return useMutation({
     mutationFn: lockScanner,
     onSuccess: (_data, scannerId) => {
-      queryClient.invalidateQueries({ queryKey: ['scanners'] });
-      queryClient.invalidateQueries({ queryKey: ['scanners', scannerId] });
+      queryClient.invalidateQueries({ queryKey: ["scanners"] });
+      queryClient.invalidateQueries({ queryKey: ["scanners", scannerId] });
     },
   });
 }
@@ -290,8 +318,8 @@ export function useUnlockScanner() {
   return useMutation({
     mutationFn: unlockScanner,
     onSuccess: (_data, scannerId) => {
-      queryClient.invalidateQueries({ queryKey: ['scanners'] });
-      queryClient.invalidateQueries({ queryKey: ['scanners', scannerId] });
+      queryClient.invalidateQueries({ queryKey: ["scanners"] });
+      queryClient.invalidateQueries({ queryKey: ["scanners", scannerId] });
     },
   });
 }
@@ -301,8 +329,8 @@ export function useLockoutFrequency() {
   return useMutation({
     mutationFn: lockoutFrequency,
     onSuccess: (_data, scannerId) => {
-      queryClient.invalidateQueries({ queryKey: ['scanners'] });
-      queryClient.invalidateQueries({ queryKey: ['scanners', scannerId] });
+      queryClient.invalidateQueries({ queryKey: ["scanners"] });
+      queryClient.invalidateQueries({ queryKey: ["scanners", scannerId] });
     },
   });
 }
@@ -310,11 +338,18 @@ export function useLockoutFrequency() {
 export function useClearLockout() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ scannerId, frequency }: { scannerId: string; frequency: number }) =>
-      clearLockout(scannerId, frequency),
+    mutationFn: ({
+      scannerId,
+      frequency,
+    }: {
+      scannerId: string;
+      frequency: number;
+    }) => clearLockout(scannerId, frequency),
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['scanners'] });
-      queryClient.invalidateQueries({ queryKey: ['scanners', variables.scannerId] });
+      queryClient.invalidateQueries({ queryKey: ["scanners"] });
+      queryClient.invalidateQueries({
+        queryKey: ["scanners", variables.scannerId],
+      });
     },
   });
 }
@@ -324,8 +359,8 @@ export function useClearAllLockouts() {
   return useMutation({
     mutationFn: clearAllLockouts,
     onSuccess: (_data, scannerId) => {
-      queryClient.invalidateQueries({ queryKey: ['scanners'] });
-      queryClient.invalidateQueries({ queryKey: ['scanners', scannerId] });
+      queryClient.invalidateQueries({ queryKey: ["scanners"] });
+      queryClient.invalidateQueries({ queryKey: ["scanners", scannerId] });
     },
   });
 }

@@ -1,7 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { Channel, CreateChannelRequest, UpdateChannelRequest } from "../types";
+import type {
+  Channel,
+  CreateChannelRequest,
+  UpdateChannelRequest,
+} from "../types";
+import { useStateStreamStatus } from "./useStateWebSocket";
 
-async function parseErrorMessage(response: Response, fallback: string): Promise<string> {
+async function parseErrorMessage(
+  response: Response,
+  fallback: string,
+): Promise<string> {
   try {
     const error = (await response.json()) as { detail?: unknown };
     if (typeof error?.detail === "string") {
@@ -40,7 +48,10 @@ async function createChannel(
   });
 
   if (!response.ok) {
-    const message = await parseErrorMessage(response, "Failed to create channel");
+    const message = await parseErrorMessage(
+      response,
+      "Failed to create channel",
+    );
     throw new Error(message);
   }
 
@@ -68,7 +79,10 @@ async function updateChannel(
   });
 
   if (!response.ok) {
-    const message = await parseErrorMessage(response, "Failed to update channel");
+    const message = await parseErrorMessage(
+      response,
+      "Failed to update channel",
+    );
     throw new Error(message);
   }
 
@@ -80,7 +94,10 @@ async function startChannel(channelId: string): Promise<Channel> {
     method: "POST",
   });
   if (!response.ok) {
-    const message = await parseErrorMessage(response, "Failed to start channel");
+    const message = await parseErrorMessage(
+      response,
+      "Failed to start channel",
+    );
     throw new Error(message);
   }
   return response.json();
@@ -98,13 +115,15 @@ async function stopChannel(channelId: string): Promise<Channel> {
 }
 
 export function useChannels(captureId: string | undefined) {
+  const isStateStreamConnected = useStateStreamStatus();
+
   return useQuery({
     queryKey: ["channels", captureId],
     queryFn: () => fetchChannels(captureId!),
     enabled: !!captureId,
     // Fallback polling - WebSocket provides real-time updates
     // Polling is kept as backup for reconnection and stale data recovery
-    refetchInterval: 10_000,
+    refetchInterval: isStateStreamConnected ? false : 10_000,
   });
 }
 
@@ -112,10 +131,17 @@ export function useCreateChannel() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ captureId, request }: { captureId: string; request: CreateChannelRequest }) =>
-      createChannel(captureId, request),
+    mutationFn: ({
+      captureId,
+      request,
+    }: {
+      captureId: string;
+      request: CreateChannelRequest;
+    }) => createChannel(captureId, request),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["channels", variables.captureId] });
+      queryClient.invalidateQueries({
+        queryKey: ["channels", variables.captureId],
+      });
     },
   });
 }
@@ -135,8 +161,13 @@ export function useUpdateChannel(captureId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ channelId, request }: { channelId: string; request: UpdateChannelRequest }) =>
-      updateChannel(channelId, request),
+    mutationFn: ({
+      channelId,
+      request,
+    }: {
+      channelId: string;
+      request: UpdateChannelRequest;
+    }) => updateChannel(channelId, request),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["channels", captureId] });
     },
