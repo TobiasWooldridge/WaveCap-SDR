@@ -109,3 +109,12 @@ Environment overrides examples
 - `WAVECAPSDR__SERVER__PORT=8089`
 - `WAVECAPSDR__DEVICE__DRIVER=fake`
 - `WAVECAPSDR__SERVER__AUTH_TOKEN=secret123`
+
+Generating encoded samples via CLI/harness
+- Use the Fake driver to avoid hardware requirements and keep runs deterministic:
+  - `cd backend && . .venv/bin/activate && PYTHONPATH=. python -m wavecapsdr.harness --start-server --driver fake --preset tone --duration 3 --out harness_out`
+  - The harness prints JSON with the capture/channel IDs and writes `channel_<id>.wav` under `backend/harness_out/`.
+- To grab an encoded stream for fixtures or manual listening, reuse the channel id from the harness JSON and download over HTTP (add `?token=` if auth is enabled):
+  - `timeout 6s curl -o backend/harness_out/channel.mp3 http://127.0.0.1:8087/api/v1/stream/channels/<chanId>.mp3`
+  - Swap the extension for Opus or AAC: `.opus` or `.aac`.
+- Round-trip check: decode the encoded file back to PCM (`ffmpeg -i backend/harness_out/channel.mp3 -f wav -`) and compare RMS/peak or spectrum against the WAV saved by the harness to confirm encoder parity.
