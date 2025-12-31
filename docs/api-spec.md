@@ -151,7 +151,7 @@ Base path: `/api/v1`
 - WS `/stream/captures/{id}/spectrum`
   - Streams FFT/spectrum data (JSON) for waterfall/spectrum analyzer.
 - WS `/stream/channels/{chanId}?format={pcm16|f32}`
-  - Streams audio frames (binary).
+  - Streams binary PCM audio (no JSON envelope). Defaults to `pcm16`; `f32` is available for analysis clients. Encoded formats (MP3/Opus/AAC) are only available via the HTTP endpoints below.
 - GET `/stream/channels/{chanId}.pcm?format={pcm16|f32}`
   - HTTP streaming for VLC and other players.
 - GET `/stream/channels/{chanId}.mp3`
@@ -160,6 +160,13 @@ Base path: `/api/v1`
   - HTTP Opus streaming.
 - GET `/stream/channels/{chanId}.aac`
   - HTTP AAC streaming.
+- Encoder endpoints (MP3/Opus/AAC) stream raw encoded frames over chunked HTTP. Responses include `Cache-Control: no-cache` and `X-Audio-Rate` headers; clients must handle mid-stream disconnects and reissue requests if a channel is stopped/restarted. Encoders spin up lazily per-channel and are shared across all subscribers for a given format; when the last subscriber disconnects, the encoder shuts down automatically and subsequent subscribers will incur a new encoder spawn.
+- Message shape for encoded streams:
+  - Body: continuous encoded payload (MP3 frames, Ogg Opus, or AAC ADTS). Frame boundaries are not aligned to HTTP chunks; clients must parse frames from the bytestream.
+  - Headers: `X-Audio-Rate` (Hz), `X-Audio-Format` (for PCM streams), `X-Audio-Channels: 1`.
+- Encoder expectations:
+  - Up to 32 packets are buffered per subscriber queue; overflow drops the oldest packet and increments the drop counter surfaced in `/health` streaming stats.
+  - Encoder subprocesses (ffmpeg) use the channel’s configured `audioRate` and default to 128 kbps CBR. Bitrate selection will be exposed via config later; until then, consumers should not assume VBR support.
 - WS `/stream/trunking/{systemId}`
   - Real-time trunking events (grants, denials, registrations) for a specific system.
 - WS `/stream/trunking`
@@ -346,6 +353,17 @@ Configuration via environment variables:
 - Multi‑node clustering and remote device brokers.
 - Full DMR, NXDN, D-Star, and YSF voice demodulation (stubs in place).
 - Commercial trunking protocols (EDACS, LTR, Motorola SmartZone).
+
+## Encoders, Fixtures, and Round-trip Testing
+
+- Audio encoders (MP3, Opus, AAC) are orchestrated per-channel and start only when a subscriber connects to the corresponding encoded endpoint. The same encoder instance fans out to all subscribers of that format; disconnecting all listeners tears it down.
+- Fixture guidance:
+  - IQ/audio fixtures live under `backend/harness_out/` when generated via the harness; keep short (≤10 s) to speed regression runs.
+  - Preserve the JSON harness report emitted to stdout alongside any WAV/encoded assets so tests can assert RMS/peak without reprocessing audio.
+- Round-trip workflow (no hardware required):
+  1. Start the harness with the Fake driver: `cd backend && . .venv/bin/activate && PYTHONPATH=. python -m wavecapsdr.harness --start-server --driver fake --preset tone --duration 3 --out harness_out`.
+  2. Capture PCM over WebSocket or download an encoded stream (e.g., `timeout 5s curl -o harness_out/channel.mp3 http://127.0.0.1:8087/api/v1/stream/channels/<chanId>.mp3`).
+  3. Validate RMS/peak against the harness report; for encoded assets, decode with `ffmpeg -i harness_out/channel.mp3 -f wav -` and compare spectra to the saved PCM WAV for drift/levels.
 
 ## Demodulation Modes
 
