@@ -155,6 +155,7 @@ class VoiceGrant:
     frequency_hz: float  # Actual frequency (if known)
     emergency: bool = False
     encrypted: bool = False
+    slot_id: int | None = None
 
 
 @dataclass
@@ -453,6 +454,8 @@ class TSBKParser:
         result['encrypted'] = bool(svc_opts & 0x40)
         result['duplex'] = bool(svc_opts & 0x20)
         result['priority'] = (svc_opts >> 0) & 0x07
+        slot_id = (svc_opts >> 3) & 0x01
+        result['slot_id'] = slot_id
 
         result['channel'] = channel
         result['frequency_band'] = freq_band
@@ -477,7 +480,8 @@ class TSBKParser:
                 channel=channel,
                 frequency_hz=freq,
                 emergency=result['emergency'],
-                encrypted=result['encrypted']
+                encrypted=result['encrypted'],
+                slot_id=slot_id,
             )
             self.on_voice_grant(grant)
 
@@ -522,6 +526,7 @@ class TSBKParser:
         result['encrypted'] = bool(svc_opts & 0x40)
         result['duplex'] = bool(svc_opts & 0x20)
         result['priority'] = (svc_opts >> 0) & 0x07
+        result['slot_id'] = (svc_opts >> 3) & 0x01
 
         result['downlink_channel'] = dl_channel
         result['downlink_frequency_band'] = dl_freq_band
