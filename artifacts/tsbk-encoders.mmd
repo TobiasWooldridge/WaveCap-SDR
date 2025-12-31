@@ -1,0 +1,11 @@
+```mermaid
+graph TD
+    A[TSBK Encoders] --> B[Status/Status Query]
+    A --> C[Group Affiliation Response]
+    A --> D[Unit Registration/Deregistration]
+    A --> E[Unit Service Request]
+    B --> B1[unit_status + user_status\n→ target + source IDs]
+    C --> C1[response code + announcement TG\n→ group and unit IDs]
+    D --> D1[registration response & dereg ack\n→ WACN/system/unit IDs]
+    E --> E1[service options\n→ target + source IDs]
+```
