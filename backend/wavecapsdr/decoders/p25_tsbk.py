@@ -41,6 +41,7 @@ from wavecapsdr.validation import (
     SYSTEM_ID_MAX,
     TGID_MAX,
     TX_OFFSET_MAX_MHZ,
+    UNIT_ID_MIN,
     UNIT_ID_MAX,
     WACN_MAX,
     validate_float_range,
