@@ -589,36 +589,32 @@ trunking:
       center_hz: 415.375 MHz
       control_channel_timeout: 5
       control_channels:
-      - frequency: 413.2125 MHz
-        name: One Tree Hill
+      - frequency: 412.4875 MHz
+        name: New Royal Adelaide Hospital
       - frequency: 413.225 MHz
         name: Cherry Gardens
       - frequency: 413.3125 MHz
         name: Adelaide Main
-      - frequency: 413.350 MHz
+      - frequency: 413.35 MHz
         name: Hackham West
       - frequency: 414.5875 MHz
-        name: Banksia Park
+        name: Banksia Park - Tea Tree Gully
       - frequency: 414.6875 MHz
         name: Pt Adelaide
       - frequency: 414.7625 MHz
         name: Mt Lofty
       - frequency: 415.8375 MHz
-        name: Banksia Park 2
-      - frequency: 415.9625 MHz
-        name: One Tree Hill 2
+        name: Banksia Park (Alt)
       - frequency: 417.6875 MHz
-        name: Pt Adelaide 2
-      - frequency: 417.7625 MHz
-        name: Mt Lofty 2
+        name: Pt Adelaide (Alt)
       channel_identifiers:
         0:
-          base_freq_mhz: 412.4750
+          base_freq_mhz: 412.475
           channel_spacing_khz: 12.5
           bandwidth_khz: 12.5
           tx_offset_mhz: 0.0
         1:
-          base_freq_mhz: 415.1250
+          base_freq_mhz: 415.125
           channel_spacing_khz: 12.5
           bandwidth_khz: 12.5
           tx_offset_mhz: 0.0
@@ -628,16 +624,13 @@ trunking:
           bandwidth_khz: 12.5
           tx_offset_mhz: 5.2
         3:
-          base_freq_mhz: 467.5000
+          base_freq_mhz: 467.5
           channel_spacing_khz: 6.25
           bandwidth_khz: 12.5
           tx_offset_mhz: -10.0
       device_id: driver=sdrplay,serial=240309F070
-      # Use element gains to precisely control LNA and IFGR
-      # RFGR=0 means LNAstate=0 (max LNA gain), IFGR=30 matches SDRTrunk
-      element_gains:
-        RFGR: 0  # Max LNA gain (min attenuation)
-      agc_enabled: true  # AGC controls IFGR automatically
+      gain: 25.0
+      agc_enabled: false
       sample_rate: 6000000
       id: sa_grn_2
       max_voice_recorders: 2

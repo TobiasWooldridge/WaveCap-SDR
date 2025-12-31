@@ -54,6 +54,7 @@ def record_baseband(
     sample_rate: int = 6_000_000,
     gain_db: float = 40.0,
     antenna: str = "Antenna B",
+    agc_enabled: bool = False,
 ) -> None:
     """Record baseband IQ from SDR.
 
@@ -73,8 +74,11 @@ def record_baseband(
     sdr = SoapySDR.Device("driver=sdrplay")
     sdr.setSampleRate(SoapySDR.SOAPY_SDR_RX, 0, sample_rate)
     sdr.setFrequency(SoapySDR.SOAPY_SDR_RX, 0, center_freq_hz)
-    sdr.setGain(SoapySDR.SOAPY_SDR_RX, 0, gain_db)
     sdr.setAntenna(SoapySDR.SOAPY_SDR_RX, 0, antenna)
+    # Disable AGC to allow manual gain unless explicitly requested
+    sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, agc_enabled)
+    if not agc_enabled:
+        sdr.setGain(SoapySDR.SOAPY_SDR_RX, 0, gain_db)
 
     stream = sdr.setupStream(SoapySDR.SOAPY_SDR_RX, SoapySDR.SOAPY_SDR_CF32)
     sdr.activateStream(stream)
@@ -260,8 +264,9 @@ def main():
     parser.add_argument("--duration", type=float, default=30.0, help="Recording duration in seconds")
     parser.add_argument("--output", type=str, default=None, help="Output WAV path")
     parser.add_argument("--sample-rate", type=int, default=6_000_000, help="SDR sample rate")
-    parser.add_argument("--gain", type=float, default=40.0, help="SDR gain in dB")
+    parser.add_argument("--gain", type=float, default=40.0, help="SDR gain in dB (manual, AGC off by default)")
     parser.add_argument("--antenna", type=str, default="Antenna B", help="SDR antenna")
+    parser.add_argument("--agc", action="store_true", help="Enable tuner AGC (default: off)")
 
     args = parser.parse_args()
 
@@ -283,6 +288,7 @@ def main():
         sample_rate=args.sample_rate,
         gain_db=args.gain,
         antenna=args.antenna,
+        agc_enabled=args.agc,
     )
 
 

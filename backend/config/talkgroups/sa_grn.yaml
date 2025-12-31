@@ -1,2075 +1,3077 @@
 # SA-GRN (South Australia Government Radio Network) Talkgroups
-# Imported from SDRTrunk playlist export
-#
-# Source: RadioReference / SDRTrunk
-# System: SA-GRN P25 Phase 1
-# WACN: 781056 (0xBEE00)
-# System ID: 988 (0x3DC)
-#
-# Usage: Reference this file in wavecapsdr.yaml:
-#   trunking:
-#     systems:
-#       sa_grn:
-#         talkgroups_file: talkgroups/sa_grn.yaml
+# Source: RadioReference system 8145 export (trs_tg_8145.csv)
+# Generated automatically; do not edit by hand unless updating source file
 
 talkgroups:
-  1:
-    name: 'CFS VHF 001'
-    priority: 5
-  30:
-    name: 'CFS VHF 030'
-    priority: 5
-  31:
-    name: 'CFS VHF 031'
-    priority: 5
-  32:
-    name: 'CFS VHF 032'
-    priority: 5
-  41:
+  41: 
     name: 'D27 SA01 MA'
+    description: 'State Wide'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  43:
+  43: 
     name: 'D28 NT02 MA'
+    description: 'North'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  45:
+  45: 
     name: 'D29 NT03 MA'
+    description: 'North'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  47:
+  47: 
     name: 'D30 ST04 MA'
+    description: 'South'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  49:
+  49: 
     name: 'D31 ST05 MA'
+    description: 'South'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  51:
+  51: 
     name: 'D32 ME06 MA'
+    description: 'Metro'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  53:
+  53: 
     name: 'D33 ME07 MA'
+    description: 'Metro'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  55:
+  55: 
     name: 'D34 AA08 MA'
+    description: 'Adelaide Airport'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  57:
+  57: 
     name: 'D35 PA09 MA'
+    description: 'Parafield Airport'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  59:
+  59: 
     name: 'D36 SR10 MA'
+    description: 'Sea Rescue'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  61:
+  61: 
     name: 'D17 DIS01 MA'
+    description: 'State Disaster'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  63:
+  63: 
     name: 'D18 DIS02 MA'
+    description: 'State Disaster'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  65:
+  65: 
     name: 'D19 DIS03 MA'
+    description: 'State Disaster'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  67:
+  67: 
     name: 'D20 DIS04 MA'
+    description: 'State Disaster'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  69:
+  69: 
     name: 'D21 DIS05 MA'
+    description: 'State Disaster'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  71:
+  71: 
     name: 'D22 DIS06 MA'
+    description: 'State Disaster'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  73:
+  73: 
     name: 'D23 DIS07 MA'
+    description: 'State Disaster'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  75:
+  75: 
     name: 'D24 DIS08 MA'
+    description: 'State Disaster'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  77:
+  77: 
     name: 'D25 DIS09 MA'
+    description: 'State Disaster'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  79:
+  79: 
     name: 'D26 DIS10 MA'
+    description: 'State Disaster'
+    tag: 'Interop'
     category: 'State Disaster Multi Agency'
     priority: 5
-  81:
+  81: 
     name: 'B14 MSTR COR'
+    description: 'B14 - Master Co-ord'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  83:
+  83: 
     name: 'Torrens Transit'
+    description: 'Torrens Transit St Agnes Ch 5'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  85:
+  85: 
     name: 'Torrens Transit'
+    description: 'Torrens Transit Morphettville Ch 6'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  87:
+  87: 
     name: 'TORRENS EVNTS 12'
+    description: 'Torrens Transit Special Events Ch 12'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  89:
+  89: 
     name: 'Bus/DPTI Traffic'
+    description: 'Bus/DPTI Traffic Control Centre'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  91:
+  91: 
     name: 'BUS EMERGENCY'
+    description: 'BUS EMERGENCY'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  97:
+  97: 
     name: 'Torrens Transit'
+    description: 'Torrens Transit Co-ordss Ch 7'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  119:
+  119: 
     name: '15 South Coast'
+    description: '15 South Coast'
+    tag: 'Fire-Talk'
     category: 'St Johns Ambulance'
     priority: 5
-  121:
+  121: 
     name: '09 Barossa'
+    description: '09 Barossa'
+    tag: 'EMS-Talk'
     category: 'St Johns Ambulance'
     priority: 5
-  123:
+  123: 
     name: '01 State Call'
+    description: '01 State Call'
+    tag: 'EMS-Talk'
     category: 'St Johns Ambulance'
     priority: 5
-  125:
+  125: 
     name: '03 Metro 1'
+    description: '03 Metro 1'
+    tag: 'EMS-Tac'
     category: 'St Johns Ambulance'
     priority: 5
-  127:
+  127: 
     name: '04 Metro 2'
+    description: '04 Metro 2'
+    tag: 'EMS-Talk'
     category: 'St Johns Ambulance'
     priority: 5
-  129:
+  129: 
     name: '02 Incident'
+    description: '02 Incident'
+    tag: 'EMS-Talk'
     category: 'St Johns Ambulance'
     priority: 5
-  143:
+  143: 
     name: 'Torrens Transit'
+    description: 'Torrens Transit Incidents Ch 8'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  155:
+  155: 
     name: '114 SW HF 2'
+    description: '114 - Statewide HF 2'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  159:
+  159: 
     name: 'D193 ST JOHN'
+    description: 'D193 ST JOHN'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  179:
+  179: 
     name: 'Emergency'
+    description: 'Emergency'
+    tag: 'EMS-Talk'
     category: 'St Johns Ambulance'
     priority: 5
-  543:
+  543: 
     name: '126 E Torrens 1'
+    description: '126 - East Torrens'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  545:
+  545: 
     name: '127 E Torrens 2'
+    description: '127 - East Torrens (Secondary)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  547:
+  547: 
     name: '138 Mundoo 1'
+    description: '138 - Mundoo'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  549:
+  549: 
     name: '139 Mundoo 2'
+    description: '139 - Mundoo (Secondary)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  551:
+  551: 
     name: '128 Heysen 1'
+    description: '128 - Heysen'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  553:
+  553: 
     name: '129 Heysen 2'
+    description: '129 - Heysen (Secondary)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  555:
+  555: 
     name: '130 Kangaroo Is'
+    description: '130 - Kangaroo Island'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  557:
+  557: 
     name: '131 Kangaroo Is'
+    description: '131 - Kangaroo Island (Secondary)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  559:
+  559: 
     name: '134 Mawson 1'
+    description: '134 - Mawson'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  561:
+  561: 
     name: '135 Mawson 2'
+    description: '135 - Mawson (Secondary)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  563:
+  563: 
     name: '136 Mt Lofty 1'
+    description: '136 - Mount Lofty'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  565:
+  565: 
     name: '137 Mt Lofty 2'
+    description: '137 - Mount Lofty (Secondary)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  567:
+  567: 
     name: '140 Onkaparinga'
+    description: '140 - Onkaparinga'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  569:
+  569: 
     name: '141 Onkaparinga'
+    description: '141 - Onkaparinga (Secondary)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  571:
+  571: 
     name: '142 Strathalbyn'
+    description: '142 - Strathalbyn'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  573:
+  573: 
     name: '143 Strathalbyn'
+    description: '143 - Strathalbyn (Secondary)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  575:
+  575: 
     name: '146 Sturt 1'
+    description: '146 - Sturt'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  577:
+  577: 
     name: '147 Sturt 2'
+    description: '147 - Sturt (Secondary)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  579:
+  579: 
     name: '148 Victor Hr 1'
+    description: '148 - Victor Harbor'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  581:
+  581: 
     name: '149 Victor Hr 2'
+    description: '149 - Victor Harbor (Secondary)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  583:
+  583: 
     name: '132 Kyeema 1'
+    description: '132 - Kyeema'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  585:
+  585: 
     name: '133 Kyeema 2'
+    description: '133 - Kyeema (Secondary)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  587:
+  587: 
     name: '144 STHN Fleurie'
+    description: '144 - Southern Fleurieu'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  589:
+  589: 
     name: '145 STHN Fleurie'
+    description: '145 - Southern Fleurieu (Secondary)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  591:
+  591: 
     name: '124 R1 DISPATCH'
+    description: '124 - Region 1 - Dispatch'
+    tag: 'Fire Dispatch'
     category: 'MFS/CFS'
     priority: 5
-  593:
+  593: 
     name: '125 R1 LOGISTICS'
+    description: '125 - Region 1 - Logistics'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  595:
+  595: 
     name: '095 NTHN Barossa'
+    description: '095 -Nthn Barossa'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  597:
+  597: 
     name: '075 R2 INC 01'
+    description: '075 - Region 2 - INC01'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  599:
+  599: 
     name: '096 Barossa'
+    description: '096 - Barossa'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  601:
+  601: 
     name: '076 R2 INC 02'
+    description: '076 - Region 2 - INC02'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  603:
+  603: 
     name: '097 Gilbert'
+    description: '097 - Gilbert'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  605:
+  605: 
     name: '077 R2 INC 03'
+    description: '077 - Region 2 - INC03'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  607:
+  607: 
     name: '098 Gumeracha'
+    description: '098 - Gumeracha'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  609:
+  609: 
     name: '078 R2 INC 04'
+    description: '078 - Region 2 - INC04'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  611:
+  611: 
     name: '099 Horrocks'
+    description: '099 - Horrocks'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  613:
+  613: 
     name: '079 R2 INC 05'
+    description: '079 - Region 2 - INC05'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  615:
+  615: 
     name: '100 Light'
+    description: '100 - Light'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  617:
+  617: 
     name: '080 R2 INC 06'
+    description: '080 - Region 2 - INC06'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  619:
+  619: 
     name: '101 NTHN Yorke'
+    description: '101 - Northern Yorke'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  621:
+  621: 
     name: '081 R2 INC 07'
+    description: '081 - Region 2 - INC07'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  623:
+  623: 
     name: '102 Para'
+    description: '102 - Para'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  625:
+  625: 
     name: '082 R2 INC 08'
+    description: '082 - Region 2 - INC08'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  627:
+  627: 
     name: '103 STHN Yorke'
+    description: '103 - Southern Yorke'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  629:
+  629: 
     name: '083 R2 INC 09'
+    description: '083 - Region 2 - INC09'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  631:
+  631: 
     name: '104 Wakefield'
+    description: '104 - Wakefield'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  633:
+  633: 
     name: '084 R2 INC 10'
+    description: '084 - Region 2 - INC10'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  635:
+  635: 
     name: '105 Yorke VLLY'
+    description: '105 - Yorke Valley'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  637:
+  637: 
     name: '085 R2 INC 11'
+    description: '085 - Region 2 - INC11'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  639:
+  639: 
     name: '093 R2 DISPATCH'
+    description: '093 - Region 2 - Dispatch'
+    tag: 'Fire Dispatch'
     category: 'MFS/CFS'
     priority: 5
-  641:
+  641: 
     name: '094 R2 LOGISTICS'
+    description: '094 - Region 2 - Logistics'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  643:
+  643: 
     name: '116 SW HF 1'
+    description: '116 - Statewide HF 1'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  645:
+  645: 
     name: '111 SOC'
+    description: '111 - State Operations Centre'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  647:
+  647: 
     name: '112 SW AIR OPS'
+    description: '112 - Statewide Air Operations (Response / Coordination)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  649:
+  649: 
     name: '150 MFS STR'
+    description: '150 - MFS STR (Statewide Dispatch)'
+    tag: 'Fire Dispatch'
     category: 'MFS/CFS'
     priority: 5
-  651:
+  651: 
     name: '153 MFS C23'
+    description: '153 - MFS C23 (Spare)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  653:
+  653: 
     name: '156 MFS C26'
+    description: '156 - MFS C26 (Adelaide)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  655:
+  655: 
     name: '157 MFS C27'
+    description: '157 - MFS C27 (Spare)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  657:
+  657: 
     name: '158 - MFS C28 (L'
+    description: '158 - MFS C28 (Largs North)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  659:
+  659: 
     name: '159 - MFS C29 (S'
+    description: '159 - MFS C29 (Spare)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  661:
+  661: 
     name: '163 - MFS C33 (E'
+    description: '163 - MFS C33 (Elizabeth)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  663:
+  663: 
     name: '164 - MFS C34 (S'
+    description: '164 - MFS C34 (Spare)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  665:
+  665: 
     name: '165 - MFS C35 (G'
+    description: '165 - MFS C35 (Gawler)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  667:
+  667: 
     name: '166 - MFS C36 (A'
+    description: '166 - MFS C36 (Angle Park)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  669:
+  669: 
     name: '167 - MFS C37 (P'
+    description: '167 - MFS C37 (Prospect)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  671:
+  671: 
     name: '168 - MFS C38 (F'
+    description: '168 - MFS C38 (Fire Safety)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  673:
+  673: 
     name: '169 - MFS C39 (T'
+    description: '169 - MFS C39 (Training)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  691:
+  691: 
     name: 'Torrens Transit'
+    description: 'Torrens Transit Mile End Ch 1'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  693:
+  693: 
     name: 'Torrens Transit'
+    description: 'Torrens Transit Pt Adel Ch 4'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  695:
+  695: 
     name: 'Torrens Transit'
+    description: 'Torrens Transit Newton Ch 3'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  697:
+  697: 
     name: 'TT CAMDEN 2'
+    description: 'Torrens Transit Camden Park Ch 2'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  699:
+  699: 
     name: 'Passenger Transp'
+    description: 'Passenger Transport Board 11'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  701:
+  701: 
     name: 'PTB 12'
+    description: 'Passenger Transport Board 12'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  703:
+  703: 
     name: 'Passenger Transp'
+    description: 'Passenger Transport Board 13'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  705:
+  705: 
     name: 'Torrens Transit'
+    description: 'Torrens Transit All Depots Ch 10'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  749:
+  749: 
     name: '01 Travel'
+    description: '01 Travel'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  751:
+  751: 
     name: '03 Air Ops'
+    description: '03 Air Ops'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  753:
+  753: 
     name: '19 Resource Pro'
+    description: '19 Resource Protection'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  759:
+  759: 
     name: '02 Statewide'
+    description: '02 Statewide'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  761:
+  761: 
     name: '12 NR Innes NP'
+    description: '12 NR Innes NP'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  763:
+  763: 
     name: '04 Outer Works 1'
+    description: '04 Outer Works 1'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  765:
+  765: 
     name: '06 Botanic Garde'
+    description: '06 Botanic Gardens'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  767:
+  767: 
     name: '05 Mt Lofty 2 -'
+    description: '05 Mt Lofty 2 - Cleland'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  825:
+  825: 
     name: '1 PRI OPS 1'
+    description: '001 PRI OPS 1'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  827:
+  827: 
     name: '2 PRI OPS 2'
+    description: '002 PRI OPS 2'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  829:
+  829: 
     name: '3 PRI OPS 3'
+    description: '003 PRI OPS 3'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  831:
+  831: 
     name: '4 PRI OPS 4'
+    description: '004 PRI OPS 4'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  833:
+  833: 
     name: '5 PRI OPS 5'
+    description: '005 PRI OPS 5'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  835:
+  835: 
     name: '6 PRI OPS 6'
+    description: '006 PRI OPS 6'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  837:
+  837: 
     name: '7 PRI OPS 7'
+    description: '007 PRI OPS 7'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  839:
+  839: 
     name: '8 PRI ADM 1'
+    description: '008 PRI ADMIN 1'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  841:
+  841: 
     name: '9 PRI ADM 2'
+    description: '009 PRI ADMIN 2'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  843:
+  843: 
     name: '10 PRI ADM 3'
+    description: '010 PRI ADMIN 3'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  913:
+  913: 
     name: '1 SEC OPS 1'
+    description: '001 SEC OPS 1'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  915:
+  915: 
     name: '2 SEC OPS 2'
+    description: '002 SEC OPS 2'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  917:
+  917: 
     name: '3 SEC OPS 3'
+    description: '003 SEC OPS 3'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  919:
+  919: 
     name: '4 SEC OPS 4'
+    description: '004 SEC OPS 4'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  921:
+  921: 
     name: '5 SEC OPS 5'
+    description: '005 SEC OPS 5'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  923:
+  923: 
     name: '6 SEC OPS 6'
+    description: '006 SEC OPS 6'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  925:
+  925: 
     name: '7 SEC OPS 7'
+    description: '007 SEC OPS 7'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  927:
+  927: 
     name: '8 SEC ADM 1'
+    description: '008 SEC ADMIN 1'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  929:
+  929: 
     name: '9 SEC ADM 2'
+    description: '009 SEC ADMIN 2'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  931:
+  931: 
     name: '10 SEC ADM 3'
+    description: '010 SEC ADMIN 3'
+    tag: 'EMS Dispatch'
     category: 'State Emergency Service'
     priority: 5
-  953:
+  953: 
     name: '093 - Surf Lifes'
+    description: '093 - Surf Lifesaving Ass.'
+    tag: 'Emergency Ops'
     category: 'Surf Life Saving Australia (SLSA) & Volunteer Marine Radio (VMR)'
     priority: 5
-  955:
+  955: 
     name: '094 - Surf Lifes'
+    description: '094 - Surf Lifesaving Ass.'
+    tag: 'Emergency Ops'
     category: 'Surf Life Saving Australia (SLSA) & Volunteer Marine Radio (VMR)'
     priority: 5
-  957:
+  957: 
     name: '095 - Surf Lifes'
+    description: '095 - Surf Lifesaving Ass.'
+    tag: 'Emergency Ops'
     category: 'Surf Life Saving Australia (SLSA) & Volunteer Marine Radio (VMR)'
     priority: 5
-  965:
+  965: 
     name: '096 - Volunteer'
+    description: '096 - Volunteer Marine Rescue'
+    tag: 'Emergency Ops'
     category: 'Surf Life Saving Australia (SLSA) & Volunteer Marine Radio (VMR)'
     priority: 5
-  967:
+  967: 
     name: '097 - Volunteer'
+    description: '097 - Volunteer Marine Rescue'
+    tag: 'Emergency Ops'
     category: 'Surf Life Saving Australia (SLSA) & Volunteer Marine Radio (VMR)'
     priority: 5
-  969:
+  969: 
     name: '098 - Volunteer'
+    description: '098 - Volunteer Marine Rescue'
+    tag: 'Emergency Ops'
     category: 'Surf Life Saving Australia (SLSA) & Volunteer Marine Radio (VMR)'
     priority: 5
-  971:
+  971: 
     name: '099 - Volunteer'
+    description: '099 - Volunteer Marine Rescue'
+    tag: 'Emergency Ops'
     category: 'Surf Life Saving Australia (SLSA) & Volunteer Marine Radio (VMR)'
     priority: 5
-  1009:
+  1009: 
     name: '23 NR Emergency'
+    description: '23 NR Emergency'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  1011:
+  1011: 
     name: '151 MFS C21'
+    description: '151 - MFS C21 (Beulah Park)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1013:
+  1013: 
     name: '152 MFS C22'
+    description: '152 - MFS C22 (Paradise)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1015:
+  1015: 
     name: '194 - MFS Mid No'
+    description: '194 - MFS Mid North'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1017:
+  1017: 
     name: '195 - MFS South'
+    description: '195 - MFS South East'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1019:
+  1019: 
     name: '197 - MFS CQ1'
+    description: '197 - MFS CQ1'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1021:
+  1021: 
     name: '198-MFS CQ2'
+    description: '198-MFS CQ2'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1023:
+  1023: 
     name: '199 - MFS CQ3'
+    description: '199 - MFS CQ3'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1059:
+  1059: 
     name: 'Torrens Transit'
+    description: 'Torrens Transit Emergency Ch 16'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  1063:
+  1063: 
     name: '154 - DHS RIVERL'
+    description: '154 - DHS RIVERLAND'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  1065:
+  1065: 
     name: 'PT PIRIE HOSPITA'
+    description: 'PT PIRIE HOSPITAL'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  1067:
+  1067: 
     name: 'HOSPITAL TESTING'
+    description: 'HOSPITAL TESTING ???'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  1071:
+  1071: 
     name: 'DHS EXERCISE'
+    description: 'DHS EXERCISE'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  1073:
+  1073: 
     name: 'MANNUM HOSPITAL'
+    description: 'MANNUM HOSPITAL'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  1077:
+  1077: 
     name: 'ROYAL ADELAIDE H'
+    description: 'ROYAL ADELAIDE HOSPITAL FIELD MEDICAL TEAMS (Exercise Mercury 05)'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  1079:
+  1079: 
     name: 'QUEEN ELIZABETH'
+    description: 'QUEEN ELIZABETH HOSPITAL/STATE CONTROL ??'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  1081:
+  1081: 
     name: 'CLARE, ANGASTON'
+    description: 'CLARE, ANGASTON HOSPITALS'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  1095:
+  1095: 
     name: '086 R2 INC 12'
+    description: '086 - Region 2 - INC12'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1097:
+  1097: 
     name: '087 R2 INC 13'
+    description: '087 - Region 2 - INC13'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1099:
+  1099: 
     name: '088 R2 INC 14'
+    description: '088 - Region 2 - INC14'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1101:
+  1101: 
     name: '089 R2 AIR OPS'
+    description: '089 - Region 2 - Air Operations'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1103:
+  1103: 
     name: '090 R2 INC 16'
+    description: '090 - Region 2 - INC16'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1105:
+  1105: 
     name: '091 R2 INC 17'
+    description: '091 - Region 2 - INC17'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1107:
+  1107: 
     name: '092 R2 INC 18'
+    description: '092 - Region 2 - INC18'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1111:
+  1111: 
     name: '107 SW AIR SPA'
+    description: '107 - Statewide Air Operations (Spare)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1113:
+  1113: 
     name: '108 AIR OPS MT 1'
+    description: '108 - Air Ops - Mount Lofty Ranges (Primary)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1115:
+  1115: 
     name: '109 AIR OPS MT 2'
+    description: '109 - Air Ops - Mount Lofty Ranges (Secondary)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1117:
+  1117: 
     name: '113 SOC'
+    description: '113 - State Operations Centre'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1119:
+  1119: 
     name: '115 CFS EMERG'
+    description: '115 - CFS Emergency'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1121:
+  1121: 
     name: '117 R1 INC 01'
+    description: '117 - Region 1 - INC01'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1123:
+  1123: 
     name: '118 R1 INC 02'
+    description: '118 - Region 1 - INC02'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1125:
+  1125: 
     name: '119 R1 AIR OPS'
+    description: '119 - Region 1 - Air Operations'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1127:
+  1127: 
     name: '120 R1 INC 04'
+    description: '120 - Region 1 - INC04'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1129:
-    name: '121 R1 INC 05 (air desk???)'
+  1129: 
+    name: '121 R1 INC 05'
+    description: '121 - Region 1 - INC05'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1131:
+  1131: 
     name: '122 R1 INC 06'
+    description: '122 - Region 1 - INC06'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1133:
+  1133: 
     name: '123 R1 OPS BGDE'
+    description: '123 - Region 1 -Operations Brigade'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1153:
+  1153: 
     name: 'C03 TRA OP3'
+    description: 'C03 - TRAIN OP3'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  1155:
+  1155: 
     name: 'C04 TRA OP4'
+    description: 'C04 - TRAIN OP4'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  1157:
+  1157: 
     name: 'B01 SPSA'
+    description: 'B01 - Senior Pasanger Service Assistaints - Rail'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  1159:
+  1159: 
     name: 'B02 PSA'
+    description: 'B02 - PSA'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  1161:
+  1161: 
     name: 'B03 SIGNALS'
+    description: 'B03 - Signals'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  1163:
+  1163: 
     name: 'B04 PERWAY'
+    description: 'B04 - Perway'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  1165:
+  1165: 
     name: 'B05 WORKS'
+    description: 'B05 - Works'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  1169:
+  1169: 
     name: 'C07 PLATFORM'
+    description: 'C07 - PLATFORM'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  1173:
+  1173: 
     name: 'C01 TRA OP1'
+    description: 'C01 - Train Operations 1 - Gawler'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  1175:
+  1175: 
     name: 'C02 TRA OP2'
+    description: 'C02 - TRAIN OP2'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  1181:
+  1181: 
     name: '180 - MFS Emerge'
+    description: '180 - MFS Emergency'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1183:
+  1183: 
     name: '21 NR Emergency'
+    description: '21 NR Emergency'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  1185:
+  1185: 
     name: '22 NR Training 1'
+    description: '22 NR Training 1'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  1195:
+  1195: 
     name: '154 MFS C24'
+    description: '154 - MFS C24 (Woodville)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1197:
+  1197: 
     name: '155 MFS C25'
+    description: '155 - MFS C25 (Port Adelaide)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1199:
+  1199: 
     name: '160 - MFS C30 (O'
+    description: '160 - MFS C30 (Oakden)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1201:
+  1201: 
     name: '161 - MFS C31 (G'
+    description: '161 - MFS C31 (Golden Grove)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1203:
+  1203: 
     name: '162 - MFS C32 (S'
+    description: '162 - MFS C32 (Salisbury)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1215:
+  1215: 
     name: 'Unknown'
+    description: 'Unknown'
+    tag: 'Business'
     category: 'SARDI'
     priority: 5
-  1223:
+  1223: 
     name: 'DHS HOSPITAL NET'
+    description: 'DHS HOSPITAL NET EMERGENCY'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  1239:
+  1239: 
     name: 'WOMENS AND CHILD'
+    description: 'WOMENS AND CHILDRENS HOSPITAL'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  1241:
+  1241: 
     name: 'DHS HOSPITAL NET'
+    description: 'DHS HOSPITAL NET RADIO STAFF'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  1249:
+  1249: 
     name: 'SOUTHERN METROPO'
+    description: 'SOUTHERN METROPOLITAN HOSPITALS (Noarlunga, Flinders)'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  1259:
+  1259: 
     name: 'ROYAL ADELAIDE H'
+    description: 'ROYAL ADELAIDE HOSPITAL FIELD MEDICAL TEAMS'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  1297:
+  1297: 
     name: 'NOARLUNGA HOSPIT'
+    description: 'NOARLUNGA HOSPITAL SECURITY GUARDS'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  1355:
+  1355: 
     name: '106 SW AIR EMG'
+    description: '106 - Statewide Air Operations Emergency'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  1455:
+  1455: 
     name: 'State Travel'
+    description: 'State Travel'
+    tag: 'Utilities'
     category: 'SA Water'
     priority: 5
-  1457:
+  1457: 
     name: 'Statewide Traini'
+    description: 'Statewide Training'
+    tag: 'Utilities'
     category: 'SA Water'
     priority: 5
-  1459:
+  1459: 
     name: 'Training 2'
+    description: 'Training 2'
+    tag: 'Utilities'
     category: 'SA Water'
     priority: 5
-  1461:
+  1461: 
     name: 'Statewide'
+    description: 'Statewide'
+    tag: 'Utilities'
     category: 'SA Water'
     priority: 5
-  1463:
+  1463: 
     name: 'Emergency'
+    description: 'Emergency'
+    tag: 'Utilities'
     category: 'SA Water'
     priority: 5
-  1520:
+  1520: 
     name: 'B15 PTS COR'
+    description: 'B15 - Public Transport Service - Coordinator'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  1527:
+  1527: 
     name: 'Yorke Pennisula'
+    description: 'Yorke Pennisula Depot'
+    tag: 'Utilities'
     category: 'SA Water'
     priority: 5
-  1535:
+  1535: 
     name: 'Balaklava'
+    description: 'Balaklava'
+    tag: 'Utilities'
     category: 'SA Water'
     priority: 5
-  1537:
+  1537: 
     name: 'Gawler Depot'
+    description: 'Gawler Depot'
+    tag: 'Utilities'
     category: 'SA Water'
     priority: 5
-  1541:
+  1541: 
     name: 'Morgan Depot'
+    description: 'Morgan Depot'
+    tag: 'Utilities'
     category: 'SA Water'
     priority: 5
-  1543:
+  1543: 
     name: 'Nuriootpa Depot'
+    description: 'Nuriootpa Depot'
+    tag: 'Utilities'
     category: 'SA Water'
     priority: 5
-  1649:
+  1649: 
     name: 'Wilson Ch 1'
+    description: 'Wilson Ch 1'
+    tag: 'Security'
     category: 'Wilson Security'
     priority: 5
-  1651:
+  1651: 
     name: 'Wilson Ch 2'
+    description: 'Wilson Ch 2'
+    tag: 'Security'
     category: 'Wilson Security'
     priority: 5
-  1661:
+  1661: 
     name: 'Techs Ch 1'
+    description: 'Techs Ch 1'
+    tag: 'Utilities'
     category: 'Department of Planning, Transport and Infrastructure'
     priority: 5
-  1665:
+  1665: 
     name: 'Techs Ch 2'
+    description: 'Techs Ch 2'
+    tag: 'Utilities'
     category: 'Department of Planning, Transport and Infrastructure'
     priority: 5
-  1689:
+  1689: 
     name: 'NOC'
+    description: 'NOC'
+    tag: 'Utilities'
     category: 'Department of Planning, Transport and Infrastructure'
     priority: 5
-  1691:
+  1691: 
     name: 'NOC'
+    description: 'NOC'
+    tag: 'Utilities'
     category: 'Department of Planning, Transport and Infrastructure'
     priority: 5
-  1757:
+  1757: 
     name: '210 - Transit Po'
+    description: '210 - Transit Police'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1763:
+  1763: 
     name: '83 - Adelaide LS'
+    description: '83 - Adelaide LSA'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1771:
+  1771: 
     name: '62- Barossa / Yo'
+    description: '62- Barossa / Yorke LSA'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1775:
+  1775: 
     name: '60 - Elizabeth L'
+    description: '60 - Elizabeth LSA'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1785:
+  1785: 
     name: '178 - Emergency'
+    description: '178 - Emergency Adelaide 6 (Royal Show Patrols)'
+    tag: 'Law Tac'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1791:
+  1791: 
     name: '56- Holden Hill'
+    description: '56- Holden Hill LSA'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1809:
+  1809: 
     name: '58 - Port Adelai'
+    description: '58 - Port Adelaide LSA'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1811:
+  1811: 
     name: 'Re-broadcast of'
+    description: 'Re-broadcast of Christies / Hills UHF Channel'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1813:
+  1813: 
     name: '87 - South Coast'
+    description: '87 - South Coast LSA'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1829:
+  1829: 
     name: 'SAPOL - Woomera'
+    description: 'SAPOL - Woomera'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1835:
+  1835: 
     name: 'SAPOL - (Classic'
+    description: 'SAPOL - (Classic Adelaide Rally 2004 / Tour Down Under 2005, City to Bay Run)'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1843:
+  1843: 
     name: '85 - Sturt LSA'
+    description: '85 - Sturt LSA'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1847:
+  1847: 
     name: '204 - STAR Divis'
+    description: '204 - STAR Division High Risk Operations'
+    tag: 'Law Tac'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1849:
+  1849: 
     name: '205 - STAR Divis'
+    description: '205 - STAR Division High Risk Operations'
+    tag: 'Law Tac'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1851:
+  1851: 
     name: '206 - STAR Divis'
+    description: '206 - STAR Division VIP'
+    tag: 'Law Tac'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1853:
+  1853: 
     name: '207 - STAR Divis'
+    description: '207 - STAR Division Search & Rescue'
+    tag: 'Law Tac'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1855:
+  1855: 
     name: '208 - STAR Divis'
+    description: '208 - STAR Division Water Rescue'
+    tag: 'Law Tac'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1857:
+  1857: 
     name: '209 - STAR Divis'
+    description: '209 - STAR Division Aircraft'
+    tag: 'Law Tac'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1882:
+  1882: 
     name: 'SAPOL Emergency'
+    description: 'SAPOL Emergency'
+    tag: 'Law Tac'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1903:
+  1903: 
     name: '63 - Barossa / Y'
+    description: '63 - Barossa / Yorke LSA'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1905:
+  1905: 
     name: '89 - Hills Murra'
+    description: '89 - Hills MurrayLSA'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  1933:
+  1933: 
     name: 'Techs'
+    description: 'Techs'
+    tag: 'Utilities'
     category: 'Department of Planning, Transport and Infrastructure'
     priority: 5
-  2037:
+  2037: 
     name: 'Security ALL'
+    description: 'Security ALL'
+    tag: 'Security'
     category: 'Riverbank Precinct Authority'
     priority: 5
-  2039:
+  2039: 
     name: 'Security'
+    description: 'Security'
+    tag: 'Security'
     category: 'Riverbank Precinct Authority'
     priority: 5
-  2075:
+  2075: 
     name: 'Traffic Control'
+    description: 'Traffic Control Centre 1'
+    tag: 'Public Works'
     category: 'SA Transport'
     priority: 5
-  2077:
+  2077: 
     name: 'Traffic Control'
+    description: 'Traffic Control Centre 2'
+    tag: 'Public Works'
     category: 'SA Transport'
     priority: 5
-  2103:
+  2103: 
     name: 'Traffic Control'
+    description: 'Traffic Control Centre 3'
+    tag: 'Public Works'
     category: 'SA Transport'
     priority: 5
-  2193:
+  2193: 
     name: 'Sth Link Hills E'
+    description: 'Sth Link Hills Emergency'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  2195:
+  2195: 
     name: 'Sth Link Algate'
+    description: 'Sth Link Algate Ch 2'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  2199:
+  2199: 
     name: 'Sth Link Mt Bark'
+    description: 'Sth Link Mt Barker Ch 6'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  2201:
+  2201: 
     name: 'A01 TRAM OP1'
+    description: 'A01 - Tram Operations 1'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  2222:
+  2222: 
     name: 'D01 METRO 1'
+    description: 'D01 METRO 1'
+    tag: 'EMS Dispatch'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2223:
+  2223: 
     name: 'D02 METRO 2 (MET'
+    description: 'D02 METRO 2 (METRO NORTH) (35568)'
+    tag: 'EMS Dispatch'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2224:
+  2224: 
     name: 'D03 METRO 3 (MET'
+    description: 'D03 METRO 3 (METRO SOUTH) (35584)'
+    tag: 'EMS Dispatch'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2225:
+  2225: 
     name: 'D06 MED RAH'
+    description: 'D06 MED RAH'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2226:
+  2226: 
     name: 'D07 MED FMC (356'
+    description: 'D07 MED FMC (35616)'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2227:
+  2227: 
     name: 'D08 MED WCH'
+    description: 'D08 MED WCH'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2228:
+  2228: 
     name: 'D10 MET INC 1'
+    description: 'D10 MET INC 1'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2229:
+  2229: 
     name: 'D11 METRO 11'
+    description: 'D11 METRO 11'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2230:
+  2230: 
     name: 'D14 METRO 14 (35'
+    description: 'D14 METRO 14 (35680)'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2231:
+  2231: 
     name: 'D48 MET INC 2'
+    description: 'D48 MET INC 2'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2232:
+  2232: 
     name: 'D61 REG TASK 1'
+    description: 'D61 REG TASK 1'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2233:
+  2233: 
     name: 'D62 REG TASK 2'
+    description: 'D62 REG TASK 2'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2243:
+  2243: 
     name: 'D150 GOLD 1'
+    description: 'D150 GOLD 1'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2244:
+  2244: 
     name: 'D151 GOLD 2'
+    description: 'D151 GOLD 2'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2245:
+  2245: 
     name: 'D152 GOLD 3'
+    description: 'D152 GOLD 3'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2246:
+  2246: 
     name: 'D153 GOLD 4'
+    description: 'D153 GOLD 4'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2247:
+  2247: 
     name: 'D155 SEC FSLO'
+    description: 'D155 SEC FSLO'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2248:
+  2248: 
     name: 'D157 EMU 1'
+    description: 'D157 EMU 1'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2249:
+  2249: 
     name: 'D158 EMU 2'
+    description: 'D158 EMU 2'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2250:
+  2250: 
     name: 'D159 EMU 3'
+    description: 'D159 EMU 3'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2251:
+  2251: 
     name: 'D160 EMU 4'
+    description: 'D160 EMU 4'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2252:
+  2252: 
     name: 'D162 CH SILV 1'
+    description: 'D162 CH SILV 1'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2253:
+  2253: 
     name: 'D163 CH SILV 2'
+    description: 'D163 CH SILV 2'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2254:
+  2254: 
     name: 'D164 CH SILV 3'
+    description: 'D164 CH SILV 3'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2255:
+  2255: 
     name: 'D165 CH SILV 4'
+    description: 'D165 CH SILV 4'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2256:
+  2256: 
     name: 'D166 CH SILV 5'
+    description: 'D166 CH SILV 5'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2257:
+  2257: 
     name: 'D174 SA SILV 1'
+    description: 'D174 SA SILV 1'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2258:
+  2258: 
     name: 'D175 SA SILV 2'
+    description: 'D175 SA SILV 2'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2259:
+  2259: 
     name: 'D179 CA SILV 1'
+    description: 'D179 CA SILV 1'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2260:
+  2260: 
     name: 'D180 CA SILV 2'
+    description: 'D180 CA SILV 2'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2261:
+  2261: 
     name: 'D184 NA SILV 1'
+    description: 'D184 NA SILV 1'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2262:
+  2262: 
     name: 'D185 NA SILV 2'
+    description: 'D185 NA SILV 2'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2263:
+  2263: 
     name: 'D188 WC SILV 1'
+    description: 'D188 WC SILV 1'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2264:
+  2264: 
     name: 'D189 WC SILV 2'
+    description: 'D189 WC SILV 2'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2266:
+  2266: 
     name: 'D195 DECON N'
+    description: 'D195 DECON N'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2267:
+  2267: 
     name: 'D196 DECON S'
+    description: 'D196 DECON S'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2268:
+  2268: 
     name: 'D154 GOLD MULT'
+    description: 'D154 GOLD MULT'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2269:
+  2269: 
     name: 'D161 EMU MULT'
+    description: 'D161 EMU MULT'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2270:
+  2270: 
     name: 'Sth Link Lonsdal'
+    description: 'Sth Link Lonsdale Ch 1'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  2271:
+  2271: 
     name: 'Sth Link Elizabe'
+    description: 'Sth Link Elizabeth Ch 3'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  2272:
+  2272: 
     name: 'STH LINK COORD 4'
+    description: 'Sth Link Co-ordinator Ch 4'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  2273:
+  2273: 
     name: 'STH LINK EVNTS 5'
+    description: 'Sth Link Events Ch 5'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  2274:
+  2274: 
     name: 'Sth Link Emergen'
+    description: 'Sth Link Emergency North'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  2275:
+  2275: 
     name: 'Sth Link Emergen'
+    description: 'Sth Link Emergency South'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  2290:
+  2290: 
     name: 'STH LINK ALL DEP'
+    description: 'Sth Link All Depots'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  2291:
+  2291: 
     name: 'D167 CH MULTI'
+    description: 'D167 CH MULTI'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2293:
+  2293: 
     name: 'D49 RFDS 1'
+    description: 'D49 RFDS 1'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2457:
+  2457: 
     name: '200 - Coorong'
+    description: '200 - Coorong'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2459:
+  2459: 
     name: '211 - Region 3 -'
+    description: '211 - Region 3 - INC01'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2461:
+  2461: 
     name: '201 - Region 3 -'
+    description: '201 - Region 3 - INC12'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2463:
+  2463: 
     name: '212 - Region 3 -'
+    description: '212 - Region 3 - INC02'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2465:
+  2465: 
     name: '202 - Ngarkat'
+    description: '202 - Ngarkat'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2467:
+  2467: 
     name: '203 - Chaffey'
+    description: '203 - Chaffey'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2469:
+  2469: 
     name: '214 - Region 3 -'
+    description: '214 - Region 3 - INC04'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2471:
+  2471: 
     name: '204 - Mallee'
+    description: '204 - Mallee'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2473:
+  2473: 
     name: '215 - Region 3 -'
+    description: '215 - Region 3 - INC05'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2475:
+  2475: 
     name: '205 - Mid Murray'
+    description: '205 - Mid Murray'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2477:
+  2477: 
     name: '216 - Region 3 -'
+    description: '216 - Region 3 - INC06'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2479:
+  2479: 
     name: '206 - Swanport'
+    description: '206 - Swanport'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2481:
+  2481: 
     name: '217 - Region 3 -'
+    description: '217 - Region 3 - INC07'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2483:
+  2483: 
     name: '207 - Ridley'
+    description: '207 - Ridley'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2485:
+  2485: 
     name: '218 - Region 3 -'
+    description: '218 - Region 3 - INC08'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2487:
+  2487: 
     name: '208 - Region 3 -'
+    description: '208 - Region 3 - INC13'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2489:
+  2489: 
     name: '219 - Region 3 -'
+    description: '219 - Region 3 - INC09'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2491:
+  2491: 
     name: '209 - Region 3 D'
+    description: '209 - Region 3 Dispatch'
+    tag: 'Fire Dispatch'
     category: 'MFS/CFS'
     priority: 5
-  2493:
+  2493: 
     name: '210 - Region 3 L'
+    description: '210 - Region 3 Logistics'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2495:
+  2495: 
     name: '065 Blyth Snowto'
+    description: '065 - Blyth Snowtown'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2519:
+  2519: 
     name: '224 - Lacepede'
+    description: '224 - Lacepede'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2521:
+  2521: 
     name: '235 - Region 5 -'
+    description: '235 - Region 5 - INC01'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2523:
+  2523: 
     name: '225 - Lucindale'
+    description: '225 - Lucindale'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2525:
+  2525: 
     name: '236 - Region 5 -'
+    description: '236 - Region 5 - INC02'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2527:
+  2527: 
     name: '226 - Mount Gamb'
+    description: '226 - Mount Gambier'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2529:
+  2529: 
     name: '237 - Region 5 -'
+    description: '237 - Region 5 - INC03'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2531:
+  2531: 
     name: '227 - Naracoorte'
+    description: '227 - Naracoorte'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2533:
+  2533: 
     name: '238 - Region 5 -'
+    description: '238 - Region 5 - INC04'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2535:
+  2535: 
     name: '228 - Kingsley'
+    description: '228 - Kingsley'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2537:
+  2537: 
     name: '239 - Region 5 -'
+    description: '239 - Region 5 - INC05'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2539:
+  2539: 
     name: '229 - Robe'
+    description: '229 - Robe'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2541:
+  2541: 
     name: '240 - Region 5 -'
+    description: '240 - Region 5 - INC06'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2543:
+  2543: 
     name: '230 - Tatiara'
+    description: '230 - Tatiara'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2545:
+  2545: 
     name: '241 - Region 5 -'
+    description: '241 - Region 5 - INC07'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2547:
+  2547: 
     name: '231 - Wattle Ran'
+    description: '231 - Wattle Range'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2549:
+  2549: 
     name: '242 - Region 5 -'
+    description: '242 - Region 5 - INC08'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2551:
+  2551: 
     name: '232 - Region 5 -'
+    description: '232 - Region 5 - Dispatch'
+    tag: 'Fire Dispatch'
     category: 'MFS/CFS'
     priority: 5
-  2553:
+  2553: 
     name: '233 - Region 5 -'
+    description: '233 - Region 5 - Logistics'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2563:
+  2563: 
     name: '170 - MFS C40 (S'
+    description: '170 - MFS C40 (St Marys)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2565:
+  2565: 
     name: '223 - Region 5 S'
+    description: '223 - Region 5 South East'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2567:
+  2567: 
     name: '243 - Region 5 -'
+    description: '243 - Region 5 - INC09'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2571:
+  2571: 
     name: '13 NR Burra'
+    description: '13 NR Burra'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  2577:
+  2577: 
     name: '20 NR Coastal'
+    description: '20 NR Coastal'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  2579:
+  2579: 
     name: '10 NR Mallee'
+    description: '10 NR Mallee'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  2581:
+  2581: 
     name: '11 NR Murray Dar'
+    description: '11 NR Murray Darling Basin'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  2585:
+  2585: 
     name: 'Unknown'
+    description: 'Unknown'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  2613:
+  2613: 
     name: '07 NR Kangaroo I'
+    description: '07 NR Kangaroo Island'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  2617:
+  2617: 
     name: '08 NR Coorong'
+    description: '08 NR Coorong'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  2621:
+  2621: 
     name: '09 NR South East'
+    description: '09 NR South East'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  2655:
+  2655: 
     name: '04 - MEDICAL A ('
+    description: '04 - MEDICAL A (Hospital consults)'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  2659:
+  2659: 
     name: '05 - MEDICAL B ('
+    description: '05 - MEDICAL B (Hospital consults)'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  2671:
+  2671: 
     name: 'D55 STJOHN TRK'
+    description: 'D55 STJOHN TRK'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  2675:
+  2675: 
     name: 'DHS MID NORTH HO'
+    description: 'DHS MID NORTH HOSPITALS (Tanunda, Balaklava'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  2683:
+  2683: 
     name: 'DHS NORTH HOSPIT'
+    description: 'DHS NORTH HOSPITALS'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  2693:
+  2693: 
     name: '193 - MFS Riverl'
+    description: '193 - MFS Riverland'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2709:
+  2709: 
     name: 'DHS S.E. HOSPITA'
+    description: 'DHS S.E. HOSPITALS (Kingston, Naracoorte, Penola)'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  2711:
+  2711: 
     name: '152 - DHS HILLS'
+    description: '152 - DHS HILLS / MALLEE HOSPITALS'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  2715:
+  2715: 
     name: '110 SW AIR OPS L'
+    description: '110 - Statewide Air Operations (Airbase Logistics)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2717:
+  2717: 
     name: '234 - Region 5 -'
+    description: '234 - Region 5 - Air Operations'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2719:
+  2719: 
     name: '244 - Region 5 -'
+    description: '244 - Region 5 - INC10'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2721:
+  2721: 
     name: '245 - Region 5 -'
+    description: '245 - Region 5 - INC11'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2727:
+  2727: 
     name: '220 - Region 3 -'
+    description: '220 - Region 3 - INC10'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2729:
+  2729: 
     name: '221 - Region 3 -'
+    description: '221 - Region 3 - INC11'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2731:
+  2731: 
     name: '222 - Region 3 -'
+    description: '222 - Region 3 - Air Operations'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2733:
+  2733: 
     name: '213 - Region 3 -'
+    description: '213 - Region 3 - INC03'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2735:
+  2735: 
     name: '171 - MFS C41 (C'
+    description: '171 - MFS C41 (Camden Park)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2737:
+  2737: 
     name: '172 - MFS C42 (O'
+    description: '172 - MFS C42 (O’Halloran Hill)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2739:
+  2739: 
     name: '173 - MFS C43 (C'
+    description: '173 - MFS C43 (Christie Downs)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2741:
+  2741: 
     name: '174 - MFS C44 (G'
+    description: '174 - MFS C44 (Glen Osmond)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2743:
+  2743: 
     name: '175 - MFS C45 (B'
+    description: '175 - MFS C45 (Brooklyn Park)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2745:
+  2745: 
     name: '176 - MFS C46 (S'
+    description: '176 - MFS C46 (Seaford)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2747:
+  2747: 
     name: '177 - MFS C47 (S'
+    description: '177 - MFS C47 (Spare)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2749:
+  2749: 
     name: '178 - MFS C48 (F'
+    description: '178 - MFS C48 (Fire Safety)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2751:
+  2751: 
     name: '179 - MFS C49 (T'
+    description: '179 - MFS C49 (Training)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  2779:
+  2779: 
     name: 'West Beach'
+    description: 'West Beach'
+    tag: 'Business'
     category: 'SARDI'
     priority: 5
-  2855:
+  2855: 
     name: 'Mt. Gambier Depo'
+    description: 'Mt. Gambier Depot'
+    tag: 'Utilities'
     category: 'SA Water'
     priority: 5
-  2897:
+  2897: 
     name: 'North East LSA'
+    description: 'North East LSA'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  2907:
+  2907: 
     name: '218 - Drug & Org'
+    description: '218 - Drug & Organised Crime'
+    tag: 'Law Tac'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  2915:
+  2915: 
     name: '215 - Police Sec'
+    description: '215 - Police Security Services - South'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  2919:
+  2919: 
     name: '190 - Emergency'
+    description: '190 - Emergency South Ops'
+    tag: 'Law Tac'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  2923:
+  2923: 
     name: '058 Barrier'
+    description: '058 - Barrier'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3006:
+  3006: 
     name: 'D04 MEDICAL A (4'
+    description: 'D04 MEDICAL A (48096)'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3007:
+  3007: 
     name: 'D05 MEDICAL B'
+    description: 'D05 MEDICAL B'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3008:
+  3008: 
     name: 'D100 ADMIN 6'
+    description: 'D100 ADMIN 6'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3009:
+  3009: 
     name: 'D12 RETRIEVAL'
+    description: 'D12 RETRIEVAL'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3010:
+  3010: 
     name: 'D15 METRO 15 (48'
+    description: 'D15 METRO 15 (48160)'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3011:
+  3011: 
     name: 'D16 STA INC 1'
+    description: 'D16 STA INC 1'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3012:
+  3012: 
     name: 'D51 HELI TRK'
+    description: 'D51 HELI TRK'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3013:
+  3013: 
     name: 'D53 MEDICAL H'
+    description: 'D53 MEDICAL H'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3014:
+  3014: 
     name: 'D57 DHS TRK / D1'
+    description: 'D57 DHS TRK / D156 AMB SCC'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3015:
+  3015: 
     name: 'D63 MEDICAL C'
+    description: 'D63 MEDICAL C'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3016:
+  3016: 
     name: 'D64 MEDICAL D'
+    description: 'D64 MEDICAL D'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3017:
+  3017: 
     name: 'D71 SE TASK 1 (4'
+    description: 'D71 SE TASK 1 (48272)'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3018:
+  3018: 
     name: 'D72 SE TASK 2'
+    description: 'D72 SE TASK 2'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3019:
+  3019: 
     name: 'D73 MEDICAL E'
+    description: 'D73 MEDICAL E'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3020:
+  3020: 
     name: 'D74 MEDICAL F'
+    description: 'D74 MEDICAL F'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3021:
+  3021: 
     name: 'D79 SE INC'
+    description: 'D79 SE INC'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3022:
+  3022: 
     name: 'D81 NW TASK 1 (4'
+    description: 'D81 NW TASK 1 (48352)'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3023:
+  3023: 
     name: 'D82 NW TASK 2'
+    description: 'D82 NW TASK 2'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3024:
+  3024: 
     name: 'D83 MEDICAL J'
+    description: 'D83 MEDICAL J'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3025:
+  3025: 
     name: 'D84 MEDICAL K'
+    description: 'D84 MEDICAL K'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3026:
+  3026: 
     name: 'D89 NW INC'
+    description: 'D89 NW INC'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3027:
+  3027: 
     name: 'D98 ADMIN 4'
+    description: 'D98 ADMIN 4'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3028:
+  3028: 
     name: 'D99 ADMIN 5'
+    description: 'D99 ADMIN 5'
+    tag: 'EMS-Tac'
     category: 'South Australian Ambulance Service (SAAS)'
     priority: 5
-  3113:
+  3113: 
     name: '205 - Karoonda'
+    description: '205 - Karoonda'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3115:
+  3115: 
     name: '068 Flinders'
+    description: '068 - Flinders'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3117:
+  3117: 
     name: '050 R4 INC 04'
+    description: '050 - Region 4 - INC04'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3119:
+  3119: 
     name: '070 Pastoral 1'
+    description: '070 - Pastoral 1'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3121:
+  3121: 
     name: '052 R4 INC 06'
+    description: '052 - Region 4 - INC06'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3123:
+  3123: 
     name: '071 Mt Remarkabl'
+    description: '071 - Mt Remarkable'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3125:
+  3125: 
     name: '053 R4 AIR OPS'
+    description: '053 - Region 4 - Air Operations'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3127:
+  3127: 
     name: '074 Spencer'
+    description: '074 - Spencer'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3129:
+  3129: 
     name: '056 R4 INC 10'
+    description: '056 - Region 4 - INC10'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3131:
+  3131: 
     name: '073 Pastoral 3'
+    description: '073 - Pastoral 3'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3133:
+  3133: 
     name: '057 R4 INC 11'
+    description: '057 - Region 4 - INC11'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3135:
+  3135: 
     name: '062 R4 DISPATCH'
+    description: '062 - Region 4 - Dispatch'
+    tag: 'Fire Dispatch'
     category: 'MFS/CFS'
     priority: 5
-  3137:
+  3137: 
     name: '063 R4 LOGISTICS'
+    description: '063 - Region 4 - Logistics'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3139:
+  3139: 
     name: '009 Western Eyre'
+    description: '009 - Western Eyre'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3141:
+  3141: 
     name: '246 - Region 6 -'
+    description: '246 - Region 6 - Air Operations'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3143:
+  3143: 
     name: '010 Eastern Eyre'
+    description: '010 - Eastern Eyre'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3145:
+  3145: 
     name: '247 - Region 6 -'
+    description: '247 - Region 6 - INC02'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3147:
+  3147: 
     name: '011 Elliston'
+    description: '011 - Elliston'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3149:
+  3149: 
     name: '248 - Region 6 -'
+    description: '248 - Region 6 - INC03'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3151:
+  3151: 
     name: '012 Caralue'
+    description: '012 - Caralue'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3153:
+  3153: 
     name: '249 - Region 6 -'
+    description: '249 - Region 6 - INC04'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3155:
+  3155: 
     name: '013 R6 INC 11'
+    description: '013 - Region 6 - INC11'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3157:
+  3157: 
     name: '001 R6 INC 05'
+    description: '001 - Region 6 - INC05'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3159:
+  3159: 
     name: '015 R6 INC 12'
+    description: '015 - Region 6 - INC12'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3161:
+  3161: 
     name: '002 R6 INC 06'
+    description: '002 - Region 6 - INC06'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3163:
+  3163: 
     name: '014 LWR EYRE'
+    description: '014 - Lower Eyre Peninsula'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3165:
+  3165: 
     name: '003 R6 INC 07'
+    description: '003 - Region 6 - INC07'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3167:
+  3167: 
     name: '016 TUMBY BAY'
+    description: '016 - Tumby Bay'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3169:
+  3169: 
     name: '004 R6 INC 08'
+    description: '004 - Region 6 - INC08'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3171:
+  3171: 
     name: '007 R6 OPS'
+    description: '007 - Region 6 - Operations'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3173:
+  3173: 
     name: '008 R6 LOG'
+    description: '008 - Region 6 - Logistics (Region 6 Air Operations)'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3187:
+  3187: 
     name: '192 - MFS West C'
+    description: '192 - MFS West Coast'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3189:
+  3189: 
     name: '06 - MEDICAL ROY'
+    description: '06 - MEDICAL ROYAL ADELAIDE HOSPITAL'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  3191:
+  3191: 
     name: '07 - MEDICAL FLI'
+    description: '07 - MEDICAL FLINDERS MEDICAL CENTRE'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  3193:
+  3193: 
     name: '08 - WOMENS AND'
+    description: '08 - WOMENS AND CHILDRENS HOSPITAL'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  3281:
+  3281: 
     name: '17 NR Eyre Penin'
+    description: '17 NR Eyre Peninsula'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  3305:
+  3305: 
     name: 'EYRE PENINSULA H'
+    description: 'EYRE PENINSULA HOSPITALS (Cummins, Streaky Bay)'
+    tag: 'Hospital'
     category: 'SA Health'
     priority: 5
-  3309:
+  3309: 
     name: 'Northern Travel'
+    description: 'Northern Travel'
+    tag: 'Utilities'
     category: 'SA Water'
     priority: 5
-  3311:
+  3311: 
     name: '15 NR SA AL'
+    description: '15 NR SA AL'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  3313:
+  3313: 
     name: '005 R6 INC 09'
+    description: '005 - Region 6 - INC09'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3315:
+  3315: 
     name: '006 R6 INC 10'
+    description: '006 - Region 6 - INC10'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3319:
+  3319: 
     name: '059 R4 INC 13'
+    description: '059 - Region 4 - INC13'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3321:
+  3321: 
     name: '060 R4 INC 14'
+    description: '060 - Region 4 - INC14'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3323:
+  3323: 
     name: '061 R4 INC 15'
+    description: '061 - Region 4 - INC15'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3327:
+  3327: 
     name: '054 R4 INC 08'
+    description: '054 - Region 4 - INC08'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3329:
+  3329: 
     name: '072 Pastoral 2'
+    description: '072 - Pastoral 2'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3331:
+  3331: 
     name: '051 R4 INC 05'
+    description: '051 - Region 4 - INC05'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3333:
+  3333: 
     name: '069 Hallet'
+    description: '069 - Hallet'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3335:
+  3335: 
     name: '049 R4 INC 03'
+    description: '049 - Region 4 - INC03'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3337:
+  3337: 
     name: '067 Burra'
+    description: '067 - Burra'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3339:
+  3339: 
     name: '064 Black Rock'
+    description: '064 - Black Rock'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3341:
+  3341: 
     name: '066 Bundaleer'
+    description: '066 - Bundaleer'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3343:
+  3343: 
     name: '047 R4 INC 01'
+    description: '047 - Region 4 - INC01'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3345:
+  3345: 
     name: '048 R4 INC 02'
+    description: '048 - Region 4 - INC02'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3347:
+  3347: 
     name: '055 R4 INC 09'
+    description: '055 - Region 4 - INC09'
+    tag: 'Fire-Tac'
     category: 'MFS/CFS'
     priority: 5
-  3349:
+  3349: 
     name: '14 NR Southern F'
+    description: '14 NR Southern Flinder'
+    tag: 'Public Works'
     category: 'Department of Environment, Water and Natural Resources'
     priority: 5
-  3359:
+  3359: 
     name: 'West Beach/Glens'
+    description: 'West Beach/Glenside'
+    tag: 'Business'
     category: 'SARDI'
     priority: 5
-  3375:
+  3375: 
     name: 'North Incident'
+    description: 'North Incident'
+    tag: 'Utilities'
     category: 'SA Water'
     priority: 5
-  3455:
+  3455: 
     name: 'SAPOL - Baxter P'
+    description: 'SAPOL - Baxter Protest'
+    tag: 'Law Tac'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  3459:
+  3459: 
     name: '75 - West Coast'
+    description: '75 - West Coast LSA (Patrol to Patrol - General Chat)'
+    tag: 'Law Tac'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  3461:
+  3461: 
     name: '77 - West Coast'
+    description: '77 - West Coast LSA EMERGENCY'
+    tag: 'Law Tac'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  3463:
+  3463: 
     name: '78 - Mid West LS'
+    description: '78 - Mid West LSA'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  3465:
+  3465: 
     name: '79 - Mid West LS'
+    description: '79 - Mid West LSA'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  3467:
+  3467: 
     name: '81 - Mid West LS'
+    description: '81 - Mid West LSA Emergency'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  3469:
+  3469: 
     name: '74 - West Coast'
+    description: '74 - West Coast (Ceduna)'
+    tag: 'Law Dispatch'
     category: 'South Australia Police Service (SAPOL)'
     priority: 5
-  3489:
+  3489: 
     name: 'Fisheries 1'
+    description: 'Fisheries Ch 1 Operations'
+    tag: 'Public Works'
     category: 'Primary Industries and Regions SA'
     priority: 5
-  3491:
+  3491: 
     name: 'Fisheries 2'
+    description: 'Fisheries Ch 2 Chat'
+    tag: 'Public Works'
     category: 'Primary Industries and Regions SA'
     priority: 5
-  3599:
+  3599: 
     name: '166 Transport SA'
+    description: '166 Transport SA'
+    tag: 'Public Works'
     category: 'SA Transport'
     priority: 5
-  15402:
+  15402: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  15403:
+  15403: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  15404:
+  15404: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  15405:
+  15405: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  15406:
+  15406: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  15407:
+  15407: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  15408:
+  15408: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  15409:
+  15409: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  15410:
+  15410: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  15411:
+  15411: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  15412:
+  15412: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  15413:
+  15413: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  15414:
+  15414: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  15415:
+  15415: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  15416:
+  15416: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  15417:
+  15417: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  15451:
+  15451: 
     name: 'SA Power Network'
+    description: 'SA Power Networks'
+    tag: 'Utilities'
     category: 'SA Power Networks'
     priority: 5
-  17100:
+  17100: 
     name: 'TT B01 MILE END'
+    description: 'Torrens Transit B01 Mile End'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17101:
+  17101: 
     name: 'TT'
+    description: 'Torrens Transit'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17102:
+  17102: 
     name: 'TT'
+    description: 'Torrens Transit'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17103:
+  17103: 
     name: 'TT'
+    description: 'Torrens Transit'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17104:
+  17104: 
     name: 'TT B05 ST AGNES'
+    description: 'Torrens Transit B05 St Agnes'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17105:
+  17105: 
     name: 'TT B06 MORPHETTV'
+    description: 'Torrens Transit B06 Morphettville'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17106:
+  17106: 
     name: 'TT EDINBURGH NTH'
+    description: 'Torrens Transit Edinburgh North'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17107:
-    name: 'Public Transport User 1 (TRAM??)'
+  17107: 
+    name: 'PT User'
+    description: 'PT User'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17108:
-    name: 'Public Transport User 8'
+  17108: 
+    name: 'PT User'
+    description: 'PT User'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17109:
-    name: 'Public Transport User 7'
+  17109: 
+    name: 'PT User'
+    description: 'PT User'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17110:
-    name: 'Public Transport User 6'
+  17110: 
+    name: 'PT User'
+    description: 'PT User'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17111:
-    name: 'Public Transport User 5'
+  17111: 
+    name: 'PT User'
+    description: 'PT User'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17112:
-    name: 'Public Transport User 4'
+  17112: 
+    name: 'PT User'
+    description: 'PT User'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17113:
+  17113: 
     name: 'TT ALL DEPOT'
+    description: 'Torrens Transit All Depot'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17114:
+  17114: 
     name: 'Busways Lonsdale'
+    description: 'Busways Lonsdale'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17115:
-    name: 'Public Transport User 3'
+  17115: 
+    name: 'PT User'
+    description: 'PT User'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17116:
+  17116: 
     name: 'Busways Ch3 Co O'
+    description: 'Busways Ch3 Co Ords'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17117:
+  17117: 
     name: 'Busways Emergenc'
+    description: 'Busways Emergency'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17118:
-    name: 'Public Transport User 2'
+  17118: 
+    name: 'PT User'
+    description: 'PT User'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
-  17119:
+  17119: 
     name: 'Southlink Aldgat'
+    description: 'Southlink Aldgate'
+    tag: 'Transportation'
     category: 'Public Transport'
     priority: 5
