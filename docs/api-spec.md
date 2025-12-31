@@ -145,6 +145,22 @@ Base path: `/api/v1`
 - GET `/trunking/recipes`
   - List pre-configured trunking system templates.
 
+#### Trunking Encoders (control + traffic)
+- Encoders are resolved by `TrunkingProtocol` via the `encoders.trunking` registry.
+- Control-channel frames validate dibits and enforce symbol rate (P25: 4800 symbols/s).
+- Traffic-channel encoders validate symbol rate (P25: 4800 Phase I, 6000 Phase II) and map dibits to baseband symbols for modulation harnesses.
+
+```mermaid
+flowchart TD
+    proto[TrunkingProtocol selection] --> registry{Trunking encoder registry}
+    registry --> cc[P25 control encoder<br/>symbol_rate=4800]
+    registry --> tc[P25 traffic encoder<br/>symbol_rate=4800/6000]
+    cc --> ccframe[ControlChannelFrame<br/>validated dibits]
+    tc --> tcframe[TrafficChannelFrame<br/>validated dibits]
+    ccframe --> symbols[Baseband symbol stream]
+    tcframe --> symbols
+```
+
 ### Streaming
 - WS `/stream/captures/{id}/iq`
   - Streams capture IQ frames (binary: `iq16` or `f32`).

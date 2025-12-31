@@ -97,7 +97,7 @@ class AudioEncoder(ABC):
     @abstractmethod
     def _get_ffmpeg_args(self) -> list[str]:
         """Get ffmpeg arguments for this encoder."""
-        pass
+        ...
 
     async def _run_encoder(self) -> None:
         """Run the encoder process and handle I/O."""
