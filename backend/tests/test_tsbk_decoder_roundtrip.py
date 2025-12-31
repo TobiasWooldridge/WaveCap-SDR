@@ -12,6 +12,8 @@ from wavecapsdr.decoders.p25_tsbk_encoders import encode_status_update
 from wavecapsdr.decoders.p25_tsbk_encoders import (
     encode_group_affiliation_response,
     encode_unit_deregistration_ack,
+    encode_unit_deregistration_request,
+    encode_unit_registration_request,
     encode_unit_registration_response,
     encode_unit_service_request,
 )
@@ -485,6 +487,40 @@ def test_unit_service_request_decodes_from_encoded_tsbk_block() -> None:
     assert parsed["service_options"] == 0xA5
     assert parsed["target_id"] == 0x00F001
     assert parsed["source_id"] == 0x001122
+
+
+def test_unit_registration_request_roundtrip_through_tsbk_chain() -> None:
+    payload = encode_unit_registration_request(
+        wacn=0xABCDE,
+        system_id=0x321,
+        source_id=0x00BEEF,
+        capability=0x45,
+        emergency=True,
+    )
+    dibits = _encode_tsbk_block(TSBKOpcode.UNIT_REG_RSP, 0, payload)
+
+    blocks = extract_tsbk_blocks(dibits)
+    assert len(blocks) == 1
+    block = blocks[0]
+    assert block.crc_valid is True
+    assert block.opcode == TSBKOpcode.UNIT_REG_RSP
+    assert block.data == payload
+
+
+def test_unit_deregistration_request_roundtrip_through_tsbk_chain() -> None:
+    payload = encode_unit_deregistration_request(
+        wacn=0xABCDE,
+        system_id=0x321,
+        source_id=0x00ABCD,
+    )
+    dibits = _encode_tsbk_block(TSBKOpcode.UNIT_DEREG_ACK, 0, payload)
+
+    blocks = extract_tsbk_blocks(dibits)
+    assert len(blocks) == 1
+    block = blocks[0]
+    assert block.crc_valid is True
+    assert block.opcode == TSBKOpcode.UNIT_DEREG_ACK
+    assert block.data == payload
 
 
 def test_iden_up_vu_decodes_from_encoded_tsbk_block() -> None:
