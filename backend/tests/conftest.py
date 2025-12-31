@@ -4,6 +4,8 @@ import pytest
 import numpy as np
 from pathlib import Path
 
+collect_ignore = ["fixtures/p25_samples/test_samples.py"]
+
 
 @pytest.fixture
 def sample_rate() -> int:

@@ -16,6 +16,7 @@ Numba-accelerated FIR filters provide 3-5x speedup for streaming decimation.
 from __future__ import annotations
 
 import logging
+from threading import Lock
 from functools import lru_cache
 from typing import cast
 
@@ -471,6 +472,8 @@ def spectral_noise_reduction(
 
 
 if NUMBA_AVAILABLE:
+    _NUMBA_PARALLEL_LOCK = Lock()
+
     @njit(cache=True, fastmath=True)
     def _fir_filter_complex_numba(
         x: NDArrayAny,  # Input signal (complex128)
@@ -601,7 +604,10 @@ def fir_filter_complex(
     if NUMBA_AVAILABLE:
         # Use parallel version for large signals
         if use_parallel and len(x) > 10000:
-            y, new_zi = _fir_filter_complex_parallel(x_c128, taps_f64, zi_c128)
+            # Workqueue threading layer is not threadsafe across Python threads.
+            # Guard parallel calls to avoid concurrent access crashes.
+            with _NUMBA_PARALLEL_LOCK:
+                y, new_zi = _fir_filter_complex_parallel(x_c128, taps_f64, zi_c128)
         else:
             y, new_zi = _fir_filter_complex_numba(x_c128, taps_f64, zi_c128)
         return y.astype(np.complex64), new_zi
