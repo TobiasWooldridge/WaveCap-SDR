@@ -13,6 +13,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, cast
 
+from wavecapsdr.radioreference import (
+    RadioReferenceConfig,
+    RadioReferenceTalkgroup,
+    RadioReferenceTalkgroupRequest,
+    fetch_talkgroups,
+)
 
 def parse_frequency(value: str | int | float) -> float:
     """Parse a frequency value with optional unit suffix.
@@ -184,6 +190,19 @@ class TalkgroupConfig:
 
 
 @dataclass
+class RadioReferenceTalkgroupsConfig:
+    """RadioReference talkgroup import settings for a trunking system."""
+
+    system_id: int
+    category_id: int | None = None
+    tag_id: int | None = None
+    tgid: int | None = None
+    cache_file: str | None = None
+    enabled: bool = True
+    refresh: bool = True
+
+
+@dataclass
 class TrunkingSystemConfig:
     """Configuration for a P25 trunking system.
 
@@ -219,6 +238,7 @@ class TrunkingSystemConfig:
     max_voice_recorders: int = 4
     talkgroups: dict[int, TalkgroupConfig] = field(default_factory=dict)
     talkgroups_file: str | None = None  # External YAML file for talkgroup definitions
+    talkgroups_rr: RadioReferenceTalkgroupsConfig | None = None
     recording_path: str = "./recordings"
     record_unknown: bool = False
     min_call_duration: float = 1.0
@@ -296,6 +316,7 @@ class TrunkingSystemConfig:
         cls,
         data: dict[str, Any],
         config_dir: str | None = None,
+        rr_config: RadioReferenceConfig | None = None,
     ) -> TrunkingSystemConfig:
         """Create config from dictionary (e.g., from YAML).
 
@@ -310,6 +331,34 @@ class TrunkingSystemConfig:
         if talkgroups_file:
             # Load from external YAML file
             talkgroups = load_talkgroups_yaml(talkgroups_file, config_dir)
+
+        # Parse RadioReference talkgroup import settings
+        rr_settings: RadioReferenceTalkgroupsConfig | None = None
+        rr_raw = data.get("talkgroups_rr")
+        if isinstance(rr_raw, dict):
+            system_id = rr_raw.get("system_id") or rr_raw.get("sid")
+            if system_id is not None:
+                rr_settings = RadioReferenceTalkgroupsConfig(
+                    system_id=int(system_id),
+                    category_id=rr_raw.get("category_id"),
+                    tag_id=rr_raw.get("tag_id"),
+                    tgid=rr_raw.get("tgid"),
+                    cache_file=rr_raw.get("cache_file"),
+                    enabled=bool(rr_raw.get("enabled", True)),
+                    refresh=bool(rr_raw.get("refresh", True)),
+                )
+            else:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "talkgroups_rr configured without system_id; skipping RadioReference import"
+                )
+
+        if rr_settings and rr_settings.enabled:
+            rr_talkgroups = load_talkgroups_radioreference(
+                rr_settings, rr_config, config_dir
+            )
+            if rr_talkgroups:
+                talkgroups.update(rr_talkgroups)
 
         # Parse inline talkgroups (can supplement or override file-based ones)
         for tgid, tg_data in data.get("talkgroups", {}).items():
@@ -389,6 +438,7 @@ class TrunkingSystemConfig:
             max_voice_recorders=int(data.get("max_voice_recorders", 4)),
             talkgroups=talkgroups,
             talkgroups_file=talkgroups_file,
+            talkgroups_rr=rr_settings,
             recording_path=data.get("recording_path", "./recordings"),
             record_unknown=data.get("record_unknown", False),
             min_call_duration=float(data.get("min_call_duration", 1.0)),
@@ -552,3 +602,91 @@ def load_talkgroups_yaml(yaml_path: str, config_dir: str | None = None) -> dict[
         logging.getLogger(__name__).error(f"Error loading talkgroups from {yaml_path}: {e}")
 
     return talkgroups
+
+
+def _resolve_config_path(path: str, config_dir: str | None) -> str:
+    import os
+    if config_dir and not os.path.isabs(path):
+        return os.path.join(config_dir, path)
+    return path
+
+
+def _rr_talkgroups_to_config(
+    talkgroups: dict[int, RadioReferenceTalkgroup],
+) -> dict[int, TalkgroupConfig]:
+    converted: dict[int, TalkgroupConfig] = {}
+    for tgid, tg in talkgroups.items():
+        converted[tgid] = TalkgroupConfig(
+            tgid=tgid,
+            name=tg.name or f"TG {tgid}",
+            alpha_tag=tg.alpha_tag,
+            category=tg.category,
+            record=True,
+            monitor=True,
+        )
+    return converted
+
+
+def _write_talkgroups_yaml(path: str, talkgroups: dict[int, TalkgroupConfig]) -> None:
+    import yaml
+    data = {
+        "talkgroups": {
+            tgid: {
+                "name": tg.name,
+                "alpha_tag": tg.alpha_tag,
+                "category": tg.category,
+                "priority": tg.priority,
+                "record": tg.record,
+                "monitor": tg.monitor,
+            }
+            for tgid, tg in sorted(talkgroups.items())
+        }
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, sort_keys=False)
+
+
+def load_talkgroups_radioreference(
+    settings: RadioReferenceTalkgroupsConfig,
+    rr_config: RadioReferenceConfig | None,
+    config_dir: str | None = None,
+) -> dict[int, TalkgroupConfig]:
+    import logging
+
+    logger = logging.getLogger(__name__)
+    if rr_config is None:
+        logger.warning("RadioReference config not provided; skipping import")
+        return {}
+    if not rr_config.enabled:
+        logger.info("RadioReference integration disabled; skipping import")
+        return {}
+
+    cache_path = None
+    if settings.cache_file:
+        cache_path = _resolve_config_path(settings.cache_file, config_dir)
+        if cache_path and not settings.refresh:
+            return load_talkgroups_yaml(cache_path)
+
+    try:
+        rr_talkgroups = fetch_talkgroups(
+            rr_config,
+            RadioReferenceTalkgroupRequest(
+                system_id=settings.system_id,
+                category_id=settings.category_id,
+                tag_id=settings.tag_id,
+                tgid=settings.tgid,
+            ),
+        )
+    except Exception as exc:
+        logger.warning("RadioReference talkgroup import failed: %s", exc)
+        if cache_path:
+            return load_talkgroups_yaml(cache_path)
+        return {}
+
+    converted = _rr_talkgroups_to_config(rr_talkgroups)
+    if cache_path:
+        try:
+            _write_talkgroups_yaml(cache_path, converted)
+        except Exception as exc:
+            logger.warning("Failed to write RadioReference talkgroup cache: %s", exc)
+    return converted

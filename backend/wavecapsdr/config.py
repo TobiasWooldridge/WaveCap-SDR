@@ -59,6 +59,20 @@ class MCPConfig:
 
 
 @dataclass
+class RadioReferenceConfig:
+    """Configuration for RadioReference API access."""
+
+    enabled: bool = False
+    username: str | None = None
+    password: str | None = None
+    app_key: str | None = None
+    version: str = "1.0"
+    style: str = "d"
+    endpoint: str = "https://api.radioreference.com/soap2/index.php"
+    timeout_seconds: float = 10.0
+
+
+@dataclass
 class RecoveryConfig:
     """Configuration for automatic device recovery."""
 
@@ -145,6 +159,7 @@ class AppConfig:
     device: DeviceConfig = field(default_factory=DeviceConfig)
     recovery: RecoveryConfig = field(default_factory=RecoveryConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
+    radioreference: RadioReferenceConfig = field(default_factory=RadioReferenceConfig)
     presets: dict[str, PresetConfig] = field(default_factory=dict)
     recipes: dict[str, RecipeConfig] = field(default_factory=dict)
     captures: list[CaptureStartConfig] = field(default_factory=list)
@@ -229,6 +244,33 @@ def load_config(path_str: str) -> AppConfig:
     else:
         mcp = MCPConfig()
 
+    # Parse RadioReference config with environment variable support
+    rr_raw = raw.get("radioreference", {})
+    if isinstance(rr_raw, dict):
+        from os import environ
+        username = rr_raw.get("username")
+        if username in (None, "${WAVECAP_RR_USERNAME}"):
+            username = environ.get("WAVECAP_RR_USERNAME")
+        password = rr_raw.get("password")
+        if password in (None, "${WAVECAP_RR_PASSWORD}"):
+            password = environ.get("WAVECAP_RR_PASSWORD")
+        app_key = rr_raw.get("app_key")
+        if app_key in (None, "${WAVECAP_RR_APP_KEY}"):
+            app_key = environ.get("WAVECAP_RR_APP_KEY")
+
+        radioreference = RadioReferenceConfig(
+            enabled=bool(rr_raw.get("enabled", False)),
+            username=username,
+            password=password,
+            app_key=app_key,
+            version=str(rr_raw.get("version", "1.0")),
+            style=str(rr_raw.get("style", "d")),
+            endpoint=str(rr_raw.get("endpoint", "https://api.radioreference.com/soap2/index.php")),
+            timeout_seconds=float(rr_raw.get("timeout_seconds", 10.0)),
+        )
+    else:
+        radioreference = RadioReferenceConfig()
+
     # Parse presets
     presets: dict[str, PresetConfig] = {}
     presets_raw = raw.get("presets", {})
@@ -297,6 +339,7 @@ def load_config(path_str: str) -> AppConfig:
         device=device,
         recovery=recovery,
         mcp=mcp,
+        radioreference=radioreference,
         presets=presets,
         recipes=recipes,
         captures=captures,

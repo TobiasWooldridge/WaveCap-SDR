@@ -883,7 +883,10 @@ def cmd_trunking(args: argparse.Namespace) -> int:
     # Parse system config
     sys_data = config.trunking_systems[system_id]
     sys_data["id"] = system_id  # Ensure ID is set
-    system_config = TrunkingSystemConfig.from_dict(sys_data)
+    system_config = TrunkingSystemConfig.from_dict(
+        sys_data,
+        rr_config=config.radioreference,
+    )
 
     # Apply CLI overrides
     if args.output:

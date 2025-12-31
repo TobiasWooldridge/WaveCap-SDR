@@ -326,6 +326,11 @@ async def reload_config(request: Request) -> dict[str, Any]:
             state.config.stream = new_config.stream
             updated.append("stream")
 
+        # Update RadioReference settings
+        if new_config.radioreference != state.config.radioreference:
+            state.config.radioreference = new_config.radioreference
+            updated.append("radioreference")
+
         # Update trunking systems (register new ones, update existing configs)
         trunking_updated = []
         for sys_id, sys_data in new_config.trunking_systems.items():
@@ -333,7 +338,10 @@ async def reload_config(request: Request) -> dict[str, Any]:
                 sys_data_with_id = dict(sys_data)
                 if "id" not in sys_data_with_id:
                     sys_data_with_id["id"] = sys_id
-                trunking_config = TrunkingSystemConfig.from_dict(sys_data_with_id)
+                trunking_config = TrunkingSystemConfig.from_dict(
+                    sys_data_with_id,
+                    rr_config=new_config.radioreference,
+                )
 
                 # Check if system exists
                 existing = state.trunking_manager.get_system(sys_id)

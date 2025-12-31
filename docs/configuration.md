@@ -74,6 +74,28 @@ Trunking Systems
       - `bandwidth_khz` (float, default 12.5): Channel bandwidth in kHz.
       - `tx_offset_mhz` (float, default 0.0): TX offset in MHz.
     - Values are merged with cached IDEN_UP data persisted under `~/.wavecapsdr/trunking_state/<system_id>.json`.
+  - `talkgroups_file` (string, optional): External YAML file for talkgroup definitions.
+  - `talkgroups_rr` (dict, optional): Import talkgroups from RadioReference.
+    - `system_id` (int, required): RadioReference trunked system ID.
+    - `enabled` (bool, default `true`): Enable the import when the block is present.
+    - `refresh` (bool, default `true`): Fetch from RadioReference on startup; when false, read from `cache_file` if present.
+    - `category_id` (int, optional): RadioReference talkgroup category filter (tgCid).
+    - `tag_id` (int, optional): RadioReference tag filter (tgTag).
+    - `tgid` (int, optional): Filter to a single talkgroup ID (tgDec).
+    - `cache_file` (string, optional): YAML file to write/read the imported talkgroups.
+    - Requires `radioreference.enabled: true` and valid credentials.
+    - Imported talkgroups overlay file-based/inline entries (RR values win on TGID conflicts).
+
+RadioReference
+- `radioreference.enabled` (bool, default `false`): Enable RadioReference API access.
+- `radioreference.username` (string, optional): RadioReference username. Supports `${WAVECAP_RR_USERNAME}`.
+- `radioreference.password` (string, optional): RadioReference password. Supports `${WAVECAP_RR_PASSWORD}`.
+- `radioreference.app_key` (string, optional): RadioReference app key. Supports `${WAVECAP_RR_APP_KEY}`.
+- `radioreference.version` (string, default `1.0`): API version string sent in authInfo.
+- `radioreference.style` (string, default `d`): API style string sent in authInfo.
+- `radioreference.endpoint` (string, default `https://api.radioreference.com/soap2/index.php`): SOAP endpoint URL.
+- `radioreference.timeout_seconds` (float, default `10.0`): Request timeout.
+- Store credentials in `config/wavecapsdr.local.yaml` or environment variables; avoid committing them.
 
 Captures (auto-start on boot)
 - `captures[]` (array): List of captures to auto-start on server launch.
@@ -109,6 +131,9 @@ Environment overrides examples
 - `WAVECAPSDR__SERVER__PORT=8089`
 - `WAVECAPSDR__DEVICE__DRIVER=fake`
 - `WAVECAPSDR__SERVER__AUTH_TOKEN=secret123`
+- `WAVECAP_RR_USERNAME=your_rr_username`
+- `WAVECAP_RR_PASSWORD=your_rr_password`
+- `WAVECAP_RR_APP_KEY=your_rr_app_key`
 
 Generating encoded samples via CLI/harness
 - Use the Fake driver to avoid hardware requirements and keep runs deterministic:

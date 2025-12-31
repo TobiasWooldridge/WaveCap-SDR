@@ -318,6 +318,7 @@ Configuration via environment variables:
   - `auth.token` for simple bearer auth (optional, disabled by default).
   - `recording.rootDir` and filename pattern.
   - `limits.maxConcurrentCaptures`, `limits.maxChannelsPerCapture`, `limits.maxSampleRate`.
+- RadioReference integration (optional): enable under `radioreference.*` and `trunking.systems.<id>.talkgroups_rr` to import talkgroups.
 - Each successful save creates/refreshes a sibling `wavecapsdr.local.yaml.bak` (or `wavecapsdr.yaml.bak` if no local file is used) so operators can recover if a UI action overwrote capture configs unexpectedly.
 
 ## Security

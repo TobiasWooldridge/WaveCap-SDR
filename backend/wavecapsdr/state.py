@@ -83,7 +83,11 @@ class AppState:
                 sys_data_with_id = dict(sys_data)
                 if "id" not in sys_data_with_id:
                     sys_data_with_id["id"] = sys_id
-                trunking_config = TrunkingSystemConfig.from_dict(sys_data_with_id, config_dir=config_dir)
+                trunking_config = TrunkingSystemConfig.from_dict(
+                    sys_data_with_id,
+                    config_dir=config_dir,
+                    rr_config=cfg.radioreference,
+                )
                 trunking_manager.register_config(trunking_config)
             except Exception as e:
                 print(f"Warning: Failed to parse trunking system '{sys_id}': {e}", flush=True)
