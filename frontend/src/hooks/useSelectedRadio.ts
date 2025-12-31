@@ -119,8 +119,13 @@ export function useSelectedRadio() {
     };
 
     // First pass: add devices from captures (dedupe by stable device ID).
+    // Sort by priority so the best (running) capture is processed first.
     if (captures) {
-      for (const capture of captures) {
+      const sortedCaptures = [...captures].sort(
+        (a, b) => capturePriority(b) - capturePriority(a),
+      );
+
+      for (const capture of sortedCaptures) {
         const stableDeviceId = getStableDeviceId(capture.deviceId);
         const device = findDeviceForCapture(devices, capture);
         const deviceName = device
