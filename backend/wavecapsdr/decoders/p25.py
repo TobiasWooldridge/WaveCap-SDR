@@ -21,7 +21,7 @@ from typing import Any, Callable, cast
 import numpy as np
 from scipy.signal import resample_poly
 
-from wavecapsdr.decoders.p25_tsbk import TSBKParser
+from wavecapsdr.decoders.p25_tsbk import TSBKParser, TSBKMessage
 from wavecapsdr.decoders.p25_frames import extract_link_control
 from wavecapsdr.decoders.p25_framer import (
     P25P1MessageFramer,
@@ -181,6 +181,7 @@ class P25Frame:
     voice_data: bytes | None = None  # IMBE voice frames
     tsbk_opcode: int | None = None  # TSBK opcode
     tsbk_data: dict[str, Any] | None = None  # TSBK decoded data
+    tsbk_message: TSBKMessage | None = None  # Typed TSBK payload
     errors: int = 0  # Error count
 
 
@@ -2737,13 +2738,22 @@ class P25Decoder:
             data_bytes.append(byte_val)
 
         # Use TSBKParser for full parsing
-        tsbk_data = self.tsbk_parser.parse(opcode, mfid, bytes(data_bytes))
-        tsbk_data['lb'] = lb
-        tsbk_data['protect'] = protect
-        tsbk_data['raw_opcode'] = opcode
-        tsbk_data['trellis_errors'] = errors
+        tsbk_message = self.tsbk_parser.parse(opcode, mfid, bytes(data_bytes))
+        tsbk_message.lb = lb
+        tsbk_message.protect = protect
+        tsbk_message.last_block = lb
+        tsbk_message.trellis_errors = errors
+        tsbk_data = tsbk_message.to_dict()
+        tsbk_data["raw_opcode"] = opcode
 
-        logger.info(f"TSBK: LB={lb} Opcode=0x{opcode:02X} MFID={mfid} Errors={errors} -> {tsbk_data.get('type', 'UNKNOWN')}")
+        logger.info(
+            "TSBK: LB=%s Opcode=0x%02X MFID=%s Errors=%s -> %s",
+            lb,
+            opcode,
+            mfid,
+            errors,
+            tsbk_data.get("type", "UNKNOWN"),
+        )
 
         if self.on_tsbk_message:
             self.on_tsbk_message(tsbk_data)
@@ -2753,7 +2763,8 @@ class P25Decoder:
             nac=0,
             duid=7,
             tsbk_opcode=opcode,
-            tsbk_data=tsbk_data
+            tsbk_data=tsbk_data,
+            tsbk_message=tsbk_message,
         )
 
     def _decode_tsbk_opcode(self, opcode: int, dibits: np.ndarray) -> dict[str, Any]:
