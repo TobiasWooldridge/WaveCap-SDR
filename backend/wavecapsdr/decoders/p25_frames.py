@@ -22,6 +22,7 @@ from wavecapsdr.decoders.nac_tracker import NACTracker
 from wavecapsdr.dsp.fec.bch import bch_decode
 from wavecapsdr.dsp.fec.golay import golay_decode
 from wavecapsdr.dsp.fec.trellis import trellis_decode, trellis_decode_3_4
+from wavecapsdr.utils.packing import BitFieldSpec, bits_to_int, unpack_bit_fields
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,13 @@ _decode_nid_debug_count = 0
 _decode_nid_decode_count = 0
 _decode_tsdu_debug_count = 0
 _extract_tsbk_blocks_debug_done = False
+
+TSBK_HEADER_FIELDS = (
+    BitFieldSpec("last_block", 1),
+    BitFieldSpec("protected", 1),
+    BitFieldSpec("opcode", 6),
+    BitFieldSpec("mfid", 8),
+)
 
 
 # P25 Phase 1 data deinterleave pattern (196 bits)
@@ -241,14 +249,6 @@ def dibits_to_bits(dibits: np.ndarray) -> np.ndarray:
         bits[i * 2] = (d >> 1) & 1
         bits[i * 2 + 1] = d & 1
     return bits
-
-
-def bits_to_int(bits: np.ndarray, start: int, length: int) -> int:
-    """Extract integer from bit array."""
-    value = 0
-    for i in range(length):
-        value = (value << 1) | int(bits[start + i])
-    return value
 
 
 def deinterleave_data(bits: np.ndarray) -> np.ndarray:
@@ -1006,10 +1006,10 @@ def extract_tsbk_blocks(dibits: np.ndarray, soft: np.ndarray | None = None) -> l
 
         # Step 4: Parse TSBK structure
         # Bit layout: LB(1) + Protect(1) + Opcode(6) + MFID(8) + Data(64) + CRC(16)
-        last_block = bool(decoded_bits[0])
-        bool(decoded_bits[1])
-        opcode = bits_to_int(decoded_bits, 2, 6)
-        mfid = bits_to_int(decoded_bits, 8, 8)
+        header = unpack_bit_fields(decoded_bits, TSBK_HEADER_FIELDS)
+        last_block = bool(header["last_block"])
+        opcode = header["opcode"]
+        mfid = header["mfid"]
 
         # Extract data (64 bits = 8 bytes, starting at bit 16)
         data = bytearray(8)

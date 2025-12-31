@@ -1,0 +1,12 @@
+%% Mermaid diagram summarizing packing utility tests
+flowchart TD
+    A[Run pytest] --> B{tests/test_packing_utils.py}
+    B --> C[Pack/unpack bitfields]
+    B --> D[Variable-length ID encode/decode]
+    B --> E[Parity + padding checks]
+    B --> F[CRC16 reference value]
+    C --> G[All assertions pass]
+    D --> G
+    E --> G
+    F --> G
+    G --> H[Exit 0]
