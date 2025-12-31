@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import AsyncGenerator
@@ -16,10 +17,11 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-from .config import load_config, save_config
+from .config import AppConfig, default_config_path, load_config, save_config
 from .device_namer import (
     generate_capture_name,
     get_device_nickname,
@@ -56,6 +58,13 @@ from .state import AppState
 from .state_broadcaster import get_broadcaster
 
 router = APIRouter()
+
+
+class ReloadConfigRequest(BaseModel):
+    """Request body for hot reloading the YAML config."""
+
+    configPath: str | None = None
+    startCaptures: bool = True
 
 
 @router.get("/health")
@@ -231,150 +240,6 @@ async def shutdown_server(request: Request) -> dict[str, str]:
     asyncio.create_task(do_shutdown())
 
     return {"status": "ok", "message": "Shutdown initiated"}
-
-
-@router.post("/config/reload")
-async def reload_config(request: Request) -> dict[str, Any]:
-    """Reload configuration from the config file.
-
-    This endpoint reloads the YAML configuration file and updates runtime settings
-    that can be hot-reloaded without restarting the server:
-    - presets: Capture presets
-    - recipes: Recipe templates
-    - device_names: Device nickname mappings
-    - limits: Concurrent capture/channel limits
-    - recovery: SDRplay recovery settings
-
-    Note: Some settings require a server restart to take effect:
-    - device.driver: The SDR driver type
-    - server.*: Bind address and port
-    - captures: Auto-start captures (already running)
-
-    Returns:
-        dict with status and details about what was reloaded
-    """
-    from .device_namer import load_device_nicknames
-    from .trunking.config import TrunkingSystemConfig
-
-    state: AppState | None = getattr(request.app.state, "app_state", None)
-    if state is None:
-        raise HTTPException(status_code=500, detail="AppState not initialized")
-
-    if not state.config_path:
-        raise HTTPException(
-            status_code=400,
-            detail="No config path configured - cannot reload"
-        )
-
-    from pathlib import Path
-    config_file = Path(state.config_path)
-    if not config_file.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=f"Config file not found: {state.config_path}"
-        )
-
-    try:
-        # Load fresh config from file
-        new_config = load_config(state.config_path)
-
-        # Track what was updated
-        updated: list[str] = []
-
-        # Update presets
-        if new_config.presets != state.config.presets:
-            state.config.presets = new_config.presets
-            updated.append(f"presets ({len(new_config.presets)} presets)")
-
-        # Update recipes
-        if new_config.recipes != state.config.recipes:
-            state.config.recipes = new_config.recipes
-            updated.append(f"recipes ({len(new_config.recipes)} recipes)")
-
-        # Update device names and reload into runtime
-        if new_config.device_names != state.config.device_names:
-            state.config.device_names = new_config.device_names
-            load_device_nicknames(new_config.device_names)
-            updated.append(f"device_names ({len(new_config.device_names)} names)")
-
-        # Update limits
-        if (new_config.limits.max_concurrent_captures != state.config.limits.max_concurrent_captures or
-            new_config.limits.max_channels_per_capture != state.config.limits.max_channels_per_capture or
-            new_config.limits.max_sample_rate != state.config.limits.max_sample_rate):
-            state.config.limits = new_config.limits
-            updated.append("limits")
-
-        # Update recovery settings
-        if (new_config.recovery.sdrplay_service_restart_enabled != state.config.recovery.sdrplay_service_restart_enabled or
-            new_config.recovery.sdrplay_service_restart_cooldown != state.config.recovery.sdrplay_service_restart_cooldown or
-            new_config.recovery.max_service_restarts_per_hour != state.config.recovery.max_service_restarts_per_hour or
-            new_config.recovery.sdrplay_operation_cooldown != state.config.recovery.sdrplay_operation_cooldown or
-            new_config.recovery.iq_watchdog_enabled != state.config.recovery.iq_watchdog_enabled or
-            new_config.recovery.iq_watchdog_timeout != state.config.recovery.iq_watchdog_timeout):
-            state.config.recovery = new_config.recovery
-            # Update the recovery singleton with new settings
-            recovery = get_recovery()
-            recovery.enabled = new_config.recovery.sdrplay_service_restart_enabled
-            recovery.cooldown_seconds = new_config.recovery.sdrplay_service_restart_cooldown
-            recovery.max_restarts_per_hour = new_config.recovery.max_service_restarts_per_hour
-            updated.append("recovery")
-
-        # Update stream defaults
-        if (new_config.stream.default_transport != state.config.stream.default_transport or
-            new_config.stream.default_format != state.config.stream.default_format or
-            new_config.stream.default_audio_rate != state.config.stream.default_audio_rate):
-            state.config.stream = new_config.stream
-            updated.append("stream")
-
-        # Update RadioReference settings
-        if new_config.radioreference != state.config.radioreference:
-            state.config.radioreference = new_config.radioreference
-            updated.append("radioreference")
-
-        # Update trunking systems (register new ones, update existing configs)
-        trunking_updated = []
-        for sys_id, sys_data in new_config.trunking_systems.items():
-            try:
-                sys_data_with_id = dict(sys_data)
-                if "id" not in sys_data_with_id:
-                    sys_data_with_id["id"] = sys_id
-                trunking_config = TrunkingSystemConfig.from_dict(
-                    sys_data_with_id,
-                    rr_config=new_config.radioreference,
-                )
-
-                # Check if system exists
-                existing = state.trunking_manager.get_system(sys_id)
-                if existing is None:
-                    # Register new system
-                    state.trunking_manager.register_config(trunking_config)
-                    trunking_updated.append(f"{sys_id} (new)")
-                else:
-                    # System exists - config update would require restart
-                    trunking_updated.append(f"{sys_id} (exists)")
-            except Exception as e:
-                logger.warning(f"Failed to process trunking system '{sys_id}': {e}")
-
-        if trunking_updated:
-            state.config.trunking_systems = new_config.trunking_systems
-            updated.append(f"trunking ({', '.join(trunking_updated)})")
-
-        logger.info(f"Config reloaded from {state.config_path}: {updated or 'no changes'}")
-
-        return {
-            "status": "ok",
-            "message": "Configuration reloaded",
-            "config_path": state.config_path,
-            "updated": updated,
-            "note": "Some settings (device.driver, server.*, captures) require server restart"
-        }
-
-    except Exception as e:
-        logger.error(f"Failed to reload config: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to reload config: {e}"
-        )
 
 
 # Frontend log storage
@@ -705,6 +570,149 @@ def auth_check(request: Request, state: AppState = Depends(get_state)) -> None:
         raise HTTPException(status_code=401, detail="Missing bearer token")
     if auth.split(" ", 1)[1] != token:
         raise HTTPException(status_code=403, detail="Invalid token")
+
+
+async def _start_captures_from_config(app_state: AppState, config: AppConfig) -> list[str]:
+    """Recreate and start captures defined in the config."""
+    started: list[str] = []
+    created_any = False
+
+    for cap_cfg in config.captures:
+        preset_name = cap_cfg.preset
+        preset = config.presets.get(preset_name)
+        if preset is None:
+            logger.warning("Preset '%s' not found; skipping capture", preset_name)
+            continue
+
+        try:
+            cap = app_state.captures.create_capture(
+                device_id=cap_cfg.device_id,
+                center_hz=preset.center_hz,
+                sample_rate=preset.sample_rate,
+                gain=preset.gain,
+                bandwidth=preset.bandwidth,
+                ppm=preset.ppm,
+                antenna=preset.antenna,
+                device_settings=preset.device_settings,
+                element_gains=preset.element_gains,
+                stream_format=preset.stream_format,
+                dc_offset_auto=preset.dc_offset_auto,
+                iq_balance_auto=preset.iq_balance_auto,
+            )
+
+            devices = app_state.captures.list_devices()
+            device = next((d for d in devices if d["id"] == cap.cfg.device_id), None)
+            if device:
+                device_nickname = get_device_nickname(cap.cfg.device_id)
+                cap.cfg.auto_name = generate_capture_name(
+                    center_hz=preset.center_hz,
+                    device_id=cap.cfg.device_id,
+                    device_label=device["label"],
+                    recipe_name=None,
+                    device_nickname=device_nickname,
+                )
+
+            for offset_hz in preset.offsets:
+                ch = app_state.captures.create_channel(
+                    cid=cap.cfg.id,
+                    mode="wbfm",
+                    offset_hz=offset_hz,
+                    audio_rate=config.stream.default_audio_rate,
+                    squelch_db=preset.squelch_db,
+                )
+                ch.start()
+
+            cap.start()
+            app_state.capture_presets[cap.cfg.id] = preset_name
+            started.append(cap.cfg.id)
+            created_any = True
+        except Exception as e:
+            logger.error("Failed to start capture for preset '%s': %s", preset_name, e)
+
+    if not created_any:
+        # Initialize a default (stopped) capture for UI if nothing configured
+        try:
+            default_preset_name: str = next(iter(config.presets.keys()), "")
+            preset = config.presets.get(default_preset_name) if default_preset_name else None
+
+            devices = app_state.captures.list_devices()
+            device_id = devices[0]["id"] if devices else None
+
+            center_hz = preset.center_hz if preset else 100_000_000.0
+            sample_rate = preset.sample_rate if preset else 1_000_000
+
+            cap = app_state.captures.create_capture(
+                device_id=device_id,
+                center_hz=center_hz,
+                sample_rate=sample_rate,
+                gain=(preset.gain if preset else None),
+                bandwidth=(preset.bandwidth if preset else None),
+                ppm=(preset.ppm if preset else None),
+                antenna=(preset.antenna if preset else None),
+                device_settings=(preset.device_settings if preset else None),
+                element_gains=(preset.element_gains if preset else None),
+                stream_format=(preset.stream_format if preset else None),
+                dc_offset_auto=(preset.dc_offset_auto if preset else True),
+                iq_balance_auto=(preset.iq_balance_auto if preset else True),
+            )
+
+            if device_id:
+                device = next((d for d in devices if d["id"] == device_id), None)
+                if device:
+                    device_nickname = get_device_nickname(device_id)
+                    cap.cfg.auto_name = generate_capture_name(
+                        center_hz=center_hz,
+                        device_id=device_id,
+                        device_label=device["label"],
+                        recipe_name=None,
+                        device_nickname=device_nickname,
+                    )
+
+            started.append(cap.cfg.id)
+        except Exception as e:
+            logger.error("Failed to create default capture during reload: %s", e)
+
+    return started
+
+
+@router.post("/config/reload")
+async def reload_config(
+    request: Request,
+    req: ReloadConfigRequest,
+    _: None = Depends(auth_check),
+) -> dict[str, Any]:
+    """Hot-reload the YAML configuration file with minimal disruption."""
+    state: AppState | None = getattr(request.app.state, "app_state", None)
+    cfg_path = req.configPath or (state.config_path if state and state.config_path else default_config_path())
+    new_config = load_config(cfg_path)
+
+    # Gracefully stop existing managers/captures
+    if state is not None:
+        with contextlib.suppress(Exception):
+            await state.trunking_manager.stop()
+        for capture in state.captures.list_captures():
+            with contextlib.suppress(Exception):
+                await state.captures.stop_capture(capture.cfg.id)
+
+    # Build fresh state from the new config and swap it in
+    new_state = AppState.from_config(new_config, cfg_path)
+    request.app.state.app_state = new_state
+
+    # Start trunking manager (auto-starts systems based on config)
+    await new_state.trunking_manager.start()
+
+    started_captures: list[str] = []
+    if req.startCaptures:
+        started_captures = await _start_captures_from_config(new_state, new_config)
+
+    systems = [sys.to_dict() for sys in new_state.trunking_manager.list_systems()]
+    return {
+        "status": "ok",
+        "configPath": cfg_path,
+        "capturesStarted": started_captures,
+        "systems": systems,
+        "note": "RF-level changes applied without restarting the process",
+    }
 
 
 @router.get("/devices/{device_id}/name")

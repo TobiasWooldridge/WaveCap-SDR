@@ -1,3 +1,4 @@
+# Hot reload: POST /api/v1/config/reload (Bearer token) to apply changes without restarting
 captures: []
 device:
   driver: soapy
@@ -586,7 +587,7 @@ trunking:
       antenna: Antenna B
       auto_start: true
       bandwidth: 5000000
-      center_hz: 415.375 MHz
+      center_hz: 414.95 MHz
       control_channel_timeout: 5
       control_channels:
       - frequency: 412.4875 MHz
@@ -631,11 +632,11 @@ trunking:
       device_id: driver=sdrplay,serial=240309F070
       gain: 25.0
       agc_enabled: false
-      sample_rate: 6000000
+      sample_rate: 5500000
       id: sa_grn_2
       max_voice_recorders: 2
       min_call_duration: 1.0
-      modulation: c4fm
+      modulation: lsm
       name: SA GRN Radio 2 (SDRplay F070)
       protocol: p25_phase1
       record_unknown: true

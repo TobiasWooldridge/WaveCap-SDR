@@ -14,7 +14,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from wavecapsdr.radioreference import (  # type: ignore[attr-defined]
+    from wavecapsdr.radioreference import (
         RadioReferenceConfig,
         RadioReferenceTalkgroup,
         RadioReferenceTalkgroupRequest,
@@ -23,10 +23,10 @@ if TYPE_CHECKING:
 else:
     import wavecapsdr.radioreference as radioreference
 
-    RadioReferenceConfig = radioreference.RadioReferenceConfig  # type: ignore[attr-defined]
-    RadioReferenceTalkgroup = radioreference.RadioReferenceTalkgroup  # type: ignore[attr-defined]
-    RadioReferenceTalkgroupRequest = radioreference.RadioReferenceTalkgroupRequest  # type: ignore[attr-defined]
-    fetch_talkgroups = radioreference.fetch_talkgroups  # type: ignore[attr-defined]
+    RadioReferenceConfig = radioreference.RadioReferenceConfig
+    RadioReferenceTalkgroup = radioreference.RadioReferenceTalkgroup
+    RadioReferenceTalkgroupRequest = radioreference.RadioReferenceTalkgroupRequest
+    fetch_talkgroups = radioreference.fetch_talkgroups
 
 def parse_frequency(value: str | int | float) -> float:
     """Parse a frequency value with optional unit suffix.
