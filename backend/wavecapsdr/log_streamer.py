@@ -9,6 +9,8 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from .utils.log_sampling import LogSamplingFilter, LogSamplingRule
+
 logger = logging.getLogger(__name__)
 
 
@@ -82,7 +84,13 @@ class LogStreamer:
 
         # Install custom logging handler on the root logger
         self._handler = LogStreamHandler(self._on_log)
-        self._handler.setLevel(logging.DEBUG)
+        self._handler.setLevel(logging.INFO)
+        sampling_rules = (
+            LogSamplingRule(prefix="wavecapsdr.decoders.p25", max_per_interval=3, interval_s=1.0),
+            LogSamplingRule(prefix="wavecapsdr.decoders.p25_tsbk", max_per_interval=3, interval_s=1.0),
+            LogSamplingRule(prefix="wavecapsdr.trunking.control_channel", max_per_interval=3, interval_s=1.0),
+        )
+        self._handler.addFilter(LogSamplingFilter(sampling_rules, max_level=logging.INFO))
         logging.getLogger().addHandler(self._handler)
         self._initialized = True
         logger.debug("LogStreamer handler installed")

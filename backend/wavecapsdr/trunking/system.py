@@ -1410,14 +1410,13 @@ class TrunkingSystem:
             if "call_count" not in freq_shift_state:
                 freq_shift_state["call_count"] = 0
             freq_shift_state["call_count"] += 1
-
-            if freq_shift_state["call_count"] % 100 == 0:
+            shifted_iq = iq.astype(np.complex64, copy=False) * shift
+            if logger.isEnabledFor(logging.DEBUG) and freq_shift_state["call_count"] % 100 == 0:
                 # Check phase continuity
                 actual_start_phase = float(phase[0]) if len(phase) > 0 else 0.0
                 iq_power_before = float(np.mean(np.abs(iq)**2))
-                shifted_iq = (iq.astype(np.complex64, copy=False) * shift).astype(np.complex64)
                 iq_power_after = float(np.mean(np.abs(shifted_iq)**2))
-                logger.info(
+                logger.debug(
                     f"[DIAG-STAGE2] calls={freq_shift_state['call_count']}, "
                     f"offset={offset_hz/1e3:.1f}kHz, sample_idx={freq_shift_state['sample_idx']}, "
                     f"start_phase={actual_start_phase:.4f}rad, "
@@ -1457,17 +1456,15 @@ class TrunkingSystem:
                     total_power = np.sum(fft_power_after)
                     baseband_ratio = baseband_power / total_power if total_power > 0 else 0
 
-                    logger.info(
+                    logger.debug(
                         f"[DIAG-STAGE2b] BEFORE shift: peak_bin={peak_bin_before}, peak_freq={peak_freq_before/1e3:.1f}kHz, "
                         f"SNR_at_{offset_hz/1e3:.0f}kHz={snr_at_expected:.1f}dB"
                     )
-                    logger.info(
+                    logger.debug(
                         f"[DIAG-STAGE2b] AFTER shift: peak_bin={peak_bin_after}, peak_freq={peak_freq_after/1e3:.1f}kHz, "
                         f"baseband_power_ratio={baseband_ratio:.4f} (should be >0.8 if signal centered)"
                     )
-                return np.asarray(shifted_iq, dtype=np.complex64)
-
-            return np.asarray(iq.astype(np.complex64, copy=False) * shift, dtype=np.complex64)
+            return np.asarray(shifted_iq, dtype=np.complex64)
 
         # IQ buffer for control channel - accumulate decimated samples before processing
         # SDRplay returns small chunks (~8192 samples), after decimation we get only ~26 samples
@@ -1494,6 +1491,7 @@ class TrunkingSystem:
                 sample_rate: Sample rate in Hz
                 overflow: True if ring buffer overrun occurred (samples were lost)
             """
+            debug_enabled = logger.isEnabledFor(logging.DEBUG)
             # Handle overflow: reset all stateful processing when samples are lost
             # Without this, the decimation filters, frequency shift phase, and demodulator
             # will produce corrupted output because their state is now invalid
@@ -1519,7 +1517,7 @@ class TrunkingSystem:
             iq_debug_state["samples"] += len(iq)
             iq_debug_state["calls"] += 1
             _verbose = iq_debug_state["calls"] <= 5 or iq_debug_state["calls"] % 500 == 0
-            if _verbose:
+            if _verbose and debug_enabled:
                 # Log raw IQ magnitude at DEBUG level
                 raw_mag = np.abs(iq)
                 logger.debug(
@@ -1665,7 +1663,7 @@ class TrunkingSystem:
             with _iq_profiler.measure("freq_shift"):
                 centered_iq = phase_continuous_freq_shift(iq, cc_offset_hz, sample_rate)
             _iq_profiler.add_samples(len(iq))
-            if _verbose:
+            if _verbose and debug_enabled:
                 centered_mag = np.abs(centered_iq)
                 logger.debug(
                     f"TrunkingSystem {self.cfg.id}: after freq_shift offset={cc_offset_hz/1e3:.1f}kHz, "
@@ -1704,20 +1702,20 @@ class TrunkingSystem:
                     decimated_iq = decimated2
 
                 # [DIAG-DECIM] Decimation diagnostics
-                if iq_debug_state["calls"] % 100 == 0:
+                if debug_enabled and iq_debug_state["calls"] % 100 == 0:
                     power_in = float(np.mean(np.abs(centered_iq)**2))
                     power_stage1 = float(np.mean(np.abs(decimated1)**2))
                     power_out = float(np.mean(np.abs(decimated_iq)**2))
                     # Use scientific notation to see actual values - show filter vs decim power loss
-                    logger.info(
+                    logger.debug(
                         f"[DIAG-DECIM] Stage1: in={power_in:.2e}, decim={power_stage1:.2e}"
                     )
-                    logger.info(
+                    logger.debug(
                         f"[DIAG-DECIM] Stage2: in={power_stage1:.2e}, out={power_out:.2e}"
                     )
             else:
                 decimated_iq = centered_iq
-            if _verbose:
+            if _verbose and debug_enabled:
                 decim_mag = np.abs(decimated_iq)
                 logger.debug(
                     f"TrunkingSystem {self.cfg.id}: after decim factor={total_decim}, "
@@ -1733,7 +1731,7 @@ class TrunkingSystem:
                 buffered_iq = system._cc_iq_buffer
                 system._cc_iq_buffer = np.array([], dtype=np.complex128)
 
-                if _verbose:
+                if _verbose and debug_enabled:
                     logger.debug(
                         f"TrunkingSystem {self.cfg.id}: Processing buffered IQ: "
                         f"{len(buffered_iq)} samples ({len(buffered_iq)/10:.0f} symbols)"
@@ -1744,7 +1742,7 @@ class TrunkingSystem:
                     try:
                         with _iq_profiler.measure("control_monitor"):
                             tsbk_results = self._control_monitor.process_iq(buffered_iq)
-                        if _verbose:
+                        if _verbose and debug_enabled:
                             logger.debug(f"TrunkingSystem {self.cfg.id}: process_iq returned {len(tsbk_results)} results")
 
                         # Handle each TSBK result and update decode rate at batch level

@@ -1655,8 +1655,14 @@ class P25FrameSync:
         if self._sync_debug_count <= 20:
             sync_method = "soft" if self.use_soft_sync else "hard"
             logger.info(
-                f"P25FrameSync ({sync_method}): pos={best_pos}, score={best_score:.1f}, "
-                f"NAC={nac:03x}, DUID={duid:x} -> {frame_type}, BCH_err={bch_errors}"
+                "P25FrameSync (%s): pos=%s, score=%.1f, NAC=%03x, DUID=%x -> %s, BCH_err=%s",
+                sync_method,
+                best_pos,
+                best_score,
+                nac,
+                duid,
+                frame_type,
+                bch_errors,
             )
 
         logger.debug(f"P25 sync found at {best_pos}, score={best_score:.1f}, DUID={duid:x} -> {frame_type}")
@@ -2099,7 +2105,13 @@ class P25Decoder:
 
         # Log status periodically
         if self._process_count % 100 == 0:
-            logger.info(f"P25 decoder: processed={self._process_count}, syncs={self._sync_count}, no_sync={self._no_sync_count}, buffer={len(self._dibit_buffer)}")
+            logger.info(
+                "P25 decoder: processed=%s, syncs=%s, no_sync=%s, buffer=%s",
+                self._process_count,
+                self._sync_count,
+                self._no_sync_count,
+                len(self._dibit_buffer),
+            )
 
         # Need at least MIN_FRAME_DIBITS for meaningful frame decode
         if len(self._dibit_buffer) < self.MIN_FRAME_DIBITS:
@@ -2118,7 +2130,17 @@ class P25Decoder:
             return []
 
         self._sync_count += 1
-        logger.info(f"Found P25 frame sync at position {sync_pos}: {frame_type} NAC={nac:03X} (buffer={len(self._dibit_buffer)})")
+        if not hasattr(self, "_sync_log_count"):
+            self._sync_log_count = 0
+        self._sync_log_count += 1
+        if self._sync_log_count <= 5 or self._sync_log_count % 100 == 0:
+            logger.info(
+                "Found P25 frame sync at position %s: %s NAC=%03X (buffer=%s)",
+                sync_pos,
+                frame_type,
+                nac,
+                len(self._dibit_buffer),
+            )
 
         # Work with the buffer_data array from here on
 
@@ -2267,8 +2289,10 @@ class P25Decoder:
         # Log status periodically
         if self._process_count % 100 == 0:
             logger.info(
-                f"P25 discriminator: processed={self._process_count}, "
-                f"syncs={self._sync_count}, buffer={len(self._dibit_buffer)}"
+                "P25 discriminator: processed=%s, syncs=%s, buffer=%s",
+                self._process_count,
+                self._sync_count,
+                len(self._dibit_buffer),
             )
 
         # Need enough dibits for frame decode
@@ -2286,7 +2310,16 @@ class P25Decoder:
             return []
 
         self._sync_count += 1
-        logger.info(f"Found P25 frame sync at position {sync_pos}: {frame_type} NAC={nac:03X}")
+        if not hasattr(self, "_disc_sync_log_count"):
+            self._disc_sync_log_count = 0
+        self._disc_sync_log_count += 1
+        if self._disc_sync_log_count <= 5 or self._disc_sync_log_count % 100 == 0:
+            logger.info(
+                "Found P25 frame sync at position %s: %s NAC=%03X",
+                sync_pos,
+                frame_type,
+                nac,
+            )
 
         # Calculate frame boundaries (same as process_iq)
         if frame_type == P25FrameType.TSDU:

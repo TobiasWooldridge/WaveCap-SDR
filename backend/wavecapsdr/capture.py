@@ -2976,24 +2976,25 @@ class Capture:
             # Instead, inline the same logic here to avoid requiring a loop in this thread.
             #
             # Duplicate minimal logic of _broadcast_iq without awaiting.
-            payload = pack_iq16(samples)
             with self._iq_sinks_lock:
                 iq_sinks = list(self._iq_sinks)
-            for (q, loop) in iq_sinks:
-                # Use default args to capture loop variables (avoids closure issues)
-                def _try_put(q: asyncio.Queue[bytes] = q, payload: bytes = payload) -> None:
-                    try:
-                        q.put_nowait(payload)
-                    except asyncio.QueueFull:
-                        with contextlib.suppress(asyncio.QueueEmpty):
-                            _ = q.get_nowait()
-                        with contextlib.suppress(asyncio.QueueFull):
+            if iq_sinks:
+                payload = pack_iq16(samples)
+                for (q, loop) in iq_sinks:
+                    # Use default args to capture loop variables (avoids closure issues)
+                    def _try_put(q: asyncio.Queue[bytes] = q, payload: bytes = payload) -> None:
+                        try:
                             q.put_nowait(payload)
-                try:
-                    loop.call_soon_threadsafe(_try_put)
-                except Exception:
-                    with self._iq_sinks_lock, contextlib.suppress(Exception):
-                        self._iq_sinks.discard((q, loop))
+                        except asyncio.QueueFull:
+                            with contextlib.suppress(asyncio.QueueEmpty):
+                                _ = q.get_nowait()
+                            with contextlib.suppress(asyncio.QueueFull):
+                                q.put_nowait(payload)
+                    try:
+                        loop.call_soon_threadsafe(_try_put)
+                    except Exception:
+                        with self._iq_sinks_lock, contextlib.suppress(Exception):
+                            self._iq_sinks.discard((q, loop))
             # Checkpoint A: After IQ broadcast
             if _verbose_debug:
                 logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint A - after IQ broadcast")

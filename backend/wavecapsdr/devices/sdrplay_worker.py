@@ -112,10 +112,9 @@ def _log_to_pipe(status_pipe: Connection, level: str, message: str) -> None:
 HEADER_SIZE = 64
 HEADER_FORMAT = "<QQQQIId16x"  # 8+8+8+8+4+4+8+16 = 64 bytes
 
-# Buffer size for IQ samples (8MB = 1,048,576 complex64 samples)
-# At 6 MHz sample rate, this is ~175ms of buffer
-# Larger buffer provides more margin for DSP processing delays
-BUFFER_SAMPLES = 1048576
+# Buffer size for IQ samples (64MB = 8,388,608 complex64 samples)
+# At 6 MHz sample rate, this is ~1.4s of buffer for DSP/CPU bursts.
+BUFFER_SAMPLES = 8 * 1024 * 1024
 BUFFER_SIZE = BUFFER_SAMPLES * 8  # complex64 = 8 bytes per sample
 
 # Total shared memory size
@@ -190,10 +189,11 @@ def _read_header(shm: SharedMemory) -> tuple[int, int, int, int, int, int, float
     Returns: (write_idx, read_idx, sample_count, overflow_count, sample_rate, flags, timestamp)
              or None if the shared memory buffer is not available
     """
-    if shm.buf is None:
+    buf = getattr(shm, "buf", None)
+    if buf is None:
         return None
     try:
-        header = bytes(shm.buf[:HEADER_SIZE])
+        header = bytes(buf[:HEADER_SIZE])
         return struct.unpack(HEADER_FORMAT, header)
     except (TypeError, ValueError, AttributeError):
         # Buffer became invalid
@@ -285,11 +285,20 @@ class SDRplayWorker:
         # Config
         self.sample_rate = 2_000_000
         self.center_hz = 100e6
+        self._read_buffer: np.ndarray | None = None
+        self._iq_buffer: np.ndarray | None = None
 
     def run(self) -> None:
         """Main loop: process commands and stream IQ to shared memory."""
         # Attach to shared memory (created by main process)
         self.shm = SharedMemory(name=self.shm_name)
+        if self.shm.buf is not None:
+            self._iq_buffer = np.ndarray(
+                shape=(BUFFER_SAMPLES,),
+                dtype=np.complex64,
+                buffer=self.shm.buf,
+                offset=HEADER_SIZE,
+            )
 
         # Initialize header
         _write_header(
@@ -859,8 +868,10 @@ class SDRplayWorker:
 
         sdr = self.sdr  # Local reference for type checker
         # Read samples from device
-        chunk_size = min(8192, BUFFER_SAMPLES // 4)  # Read in smaller chunks
-        buff = np.empty(chunk_size, dtype=np.complex64)
+        chunk_size = min(32768, BUFFER_SAMPLES // 8)  # Larger read reduces per-call overhead
+        if self._read_buffer is None or self._read_buffer.size < chunk_size:
+            self._read_buffer = np.empty(chunk_size, dtype=np.complex64)
+        buff = self._read_buffer[:chunk_size]
 
         sr = sdr.readStream(self.stream, [buff.view(np.float32)], chunk_size, flags=0)
 
@@ -894,12 +905,18 @@ class SDRplayWorker:
         num_samples = ret
 
         # Create numpy array view of the IQ buffer (after header)
-        iq_buffer: NDArrayComplex = np.ndarray(
-            shape=(BUFFER_SAMPLES,),
-            dtype=np.complex64,
-            buffer=self.shm.buf,
-            offset=HEADER_SIZE,
-        )
+        iq_buffer = self._iq_buffer
+        if iq_buffer is None:
+            buf = getattr(self.shm, "buf", None)
+            if buf is None:
+                return
+            iq_buffer = np.ndarray(
+                shape=(BUFFER_SAMPLES,),
+                dtype=np.complex64,
+                buffer=buf,
+                offset=HEADER_SIZE,
+            )
+            self._iq_buffer = iq_buffer
 
         # Calculate write position in ring buffer (wrap around)
         write_pos = self.write_idx % BUFFER_SAMPLES

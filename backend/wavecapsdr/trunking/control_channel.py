@@ -262,11 +262,13 @@ class ControlChannelMonitor:
         if not hasattr(self, '_polarity_diag_count'):
             self._polarity_diag_count = 0
         self._polarity_diag_count += 1
-        if self._polarity_diag_count % 500 == 1:
+        if self._polarity_diag_count % 500 == 1 and logger.isEnabledFor(logging.DEBUG):
             sample = dibits[:8].tolist() if len(dibits) >= 8 else dibits.tolist()
-            logger.info(
-                f"[DIAG-POLARITY] reverse_p={self._reverse_p}, latched={getattr(self, '_polarity_latched', False)}, "
-                f"first_8_dibits_after_correction={sample}"
+            logger.debug(
+                "[DIAG-POLARITY] reverse_p=%s, latched=%s, first_8_dibits_after_correction=%s",
+                self._reverse_p,
+                getattr(self, "_polarity_latched", False),
+                sample,
             )
 
         # Add to buffer
@@ -375,11 +377,15 @@ class ControlChannelMonitor:
                 # Check NAC consistency - all same = good, all different = bad
                 unique_nacs = set(self._diag_last_nacs)
                 nac_str = ",".join([f"0x{n:03x}" for n in list(unique_nacs)[:5]])
-                logger.info(
-                    f"[DIAG-STAGE7] NID: count={self._diag_nid_count}, "
-                    f"valid={self._diag_nid_valid}, rate={valid_rate:.1f}%, "
-                    f"unique_nacs={len(unique_nacs)}, recent_nacs=[{nac_str}]"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "[DIAG-STAGE7] NID: count=%d, valid=%d, rate=%.1f%%, unique_nacs=%d, recent_nacs=[%s]",
+                        self._diag_nid_count,
+                        self._diag_nid_valid,
+                        valid_rate,
+                        len(unique_nacs),
+                        nac_str,
+                    )
 
             # Debug: log every 100th frame (less frequent)
             if self._frame_count <= 3 or self._frame_count % 100 == 1:
@@ -435,11 +441,13 @@ class ControlChannelMonitor:
                         self.tsbk_crc_pass += 1
 
                         # [DIAG-STAGE7b] TSBK CRC statistics (every 20 attempts)
-                        if self.tsbk_attempts % 20 == 0:
+                        if self.tsbk_attempts % 20 == 0 and logger.isEnabledFor(logging.DEBUG):
                             crc_rate = 100.0 * self.tsbk_crc_pass / self.tsbk_attempts
-                            logger.info(
-                                f"[DIAG-STAGE7b] TSBK: attempts={self.tsbk_attempts}, "
-                                f"crc_pass={self.tsbk_crc_pass}, rate={crc_rate:.1f}%"
+                            logger.debug(
+                                "[DIAG-STAGE7b] TSBK: attempts=%d, crc_pass=%d, rate=%.1f%%",
+                                self.tsbk_attempts,
+                                self.tsbk_crc_pass,
+                                crc_rate,
                             )
 
                         # Pass opcode and mfid from TSBKBlock to parser
@@ -577,20 +585,30 @@ class ControlChannelMonitor:
 
         if self._diag_sync_attempts % 50 == 0:
             sync_rate = 100.0 * self._diag_sync_found / self._diag_sync_attempts if self._diag_sync_attempts > 0 else 0.0
-            logger.info(
-                f"[DIAG-STAGE6] Sync: attempts={self._diag_sync_attempts}, "
-                f"found={self._diag_sync_found}, rate={sync_rate:.1f}%, "
-                f"best_score={best_score:.1f}, threshold={self.SOFT_SYNC_THRESHOLD}, "
-                f"polarity={'reversed' if best_is_reversed else 'normal'}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "[DIAG-STAGE6] Sync: attempts=%s, found=%s, rate=%.1f%%, best_score=%.1f, "
+                    "threshold=%s, polarity=%s",
+                    self._diag_sync_attempts,
+                    self._diag_sync_found,
+                    sync_rate,
+                    best_score,
+                    self.SOFT_SYNC_THRESHOLD,
+                    "reversed" if best_is_reversed else "normal",
+                )
 
-        if verbose:
+        if verbose and logger.isEnabledFor(logging.DEBUG):
             sample = self._dibit_buffer[:min(30, len(self._dibit_buffer))]
-            logger.info(
-                f"ControlChannelMonitor._find_sync_in_buffer: call #{self._find_sync_calls}, "
-                f"buffer_len={len(self._dibit_buffer)}, best_score={best_score:.1f}, "
-                f"threshold={self.SOFT_SYNC_THRESHOLD}, best_pos={best_pos}, reversed={best_is_reversed}, "
-                f"first_30_dibits={list(sample)}"
+            logger.debug(
+                "ControlChannelMonitor._find_sync_in_buffer: call #%s, buffer_len=%s, best_score=%.1f, "
+                "threshold=%s, best_pos=%s, reversed=%s, first_30_dibits=%s",
+                self._find_sync_calls,
+                len(self._dibit_buffer),
+                best_score,
+                self.SOFT_SYNC_THRESHOLD,
+                best_pos,
+                best_is_reversed,
+                list(sample),
             )
 
         # Check if best score exceeds threshold

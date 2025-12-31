@@ -335,6 +335,7 @@ Configuration via environment variables:
 - `DRIVER`: SDR driver backend (default: `soapy`)
 - `DEVICE_ARGS`: specific device selection (optional, e.g., `"driver=rtlsdr,serial=00000001"`)
 - `CONFIG`: path to YAML configuration file (optional)
+- `SDRPLAY_FIX`: when set to `1`, `start-app.sh` runs `scripts/fix-sdrplay.sh` (non-interactive, no-start) before launching the server
 
 ### Config Reload
 - POST `/api/v1/config/reload`

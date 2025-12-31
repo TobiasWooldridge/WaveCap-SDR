@@ -23,6 +23,7 @@ from .device_namer import generate_capture_name, get_device_nickname
 from .mcp_server import router as mcp_router
 from .state import AppState
 from .trunking.api import router as trunking_router
+from .utils.log_sampling import LogSamplingFilter, LogSamplingRule
 
 # Work around slowapi using deprecated asyncio.iscoroutinefunction on Python 3.14+.
 slowapi_asyncio = cast(Any, getattr(slowapi_extension, "asyncio", None))
@@ -110,7 +111,6 @@ def setup_file_logging() -> None:
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
-    root_logger.addHandler(file_handler)
 
     # Also add console handler for INFO and above
     console_handler = SafeStreamHandler()
@@ -118,6 +118,17 @@ def setup_file_logging() -> None:
     console_handler.setFormatter(logging.Formatter(
         '[%(levelname)s] %(name)s: %(message)s'
     ))
+
+    # Rate-limit noisy loggers to reduce file/console overhead in hot paths.
+    sampling_rules = (
+        LogSamplingRule(prefix="wavecapsdr.decoders.p25", max_per_interval=5, interval_s=1.0),
+        LogSamplingRule(prefix="wavecapsdr.decoders.p25_tsbk", max_per_interval=5, interval_s=1.0),
+        LogSamplingRule(prefix="wavecapsdr.trunking.control_channel", max_per_interval=5, interval_s=1.0),
+    )
+    file_handler.addFilter(LogSamplingFilter(sampling_rules, max_level=logging.INFO))
+    console_handler.addFilter(LogSamplingFilter(sampling_rules, max_level=logging.INFO))
+
+    root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
 
     logging.info("File logging initialized: %s", log_file)

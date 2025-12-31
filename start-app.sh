@@ -10,6 +10,7 @@ set -euo pipefail
 #   DRIVER=soapy              # SDR driver (default: soapy)
 #   DEVICE_ARGS="driver=..."  # Specific device arguments (optional)
 #   CONFIG=path/to/config.yaml # Config file path (optional)
+#   SDRPLAY_FIX=1             # Run scripts/fix-sdrplay.sh preflight before start (optional)
 #
 # Examples:
 #   ./start-app.sh                                    # Start with defaults
@@ -99,6 +100,7 @@ fi
 : "${HOST:=0.0.0.0}"
 : "${PORT:=8087}"
 : "${DRIVER:=soapy}"
+: "${SDRPLAY_FIX:=0}"
 
 # Set environment variables for WaveCap-SDR config
 # These override config file settings
@@ -114,10 +116,31 @@ echo "  Port: $PORT"
 echo "  Driver: $DRIVER"
 [ -n "${DEVICE_ARGS:-}" ] && echo "  Device: $DEVICE_ARGS"
 [ -n "${CONFIG:-}" ] && echo "  Config: $CONFIG"
+[ "$SDRPLAY_FIX" != "0" ] && echo "  SDRplay Fix: enabled"
 echo ""
 
+did_fix=0
+if [ "$SDRPLAY_FIX" != "0" ] && [ -x "$SCRIPT_DIR/scripts/fix-sdrplay.sh" ]; then
+  echo "Running SDRplay fix preflight..."
+  if [ -x "$SCRIPT_DIR/scripts/run-with-timeout.sh" ]; then
+    if "$SCRIPT_DIR/scripts/run-with-timeout.sh" --seconds 90 -- "$SCRIPT_DIR/scripts/fix-sdrplay.sh" --non-interactive --no-kill --no-start; then
+      did_fix=1
+      echo "SDRplay fix complete."
+    else
+      echo "Warning: SDRplay fix failed; continuing startup."
+    fi
+  else
+    if "$SCRIPT_DIR/scripts/fix-sdrplay.sh" --non-interactive --no-kill --no-start; then
+      did_fix=1
+      echo "SDRplay fix complete."
+    else
+      echo "Warning: SDRplay fix failed; continuing startup."
+    fi
+  fi
+fi
+
 # Attempt to refresh SDRplay service so devices enumerate cleanly.
-if [ -x "$SCRIPT_DIR/restart-sdrplay.sh" ]; then
+if [ "$did_fix" -eq 0 ] && [ -x "$SCRIPT_DIR/restart-sdrplay.sh" ]; then
   if "$SCRIPT_DIR/restart-sdrplay.sh" --non-interactive; then
     echo "Refreshed sdrplay service."
   else

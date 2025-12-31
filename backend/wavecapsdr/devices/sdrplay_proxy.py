@@ -133,7 +133,15 @@ class SDRplayProxyStream(StreamHandle):
         if header is None:
             return False
         write_idx, _, sample_count, _, _, flags, _ = header
-        logger.info(f"is_ready() check: write_idx={write_idx}, sample_count={sample_count}, flags={flags}, shm={self.shm.name}, stream_id={id(self)}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "is_ready() check: write_idx=%s, sample_count=%s, flags=%s, shm=%s, stream_id=%s",
+                write_idx,
+                sample_count,
+                flags,
+                self.shm.name,
+                id(self),
+            )
         if flags & FLAG_DATA_READY:
             self._data_ready = True
             return True
@@ -151,8 +159,11 @@ class SDRplayProxyStream(StreamHandle):
         self._debug_counter += 1
 
         # CRITICAL DEBUG: Log at start to confirm read() is being called
-        if self._debug_counter <= 30:
-            logger.info(f"SDRplayProxyStream.read() ENTRY: counter={self._debug_counter}")
+        if self._debug_counter <= 30 and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "SDRplayProxyStream.read() ENTRY: counter=%s",
+                self._debug_counter,
+            )
 
         if self._closed:
             if self._debug_counter <= 10 or self._debug_counter % 1000 == 0:
@@ -170,7 +181,7 @@ class SDRplayProxyStream(StreamHandle):
                     f"shared memory buffer unavailable (count={self._buf_none_count})"
                 )
             return np.empty(0, dtype=np.complex64), False
-        buf = self.shm.buf
+        buf = getattr(self.shm, "buf", None)
         if buf is None:
             self._buf_none_count = getattr(self, "_buf_none_count", 0) + 1
             if self._buf_none_count <= 5 or self._buf_none_count % 5000 == 0:
@@ -201,8 +212,7 @@ class SDRplayProxyStream(StreamHandle):
             # Re-attach to the shared memory to force a fresh view when:
             # 1. Early startup: worker reports ready but we see stale header
             # 2. After initial data: coherency broke, need to recover quickly
-            import time as time_mod
-            now = time_mod.time()
+            now = time.time()
             time_since_data = now - self._last_data_time if self._last_data_time > 0 else 0
 
             # Be AGGRESSIVE with re-attach after we've received data before:
@@ -225,10 +235,17 @@ class SDRplayProxyStream(StreamHandle):
                 case1 = (self._empty_reads >= 30 and (flags & FLAG_DATA_READY))
                 case2 = (self._last_data_time > 0 and time_since_data > 0.3 and self._empty_reads >= 5)
                 throttle_ok = time_since_reattach > 0.2
-                logger.info(
-                    f"SDRplayProxyStream: DEBUG empty={self._empty_reads}, throttle_ok={throttle_ok}, "
-                    f"case1={case1}, case2={case2}, should_reattach={should_reattach}, flags={flags}"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "SDRplayProxyStream: DEBUG empty=%s, throttle_ok=%s, case1=%s, case2=%s, "
+                        "should_reattach=%s, flags=%s",
+                        self._empty_reads,
+                        throttle_ok,
+                        case1,
+                        case2,
+                        should_reattach,
+                        flags,
+                    )
             if should_reattach:
                 reattach_count = getattr(self, '_reattach_count', 0)
                 # Allow many more reattach attempts for ongoing operation (100 vs 5 during startup)
@@ -247,7 +264,8 @@ class SDRplayProxyStream(StreamHandle):
                         # Re-attach to same shared memory
                         self.shm = SharedMemory(name=shm_name)
                         old_shm.close()
-                        logger.info(f"SDRplayProxyStream: Re-attached to {shm_name}")
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug("SDRplayProxyStream: Re-attached to %s", shm_name)
                         # DON'T reset empty_reads here - we only reset when we get data
                         # Try reading again with fresh attachment
                         header = _read_header(self.shm)
@@ -257,7 +275,11 @@ class SDRplayProxyStream(StreamHandle):
                         self._buf_none_count = 0
                         available = write_idx - self._last_read_idx
                         if available > 0:
-                            logger.info(f"SDRplayProxyStream: Re-attach successful! Now have {available} samples available")
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "SDRplayProxyStream: Re-attach successful! Now have %s samples available",
+                                    available,
+                                )
                             self._empty_reads = 0  # Reset only on success
                             # Continue to process samples below
                         else:
@@ -279,8 +301,7 @@ class SDRplayProxyStream(StreamHandle):
             # Reset empty read counter when we get samples
             self._empty_reads = 0
             self._reattach_count = 0  # Reset reattach counter on success
-            import time as time_mod
-            self._last_data_time = time_mod.time()
+            self._last_data_time = time.time()
 
         # Detect ring buffer overrun: if available > BUFFER_SAMPLES, the writer
         # has wrapped around and overwritten data before we could read it.
@@ -306,23 +327,24 @@ class SDRplayProxyStream(StreamHandle):
 
         # Calculate read position in ring buffer
         buffer_start = HEADER_SIZE
-        read_offset = (self._last_read_idx % BUFFER_SAMPLES) * 8  # 8 bytes per complex64
+        read_pos = self._last_read_idx % BUFFER_SAMPLES
+        samples_to_end = BUFFER_SAMPLES - read_pos
+        buf_view = buf
 
-        # Read samples from ring buffer
-        bytes_to_read = to_read * 8
-        bytes_to_end = (BUFFER_SAMPLES * 8) - read_offset
-
-        if bytes_to_read <= bytes_to_end:
-            # Single read (no wrap)
-            samples_bytes = bytes(buf[buffer_start + read_offset:buffer_start + read_offset + bytes_to_read])
+        # Read samples from ring buffer with a single copy
+        if to_read <= samples_to_end:
+            start = buffer_start + (read_pos * 8)
+            end = start + (to_read * 8)
+            samples = np.frombuffer(buf_view[start:end], dtype=np.complex64).copy()
         else:
-            # Split read (wrap around)
-            part1 = bytes(buf[buffer_start + read_offset:buffer_start + BUFFER_SAMPLES * 8])
-            part2 = bytes(buf[buffer_start:buffer_start + bytes_to_read - bytes_to_end])
-            samples_bytes = part1 + part2
-
-        # Convert to numpy array (copy to make writeable)
-        samples = np.frombuffer(samples_bytes, dtype=np.complex64).copy()
+            samples = np.empty(to_read, dtype=np.complex64)
+            part1_count = samples_to_end
+            start = buffer_start + (read_pos * 8)
+            end = buffer_start + (BUFFER_SAMPLES * 8)
+            samples[:part1_count] = np.frombuffer(buf_view[start:end], dtype=np.complex64)
+            part2_count = to_read - part1_count
+            end2 = buffer_start + (part2_count * 8)
+            samples[part1_count:] = np.frombuffer(buf_view[buffer_start:end2], dtype=np.complex64)
 
         # Update read position
         self._last_read_idx += to_read
@@ -340,14 +362,19 @@ class SDRplayProxyStream(StreamHandle):
 
         # Log every 100 reads
         if self._diag_read_counter % 100 == 0:
-            iq_power = float(np.mean(np.abs(samples)**2)) if len(samples) > 0 else 0.0
-            iq_peak = float(np.max(np.abs(samples))) if len(samples) > 0 else 0.0
-            logger.info(
-                f"[DIAG-STAGE1] reads={self._diag_read_counter}, "
-                f"available={available}, returned={len(samples)}, "
-                f"overflow_total={self._diag_overflow_count}, "
-                f"iq_power={iq_power:.6f}, iq_peak={iq_peak:.4f}"
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                iq_power = float(np.mean(np.abs(samples)**2)) if len(samples) > 0 else 0.0
+                iq_peak = float(np.max(np.abs(samples))) if len(samples) > 0 else 0.0
+                logger.debug(
+                    "[DIAG-STAGE1] reads=%s, available=%s, returned=%s, overflow_total=%s, "
+                    "iq_power=%.6f, iq_peak=%.4f",
+                    self._diag_read_counter,
+                    available,
+                    len(samples),
+                    self._diag_overflow_count,
+                    iq_power,
+                    iq_peak,
+                )
 
         # Log successful reads for debugging (very infrequently)
         if self._debug_counter <= 5 or self._debug_counter % 100000 == 0:

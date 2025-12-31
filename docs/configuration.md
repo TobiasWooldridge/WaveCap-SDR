@@ -141,6 +141,9 @@ Environment overrides examples
 - `WAVECAP_RR_PASSWORD=your_rr_password`
 - `WAVECAP_RR_APP_KEY=your_rr_app_key`
 
+Startup script flags
+- `SDRPLAY_FIX=1 ./start-app.sh`: run `scripts/fix-sdrplay.sh` preflight (non-interactive, no-start) before launching the server
+
 Generating encoded samples via CLI/harness
 - Use the Fake driver to avoid hardware requirements and keep runs deterministic:
   - `cd backend && . .venv/bin/activate && PYTHONPATH=. python -m wavecapsdr.harness --start-server --driver fake --preset tone --duration 3 --out harness_out`

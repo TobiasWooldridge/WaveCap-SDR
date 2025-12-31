@@ -230,12 +230,12 @@ class TrellisDecoder:
             if soft_values is not None:
                 soft_values = soft_values[:-1]
 
-        if debug:
+        if debug and logger.isEnabledFor(logging.DEBUG):
             dibit_str = ' '.join(str(d) for d in dibits[:20])
-            logger.info(f"Trellis decode: input {len(dibits)} dibits, first 20: {dibit_str}")
+            logger.debug(f"Trellis decode: input {len(dibits)} dibits, first 20: {dibit_str}")
             if soft_values is not None:
                 soft_str = ' '.join(f'{s:.1f}' for s in soft_values[:20])
-                logger.info(f"Trellis decode: soft values first 20: {soft_str}")
+                logger.debug(f"Trellis decode: soft values first 20: {soft_str}")
 
         self.reset()
         decoded = []
@@ -261,10 +261,10 @@ class TrellisDecoder:
         best_path = min(self._paths, key=lambda p: p.metric)
         error_metric = int(best_path.metric)
 
-        if debug:
+        if debug and logger.isEnabledFor(logging.DEBUG):
             decoded_str = ' '.join(str(d) for d in decoded[:20])
-            logger.info(f"Trellis decode: output {len(decoded)} dibits, first 20: {decoded_str}")
-            logger.info(f"Trellis decode: error_metric={error_metric}")
+            logger.debug(f"Trellis decode: output {len(decoded)} dibits, first 20: {decoded_str}")
+            logger.debug(f"Trellis decode: error_metric={error_metric}")
 
         return np.array(decoded, dtype=np.uint8), error_metric
 
@@ -445,9 +445,9 @@ class TrellisDecoder34:
         if n_symbols < 2:
             return np.array([], dtype=np.uint8), 0
 
-        if debug:
+        if debug and logger.isEnabledFor(logging.DEBUG):
             sym_str = ' '.join(f'{s:x}' for s in symbols[:20])
-            logger.info(f"Trellis34 decode: {n_symbols} symbols, first 20: {sym_str}")
+            logger.debug(f"Trellis34 decode: {n_symbols} symbols, first 20: {sym_str}")
 
         # Initialize paths - all start with infinite metric except state 0
         paths: list[TrellisPath34 | None] = [
@@ -568,11 +568,11 @@ class TrellisDecoder34:
 
         error_metric = best_path.metric
 
-        if debug:
-            logger.info(f"Trellis34 decode: output {len(decoded_bits)} bits, error_metric={error_metric}")
+        if debug and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Trellis34 decode: output {len(decoded_bits)} bits, error_metric={error_metric}")
             if decoded_bits:
                 bit_str = ''.join(str(b) for b in decoded_bits[:24])
-                logger.info(f"Trellis34 decode: first 24 bits: {bit_str}")
+                logger.debug(f"Trellis34 decode: first 24 bits: {bit_str}")
 
         return np.array(decoded_bits, dtype=np.uint8), error_metric
 

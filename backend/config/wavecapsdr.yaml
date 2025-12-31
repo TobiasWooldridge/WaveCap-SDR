@@ -602,7 +602,7 @@ trunking:
   systems:
     sa_grn_2:
       antenna: Antenna B
-      auto_start: false
+      auto_start: true
       bandwidth: 5000000
       center_hz: 414.95 MHz
       control_channel_timeout: 5
@@ -699,7 +699,8 @@ trunking:
           channel_spacing_khz: 6.25
           bandwidth_khz: 12.5
           tx_offset_mhz: -10.0
-      device_id: "driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog V4,serial=00000001"
+      device_id: 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
+        V4,serial=00000001'
       gain: 35.0
       agc_enabled: false
       sample_rate: 2400000
@@ -718,7 +719,7 @@ trunking:
       default_hunt_mode: scan_once
     sa_grn_sdrplay_b:
       antenna: Antenna B
-      auto_start: true
+      auto_start: false
       bandwidth: 5000000
       center_hz: 414.95 MHz
       control_channel_timeout: 5
@@ -762,7 +763,7 @@ trunking:
           channel_spacing_khz: 6.25
           bandwidth_khz: 12.5
           tx_offset_mhz: -10.0
-      device_id: "driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240305E670,serial=240305E670"
+      device_id: driver=sdrplay,serial=240305E670
       gain: 22.0
       agc_enabled: false
       sample_rate: 5500000
