@@ -20,6 +20,7 @@ Scope: applies to the entire repo.
 - Treat `docs/api-spec.md` as the authoritative product spec. Update it with any functional change, even small.
 - Document every meaningful configuration option in `docs/configuration.md` (create if missing). Keep options discoverable and auditable.
 - In user‑facing docs (README, guides), focus on workflows and outcomes. Avoid naming frameworks/libraries unless strictly needed for setup or troubleshooting.
+- Define diagrams using Mermaid blocks instead of exporting static PNGs or similar assets.
 
 ## Workflow Notes
 - Follow repository‑specific instructions in nested `AGENTS.md` files if present; their scope applies to their directory and descendants.
