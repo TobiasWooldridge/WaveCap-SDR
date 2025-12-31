@@ -87,8 +87,12 @@ class LogStreamer:
         self._handler.setLevel(logging.INFO)
         sampling_rules = (
             LogSamplingRule(prefix="wavecapsdr.decoders.p25", max_per_interval=3, interval_s=1.0),
-            LogSamplingRule(prefix="wavecapsdr.decoders.p25_tsbk", max_per_interval=3, interval_s=1.0),
-            LogSamplingRule(prefix="wavecapsdr.trunking.control_channel", max_per_interval=3, interval_s=1.0),
+            LogSamplingRule(
+                prefix="wavecapsdr.decoders.p25_tsbk", max_per_interval=3, interval_s=1.0
+            ),
+            LogSamplingRule(
+                prefix="wavecapsdr.trunking.control_channel", max_per_interval=3, interval_s=1.0
+            ),
         )
         self._handler.addFilter(LogSamplingFilter(sampling_rules, max_level=logging.INFO))
         logging.getLogger().addHandler(self._handler)

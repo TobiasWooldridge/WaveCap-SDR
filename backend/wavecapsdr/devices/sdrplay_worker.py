@@ -289,8 +289,8 @@ class SDRplayWorker:
         # Config
         self.sample_rate = 2_000_000
         self.center_hz = 100e6
-        self._read_buffer: np.ndarray | None = None
-        self._iq_buffer: np.ndarray | None = None
+        self._read_buffer: NDArrayComplex | None = None
+        self._iq_buffer: NDArrayComplex | None = None
 
     def run(self) -> None:
         """Main loop: process commands and stream IQ to shared memory."""
