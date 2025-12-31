@@ -93,7 +93,7 @@ export function SystemConfigPanel({ system }: SystemConfigPanelProps) {
           {/* Quick info when collapsed */}
           {!isExpanded && (
             <span
-              className="d-none d-md-inline d-flex align-items-center gap-2"
+              className="d-none d-md-inline-flex align-items-center gap-2"
               style={{ fontSize: "0.7rem" }}
             >
               {/* Current frequency - most important */}
@@ -289,7 +289,10 @@ export function SystemConfigPanel({ system }: SystemConfigPanelProps) {
                 </span>
               </div>
 
-              <table className="table table-sm table-borderless mb-0" style={{ tableLayout: "fixed" }}>
+              <table
+                className="table table-sm table-borderless mb-0"
+                style={{ tableLayout: "fixed" }}
+              >
                 <ControlChannelHeaders />
                 <tbody>
                   {channels.map((channel) => (

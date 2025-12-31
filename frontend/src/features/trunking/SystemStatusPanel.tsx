@@ -177,12 +177,21 @@ export function SystemStatusPanel({
             <StatBox
               label="Control Freq"
               value={
-                <FrequencyDisplay
-                  frequencyHz={system.controlChannelFreqHz}
-                  decimals={4}
-                  name={controlName}
-                  unit="MHz"
-                />
+                <div>
+                  <FrequencyDisplay
+                    frequencyHz={system.controlChannelFreqHz}
+                    decimals={4}
+                    unit="MHz"
+                  />
+                  {controlName && (
+                    <small
+                      className="text-muted d-block fw-normal"
+                      style={{ fontSize: "0.7rem" }}
+                    >
+                      {controlName}
+                    </small>
+                  )}
+                </div>
               }
               highlight={system.controlChannelState === "locked"}
               info="The current control channel frequency. P25 systems broadcast call setup and system info on this channel."
