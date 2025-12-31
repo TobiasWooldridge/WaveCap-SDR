@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Block committing binary assets when running inside Codex Cloud.
+if [[ "${CODEX_CLOUD:-0}" != "1" ]]; then
+  exit 0
+fi
+
+mapfile -t staged_files < <(git diff --cached --name-only --diff-filter=ACMR)
+if [[ ${#staged_files[@]} -eq 0 ]]; then
+  exit 0
+fi
+
+blocked_files=()
+for file in "${staged_files[@]}"; do
+  lower_file="${file,,}"
+  if [[ "${lower_file}" =~ \.(png|jpe?g|gif|bmp|tiff?|ico|webp|heic|heif|svgz|mp3|wav|flac|ogg|m4a|aac|mp4|mov|avi|mkv|zip|tar|tgz|gz|bz2|xz|7z|rar|iso|pdf)$ ]]; then
+    blocked_files+=("${file}")
+  fi
+done
+
+if [[ ${#blocked_files[@]} -gt 0 ]]; then
+  echo "🚫 Commit blocked: CODEX_CLOUD=1 forbids committing binary assets."
+  echo "Remove these files from the commit or unset CODEX_CLOUD:"
+  for blocked in "${blocked_files[@]}"; do
+    echo " - ${blocked}"
+  done
+  echo
+  echo "If this is intentional outside Codex Cloud, run the commit with CODEX_CLOUD unset."
+  exit 1
+fi

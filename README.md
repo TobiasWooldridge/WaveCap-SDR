@@ -21,6 +21,14 @@ Active development. Core functionality is implemented and tested with RTL-SDR Bl
 
 ## Getting Started
 
+### Git Hooks
+
+Enable the repository-managed hooks to prevent committing binary assets (images, archives, media) when `CODEX_CLOUD=1`:
+
+```bash
+scripts/install-git-hooks.sh
+```
+
 ### Prerequisites
 - Python 3.9+ (project supports 3.9 to 3.14)
 - SoapySDR with device modules installed (system-level)
