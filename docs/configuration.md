@@ -109,3 +109,7 @@ Environment overrides examples
 - `WAVECAPSDR__SERVER__PORT=8089`
 - `WAVECAPSDR__DEVICE__DRIVER=fake`
 - `WAVECAPSDR__SERVER__AUTH_TOKEN=secret123`
+
+Harness / CLI helpers (not config-backed)
+- `python -m wavecapsdr.harness --message-spec <file>`: encode a JSON/YAML IMBE message spec to `harness_out/message.bin` and `harness_out/message.wav` (overridable via `--message-bytes-out` / `--message-wav-out`). Use `--message-stream-ws <url>` and `--message-chunk-ms <ms>` to push PCM16 chunks into an existing WebSocket audio consumer.
+- `python -m wavecapsdr.cli message --spec <file> --out-bytes <file> [--out-wav <file>] [--stream-ws <url>]`: standalone encoder variant without starting the harness.

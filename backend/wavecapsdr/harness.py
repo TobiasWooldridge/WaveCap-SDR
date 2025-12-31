@@ -81,6 +81,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--out", default="harness_out", help="Output directory for WAV dumps")
     p.add_argument("--auto-gain", action="store_true", help="Auto-select gain per device based on audio level")
     p.add_argument("--probe-seconds", type=float, default=2.0, help="Seconds for auto-gain probe")
+    p.add_argument("--message-spec", help="Path to JSON/YAML voice message spec to encode")
+    p.add_argument("--message-bytes-out", default=None, help="Path to write concatenated encoded frames")
+    p.add_argument("--message-wav-out", default=None, help="Path to write decoded WAV (if codec available)")
+    p.add_argument(
+        "--message-stream-ws",
+        default=None,
+        help="Optional WebSocket URL to stream PCM16 chunks for end-to-end decode",
+    )
+    p.add_argument(
+        "--message-chunk-ms",
+        type=float,
+        default=40.0,
+        help="Chunk size in milliseconds when streaming message audio",
+    )
     return p.parse_args(argv)
 
 
@@ -150,6 +164,9 @@ async def http_post_json(client: httpx.AsyncClient, path: str, body: dict[str, A
 
 
 async def run_harness(args: argparse.Namespace) -> int:
+    if args.message_spec:
+        return await _run_message_spec_flow(args)
+
     await ensure_server_running(args)
     base = f"http://{args.host}:{args.port}/api/v1"
     out_dir = Path(args.out)
@@ -381,6 +398,55 @@ async def _probe_best_gain(
     if best_score < 0.002:
         return None
     return best_gain
+
+
+async def _run_message_spec_flow(args: argparse.Namespace) -> int:
+    """Process a message spec without requiring an SDR device."""
+    from wavecapsdr.message_spec import encode_message, pcm16le_bytes, write_wav
+
+    spec_path = Path(args.message_spec)
+    result = encode_message(spec_path)
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    bytes_path = Path(args.message_bytes_out) if args.message_bytes_out else (out_dir / "message.bin")
+    bytes_path.parent.mkdir(parents=True, exist_ok=True)
+    bytes_path.write_bytes(result.payload_bytes)
+
+    wav_path = Path(args.message_wav_out) if args.message_wav_out else (out_dir / "message.wav")
+    write_wav(wav_path, result.audio, result.sample_rate)
+
+    if args.message_stream_ws:
+        await _stream_message_audio(
+            ws_url=args.message_stream_ws,
+            audio_bytes=pcm16le_bytes(result.audio),
+            sample_rate=result.sample_rate,
+            chunk_ms=args.message_chunk_ms,
+        )
+
+    print(json.dumps({
+        "codec": "imbe",
+        "frames": len(result.payload_bytes),
+        "sampleRate": result.sample_rate,
+        "usedDecoder": result.used_decoder,
+        "bytesPath": str(bytes_path),
+        "wavPath": str(wav_path),
+        "streamed": bool(args.message_stream_ws),
+    }, indent=2))
+    return 0
+
+
+async def _stream_message_audio(ws_url: str, audio_bytes: bytes, sample_rate: int, chunk_ms: float) -> None:
+    """Send PCM16 audio over an existing WebSocket endpoint."""
+    if chunk_ms <= 0:
+        chunk_ms = 20.0
+    samples_per_chunk = max(1, int(sample_rate * (chunk_ms / 1000.0)))
+    chunk_bytes = samples_per_chunk * 2  # mono int16
+
+    async with websockets.connect(ws_url, max_size=None) as ws:
+        for start in range(0, len(audio_bytes), chunk_bytes):
+            await ws.send(audio_bytes[start:start + chunk_bytes])
+            await asyncio.sleep(chunk_ms / 1000.0)
 
 
 def main(argv: list[str] | None = None) -> None:

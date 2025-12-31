@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import signal
@@ -26,6 +27,9 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import websockets
+
+from wavecapsdr.message_spec import EncodedMessage, encode_message, pcm16le_bytes, write_wav
 
 logger = logging.getLogger(__name__)
 
@@ -356,6 +360,41 @@ def cmd_capture_iq(args: argparse.Namespace) -> int:
         wf.writeframes(stereo.tobytes())
 
     print(f"Saved to {output_path} ({output_path.stat().st_size / 1024 / 1024:.1f} MB)")
+
+    return 0
+
+
+async def _stream_pcm(ws_url: str, audio_bytes: bytes, sample_rate: int, chunk_ms: float) -> None:
+    """Send PCM16 audio over WebSocket in fixed chunks."""
+    if chunk_ms <= 0:
+        chunk_ms = 20.0
+    samples_per_chunk = max(1, int(sample_rate * (chunk_ms / 1000.0)))
+    chunk_bytes = samples_per_chunk * 2
+    async with websockets.connect(ws_url, max_size=None) as ws:
+        for start in range(0, len(audio_bytes), chunk_bytes):
+            await ws.send(audio_bytes[start:start + chunk_bytes])
+            await asyncio.sleep(chunk_ms / 1000.0)
+
+
+def cmd_message(args: argparse.Namespace) -> int:
+    """Encode a message spec to bytes and optional WAV/WebSocket stream."""
+    spec_path = Path(args.spec)
+    result: EncodedMessage = encode_message(spec_path)
+
+    out_bytes = Path(args.out_bytes)
+    out_bytes.parent.mkdir(parents=True, exist_ok=True)
+    out_bytes.write_bytes(result.payload_bytes)
+    print(f"Wrote encoded frames to {out_bytes} ({len(result.payload_bytes)} bytes)")
+
+    if args.out_wav:
+        wav_path = Path(args.out_wav)
+        write_wav(wav_path, result.audio, result.sample_rate)
+        print(f"Wrote decoded audio to {wav_path} (decoder used={result.used_decoder})")
+
+    if args.stream_ws:
+        pcm_bytes = pcm16le_bytes(result.audio)
+        asyncio.run(_stream_pcm(args.stream_ws, pcm_bytes, result.sample_rate, args.chunk_ms))
+        print(f"Streamed PCM16 audio to {args.stream_ws}")
 
     return 0
 
@@ -1141,6 +1180,15 @@ def main() -> int:
     p_trunking.add_argument("--stats", type=int, metavar="SEC", help="Show stats every N seconds")
     p_trunking.add_argument("-o", "--output", type=str, help="Recording output directory")
     p_trunking.set_defaults(func=cmd_trunking)
+
+    # message spec encoder
+    p_message = subparsers.add_parser("message", help="Encode a message spec to bytes/WAV")
+    p_message.add_argument("--spec", required=True, help="Path to JSON/YAML message spec")
+    p_message.add_argument("--out-bytes", required=True, help="Path to write concatenated encoded frames")
+    p_message.add_argument("--out-wav", help="Optional WAV output path (decoding requires mbelib-neo)")
+    p_message.add_argument("--stream-ws", help="Optional WebSocket URL to stream PCM16 audio")
+    p_message.add_argument("--chunk-ms", type=float, default=40.0, help="Chunk size for WebSocket streaming (ms)")
+    p_message.set_defaults(func=cmd_message)
 
     args = parser.parse_args()
 

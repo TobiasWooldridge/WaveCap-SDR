@@ -376,6 +376,31 @@ P25 trunking specifics:
 ## Integration with WaveCap
 - WaveCap (app/control plane) lives in `~/speaker/WaveCap` (symlinked as `~/speaker/smart-speaker`). WaveCap‑SDR exposes radio functionality so WaveCap can orchestrate higher‑level workflows (e.g., configuring multiple marine channels, recording policies). Keep integration docs and example flows in WaveCap and reference this spec for the SDR API.
 
+## Developer Tooling — Message Specs
+- **Purpose**: Encode known voice payloads (IMBE vocoder frames) to raw bytes and WAV for fixture generation or to push through the existing audio/WebSocket pipeline.
+- **Spec format** (JSON or YAML):
+  - `codec`: currently `imbe`.
+  - `outputRate`: audio sample rate for decoded output (e.g., `48000`).
+  - `frameDurationMs`: expected duration per frame (used for silence padding when decoding is unavailable), default `20`.
+  - `frames[]`: array of vocoder frames.
+    - `hex` | `base64` | `bytes`: encoded IMBE frame data.
+    - `repeat` (default `1`): number of times to emit this frame.
+    - `silence_ms` (default `0`): optional silence to pad after the frame.
+- **CLI usage**:
+  - `python -m wavecapsdr.cli message --spec fixtures/voice.yaml --out-bytes ./out/voice.bin --out-wav ./out/voice.wav`
+  - Optional stream into an existing audio/WebSocket consumer: append `--stream-ws ws://localhost:8087/api/v1/stream/channels/c0 --chunk-ms 40` to send PCM16 frames in real time.
+- **Harness shortcut**:
+  - `python -m wavecapsdr.harness --message-spec ./fixtures/voice.yaml --out ./harness_out`
+  - Outputs `message.bin` (concatenated frames) and `message.wav` (decoded audio or silence fallback); `--message-stream-ws` mirrors the CLI streaming option for end-to-end decode exercises.
+- **Flow (mermaid)**:
+```mermaid
+flowchart LR
+  spec[Message spec (YAML/JSON)] --> encoder[CLI / Harness message encoder]
+  encoder --> frames[Encoded frames (.bin)]
+  encoder --> audio[PCM audio (.wav)]
+  audio --> ws[Optional PCM16 WebSocket stream]
+```
+
 ## Hardware Support (initial)
 - RTL-SDR (via Soapy RTL driver) — enumerate, tune, stream IQ at common rates (250 kS/s–2.4 MS/s).
 - SDRplay RSPdx-r2 (via SoapySDRPlay3) — enumerate, tune, stream IQ; demod pipelines operate on the IQ stream.
