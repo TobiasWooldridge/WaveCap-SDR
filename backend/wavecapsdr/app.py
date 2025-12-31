@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, cast
@@ -20,6 +21,14 @@ from .device_namer import generate_capture_name, get_device_nickname
 from .mcp_server import router as mcp_router
 from .state import AppState
 from .trunking.api import router as trunking_router
+
+
+class SafeStreamHandler(logging.StreamHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            super().emit(record)
+        except ValueError:
+            pass
 
 
 def cleanup_orphan_sdrplay_workers() -> None:
@@ -97,7 +106,7 @@ def setup_file_logging() -> None:
     root_logger.addHandler(file_handler)
 
     # Also add console handler for INFO and above
-    console_handler = logging.StreamHandler()
+    console_handler = SafeStreamHandler()
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(logging.Formatter(
         '[%(levelname)s] %(name)s: %(message)s'
@@ -144,28 +153,8 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
 
     get_log_streamer().install_handler()
 
-    app = FastAPI(title="WaveCap-SDR", version="0.1.0")
-
-    # Configure CORS middleware
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],  # Allow all origins for local development
-        allow_credentials=True,
-        allow_methods=["*"],  # Allow all HTTP methods
-        allow_headers=["*"],  # Allow all headers
-        expose_headers=["*"],  # Expose all headers to the client
-    )
-
-    # Configure rate limiting
-    limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
-    app.state.limiter = limiter
-    rate_limit_handler = cast(Callable[[Request, Exception], Response], _rate_limit_exceeded_handler)
-    app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
-
-    app.state.app_state = AppState.from_config(config, config_path)
-
-    @app.on_event("startup")
-    async def startup_event() -> None:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
         """Auto-start configured captures on server startup.
 
         If no captures are configured, initialize a default capture so the UI
@@ -310,6 +299,42 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
                 )
             except Exception as e:
                 print(f"Warning: Failed to initialize default capture: {e}", flush=True)
+
+        try:
+            yield
+        finally:
+            try:
+                await app_state.trunking_manager.stop()
+            except Exception as e:
+                logging.warning("Error stopping trunking manager during shutdown: %s", e)
+
+            for capture in app_state.captures.list_captures():
+                try:
+                    await app_state.captures.stop_capture(capture.cfg.id)
+                except Exception as e:
+                    logging.warning("Error stopping capture %s: %s", capture.cfg.id, e)
+
+            shutdown_dsp_executor()
+
+    app = FastAPI(title="WaveCap-SDR", version="0.1.0", lifespan=lifespan)
+
+    # Configure CORS middleware
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Allow all origins for local development
+        allow_credentials=True,
+        allow_methods=["*"],  # Allow all HTTP methods
+        allow_headers=["*"],  # Allow all headers
+        expose_headers=["*"],  # Expose all headers to the client
+    )
+
+    # Configure rate limiting
+    limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+    app.state.limiter = limiter
+    rate_limit_handler = cast(Callable[[Request, Exception], Response], _rate_limit_exceeded_handler)
+    app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
+
+    app.state.app_state = AppState.from_config(config, config_path)
 
     app.include_router(api_router, prefix="/api/v1")
     app.include_router(trunking_router, prefix="/api/v1")
