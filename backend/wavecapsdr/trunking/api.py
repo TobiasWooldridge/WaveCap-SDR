@@ -36,12 +36,11 @@ from wavecapsdr.decoders.voice import VoiceDecoder
 from wavecapsdr.trunking import (
     HuntMode,
     TalkgroupConfig,
-    TrunkingManager,
     TrunkingProtocol,
-    TrunkingSystem,
     TrunkingSystemConfig,
 )
 from wavecapsdr.trunking.config import ControlChannelConfig, P25Modulation
+from wavecapsdr.trunking.manager_types import TrunkingManagerLike, TrunkingSystemLike
 from wavecapsdr.trunking.voice_channel import VoiceChannel
 
 logger = logging.getLogger(__name__)
@@ -228,8 +227,7 @@ class TrunkingRecipeResponse(BaseModel):
 # Helper Functions
 # ============================================================================
 
-
-def get_trunking_manager(request: Request) -> TrunkingManager:
+def get_trunking_manager(request: Request) -> TrunkingManagerLike:
     """Get the TrunkingManager from app state."""
     state = getattr(request.app.state, "app_state", None)
     if state is None:
@@ -239,10 +237,10 @@ def get_trunking_manager(request: Request) -> TrunkingManager:
     if manager is None:
         raise HTTPException(status_code=500, detail="TrunkingManager not initialized")
 
-    return cast(TrunkingManager, manager)
+    return cast(TrunkingManagerLike, manager)
 
 
-def system_to_response(system: TrunkingSystem) -> SystemResponse:
+def system_to_response(system: TrunkingSystemLike) -> SystemResponse:
     """Convert TrunkingSystem to API response."""
     d = system.to_dict()
     return SystemResponse(
@@ -433,9 +431,7 @@ async def add_talkgroups(
     if system is None:
         raise HTTPException(status_code=404, detail=f"System '{system_id}' not found")
 
-    added = 0
-    updated = 0
-
+    talkgroup_updates: list[TalkgroupConfig] = []
     for tg_req in talkgroups:
         tg = TalkgroupConfig(
             tgid=tg_req.tgid,
@@ -446,13 +442,12 @@ async def add_talkgroups(
             record=tg_req.record,
             monitor=tg_req.monitor,
         )
+        talkgroup_updates.append(tg)
 
-        if tg_req.tgid in system.cfg.talkgroups:
-            updated += 1
-        else:
-            added += 1
-
-        system.cfg.talkgroups[tg_req.tgid] = tg
+    try:
+        added, updated = await manager.update_talkgroups(system_id, talkgroup_updates)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     return {
         "status": "ok",
@@ -577,11 +572,10 @@ async def get_radio_locations(system_id: str, request: Request) -> list[Location
     - LRRP packets in PDU frames
     """
     manager = get_trunking_manager(request)
-    system = manager.get_system(system_id)
-    if system is None:
-        raise HTTPException(status_code=404, detail=f"System {system_id} not found")
-
-    locations = system.get_all_locations()
+    try:
+        locations = await manager.get_all_locations(system_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     return [
         LocationResponse(
             unitId=loc.unit_id,
@@ -664,7 +658,7 @@ async def clear_messages(system_id: str, request: Request) -> dict[str, Any]:
     if system is None:
         raise HTTPException(status_code=404, detail=f"System {system_id} not found")
 
-    count = system.clear_messages()
+    count = await manager.clear_messages(system_id)
     return {"status": "ok", "cleared": count}
 
 
@@ -775,14 +769,14 @@ async def set_hunt_mode(
         )
 
     try:
-        system.set_hunt_mode(mode, req.lockedFrequency)
-        return {
-            "status": "ok",
-            "mode": mode.value,
-            "lockedFrequencyHz": req.lockedFrequency,
-        }
+        await manager.set_hunt_mode(system_id, mode, req.lockedFrequency)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "status": "ok",
+        "mode": mode.value,
+        "lockedFrequencyHz": req.lockedFrequency,
+    }
 
 
 @router.get("/systems/{system_id}/channels", response_model=list[ControlChannelResponse])
@@ -826,11 +820,10 @@ async def set_channel_enabled(
     system = manager.get_system(system_id)
     if system is None:
         raise HTTPException(status_code=404, detail=f"System {system_id} not found")
-
     freq_hz = freq_mhz * 1_000_000
 
     try:
-        system.set_channel_enabled(freq_hz, req.enabled)
+        await manager.set_channel_enabled(system_id, freq_hz, req.enabled)
         return {
             "status": "ok",
             "frequencyHz": freq_hz,
@@ -851,7 +844,7 @@ async def trigger_scan(request: Request, system_id: str) -> dict[str, Any]:
     if system is None:
         raise HTTPException(status_code=404, detail=f"System {system_id} not found")
 
-    measurements = system.trigger_scan()
+    measurements = await manager.trigger_scan(system_id)
 
     # Find the best channel
     best_freq = None
@@ -885,18 +878,17 @@ async def lock_to_channel(
     system = manager.get_system(system_id)
     if system is None:
         raise HTTPException(status_code=404, detail=f"System {system_id} not found")
-
     freq_hz = freq_mhz * 1_000_000
 
     try:
-        system.set_hunt_mode(HuntMode.MANUAL, freq_hz)
-        return {
-            "status": "ok",
-            "mode": "manual",
-            "lockedFrequencyHz": freq_hz,
-        }
+        await manager.set_hunt_mode(system_id, HuntMode.MANUAL, freq_hz)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "status": "ok",
+        "mode": "manual",
+        "lockedFrequencyHz": freq_hz,
+    }
 
 
 # ============================================================================
@@ -1006,6 +998,11 @@ async def trunking_stream_all(websocket: WebSocket) -> None:
 async def list_voice_streams(system_id: str, request: Request) -> list[VoiceStreamResponse]:
     """List active voice streams for a trunking system."""
     manager = get_trunking_manager(request)
+    if not manager.supports_voice_streams:
+        raise HTTPException(
+            status_code=503,
+            detail="Voice streams are unavailable when trunking worker_mode=per_device is enabled",
+        )
     system = manager.get_system(system_id)
     if system is None:
         raise HTTPException(status_code=404, detail=f"System {system_id} not found")
@@ -1064,6 +1061,12 @@ async def voice_stream_all(websocket: WebSocket, system_id: str) -> None:
     manager = getattr(state, "trunking_manager", None)
     if manager is None:
         await websocket.close(code=1011, reason="TrunkingManager not initialized")
+        return
+    if not manager.supports_voice_streams:
+        await websocket.close(
+            code=1011,
+            reason="Voice streams unavailable when trunking worker_mode=per_device is enabled",
+        )
         return
 
     system = manager.get_system(system_id)
@@ -1180,6 +1183,12 @@ async def voice_stream_single(websocket: WebSocket, system_id: str, stream_id: s
     if manager is None:
         await websocket.close(code=1011, reason="TrunkingManager not initialized")
         return
+    if not manager.supports_voice_streams:
+        await websocket.close(
+            code=1011,
+            reason="Voice streams unavailable when trunking worker_mode=per_device is enabled",
+        )
+        return
 
     system = manager.get_system(system_id)
     if system is None:
@@ -1231,6 +1240,11 @@ async def voice_stream_pcm(request: Request, system_id: str, stream_id: str) -> 
     manager = getattr(state, "trunking_manager", None)
     if manager is None:
         raise HTTPException(status_code=500, detail="TrunkingManager not initialized")
+    if not manager.supports_voice_streams:
+        raise HTTPException(
+            status_code=503,
+            detail="Voice streams are unavailable when trunking worker_mode=per_device is enabled",
+        )
 
     system = manager.get_system(system_id)
     if system is None:

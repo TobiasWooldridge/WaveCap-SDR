@@ -530,7 +530,10 @@ async def start_trunking(state: AppState, args: dict[str, Any]) -> dict[str, Any
     """Start a trunking system."""
     await state.trunking_manager.start_system(args["system_id"])
     system = state.trunking_manager.get_system(args["system_id"])
-    return {"id": args["system_id"], "state": system.state.value if system else "unknown"}
+    system_state = "unknown"
+    if system is not None:
+        system_state = str(system.to_dict().get("state", "unknown"))
+    return {"id": args["system_id"], "state": system_state}
 
 
 @register_tool(
@@ -545,7 +548,10 @@ async def stop_trunking(state: AppState, args: dict[str, Any]) -> dict[str, Any]
     """Stop a trunking system."""
     await state.trunking_manager.stop_system(args["system_id"])
     system = state.trunking_manager.get_system(args["system_id"])
-    return {"id": args["system_id"], "state": system.state.value if system else "unknown"}
+    system_state = "unknown"
+    if system is not None:
+        system_state = str(system.to_dict().get("state", "unknown"))
+    return {"id": args["system_id"], "state": system_state}
 
 
 @register_tool(

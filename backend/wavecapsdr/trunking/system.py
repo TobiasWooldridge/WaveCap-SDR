@@ -924,8 +924,9 @@ class TrunkingSystem:
     _hunt_check_task: asyncio.Task[None] | None = None
     _has_ever_locked: bool = False  # Track if we've ever achieved lock (for dynamic timeouts)
 
-    # IQ buffer for control channel - accumulates decimated samples before processing
-    _cc_iq_buffer: NDArrayComplex = field(default_factory=lambda: np.array([], dtype=np.complex128))
+    # IQ buffer for control channel - accumulate decimated samples before processing
+    _cc_iq_chunks: list[NDArrayComplex] = field(default_factory=list)
+    _cc_iq_buffer_samples: int = 0
 
     # Control channel scanner for signal strength measurement
     _cc_scanner: ControlChannelScanner | None = None
@@ -1055,6 +1056,11 @@ class TrunkingSystem:
                 f"TrunkingSystem {self.cfg.id}: Loaded {len(self._channel_identifiers)} "
                 f"channel identifiers (config={config_count}, cache={cached_count})"
             )
+
+    def _reset_cc_iq_buffer(self) -> None:
+        """Reset buffered control-channel IQ samples."""
+        self._cc_iq_chunks.clear()
+        self._cc_iq_buffer_samples = 0
 
     async def start(self, capture_manager: CaptureManager) -> None:
         """Start the trunking system.
@@ -1291,7 +1297,7 @@ class TrunkingSystem:
         )
         self._control_monitor = create_control_monitor(
             protocol=self.cfg.protocol,
-            sample_rate=actual_sample_rate,  # Use actual ~19.2 kHz
+            sample_rate=actual_sample_rate,  # Use actual decimated sample rate
             modulation=control_modulation,
         )
 
@@ -1467,13 +1473,11 @@ class TrunkingSystem:
 
             return np.asarray(iq.astype(np.complex64, copy=False) * shift, dtype=np.complex64)
 
-        # IQ buffer for control channel - accumulate decimated samples before processing
-        # SDRplay returns small chunks (~8192 samples), after decimation we get only ~26 samples
-        # C4FM demodulation needs sufficient samples for reliable sync detection and timing recovery.
-        # At 19.2kHz: 10000 samples = ~520ms = ~2083 symbols = ~12 P25 frames
-        # (Same time window as previous 25000 at 48kHz, proportionally scaled)
-        IQ_BUFFER_MIN_SAMPLES = 10000
-        # Buffer is stored as self._cc_iq_buffer (instance variable) so it can be reset from hunting
+        # IQ buffer for control channel - accumulate decimated samples before processing.
+        # Larger buffers improve sync stability at the cost of added latency.
+        IQ_BUFFER_SECONDS = 0.8
+        IQ_BUFFER_MIN_SAMPLES = max(20_000, int(actual_sample_rate * IQ_BUFFER_SECONDS))
+        # Buffer is stored as chunk list so it can be reset from hunting without large copies
 
         # Initial scan state - collect samples for 2 seconds then scan
         # Use capture sample rate from config
@@ -1507,7 +1511,7 @@ class TrunkingSystem:
                 # Reset frequency shift phase (sample index back to 0)
                 freq_shift_state["sample_idx"] = 0
                 # Clear the IQ buffer (contains corrupted partial data)
-                system._cc_iq_buffer = np.array([], dtype=np.complex128)
+                system._reset_cc_iq_buffer()
                 # Reset the control channel monitor (demodulator, sync state)
                 # IMPORTANT: preserve_polarity=True to avoid flip-flopping on repeated overflows
                 if system._control_monitor is not None:
@@ -1655,7 +1659,7 @@ class TrunkingSystem:
                                 # Preserve polarity: same system = same polarity
                                 if system._control_monitor is not None:
                                     system._control_monitor.reset(preserve_polarity=True)
-                                system._cc_iq_buffer = np.array([], dtype=np.complex128)
+                                system._reset_cc_iq_buffer()
 
                     system._last_roam_check = now
 
@@ -1686,6 +1690,7 @@ class TrunkingSystem:
                     decimated1, stage1_zi = fir_decimate(
                         centered_iq, stage1_taps, stage1_factor, zi=filter_state["stage1_zi"]
                     )
+                    decimated1 = cast(NDArrayComplex, decimated1)
                     filter_state["stage1_zi"] = cast(NDArrayComplex, stage1_zi)
 
                 decimated_iq = decimated1
@@ -1699,6 +1704,7 @@ class TrunkingSystem:
                         decimated2, stage2_zi = fir_decimate(
                             decimated1, stage2_taps, stage2_factor, zi=filter_state["stage2_zi"]
                         )
+                        decimated2 = cast(NDArrayComplex, decimated2)
                         filter_state["stage2_zi"] = cast(NDArrayComplex, stage2_zi)
                     # No Stage 3 - stay at 50 kHz (tested: 90.7% CRC pass rate)
                     decimated_iq = decimated2
@@ -1722,12 +1728,17 @@ class TrunkingSystem:
 
             # Buffer decimated IQ samples until we have enough for reliable demodulation
             # Small chunks (65 samples) cause timing recovery to fail
-            system._cc_iq_buffer = np.concatenate([system._cc_iq_buffer, decimated_iq])
+            if decimated_iq.size:
+                system._cc_iq_chunks.append(decimated_iq)
+                system._cc_iq_buffer_samples += len(decimated_iq)
 
             # Only process when we have enough samples
-            if len(system._cc_iq_buffer) >= IQ_BUFFER_MIN_SAMPLES:
-                buffered_iq = system._cc_iq_buffer
-                system._cc_iq_buffer = np.array([], dtype=np.complex128)
+            if system._cc_iq_buffer_samples >= IQ_BUFFER_MIN_SAMPLES:
+                if len(system._cc_iq_chunks) == 1:
+                    buffered_iq = system._cc_iq_chunks[0]
+                else:
+                    buffered_iq = np.concatenate(system._cc_iq_chunks)
+                system._reset_cc_iq_buffer()
 
                 if _verbose:
                     logger.debug(
@@ -2452,7 +2463,7 @@ class TrunkingSystem:
         # Preserve polarity: same system = same polarity
         if self._control_monitor is not None:
             self._control_monitor.reset(preserve_polarity=True)
-        self._cc_iq_buffer = np.array([], dtype=np.complex128)
+        self._reset_cc_iq_buffer()
 
     async def _hunt_check_loop(self) -> None:
         """Background loop to periodically check for control channel hunting.
@@ -2708,6 +2719,7 @@ class TrunkingSystem:
             "controlChannelState": self.control_channel_state.value,
             "controlChannelFreqHz": self.control_channel_freq_hz,
             "centerHz": self.cfg.center_hz,  # SDR center frequency (auto-managed)
+            "captureId": self._capture.cfg.id if self._capture else None,
             "nac": self.nac,
             "systemId": self.system_id,
             "rfssId": self.rfss_id,
@@ -2971,7 +2983,7 @@ class TrunkingSystem:
         # Reset the control channel monitor and IQ buffer
         if self._control_monitor is not None:
             self._control_monitor.reset(preserve_polarity=True)
-        self._cc_iq_buffer = np.array([], dtype=np.complex128)
+        self._reset_cc_iq_buffer()
 
     # =========================================================================
     # Location Cache (LRRP GPS data)

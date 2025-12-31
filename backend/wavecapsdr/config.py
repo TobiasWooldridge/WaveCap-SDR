@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import yaml
 
@@ -56,6 +56,15 @@ class MCPConfig:
     # API key for authentication (required if enabled)
     # Can be set via environment variable WAVECAP_MCP_KEY
     api_key: str | None = None
+
+
+@dataclass
+class TrunkingWorkerConfig:
+    """Configuration for trunking worker process isolation."""
+
+    mode: Literal["disabled", "per_device"] = "disabled"
+    rpc_timeout_s: float = 5.0
+    event_queue_size: int = 200
 
 
 @dataclass
@@ -166,6 +175,7 @@ class AppConfig:
     recovery: RecoveryConfig = field(default_factory=RecoveryConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
     radioreference: RadioReferenceConfig = field(default_factory=RadioReferenceConfig)
+    trunking_workers: TrunkingWorkerConfig = field(default_factory=TrunkingWorkerConfig)
     presets: dict[str, PresetConfig] = field(default_factory=dict)
     recipes: dict[str, RecipeConfig] = field(default_factory=dict)
     captures: list[CaptureStartConfig] = field(default_factory=list)
@@ -320,8 +330,9 @@ def load_config(path_str: str) -> AppConfig:
     if isinstance(device_names_raw, dict):
         device_names = {k: str(v) for k, v in device_names_raw.items()}
 
-    # Parse trunking systems (raw dicts, converted to TrunkingSystemConfig in state.py)
+    # Parse trunking systems + worker settings (raw dicts, converted later)
     trunking_systems: dict[str, dict[str, Any]] = {}
+    trunking_workers = TrunkingWorkerConfig()
     trunking_raw = raw.get("trunking", {})
     if isinstance(trunking_raw, dict):
         systems_raw = trunking_raw.get("systems", {})
@@ -329,6 +340,17 @@ def load_config(path_str: str) -> AppConfig:
             for sys_id, sys_data in systems_raw.items():
                 if isinstance(sys_data, dict):
                     trunking_systems[sys_id] = sys_data
+
+        worker_mode = trunking_raw.get("worker_mode")
+        if isinstance(worker_mode, str):
+            if worker_mode in ("disabled", "per_device"):
+                trunking_workers.mode = cast(Literal["disabled", "per_device"], worker_mode)
+        worker_timeout = trunking_raw.get("worker_rpc_timeout_s")
+        if isinstance(worker_timeout, (int, float)):
+            trunking_workers.rpc_timeout_s = float(worker_timeout)
+        worker_queue_size = trunking_raw.get("worker_event_queue_size")
+        if isinstance(worker_queue_size, int):
+            trunking_workers.event_queue_size = worker_queue_size
 
     # Parse POCSAG capcode aliases (capcode -> friendly name)
     pocsag_aliases: dict[int, str] = {}
@@ -353,6 +375,7 @@ def load_config(path_str: str) -> AppConfig:
         captures=captures,
         device_names=device_names,
         trunking_systems=trunking_systems,
+        trunking_workers=trunking_workers,
         pocsag_aliases=pocsag_aliases,
     )
 

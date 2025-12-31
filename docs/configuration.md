@@ -87,6 +87,12 @@ Trunking Systems
     - Requires `radioreference.enabled: true` and valid credentials.
     - Imported talkgroups overlay file-based/inline entries (RR values win on TGID conflicts).
 
+Trunking Workers
+- `trunking.worker_mode` (enum `disabled`|`per_device`, default `disabled`): Run trunking systems in per-device worker processes for isolation.
+  - Voice streaming endpoints are disabled in `per_device` mode.
+- `trunking.worker_rpc_timeout_s` (float, default `5.0`): Timeout for manager-to-worker RPC calls.
+- `trunking.worker_event_queue_size` (int, default `200`): Max queued trunking events per subscriber (oldest dropped when full).
+
 RadioReference
 - `radioreference.enabled` (bool, default `false`): Enable RadioReference API access.
 - `radioreference.username` (string, optional): RadioReference username. Supports `${WAVECAP_RR_USERNAME}`.

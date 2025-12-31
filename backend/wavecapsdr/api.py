@@ -463,7 +463,7 @@ def _to_capture_model(cap: Any, trunking_manager: Any = None) -> CaptureModel:
 
     Args:
         cap: Capture instance to convert
-        trunking_manager: Optional TrunkingManager to look up trunking ownership
+        trunking_manager: Optional trunking manager to look up trunking ownership
     """
     from .error_tracker import ErrorStats, get_error_tracker
 

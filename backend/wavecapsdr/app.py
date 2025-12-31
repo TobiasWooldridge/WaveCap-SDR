@@ -117,6 +117,18 @@ def setup_file_logging() -> None:
     console_handler = SafeStreamHandler()
     console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(logging.Formatter("[%(levelname)s] %(name)s: %(message)s"))
+
+    # Rate-limit noisy loggers to reduce file/console overhead in hot paths.
+    sampling_rules = (
+        LogSamplingRule(prefix="wavecapsdr.decoders.p25", max_per_interval=5, interval_s=1.0),
+        LogSamplingRule(prefix="wavecapsdr.decoders.p25_tsbk", max_per_interval=5, interval_s=1.0),
+        LogSamplingRule(prefix="wavecapsdr.trunking.control_channel", max_per_interval=5, interval_s=1.0),
+        LogSamplingRule(prefix="wavecapsdr.trunking.system", max_per_interval=10, interval_s=1.0),
+        LogSamplingRule(prefix="wavecapsdr.devices.sdrplay_proxy", max_per_interval=5, interval_s=1.0),
+    )
+    file_handler.addFilter(LogSamplingFilter(sampling_rules, max_level=logging.INFO))
+    console_handler.addFilter(LogSamplingFilter(sampling_rules, max_level=logging.INFO))
+
     root_logger.addHandler(console_handler)
 
     logging.info("File logging initialized: %s", log_file)

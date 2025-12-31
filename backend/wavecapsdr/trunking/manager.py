@@ -20,10 +20,10 @@ import asyncio
 import contextlib
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from wavecapsdr.config import default_config_path, update_trunking_system_state
-from wavecapsdr.trunking.config import TrunkingSystemConfig, load_talkgroups_csv
+from wavecapsdr.trunking.config import HuntMode, TalkgroupConfig, TrunkingSystemConfig, load_talkgroups_csv
 from wavecapsdr.trunking.system import (
     ActiveCall,
     TrunkingSystem,
@@ -32,6 +32,7 @@ from wavecapsdr.trunking.system import (
 
 if TYPE_CHECKING:
     from wavecapsdr.capture import CaptureManager
+    from wavecapsdr.decoders.lrrp import RadioLocation
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,8 @@ class TrunkingManager:
 
     # Systems keyed by ID
     _systems: dict[str, TrunkingSystem] = field(default_factory=dict)
+
+    supports_voice_streams: ClassVar[bool] = True
 
     # Event subscribers
     _event_queues: set[asyncio.Queue[dict[str, Any]]] = field(default_factory=set)
@@ -213,6 +216,25 @@ class TrunkingManager:
 
         return system
 
+    async def update_talkgroups(
+        self,
+        system_id: str,
+        talkgroups: list[TalkgroupConfig],
+    ) -> tuple[int, int]:
+        system = self._systems.get(system_id)
+        if system is None:
+            raise ValueError(f"System '{system_id}' not found")
+
+        added = 0
+        updated = 0
+        for tg in talkgroups:
+            if tg.tgid in system.cfg.talkgroups:
+                updated += 1
+            else:
+                added += 1
+            system.cfg.talkgroups[tg.tgid] = tg
+        return added, updated
+
     async def remove_system(self, system_id: str) -> None:
         """Remove a trunking system.
 
@@ -239,6 +261,41 @@ class TrunkingManager:
                 "systemId": system_id,
             }
         )
+
+    async def clear_messages(self, system_id: str) -> int:
+        system = self._systems.get(system_id)
+        if system is None:
+            raise ValueError(f"System '{system_id}' not found")
+        return system.clear_messages()
+
+    async def set_hunt_mode(
+        self,
+        system_id: str,
+        mode: HuntMode,
+        locked_freq: float | None = None,
+    ) -> None:
+        system = self._systems.get(system_id)
+        if system is None:
+            raise ValueError(f"System '{system_id}' not found")
+        system.set_hunt_mode(mode, locked_freq)
+
+    async def set_channel_enabled(self, system_id: str, freq_hz: float, enabled: bool) -> None:
+        system = self._systems.get(system_id)
+        if system is None:
+            raise ValueError(f"System '{system_id}' not found")
+        system.set_channel_enabled(freq_hz, enabled)
+
+    async def trigger_scan(self, system_id: str) -> dict[float, dict[str, Any]]:
+        system = self._systems.get(system_id)
+        if system is None:
+            raise ValueError(f"System '{system_id}' not found")
+        return system.trigger_scan()
+
+    async def get_all_locations(self, system_id: str) -> list["RadioLocation"]:
+        system = self._systems.get(system_id)
+        if system is None:
+            raise ValueError(f"System '{system_id}' not found")
+        return system.get_all_locations()
 
     async def start_system(self, system_id: str, persist: bool = True) -> None:
         """Start a trunking system.
@@ -375,18 +432,25 @@ class TrunkingManager:
                         "raw": msg.get("raw"),
                     }
                 )
-            for call in system.get_call_history(limit=50):
-                call["systemId"] = system.cfg.id
-                all_call_history.append(call)
+            for call_entry in system.get_call_history(limit=50):
+                call_entry["systemId"] = system.cfg.id
+                all_call_history.append(call_entry)
 
         # Sort by timestamp (newest first) and limit
         all_messages.sort(key=lambda m: m.get("timestamp", 0), reverse=True)
         all_call_history.sort(key=lambda c: c.get("endTime", c.get("startTime", 0)), reverse=True)
 
+        all_active_calls: list[dict[str, Any]] = []
+        for system in self._systems.values():
+            for call in system.get_active_calls():
+                call_dict = call.to_dict()
+                call_dict["systemId"] = system.cfg.id
+                all_active_calls.append(call_dict)
+
         snapshot = {
             "type": "snapshot",
             "systems": [s.to_dict() for s in self._systems.values()],
-            "activeCalls": [c.to_dict() for c in self.get_active_calls()],
+            "activeCalls": all_active_calls,
             "messages": all_messages[:200],  # Last 200 messages across all systems
             "callHistory": all_call_history[:100],  # Last 100 calls across all systems
         }

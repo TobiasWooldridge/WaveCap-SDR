@@ -148,6 +148,7 @@ Base path: `/api/v1`
   - Get decoded control-channel messages (includes `raw` metadata payloads).
 - GET `/trunking/systems/{id}/voice-streams`
   - List active voice streams for playback.
+  - Returns 503 when `trunking.worker_mode=per_device` (voice streams are disabled in worker mode).
 - GET `/trunking/recipes`
   - List pre-configured trunking system templates.
 
@@ -199,10 +200,12 @@ flowchart TD
   - Real-time trunking events (grants, denials, registrations) for a specific system.
   - `message` events include `raw` decoded metadata payloads.
   - `call_*` events include talkgroup metadata and `sourceLocation` GPS when available.
+  - `snapshot.activeCalls` includes `systemId` for multi-system routing.
 - WS `/stream/trunking`
   - Trunking events for all systems.
 - GET `/stream/trunking/{systemId}/voice/{streamId}.pcm`
   - HTTP streaming for trunked voice channels.
+  - Returns 503 when `trunking.worker_mode=per_device` (voice streams are disabled in worker mode).
 
 ### Health
 - GET `/health`
