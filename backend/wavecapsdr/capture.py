@@ -25,6 +25,7 @@ _decimate_debug_count = 0
 _invalid_audio_log_times: dict[str, float] = {}
 _invalid_audio_log_counts: dict[str, int] = {}
 _invalid_audio_log_lock = threading.Lock()
+CHANNEL_METRICS_INTERVAL_S = 1.0
 
 import contextlib
 
@@ -569,6 +570,7 @@ class Channel:
     _last_drop_log_time: float = 0.0
     # Metrics counter for throttled signal metrics calculation
     _metrics_counter: int = 0
+    _last_metrics_emit: float = 0.0
     _p25_diag_count: int = 0
     _nxdn_warned: bool = False
     _dstar_warned: bool = False
@@ -1949,6 +1951,30 @@ class Capture:
             },
         )
 
+    def _emit_channel_metrics(self, ch: Channel, now: float) -> None:
+        if ch.state != "running":
+            return
+        if now - ch._last_metrics_emit < CHANNEL_METRICS_INTERVAL_S:
+            return
+        ch._last_metrics_emit = now
+
+        from .state_broadcaster import get_broadcaster
+
+        data = {
+            "id": ch.cfg.id,
+            "captureId": ch.cfg.capture_id,
+            "signalPowerDb": ch.signal_power_db,
+            "rssiDb": ch.rssi_db,
+            "snrDb": ch.snr_db,
+            "audioRmsDb": ch.audio_rms_db,
+            "audioPeakDb": ch.audio_peak_db,
+            "audioClippingCount": ch.audio_clipping_count,
+            "audioDropCount": ch._drop_count,
+            "rdsData": ch.rds_data.to_dict() if ch.rds_data is not None else None,
+        }
+
+        get_broadcaster().emit_channel_change("updated", ch.cfg.id, data)
+
     def _cancel_retry_timer(self) -> None:
         """Cancel any pending retry timer."""
         if self._retry_timer is not None:
@@ -3175,6 +3201,11 @@ class Capture:
             # Checkpoint D: After DSP/channel processing
             if _verbose_debug:
                 logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint D - after DSP, dsp_time={dsp_time_ms:.1f}ms")
+
+            if chans:
+                metrics_now = time_module.time()
+                for ch in chans:
+                    self._emit_channel_metrics(ch, metrics_now)
 
             # Voice channel cleanup: Run every ~1 second (20 iterations at 20 Hz)
             # This removes voice channels that haven't received grants recently
