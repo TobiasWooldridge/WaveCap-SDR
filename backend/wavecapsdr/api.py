@@ -50,7 +50,6 @@ from .models import (
     ExtendedMetricsModel,
     MetricsHistoryModel,
     MetricsHistoryPoint,
-    FlexMessageModel,
     POCSAGMessageModel,
     RDSDataModel,
     RecipeChannelModel,
@@ -82,15 +81,10 @@ def health_check(request: Request) -> JSONResponse:
     state = getattr(request.app.state, "app_state", None)
     if state is None:
         return JSONResponse(
-            status_code=500,
-            content={"status": "error", "message": "AppState not initialized"}
+            status_code=500, content={"status": "error", "message": "AppState not initialized"}
         )
 
-    health_status = {
-        "status": "ok",
-        "timestamp": __import__("time").time(),
-        "checks": {}
-    }
+    health_status = {"status": "ok", "timestamp": __import__("time").time(), "checks": {}}
 
     try:
         # Check devices
@@ -98,7 +92,9 @@ def health_check(request: Request) -> JSONResponse:
         health_status["checks"]["devices"] = {
             "status": "ok",
             "count": len(devices),
-            "devices": [{"id": d["id"], "driver": d["driver"], "label": d["label"]} for d in devices]
+            "devices": [
+                {"id": d["id"], "driver": d["driver"], "label": d["label"]} for d in devices
+            ],
         }
     except Exception as e:
         health_status["checks"]["devices"] = {"status": "error", "error": str(e)}
@@ -110,14 +106,19 @@ def health_check(request: Request) -> JSONResponse:
         health_status["checks"]["captures"] = {
             "status": "ok",
             "count": len(captures),
-            "captures": [{
-                "id": c.cfg.id,
-                "state": c.state,
-                "device_id": c.cfg.device_id[:50] + "..." if len(c.cfg.device_id) > 50 else c.cfg.device_id,
-                "center_hz": c.cfg.center_hz,
-                "sample_rate": c.cfg.sample_rate,
-                "antenna": c.antenna
-            } for c in captures]
+            "captures": [
+                {
+                    "id": c.cfg.id,
+                    "state": c.state,
+                    "device_id": c.cfg.device_id[:50] + "..."
+                    if len(c.cfg.device_id) > 50
+                    else c.cfg.device_id,
+                    "center_hz": c.cfg.center_hz,
+                    "sample_rate": c.cfg.sample_rate,
+                    "antenna": c.antenna,
+                }
+                for c in captures
+            ],
         }
     except Exception as e:
         health_status["checks"]["captures"] = {"status": "error", "error": str(e)}
@@ -129,16 +130,18 @@ def health_check(request: Request) -> JSONResponse:
         for cap in state.captures.list_captures():
             channels = state.captures.list_channels(cap.cfg.id)
             for ch in channels:
-                all_channels.append({
-                    "id": ch.cfg.id,
-                    "capture_id": ch.cfg.capture_id,
-                    "mode": ch.cfg.mode,
-                    "state": ch.state
-                })
+                all_channels.append(
+                    {
+                        "id": ch.cfg.id,
+                        "capture_id": ch.cfg.capture_id,
+                        "mode": ch.cfg.mode,
+                        "state": ch.state,
+                    }
+                )
         health_status["checks"]["channels"] = {
             "status": "ok",
             "count": len(all_channels),
-            "channels": all_channels
+            "channels": all_channels,
         }
     except Exception as e:
         health_status["checks"]["channels"] = {"status": "error", "error": str(e)}
@@ -159,15 +162,12 @@ def health_check(request: Request) -> JSONResponse:
                 stats = ch.get_queue_stats()
                 total_subscribers += stats["total_subscribers"]
                 if stats["total_subscribers"] > 0 or stats["drops_since_last_log"] > 0:
-                    queue_stats.append({
-                        "channel_id": ch.cfg.id,
-                        **stats
-                    })
+                    queue_stats.append({"channel_id": ch.cfg.id, **stats})
         health_status["checks"]["streaming"] = {
             "status": "ok",
             "total_subscribers": total_subscribers,
             "zombies_cleaned": total_zombies_cleaned,
-            "channel_stats": queue_stats
+            "channel_stats": queue_stats,
         }
     except Exception as e:
         health_status["checks"]["streaming"] = {"status": "error", "error": str(e)}
@@ -292,7 +292,9 @@ def get_frontend_logs(
     if level:
         logs = [log for log in logs if log.get("level") == level]
     if prefix:
-        logs = [log for log in logs if any(str(arg).startswith(prefix) for arg in log.get("args", []))]
+        logs = [
+            log for log in logs if any(str(arg).startswith(prefix) for arg in log.get("args", []))
+        ]
     return {
         "count": len(logs),
         "total_stored": len(_frontend_logs),
@@ -319,11 +321,11 @@ def get_performance_metrics(request: Request) -> JSONResponse | dict[str, Any]:
     state = getattr(request.app.state, "app_state", None)
     if state is None:
         return JSONResponse(
-            status_code=500,
-            content={"status": "error", "message": "AppState not initialized"}
+            status_code=500, content={"status": "error", "message": "AppState not initialized"}
         )
 
     import time
+
     result: dict[str, Any] = {
         "timestamp": time.time(),
         "captures": {},
@@ -332,7 +334,7 @@ def get_performance_metrics(request: Request) -> JSONResponse | dict[str, Any]:
     try:
         for cap in state.captures.list_captures():
             # Get performance stats from capture
-            perf_stats = cap.get_perf_stats() if hasattr(cap, 'get_perf_stats') else {}
+            perf_stats = cap.get_perf_stats() if hasattr(cap, "get_perf_stats") else {}
 
             # Get channel queue depths
             channels = state.captures.list_channels(cap.cfg.id)
@@ -348,16 +350,15 @@ def get_performance_metrics(request: Request) -> JSONResponse | dict[str, Any]:
 
             result["captures"][cap.cfg.id] = {
                 "state": cap.state,
-                "device_id": cap.cfg.device_id[:30] + "..." if len(cap.cfg.device_id) > 30 else cap.cfg.device_id,
+                "device_id": cap.cfg.device_id[:30] + "..."
+                if len(cap.cfg.device_id) > 30
+                else cap.cfg.device_id,
                 "sample_rate": cap.cfg.sample_rate,
                 "timing": perf_stats,
                 "channels": channel_stats,
             }
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"status": "error", "message": str(e)}
-        )
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
     return result
 
@@ -398,51 +399,61 @@ def _compute_config_warnings(cap: Any) -> list[ConfigWarning]:
     # RTL-SDR devices are known to be unstable at sample rates below ~900kHz
     # The most stable rates are 1.024 MHz, 2.048 MHz, and 2.4 MHz
     if is_rtl and cap.cfg.sample_rate < 900_000:
-        warnings.append(ConfigWarning(
-            code="rtl_unstable_sample_rate",
-            severity="warning",
-            message=f"Sample rate {cap.cfg.sample_rate / 1_000_000:.3f} MHz may be unstable on RTL-SDR. "
-                    f"Consider using 1.024 MHz or higher to reduce IQ overflows."
-        ))
+        warnings.append(
+            ConfigWarning(
+                code="rtl_unstable_sample_rate",
+                severity="warning",
+                message=f"Sample rate {cap.cfg.sample_rate / 1_000_000:.3f} MHz may be unstable on RTL-SDR. "
+                f"Consider using 1.024 MHz or higher to reduce IQ overflows.",
+            )
+        )
 
     # Bandwidth exceeds sample rate warning
     # Bandwidth should not exceed sample rate (Nyquist limit)
     if cap.cfg.bandwidth and cap.cfg.bandwidth > cap.cfg.sample_rate:
-        warnings.append(ConfigWarning(
-            code="bandwidth_exceeds_sample_rate",
-            severity="warning",
-            message=f"Bandwidth ({cap.cfg.bandwidth / 1_000_000:.3f} MHz) exceeds sample rate "
-                    f"({cap.cfg.sample_rate / 1_000_000:.3f} MHz). Reduce bandwidth or increase sample rate."
-        ))
+        warnings.append(
+            ConfigWarning(
+                code="bandwidth_exceeds_sample_rate",
+                severity="warning",
+                message=f"Bandwidth ({cap.cfg.bandwidth / 1_000_000:.3f} MHz) exceeds sample rate "
+                f"({cap.cfg.sample_rate / 1_000_000:.3f} MHz). Reduce bandwidth or increase sample rate.",
+            )
+        )
 
     # Bandwidth too close to sample rate (may cause aliasing at edges)
     # Generally bandwidth should be at most 80% of sample rate for clean edges
     if cap.cfg.bandwidth and cap.cfg.bandwidth > cap.cfg.sample_rate * 0.9:
         if cap.cfg.bandwidth <= cap.cfg.sample_rate:  # Don't duplicate the exceeds warning
-            warnings.append(ConfigWarning(
-                code="bandwidth_near_sample_rate",
-                severity="info",
-                message=f"Bandwidth is >{90}% of sample rate. Consider reducing bandwidth or "
-                        f"increasing sample rate to avoid aliasing at spectrum edges."
-            ))
+            warnings.append(
+                ConfigWarning(
+                    code="bandwidth_near_sample_rate",
+                    severity="info",
+                    message=f"Bandwidth is >{90}% of sample rate. Consider reducing bandwidth or "
+                    f"increasing sample rate to avoid aliasing at spectrum edges.",
+                )
+            )
 
     # Very high sample rate warning for SDRplay
     # SDRplay can do 10 MHz but may have USB bandwidth issues
     if is_sdrplay and cap.cfg.sample_rate > 8_000_000:
-        warnings.append(ConfigWarning(
-            code="sdrplay_high_sample_rate",
-            severity="info",
-            message=f"Sample rate {cap.cfg.sample_rate / 1_000_000:.1f} MHz is high for SDRplay. "
-                    f"May cause USB bandwidth issues on some systems."
-        ))
+        warnings.append(
+            ConfigWarning(
+                code="sdrplay_high_sample_rate",
+                severity="info",
+                message=f"Sample rate {cap.cfg.sample_rate / 1_000_000:.1f} MHz is high for SDRplay. "
+                f"May cause USB bandwidth issues on some systems.",
+            )
+        )
 
     # Gain set to 0 warning (might be unintentional)
     if cap.cfg.gain is not None and cap.cfg.gain == 0:
-        warnings.append(ConfigWarning(
-            code="zero_gain",
-            severity="info",
-            message="Gain is set to 0 dB. If signals appear weak, try increasing gain."
-        ))
+        warnings.append(
+            ConfigWarning(
+                code="zero_gain",
+                severity="info",
+                message="Gain is set to 0 dB. If signals appear weak, try increasing gain.",
+            )
+        )
 
     return warnings
 
@@ -567,9 +578,6 @@ def _to_channel_model(ch: Any) -> ChannelModel:
         enableNoiseReduction=ch.cfg.enable_noise_reduction,
         noiseReductionDb=ch.cfg.noise_reduction_db,
         rdsData=_to_rds_data_model(ch.rds_data),
-        enablePocsag=ch.cfg.enable_pocsag,
-        pocsagBaud=ch.cfg.pocsag_baud,
-        enableFlex=ch.cfg.enable_flex,
     )
 
 
@@ -756,7 +764,9 @@ async def reload_config(
 
 
 @router.get("/devices/{device_id}/name")
-def get_device_name(device_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)) -> dict[str, Any]:
+def get_device_name(
+    device_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)
+) -> dict[str, Any]:
     """Get custom nickname for a device."""
     nickname = get_device_nickname(device_id)
     # Also get device info for shorthand fallback
@@ -770,12 +780,17 @@ def get_device_name(device_id: str, _: None = Depends(auth_check), state: AppSta
         "device_id": device_id,
         "nickname": nickname,
         "shorthand": shorthand,
-        "label": device["label"]
+        "label": device["label"],
     }
 
 
 @router.patch("/devices/{device_id}/name")
-def update_device_name(device_id: str, request: dict[str, Any], _: None = Depends(auth_check), state: AppState = Depends(get_state)) -> dict[str, Any]:
+def update_device_name(
+    device_id: str,
+    request: dict[str, Any],
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+) -> dict[str, Any]:
     """Set custom nickname for a device."""
     nickname = request.get("nickname", "")
 
@@ -783,8 +798,8 @@ def update_device_name(device_id: str, request: dict[str, Any], _: None = Depend
     # (SDRplay devices don't appear in enumeration when busy streaming)
     device_found = False
     try:
-        enumerated_devices = state.captures.list_devices()
-        device_found = any(d["id"] == device_id for d in enumerated_devices)
+        devices = state.captures.list_devices()
+        device_found = any(d["id"] == device_id for d in devices)
     except Exception:
         pass  # Enumeration may fail if all devices are busy
 
@@ -813,9 +828,6 @@ def update_device_name(device_id: str, request: dict[str, Any], _: None = Depend
         except Exception as e:
             logger.error(f"Failed to save device nickname: {e}")
 
-    device_models = _build_device_models(state)
-    _emit_device_changes(state, device_models)
-
     return {"device_id": device_id, "nickname": nickname}
 
 
@@ -840,7 +852,10 @@ def _get_stable_device_id(device_id: str) -> str:
     return f"{driver}:{serial}" if serial else f"{driver}:{label}"
 
 
-def _build_device_models(state: AppState) -> list[DeviceModel]:
+@router.get("/devices", response_model=list[DeviceModel], response_model_by_alias=False)
+def list_devices(
+    _: None = Depends(auth_check), state: AppState = Depends(get_state)
+) -> list[DeviceModel]:
     result: list[DeviceModel] = []
     seen_ids = set()  # Full device IDs
     seen_stable_ids = set()  # Stable IDs for deduplication
@@ -927,35 +942,10 @@ def _build_device_models(state: AppState) -> list[DeviceModel]:
     return result
 
 
-def _emit_device_changes(state: AppState, devices: list[DeviceModel]) -> None:
-    from .state_broadcaster import get_broadcaster
-
-    previous = state.device_snapshot
-    next_snapshot = {device.id: device.model_dump() for device in devices}
-
-    broadcaster = get_broadcaster()
-    for device_id, data in next_snapshot.items():
-        if device_id not in previous:
-            broadcaster.emit_device_change("created", device_id, data)
-        elif previous[device_id] != data:
-            broadcaster.emit_device_change("updated", device_id, data)
-
-    for device_id in list(previous.keys()):
-        if device_id not in next_snapshot:
-            broadcaster.emit_device_change("deleted", device_id, None)
-
-    state.device_snapshot = next_snapshot
-
-
-@router.get("/devices", response_model=list[DeviceModel], response_model_by_alias=False)
-def list_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> list[DeviceModel]:
-    devices = _build_device_models(state)
-    _emit_device_changes(state, devices)
-    return devices
-
-
 @router.post("/devices/refresh", response_model=list[DeviceModel], response_model_by_alias=False)
-def refresh_devices(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> list[DeviceModel]:
+def refresh_devices(
+    _: None = Depends(auth_check), state: AppState = Depends(get_state)
+) -> list[DeviceModel]:
     """Force re-enumeration of all SDR devices.
 
     Invalidates the device cache and performs a fresh enumeration.
@@ -978,6 +968,7 @@ def get_sdrplay_health() -> dict[str, Any]:
     which can be used to detect stuck service states proactively.
     """
     from .devices.soapy import get_sdrplay_health_status
+
     health = get_sdrplay_health_status()
 
     # Also include recovery module status
@@ -996,7 +987,7 @@ def get_sdrplay_health() -> dict[str, Any]:
             "last_recovery_attempt": recovery.stats.last_recovery_attempt,
             "last_recovery_success": recovery.stats.last_recovery_success,
             "last_error": recovery.stats.last_error,
-        }
+        },
     }
 
 
@@ -1036,7 +1027,7 @@ def restart_sdrplay_service(_: None = Depends(auth_check)) -> dict[str, Any]:
     else:
         raise HTTPException(
             status_code=503,
-            detail=f"Failed to restart SDRplay service: {recovery.stats.last_error or 'Unknown error'}"
+            detail=f"Failed to restart SDRplay service: {recovery.stats.last_error or 'Unknown error'}",
         )
 
 
@@ -1069,8 +1060,7 @@ async def power_cycle_all_usb(
 
     if not is_uhubctl_available():
         raise HTTPException(
-            status_code=503,
-            detail="uhubctl not installed. Install with: brew install uhubctl"
+            status_code=503, detail="uhubctl not installed. Install with: brew install uhubctl"
         )
 
     # Stop all running captures first
@@ -1099,7 +1089,9 @@ async def power_cycle_all_usb(
 
 
 @router.post("/devices/usb/power-cycle/{capture_id}")
-async def power_cycle_capture_device(capture_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)) -> dict[str, Any]:
+async def power_cycle_capture_device(
+    capture_id: str, _: None = Depends(auth_check), state: AppState = Depends(get_state)
+) -> dict[str, Any]:
     """Power cycle the USB port for a capture's device.
 
     This performs a hardware reset by cycling the USB port power,
@@ -1113,8 +1105,7 @@ async def power_cycle_capture_device(capture_id: str, _: None = Depends(auth_che
 
     if not is_uhubctl_available():
         raise HTTPException(
-            status_code=503,
-            detail="uhubctl not installed. Install with: brew install uhubctl"
+            status_code=503, detail="uhubctl not installed. Install with: brew install uhubctl"
         )
 
     # Get the capture to find its device
@@ -1195,8 +1186,12 @@ def list_recipes(
         devices = state.captures.list_devices()
         device_stable_id = _get_stable_device_id(device_id)
         device_info = next(
-            (d for d in devices if d["id"] == device_id or _get_stable_device_id(d["id"]) == device_stable_id),
-            None
+            (
+                d
+                for d in devices
+                if d["id"] == device_id or _get_stable_device_id(d["id"]) == device_stable_id
+            ),
+            None,
         )
 
     recipes = []
@@ -1209,7 +1204,6 @@ def list_recipes(
                 squelchDb=ch.squelch_db,
                 enablePocsag=ch.enable_pocsag,
                 pocsagBaud=ch.pocsag_baud,
-                enableFlex=ch.enable_flex,
             )
             for ch in recipe_cfg.channels
         ]
@@ -1264,7 +1258,9 @@ def identify_frequency(
 
 
 @router.get("/captures", response_model=list[CaptureModel])
-def list_captures(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> list[CaptureModel]:
+def list_captures(
+    _: None = Depends(auth_check), state: AppState = Depends(get_state)
+) -> list[CaptureModel]:
     tm = getattr(state, "trunking_manager", None)
     return [_to_capture_model(c, tm) for c in state.captures.list_captures()]
 
@@ -1281,8 +1277,12 @@ def create_capture(
             devices = state.captures.list_devices()
             device_stable_id = _get_stable_device_id(req.deviceId)
             device_info = next(
-                (d for d in devices if d["id"] == req.deviceId or _get_stable_device_id(d["id"]) == device_stable_id),
-                None
+                (
+                    d
+                    for d in devices
+                    if d["id"] == req.deviceId or _get_stable_device_id(d["id"]) == device_stable_id
+                ),
+                None,
             )
             if device_info:
                 valid_rates = device_info.get("sample_rates", [])
@@ -1291,7 +1291,7 @@ def create_capture(
                     raise HTTPException(
                         status_code=400,
                         detail=f"Sample rate {req.sampleRate} is not supported by this device. "
-                               f"Valid rates: {[int(r) for r in valid_rates]}. Closest: {int(closest)}"
+                        f"Valid rates: {[int(r) for r in valid_rates]}. Closest: {int(closest)}",
                     )
         except HTTPException:
             raise  # Re-raise validation errors
@@ -1359,7 +1359,9 @@ def create_capture(
     get_broadcaster().emit_capture_change("created", cap.cfg.id, capture_model.model_dump())
     if default_channel:
         channel_model = _to_channel_model(default_channel)
-        get_broadcaster().emit_channel_change("created", default_channel.cfg.id, channel_model.model_dump())
+        get_broadcaster().emit_channel_change(
+            "created", default_channel.cfg.id, channel_model.model_dump()
+        )
 
     return capture_model
 
@@ -1380,7 +1382,7 @@ async def start_capture(
         raise HTTPException(
             status_code=409,
             detail=f"Capture is owned by trunking system '{cap.trunking_system_id}'. "
-                   f"Use trunking API to control it."
+            f"Use trunking API to control it.",
         )
 
     # Auto-stop other captures using the same device
@@ -1431,7 +1433,7 @@ async def stop_capture(
         raise HTTPException(
             status_code=409,
             detail=f"Capture is owned by trunking system '{cap.trunking_system_id}'. "
-                   f"Use trunking API to stop it."
+            f"Use trunking API to stop it.",
         )
 
     await cap.stop()
@@ -1462,7 +1464,9 @@ async def restart_capture(
     # Stop first (if running)
     if cap.state in ("running", "starting", "failed"):
         await cap.stop()
-        get_broadcaster().emit_capture_change("stopped", cid, _to_capture_model(cap, tm).model_dump())
+        get_broadcaster().emit_capture_change(
+            "stopped", cid, _to_capture_model(cap, tm).model_dump()
+        )
 
     # Brief pause to let SDR device settle
     await asyncio.sleep(0.5)
@@ -1474,7 +1478,9 @@ async def restart_capture(
     for ch in state.captures.list_channels(cid):
         if ch.state != "running":
             ch.start()
-            get_broadcaster().emit_channel_change("started", ch.cfg.id, _to_channel_model(ch).model_dump())
+            get_broadcaster().emit_channel_change(
+                "started", ch.cfg.id, _to_channel_model(ch).model_dump()
+            )
 
     # Emit capture started
     capture_model = _to_capture_model(cap, tm)
@@ -1503,6 +1509,7 @@ async def update_capture(
     state: AppState = Depends(get_state),
 ) -> CaptureModel:
     import traceback
+
     logger.info(f"PATCH /captures/{cid} - request: {req}")
     try:
         result = await _update_capture_impl(cid, req, state)
@@ -1517,7 +1524,9 @@ async def update_capture(
         raise HTTPException(status_code=500, detail=f"Internal error: {e!s}")
 
 
-async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppState) -> CaptureModel:
+async def _update_capture_impl(
+    cid: str, req: UpdateCaptureRequest, state: AppState
+) -> CaptureModel:
     cap = state.captures.get_capture(cid)
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
@@ -1529,7 +1538,7 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
         if cap.state in ("running", "starting"):
             raise HTTPException(
                 status_code=400,
-                detail="Cannot change device while capture is running. Stop the capture first."
+                detail="Cannot change device while capture is running. Stop the capture first.",
             )
 
         # Validate new device exists (use stable ID matching to handle volatile fields like 'tuner')
@@ -1552,14 +1561,15 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
                 devices.append({"id": cap_iter.cfg.device_id})
         req_stable_id = _get_stable_device_id(req.deviceId)
         new_device = next(
-            (d for d in devices if d["id"] == req.deviceId or _get_stable_device_id(d["id"]) == req_stable_id),
-            None
+            (
+                d
+                for d in devices
+                if d["id"] == req.deviceId or _get_stable_device_id(d["id"]) == req_stable_id
+            ),
+            None,
         )
         if new_device is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Device '{req.deviceId}' not found"
-            )
+            raise HTTPException(status_code=404, detail=f"Device '{req.deviceId}' not found")
 
         # Update device in config and requested_device_id (used when opening device)
         cap.cfg.device_id = req.deviceId
@@ -1574,8 +1584,12 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
     devices = state.captures.list_devices()
     cap_stable_id = _get_stable_device_id(cap.cfg.device_id)
     device_info = new_device_info or next(
-        (d for d in devices if d["id"] == cap.cfg.device_id or _get_stable_device_id(d["id"]) == cap_stable_id),
-        None
+        (
+            d
+            for d in devices
+            if d["id"] == cap.cfg.device_id or _get_stable_device_id(d["id"]) == cap_stable_id
+        ),
+        None,
     )
 
     # When device changes, auto-adjust parameters that don't fit the new device
@@ -1627,7 +1641,9 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
             adjusted_params.append(f"center_hz: {old_freq} -> {new_freq}")
 
         if adjusted_params:
-            logger.info(f"Auto-adjusted capture {cid} params for new device: {', '.join(adjusted_params)}")
+            logger.info(
+                f"Auto-adjusted capture {cid} params for new device: {', '.join(adjusted_params)}"
+            )
 
     if device_info:
         # Validate frequency range
@@ -1637,7 +1653,7 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
             if not (freq_min <= req.centerHz <= freq_max):
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Frequency {req.centerHz} Hz is out of range [{freq_min}, {freq_max}] for this device"
+                    detail=f"Frequency {req.centerHz} Hz is out of range [{freq_min}, {freq_max}] for this device",
                 )
 
         # Validate sample rate
@@ -1646,7 +1662,7 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
             if valid_rates and req.sampleRate not in valid_rates:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Sample rate {req.sampleRate} is not supported. Valid rates: {valid_rates}"
+                    detail=f"Sample rate {req.sampleRate} is not supported. Valid rates: {valid_rates}",
                 )
 
         # Validate gain range
@@ -1657,7 +1673,7 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
                 if not (gain_min <= req.gain <= gain_max):
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Gain {req.gain} dB is out of range [{gain_min}, {gain_max}] for this device"
+                        detail=f"Gain {req.gain} dB is out of range [{gain_min}, {gain_max}] for this device",
                     )
 
         # Validate bandwidth range
@@ -1668,7 +1684,7 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
                 if not (bw_min <= req.bandwidth <= bw_max):
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Bandwidth {req.bandwidth} Hz is out of range [{bw_min}, {bw_max}] for this device"
+                        detail=f"Bandwidth {req.bandwidth} Hz is out of range [{bw_min}, {bw_max}] for this device",
                     )
 
         # Validate PPM range
@@ -1679,7 +1695,7 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
                 if not (ppm_min <= req.ppm <= ppm_max):
                     raise HTTPException(
                         status_code=400,
-                        detail=f"PPM {req.ppm} is out of range [{ppm_min}, {ppm_max}] for this device"
+                        detail=f"PPM {req.ppm} is out of range [{ppm_min}, {ppm_max}] for this device",
                     )
 
         # Validate antenna
@@ -1688,7 +1704,7 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
             if valid_antennas and req.antenna not in valid_antennas:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Antenna '{req.antenna}' is not supported. Valid antennas: {valid_antennas}"
+                    detail=f"Antenna '{req.antenna}' is not supported. Valid antennas: {valid_antennas}",
                 )
 
     # Update user-provided name if given
@@ -1724,23 +1740,22 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
                 dc_offset_auto=req.dcOffsetAuto,
                 iq_balance_auto=req.iqBalanceAuto,
             ),
-            timeout=30.0  # 30 second timeout for reconfiguration
+            timeout=30.0,  # 30 second timeout for reconfiguration
         )
         # Also remove channels from CaptureManager's tracking
         for ch_id in removed_channel_ids:
             state.captures._channels.pop(ch_id, None)
         if removed_channel_ids:
-            logger.info(f"Removed {len(removed_channel_ids)} out-of-band channels: {removed_channel_ids}")
+            logger.info(
+                f"Removed {len(removed_channel_ids)} out-of-band channels: {removed_channel_ids}"
+            )
     except asyncio.TimeoutError:
         raise HTTPException(
             status_code=503,
-            detail="Capture reconfiguration timed out. The SDRplay service may be stuck. Try restarting the service."
+            detail="Capture reconfiguration timed out. The SDRplay service may be stuck. Try restarting the service.",
         )
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to reconfigure capture: {e!s}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to reconfigure capture: {e!s}")
 
     # Regenerate auto_name if frequency or device changed
     if req.centerHz is not None or req.deviceId is not None:
@@ -1778,6 +1793,7 @@ async def _update_capture_impl(cid: str, req: UpdateCaptureRequest, state: AppSt
             # Save the updated config to file
             try:
                 from .config import save_config
+
                 save_config(state.config, state.config_path)
             except Exception as e:
                 # Log error but don't fail the request - the settings are already applied in memory
@@ -1803,7 +1819,7 @@ async def delete_capture(
         raise HTTPException(
             status_code=409,
             detail=f"Capture is owned by trunking system '{cap.trunking_system_id}'. "
-                   f"Delete the trunking system instead."
+            f"Delete the trunking system instead.",
         )
 
     # Get channel IDs before deletion to emit events
@@ -1850,14 +1866,6 @@ def create_channel(
     # Set notch frequencies if provided
     if req.notchFrequencies is not None:
         ch.cfg.notch_frequencies = req.notchFrequencies
-
-    # Pager decoding settings
-    if req.enablePocsag is not None:
-        ch.cfg.enable_pocsag = req.enablePocsag
-    if req.pocsagBaud is not None:
-        ch.cfg.pocsag_baud = req.pocsagBaud
-    if req.enableFlex is not None:
-        ch.cfg.enable_flex = req.enableFlex
 
     # Apply SSB settings if provided
     if req.ssbMode is not None:
@@ -1977,9 +1985,6 @@ def get_channel(
         enableNoiseReduction=ch.cfg.enable_noise_reduction,
         noiseReductionDb=ch.cfg.noise_reduction_db,
         rdsData=_to_rds_data_model(ch.rds_data),
-        enablePocsag=ch.cfg.enable_pocsag,
-        pocsagBaud=ch.cfg.pocsag_baud,
-        enableFlex=ch.cfg.enable_flex,
     )
 
 
@@ -2060,22 +2065,6 @@ def update_channel(
     if req.noiseReductionDb is not None:
         ch.cfg.noise_reduction_db = req.noiseReductionDb
 
-    # Pager decoding settings
-    if req.enablePocsag is not None:
-        ch.cfg.enable_pocsag = req.enablePocsag
-        if not req.enablePocsag:
-            ch._pocsag_decoder = None
-            ch._pocsag_messages.clear()
-    if req.pocsagBaud is not None:
-        ch.cfg.pocsag_baud = req.pocsagBaud
-        ch._pocsag_decoder = None
-    if req.enableFlex is not None:
-        ch.cfg.enable_flex = req.enableFlex
-        if not req.enableFlex and ch._flex_decoder is not None:
-            ch._flex_decoder.stop()
-            ch._flex_decoder = None
-            ch._flex_messages.clear()
-
     # Regenerate auto_name if offset changed
     if req.offsetHz is not None:
         cap = state.captures.get_capture(ch.cfg.capture_id)
@@ -2108,6 +2097,7 @@ def delete_channel(
 # Signal monitoring endpoints (for Claude skills)
 # ==============================================================================
 
+
 def _rssi_to_s_units(rssi_db: float | None) -> str | None:
     """Convert RSSI in dB to S-meter units (S0-S9, S9+10, etc.)."""
     if rssi_db is None:
@@ -2137,6 +2127,7 @@ def get_spectrum_snapshot(
     Useful for scripts and Claude skills that need spectrum data.
     """
     import time
+
     cap = state.captures.get_capture(cid)
     if cap is None:
         raise HTTPException(status_code=404, detail="Capture not found")
@@ -2212,6 +2203,7 @@ def get_channel_extended_metrics(
     and stream health metrics. Useful for tuning and monitoring.
     """
     import time
+
     ch = state.captures.get_channel(chan_id)
     if ch is None:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -2256,6 +2248,7 @@ def get_channel_metrics_history(
     will maintain a rolling buffer of metrics.
     """
     import time
+
     ch = state.captures.get_channel(chan_id)
     if ch is None:
         raise HTTPException(status_code=404, detail="Channel not found")
@@ -2313,37 +2306,6 @@ def get_channel_pocsag_messages(
             timestamp=msg["timestamp"],
             baudRate=msg["baudRate"],
             alias=pocsag_aliases.get(msg["address"]),
-        )
-        for msg in messages
-    ]
-
-
-@router.get("/channels/{chan_id}/decode/flex", response_model=list[FlexMessageModel])
-def get_channel_flex_messages(
-    chan_id: str,
-    limit: int = 50,
-    since: float | None = None,
-    _: None = Depends(auth_check),
-    state: AppState = Depends(get_state),
-) -> list[FlexMessageModel]:
-    """Get decoded FLEX pager messages from an NBFM channel."""
-    ch = state.captures.get_channel(chan_id)
-    if ch is None:
-        raise HTTPException(status_code=404, detail="Channel not found")
-
-    messages = ch.get_flex_messages(limit=limit, since_timestamp=since)
-    return [
-        FlexMessageModel(
-            capcode=msg["capcode"],
-            messageType=msg["messageType"],
-            message=msg["message"],
-            timestamp=msg["timestamp"],
-            baudRate=msg.get("baudRate"),
-            levels=msg.get("levels"),
-            phase=msg.get("phase"),
-            cycleNumber=msg.get("cycleNumber"),
-            frameNumber=msg.get("frameNumber"),
-            alias=None,
         )
         for msg in messages
     ]
@@ -2420,7 +2382,10 @@ async def stream_capture_spectrum(websocket: WebSocket, cid: str) -> None:
         logger.info(f"Spectrum WebSocket stream cancelled for capture {cid}")
         raise
     except Exception as e:
-        logger.error(f"Spectrum WebSocket stream error for capture {cid}: {type(e).__name__}: {e}", exc_info=True)
+        logger.error(
+            f"Spectrum WebSocket stream error for capture {cid}: {type(e).__name__}: {e}",
+            exc_info=True,
+        )
         raise
     finally:
         cap.unsubscribe_fft(q)
@@ -2453,7 +2418,9 @@ async def stream_channel_http(
 
     async def audio_generator() -> AsyncGenerator[bytes, None]:
         q = await ch.subscribe_audio(format=format)
-        logger.info(f"HTTP stream started for channel {chan_id}, format={format}, client={request.client}")
+        logger.info(
+            f"HTTP stream started for channel {chan_id}, format={format}, client={request.client}"
+        )
         packet_count = 0
         try:
             while True:
@@ -2474,7 +2441,9 @@ async def stream_channel_http(
             logger.info(f"HTTP stream cancelled for channel {chan_id}")
             raise  # Re-raise to properly handle cancellation
         except Exception as e:
-            logger.error(f"HTTP stream error for channel {chan_id}: {type(e).__name__}: {e}", exc_info=True)
+            logger.error(
+                f"HTTP stream error for channel {chan_id}: {type(e).__name__}: {e}", exc_info=True
+            )
             raise  # Re-raise to notify client of error
         finally:
             ch.unsubscribe(q)
@@ -2527,7 +2496,9 @@ async def stream_channel_mp3(
             logger.info(f"MP3 stream cancelled for channel {chan_id}")
             raise
         except Exception as e:
-            logger.error(f"MP3 stream error for channel {chan_id}: {type(e).__name__}: {e}", exc_info=True)
+            logger.error(
+                f"MP3 stream error for channel {chan_id}: {type(e).__name__}: {e}", exc_info=True
+            )
             raise
         finally:
             ch.unsubscribe(q)
@@ -2575,7 +2546,9 @@ async def stream_channel_opus(
             logger.info(f"Opus stream cancelled for channel {chan_id}")
             raise
         except Exception as e:
-            logger.error(f"Opus stream error for channel {chan_id}: {type(e).__name__}: {e}", exc_info=True)
+            logger.error(
+                f"Opus stream error for channel {chan_id}: {type(e).__name__}: {e}", exc_info=True
+            )
             raise
         finally:
             ch.unsubscribe(q)
@@ -2623,7 +2596,9 @@ async def stream_channel_aac(
             logger.info(f"AAC stream cancelled for channel {chan_id}")
             raise
         except Exception as e:
-            logger.error(f"AAC stream error for channel {chan_id}: {type(e).__name__}: {e}", exc_info=True)
+            logger.error(
+                f"AAC stream error for channel {chan_id}: {type(e).__name__}: {e}", exc_info=True
+            )
             raise
         finally:
             ch.unsubscribe(q)
@@ -2672,7 +2647,9 @@ async def stream_channel_audio(websocket: WebSocket, chan_id: str, format: str =
         return
     q = await ch.subscribe_audio(format=format_param)
 
-    logger.info(f"WebSocket stream started for channel {chan_id}, format={format_param}, client={websocket.client}")
+    logger.info(
+        f"WebSocket stream started for channel {chan_id}, format={format_param}, client={websocket.client}"
+    )
     try:
         while True:
             data = await q.get()
@@ -2683,7 +2660,9 @@ async def stream_channel_audio(websocket: WebSocket, chan_id: str, format: str =
         logger.info(f"WebSocket stream cancelled for channel {chan_id}")
         raise
     except Exception as e:
-        logger.error(f"WebSocket stream error for channel {chan_id}: {type(e).__name__}: {e}", exc_info=True)
+        logger.error(
+            f"WebSocket stream error for channel {chan_id}: {type(e).__name__}: {e}", exc_info=True
+        )
         raise
     finally:
         ch.unsubscribe(q)
@@ -2693,6 +2672,7 @@ async def stream_channel_audio(websocket: WebSocket, chan_id: str, format: str =
 # ==============================================================================
 # Health/Error Stream
 # ==============================================================================
+
 
 @router.websocket("/stream/health")
 async def stream_health(websocket: WebSocket) -> None:
@@ -2750,13 +2730,12 @@ async def stream_health(websocket: WebSocket) -> None:
             except asyncio.TimeoutError:
                 # Send periodic stats
                 stats = tracker.get_stats()
-                await websocket.send_json({
-                    "type": "stats",
-                    "data": {
-                        error_type: stat.to_dict()
-                        for error_type, stat in stats.items()
-                    },
-                })
+                await websocket.send_json(
+                    {
+                        "type": "stats",
+                        "data": {error_type: stat.to_dict() for error_type, stat in stats.items()},
+                    }
+                )
     except WebSocketDisconnect:
         pass
     except asyncio.CancelledError:
@@ -2769,6 +2748,7 @@ async def stream_health(websocket: WebSocket) -> None:
 # State Stream (replaces polling)
 # ==============================================================================
 
+
 @router.websocket("/stream/state")
 async def stream_state(websocket: WebSocket) -> None:
     """Real-time state change stream for captures, channels, and scanners.
@@ -2779,8 +2759,7 @@ async def stream_state(websocket: WebSocket) -> None:
     - {"type": "capture", "action": "created|updated|deleted|started|stopped", "id": "...", "data": {...}}
     - {"type": "channel", "action": "created|updated|deleted|started|stopped", "id": "...", "data": {...}}
     - {"type": "scanner", "action": "created|updated|deleted|started|stopped", "id": "...", "data": {...}}
-    - {"type": "device", "action": "created|updated|deleted", "id": "...", "data": {...}}
-    - {"type": "snapshot", "captures": [...], "channels": [...], "scanners": [...], "devices": [...]}
+    - {"type": "snapshot", "captures": [...], "channels": [...], "scanners": [...]}
 
     On connect, sends a full state snapshot, then pushes incremental changes.
     """
@@ -2793,67 +2772,41 @@ async def stream_state(websocket: WebSocket) -> None:
     app_state: AppState = websocket.app.state.app_state
     broadcaster = get_broadcaster()
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
-    snapshot_event = asyncio.Event()
 
     def on_state_change(change: Any) -> None:
         try:
             queue.put_nowait(change.to_dict())
         except asyncio.QueueFull:
-            snapshot_event.set()  # Trigger resync when queue overflows
+            pass  # Drop if queue is full
 
     unsubscribe = broadcaster.subscribe(on_state_change)
 
-    async def send_snapshot() -> None:
-        tm = getattr(app_state, "trunking_manager", None)
-        captures = [_to_capture_model(c, tm).model_dump() for c in app_state.captures.list_captures()]
-        channels = [_to_channel_model(ch).model_dump() for ch in app_state.captures.list_channels()]
-        scanners = [
-            _to_scanner_model(sid, s).model_dump()
-            for sid, s in app_state.scanners.items()
-        ]
-        device_models = _build_device_models(app_state)
-        device_data = [device.model_dump() for device in device_models]
-        devices = device_data
-        app_state.device_snapshot = {device["id"]: device for device in device_data}
-        await websocket.send_json({
-            "type": "snapshot",
-            "captures": captures,
-            "channels": channels,
-            "scanners": scanners,
-            "devices": devices,
-        })
-
     try:
         # Send initial full state snapshot
-        await send_snapshot()
+        tm = getattr(app_state, "trunking_manager", None)
+        captures = [
+            _to_capture_model(c, tm).model_dump() for c in app_state.captures.list_captures()
+        ]
+        channels = [_to_channel_model(ch).model_dump() for ch in app_state.captures.list_channels()]
+        scanners = [_to_scanner_model(sid, s).model_dump() for sid, s in app_state.scanners.items()]
+
+        await websocket.send_json(
+            {
+                "type": "snapshot",
+                "captures": captures,
+                "channels": channels,
+                "scanners": scanners,
+            }
+        )
 
         # Then stream incremental changes with periodic keepalive
         while True:
-            queue_task = asyncio.create_task(queue.get())
-            snapshot_task = asyncio.create_task(snapshot_event.wait())
-            done, pending = await asyncio.wait(
-                {queue_task, snapshot_task},
-                timeout=30.0,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-
-            for task in pending:
-                task.cancel()
-
-            if not done:
+            try:
+                msg = await asyncio.wait_for(queue.get(), timeout=30.0)
+                await websocket.send_json(msg)
+            except asyncio.TimeoutError:
+                # Send keepalive ping
                 await websocket.send_json({"type": "ping", "timestamp": time.time()})
-                continue
-
-            if snapshot_task in done:
-                snapshot_event.clear()
-                with contextlib.suppress(asyncio.QueueEmpty):
-                    while True:
-                        queue.get_nowait()
-                await send_snapshot()
-                continue
-
-            msg = queue_task.result()
-            await websocket.send_json(msg)
     except WebSocketDisconnect:
         logger.info("WebSocket /api/v1/stream/state disconnected")
     except asyncio.CancelledError:
@@ -2950,10 +2903,12 @@ async def stream_system(websocket: WebSocket) -> None:
     try:
         # Send initial snapshot of recent logs
         recent_logs = log_streamer.get_recent(100)
-        await websocket.send_json({
-            "type": "logs_snapshot",
-            "entries": [e.to_dict() for e in recent_logs],
-        })
+        await websocket.send_json(
+            {
+                "type": "logs_snapshot",
+                "entries": [e.to_dict() for e in recent_logs],
+            }
+        )
 
         while True:
             # Drain queue with 1 second timeout for metrics
@@ -2964,11 +2919,13 @@ async def stream_system(websocket: WebSocket) -> None:
                 # Send periodic metrics every second
                 system = get_system_metrics()
                 captures = get_capture_metrics(state)
-                await websocket.send_json({
-                    "type": "metrics",
-                    "system": system.to_dict(),
-                    "captures": [c.to_dict() for c in captures],
-                })
+                await websocket.send_json(
+                    {
+                        "type": "metrics",
+                        "system": system.to_dict(),
+                        "captures": [c.to_dict() for c in captures],
+                    }
+                )
     except WebSocketDisconnect:
         logger.info("WebSocket /api/v1/stream/system disconnected")
     except asyncio.CancelledError:
@@ -3076,21 +3033,14 @@ def create_scanner(
 
     # Store scanner
     state.scanners[scanner_id] = scanner
-    scanner.set_status_callback(
-        lambda: get_broadcaster().emit_scanner_change(
-            "updated",
-            scanner_id,
-            _to_scanner_model(scanner_id, scanner).model_dump(),
-        )
-    )
 
-    scanner_model = _to_scanner_model(scanner_id, scanner)
-    get_broadcaster().emit_scanner_change("created", scanner_id, scanner_model.model_dump())
-    return scanner_model
+    return _to_scanner_model(scanner_id, scanner)
 
 
 @router.get("/scanners", response_model=list[ScannerModel])
-def list_scanners(_: None = Depends(auth_check), state: AppState = Depends(get_state)) -> list[ScannerModel]:
+def list_scanners(
+    _: None = Depends(auth_check), state: AppState = Depends(get_state)
+) -> list[ScannerModel]:
     """List all scanners."""
     return [_to_scanner_model(sid, scanner) for sid, scanner in state.scanners.items()]
 
@@ -3105,9 +3055,7 @@ def get_scanner(
     scanner = state.scanners.get(sid)
     if scanner is None:
         raise HTTPException(status_code=404, detail=f"Scanner {sid} not found")
-    scanner_model = _to_scanner_model(sid, scanner)
-    get_broadcaster().emit_scanner_change("updated", sid, scanner_model.model_dump())
-    return scanner_model
+    return _to_scanner_model(sid, scanner)
 
 
 @router.patch("/scanners/{sid}", response_model=ScannerModel)
@@ -3159,7 +3107,6 @@ def delete_scanner(
 
     # Remove from state
     del state.scanners[sid]
-    get_broadcaster().emit_scanner_change("deleted", sid, None)
     return Response(status_code=204)
 
 
@@ -3311,6 +3258,7 @@ from pydantic import BaseModel
 
 class FrontendErrorReport(BaseModel):
     """Error report from the frontend JavaScript application."""
+
     level: str = "error"  # error, warn, info, debug
     message: str
     stack: str | None = None
@@ -3323,6 +3271,7 @@ class FrontendErrorReport(BaseModel):
 
 class FrontendLogEntry(BaseModel):
     """Single log entry from frontend logger."""
+
     timestamp: str
     level: str
     message: str
@@ -3333,6 +3282,7 @@ class FrontendLogEntry(BaseModel):
 
 class FrontendLogBatch(BaseModel):
     """Batch of log entries from frontend."""
+
     entries: list[FrontendLogEntry]
 
 

@@ -45,14 +45,16 @@ logger = logging.getLogger(__name__)
 
 class SyncState(str, Enum):
     """Frame synchronization state."""
+
     SEARCHING = "searching"  # Looking for frame sync pattern
-    SYNCED = "synced"        # Locked to frame timing
+    SYNCED = "synced"  # Locked to frame timing
 
 
 class P25Modulation(str, Enum):
     """P25 modulation types."""
-    C4FM = "c4fm"    # Standard non-simulcast
-    LSM = "lsm"      # Linear Simulcast Modulation (CQPSK)
+
+    C4FM = "c4fm"  # Standard non-simulcast
+    LSM = "lsm"  # Linear Simulcast Modulation (CQPSK)
 
 
 @dataclass
@@ -188,13 +190,15 @@ class ControlChannelMonitor:
             raise ValueError("ControlChannelMonitor.process_iq: non-finite IQ samples")
 
         # DEBUG: Track call count
-        if not hasattr(self, '_process_iq_calls'):
+        if not hasattr(self, "_process_iq_calls"):
             self._process_iq_calls = 0
         self._process_iq_calls += 1
         _verbose = self._process_iq_calls <= 5
 
         if _verbose:
-            logger.debug(f"ControlChannelMonitor.process_iq: ENTRY call #{self._process_iq_calls}, iq.size={iq.size}")
+            logger.debug(
+                f"ControlChannelMonitor.process_iq: ENTRY call #{self._process_iq_calls}, iq.size={iq.size}"
+            )
 
         # Demodulate to dibits using C4FM (control channels always use C4FM)
         soft: NDArrayFloat | None = None
@@ -208,7 +212,9 @@ class ControlChannelMonitor:
                     # CQPSK demodulator returns dibits only
                     dibits = self._demod.demodulate(iq.astype(np.complex64))
             if _verbose:
-                logger.debug(f"ControlChannelMonitor.process_iq: demodulate returned {len(dibits)} dibits")
+                logger.debug(
+                    f"ControlChannelMonitor.process_iq: demodulate returned {len(dibits)} dibits"
+                )
         else:
             return []
 
@@ -216,7 +222,7 @@ class ControlChannelMonitor:
             return []
 
         # Debug: log dibit count periodically (DEBUG level, less frequent)
-        if hasattr(self, '_dibit_debug_count'):
+        if hasattr(self, "_dibit_debug_count"):
             self._dibit_debug_count += len(dibits)
             if self._dibit_debug_count >= 50000:  # Reduced frequency
                 logger.debug(
@@ -235,7 +241,9 @@ class ControlChannelMonitor:
         _cc_profiler.report()
         return results
 
-    def _process_dibits(self, dibits: NDArrayInt, soft: NDArrayFloat | None) -> list[dict[str, Any]]:
+    def _process_dibits(
+        self, dibits: NDArrayInt, soft: NDArrayFloat | None
+    ) -> list[dict[str, Any]]:
         """Process demodulated dibits and extract TSBK messages.
 
         Args:
@@ -259,16 +267,14 @@ class ControlChannelMonitor:
                 soft = -soft
 
         # [DIAG-POLARITY] Log polarity state periodically
-        if not hasattr(self, '_polarity_diag_count'):
+        if not hasattr(self, "_polarity_diag_count"):
             self._polarity_diag_count = 0
         self._polarity_diag_count += 1
-        if self._polarity_diag_count % 500 == 1 and logger.isEnabledFor(logging.DEBUG):
+        if self._polarity_diag_count % 500 == 1:
             sample = dibits[:8].tolist() if len(dibits) >= 8 else dibits.tolist()
-            logger.debug(
-                "[DIAG-POLARITY] reverse_p=%s, latched=%s, first_8_dibits_after_correction=%s",
-                self._reverse_p,
-                getattr(self, "_polarity_latched", False),
-                sample,
+            logger.info(
+                f"[DIAG-POLARITY] reverse_p={self._reverse_p}, latched={getattr(self, '_polarity_latched', False)}, "
+                f"first_8_dibits_after_correction={sample}"
             )
 
         # Add to buffer
@@ -284,9 +290,9 @@ class ControlChannelMonitor:
                 if sync_idx < 0:
                     # Not found, keep last (FRAME_SYNC_DIBITS - 1) dibits
                     if len(self._dibit_buffer) > self.FRAME_SYNC_DIBITS:
-                        self._dibit_buffer = self._dibit_buffer[-(self.FRAME_SYNC_DIBITS - 1):]
+                        self._dibit_buffer = self._dibit_buffer[-(self.FRAME_SYNC_DIBITS - 1) :]
                         if self._soft_buffer:
-                            self._soft_buffer = self._soft_buffer[-(self.FRAME_SYNC_DIBITS - 1):]
+                            self._soft_buffer = self._soft_buffer[-(self.FRAME_SYNC_DIBITS - 1) :]
                     break
 
                 # Found sync pattern
@@ -302,48 +308,54 @@ class ControlChannelMonitor:
 
             # In synced state, try to decode frame
             # Debug: track frame decode attempts
-            if not hasattr(self, '_decode_attempts'):
+            if not hasattr(self, "_decode_attempts"):
                 self._decode_attempts = 0
             self._decode_attempts += 1
             if self._decode_attempts % 500 == 1:  # Reduced frequency
-                logger.debug(f"ControlChannelMonitor: Frame decode attempt {self._decode_attempts}, buffer={len(self._dibit_buffer)}")
+                logger.debug(
+                    f"ControlChannelMonitor: Frame decode attempt {self._decode_attempts}, buffer={len(self._dibit_buffer)}"
+                )
 
             if len(self._dibit_buffer) < self.TSDU_FRAME_DIBITS:
                 # Need more dibits
                 break
 
             # Extract frame
-            frame_dibits = np.array(self._dibit_buffer[:self.TSDU_FRAME_DIBITS], dtype=np.uint8)
+            frame_dibits = np.array(self._dibit_buffer[: self.TSDU_FRAME_DIBITS], dtype=np.uint8)
             frame_soft = None
             if self._soft_buffer and len(self._soft_buffer) >= self.TSDU_FRAME_DIBITS:
-                frame_soft = np.array(self._soft_buffer[:self.TSDU_FRAME_DIBITS], dtype=np.float32)
+                frame_soft = np.array(self._soft_buffer[: self.TSDU_FRAME_DIBITS], dtype=np.float32)
 
             # Verify sync pattern at start of frame using soft correlation
-            frame_sync = frame_dibits[:self.FRAME_SYNC_DIBITS]
+            frame_sync = frame_dibits[: self.FRAME_SYNC_DIBITS]
             sync_score, _ = self._soft_correlation(frame_sync.tolist())
             if sync_score < self.SOFT_SYNC_THRESHOLD:  # Match search tolerance
                 # Lost sync
                 self.sync_state = SyncState.SEARCHING
                 self.sync_losses += 1
-                logger.warning(f"ControlChannelMonitor: Lost frame sync (score={sync_score:.1f} < {self.SOFT_SYNC_THRESHOLD})")
+                logger.warning(
+                    f"ControlChannelMonitor: Lost frame sync (score={sync_score:.1f} < {self.SOFT_SYNC_THRESHOLD})"
+                )
                 if self.on_sync_lost:
                     self.on_sync_lost()
                 # Don't consume dibits, let search find next sync
                 continue
             # Debug: log successful sync verification (every 50 frames)
-            if not hasattr(self, '_verified_frames'):
+            if not hasattr(self, "_verified_frames"):
                 self._verified_frames = 0
             self._verified_frames += 1
             if self._verified_frames % 500 == 1:  # Reduced frequency
-                logger.debug(f"ControlChannelMonitor: Sync verified (frame {self._verified_frames}, score={sync_score:.1f})")
+                logger.debug(
+                    f"ControlChannelMonitor: Sync verified (frame {self._verified_frames}, score={sync_score:.1f})"
+                )
 
             # Decode NID (Network ID) after sync
             # NID is 32 dibits of data, but there's a status symbol at position 12
             # (36 dibits from frame start = 24 sync + 12 into NID), so we need 33 dibits
-            nid_dibits = frame_dibits[self.FRAME_SYNC_DIBITS:self.FRAME_SYNC_DIBITS + 33]
+            nid_dibits = frame_dibits[self.FRAME_SYNC_DIBITS : self.FRAME_SYNC_DIBITS + 33]
 
             # Debug: log NID dibits for first few frames
-            if not hasattr(self, '_frame_count'):
+            if not hasattr(self, "_frame_count"):
                 self._frame_count = 0
             self._frame_count += 1
 
@@ -361,7 +373,7 @@ class ControlChannelMonitor:
             nid = decode_nid(nid_dibits, skip_status_at_10=True, nac_tracker=self._nac_tracker)
 
             # [DIAG-STAGE7] NID decode statistics
-            if not hasattr(self, '_diag_nid_count'):
+            if not hasattr(self, "_diag_nid_count"):
                 self._diag_nid_count = 0
                 self._diag_nid_valid = 0
                 self._diag_last_nacs = []
@@ -373,19 +385,19 @@ class ControlChannelMonitor:
                     self._diag_last_nacs = self._diag_last_nacs[-20:]
 
             if self._diag_nid_count % 20 == 0:
-                valid_rate = 100.0 * self._diag_nid_valid / self._diag_nid_count if self._diag_nid_count > 0 else 0.0
+                valid_rate = (
+                    100.0 * self._diag_nid_valid / self._diag_nid_count
+                    if self._diag_nid_count > 0
+                    else 0.0
+                )
                 # Check NAC consistency - all same = good, all different = bad
                 unique_nacs = set(self._diag_last_nacs)
                 nac_str = ",".join([f"0x{n:03x}" for n in list(unique_nacs)[:5]])
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "[DIAG-STAGE7] NID: count=%d, valid=%d, rate=%.1f%%, unique_nacs=%d, recent_nacs=[%s]",
-                        self._diag_nid_count,
-                        self._diag_nid_valid,
-                        valid_rate,
-                        len(unique_nacs),
-                        nac_str,
-                    )
+                logger.info(
+                    f"[DIAG-STAGE7] NID: count={self._diag_nid_count}, "
+                    f"valid={self._diag_nid_valid}, rate={valid_rate:.1f}%, "
+                    f"unique_nacs={len(unique_nacs)}, recent_nacs=[{nac_str}]"
+                )
 
             # Debug: log every 100th frame (less frequent)
             if self._frame_count <= 3 or self._frame_count % 100 == 1:
@@ -404,10 +416,14 @@ class ControlChannelMonitor:
 
             if nid is not None and nid.duid == DUID.TSDU:
                 # This is a TSDU frame - decode it
-                logger.debug(f"ControlChannelMonitor: Calling decode_tsdu on TSDU frame, frame_len={len(frame_dibits)}")
+                logger.debug(
+                    f"ControlChannelMonitor: Calling decode_tsdu on TSDU frame, frame_len={len(frame_dibits)}"
+                )
                 tsdu = decode_tsdu(frame_dibits, frame_soft)
                 if tsdu:
-                    logger.debug(f"ControlChannelMonitor: decode_tsdu returned {len(tsdu.tsbk_blocks) if tsdu.tsbk_blocks else 0} TSBK blocks")
+                    logger.debug(
+                        f"ControlChannelMonitor: decode_tsdu returned {len(tsdu.tsbk_blocks) if tsdu.tsbk_blocks else 0} TSBK blocks"
+                    )
                 else:
                     logger.debug("ControlChannelMonitor: decode_tsdu returned None")
                 if tsdu and tsdu.tsbk_blocks:
@@ -433,7 +449,7 @@ class ControlChannelMonitor:
                             if self.tsbk_attempts <= 10 or self.tsbk_attempts % 50 == 0:
                                 logger.warning(
                                     f"TSBK CRC failed: attempts={self.tsbk_attempts}, "
-                                    f"pass_rate={100*self.tsbk_crc_pass/self.tsbk_attempts:.1f}%"
+                                    f"pass_rate={100 * self.tsbk_crc_pass / self.tsbk_attempts:.1f}%"
                                 )
                             continue  # Skip blocks with bad CRC
 
@@ -441,17 +457,17 @@ class ControlChannelMonitor:
                         self.tsbk_crc_pass += 1
 
                         # [DIAG-STAGE7b] TSBK CRC statistics (every 20 attempts)
-                        if self.tsbk_attempts % 20 == 0 and logger.isEnabledFor(logging.DEBUG):
+                        if self.tsbk_attempts % 20 == 0:
                             crc_rate = 100.0 * self.tsbk_crc_pass / self.tsbk_attempts
-                            logger.debug(
-                                "[DIAG-STAGE7b] TSBK: attempts=%d, crc_pass=%d, rate=%.1f%%",
-                                self.tsbk_attempts,
-                                self.tsbk_crc_pass,
-                                crc_rate,
+                            logger.info(
+                                f"[DIAG-STAGE7b] TSBK: attempts={self.tsbk_attempts}, "
+                                f"crc_pass={self.tsbk_crc_pass}, rate={crc_rate:.1f}%"
                             )
 
                         # Pass opcode and mfid from TSBKBlock to parser
-                        result = self._parse_tsbk(tsbk_block.opcode, tsbk_block.mfid, tsbk_block.data)
+                        result = self._parse_tsbk(
+                            tsbk_block.opcode, tsbk_block.mfid, tsbk_block.data
+                        )
                         if result:
                             results.append(result)
                             self.tsbk_decoded += 1
@@ -502,22 +518,78 @@ class ControlChannelMonitor:
     def last_sync_age(self) -> float:
         """Get seconds since last sync detection."""
         if self._last_sync_time == 0.0:
-            return float('inf')
+            return float("inf")
         return time.time() - self._last_sync_time
 
     # Soft correlation constants (same as P25FrameSync)
-    SYNC_PATTERN_SYMBOLS = np.array([+3, +3, +3, +3, +3, -3, +3, +3, -3, -3, +3, +3,
-                                      -3, -3, -3, -3, +3, -3, +3, -3, -3, -3, -3, -3], dtype=np.float32)
+    SYNC_PATTERN_SYMBOLS = np.array(
+        [
+            +3,
+            +3,
+            +3,
+            +3,
+            +3,
+            -3,
+            +3,
+            +3,
+            -3,
+            -3,
+            +3,
+            +3,
+            -3,
+            -3,
+            -3,
+            -3,
+            +3,
+            -3,
+            +3,
+            -3,
+            -3,
+            -3,
+            -3,
+            -3,
+        ],
+        dtype=np.float32,
+    )
     # Reversed polarity sync pattern (negated symbols)
-    SYNC_PATTERN_SYMBOLS_REV = np.array([-3, -3, -3, -3, -3, +3, -3, -3, +3, +3, -3, -3,
-                                          +3, +3, +3, +3, -3, +3, -3, +3, +3, +3, +3, +3], dtype=np.float32)
+    SYNC_PATTERN_SYMBOLS_REV = np.array(
+        [
+            -3,
+            -3,
+            -3,
+            -3,
+            -3,
+            +3,
+            -3,
+            -3,
+            +3,
+            +3,
+            -3,
+            -3,
+            +3,
+            +3,
+            +3,
+            +3,
+            -3,
+            +3,
+            -3,
+            +3,
+            +3,
+            +3,
+            +3,
+            +3,
+        ],
+        dtype=np.float32,
+    )
     DIBIT_TO_SYMBOL = np.array([+1.0, +3.0, -1.0, -3.0], dtype=np.float32)
     # SDRTrunk uses 80 with radian-scale symbols (max ~133), which is 60% of max
     # WaveCap uses ±3 normalized symbols (max 216), so 60% = 130
     # Raise to 130 to eliminate false positive sync detection on noise
     SOFT_SYNC_THRESHOLD = 130  # 60% of max (216), equivalent to SDRTrunk's 80/133
 
-    def _soft_correlation(self, dibits: list[int], detect_polarity: bool = False) -> tuple[float, bool]:
+    def _soft_correlation(
+        self, dibits: list[int], detect_polarity: bool = False
+    ) -> tuple[float, bool]:
         """Compute soft correlation score between dibits and sync pattern.
 
         SDRTrunk-style: dot product of received symbols with ideal sync symbols.
@@ -556,7 +628,7 @@ class ControlChannelMonitor:
             return -1
 
         # Debug: Log buffer sample periodically
-        if not hasattr(self, '_find_sync_calls'):
+        if not hasattr(self, "_find_sync_calls"):
             self._find_sync_calls = 0
         self._find_sync_calls += 1
         verbose = self._find_sync_calls <= 3 or self._find_sync_calls % 500 == 0
@@ -567,7 +639,7 @@ class ControlChannelMonitor:
 
         # Search for sync using soft correlation with polarity detection
         for i in range(len(self._dibit_buffer) - self.FRAME_SYNC_DIBITS + 1):
-            window = self._dibit_buffer[i:i + self.FRAME_SYNC_DIBITS]
+            window = self._dibit_buffer[i : i + self.FRAME_SYNC_DIBITS]
             score, is_reversed = self._soft_correlation(window, detect_polarity=True)
 
             if score > best_score:
@@ -576,7 +648,7 @@ class ControlChannelMonitor:
                 best_is_reversed = is_reversed
 
         # [DIAG-STAGE6] Sync detection statistics
-        if not hasattr(self, '_diag_sync_attempts'):
+        if not hasattr(self, "_diag_sync_attempts"):
             self._diag_sync_attempts = 0
             self._diag_sync_found = 0
         self._diag_sync_attempts += 1
@@ -584,38 +656,32 @@ class ControlChannelMonitor:
             self._diag_sync_found += 1
 
         if self._diag_sync_attempts % 50 == 0:
-            sync_rate = 100.0 * self._diag_sync_found / self._diag_sync_attempts if self._diag_sync_attempts > 0 else 0.0
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "[DIAG-STAGE6] Sync: attempts=%s, found=%s, rate=%.1f%%, best_score=%.1f, "
-                    "threshold=%s, polarity=%s",
-                    self._diag_sync_attempts,
-                    self._diag_sync_found,
-                    sync_rate,
-                    best_score,
-                    self.SOFT_SYNC_THRESHOLD,
-                    "reversed" if best_is_reversed else "normal",
-                )
+            sync_rate = (
+                100.0 * self._diag_sync_found / self._diag_sync_attempts
+                if self._diag_sync_attempts > 0
+                else 0.0
+            )
+            logger.info(
+                f"[DIAG-STAGE6] Sync: attempts={self._diag_sync_attempts}, "
+                f"found={self._diag_sync_found}, rate={sync_rate:.1f}%, "
+                f"best_score={best_score:.1f}, threshold={self.SOFT_SYNC_THRESHOLD}, "
+                f"polarity={'reversed' if best_is_reversed else 'normal'}"
+            )
 
-        if verbose and logger.isEnabledFor(logging.DEBUG):
-            sample = self._dibit_buffer[:min(30, len(self._dibit_buffer))]
-            logger.debug(
-                "ControlChannelMonitor._find_sync_in_buffer: call #%s, buffer_len=%s, best_score=%.1f, "
-                "threshold=%s, best_pos=%s, reversed=%s, first_30_dibits=%s",
-                self._find_sync_calls,
-                len(self._dibit_buffer),
-                best_score,
-                self.SOFT_SYNC_THRESHOLD,
-                best_pos,
-                best_is_reversed,
-                list(sample),
+        if verbose:
+            sample = self._dibit_buffer[: min(30, len(self._dibit_buffer))]
+            logger.info(
+                f"ControlChannelMonitor._find_sync_in_buffer: call #{self._find_sync_calls}, "
+                f"buffer_len={len(self._dibit_buffer)}, best_score={best_score:.1f}, "
+                f"threshold={self.SOFT_SYNC_THRESHOLD}, best_pos={best_pos}, reversed={best_is_reversed}, "
+                f"first_30_dibits={list(sample)}"
             )
 
         # Check if best score exceeds threshold
         if best_score >= self.SOFT_SYNC_THRESHOLD:
             # Latch polarity on FIRST successful sync only (don't flip-flop)
             # This follows OP25 approach: detect once and maintain
-            if not hasattr(self, '_polarity_latched'):
+            if not hasattr(self, "_polarity_latched"):
                 self._polarity_latched = False
 
             if not self._polarity_latched:
@@ -663,8 +729,9 @@ class ControlChannelMonitor:
         This matches SDRTrunk's pattern: 0x5575F5FF77FF
         """
         # Updated to match correct P25 constellation mapping
-        return np.array([1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1,
-                         3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3], dtype=np.uint8)
+        return np.array(
+            [1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1, 3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3], dtype=np.uint8
+        )
 
     def _parse_tsbk(self, opcode: int, mfid: int, data: bytes) -> dict[str, Any] | None:
         """Parse TSBK message.
@@ -694,8 +761,7 @@ class ControlChannelMonitor:
         """Get monitor statistics."""
         # Calculate CRC pass rate
         crc_pass_rate = (
-            100.0 * self.tsbk_crc_pass / self.tsbk_attempts
-            if self.tsbk_attempts > 0 else 0.0
+            100.0 * self.tsbk_crc_pass / self.tsbk_attempts if self.tsbk_attempts > 0 else 0.0
         )
         return {
             "sync_state": self.sync_state.value,

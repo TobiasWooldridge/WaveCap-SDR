@@ -93,7 +93,7 @@ class DibitRingBuffer:
 
         # If incoming data is larger than capacity, only keep last 'capacity' elements
         if n >= self._capacity:
-            dibits = dibits[-self._capacity:]
+            dibits = dibits[-self._capacity :]
             n = len(dibits)
             self._buffer[:] = dibits
             self._head = 0
@@ -110,11 +110,11 @@ class DibitRingBuffer:
         # Write new data, handling wrap-around
         space_to_end = self._capacity - self._head
         if n <= space_to_end:
-            self._buffer[self._head:self._head + n] = dibits
+            self._buffer[self._head : self._head + n] = dibits
         else:
             # Split write across wrap-around
-            self._buffer[self._head:] = dibits[:space_to_end]
-            self._buffer[:n - space_to_end] = dibits[space_to_end:]
+            self._buffer[self._head :] = dibits[:space_to_end]
+            self._buffer[: n - space_to_end] = dibits[space_to_end:]
 
         self._head = (self._head + n) % self._capacity
         self._size += n
@@ -141,13 +141,13 @@ class DibitRingBuffer:
 
         if self._tail + length <= self._capacity:
             # No wrap-around, return view (or copy for safety)
-            return np.asarray(self._buffer[self._tail:self._tail + length].copy(), dtype=np.uint8)
+            return np.asarray(self._buffer[self._tail : self._tail + length].copy(), dtype=np.uint8)
         else:
             # Handle wrap-around
             result = np.empty(length, dtype=np.uint8)
             first_part = self._capacity - self._tail
-            result[:first_part] = self._buffer[self._tail:]
-            result[first_part:length] = self._buffer[:length - first_part]
+            result[:first_part] = self._buffer[self._tail :]
+            result[first_part:length] = self._buffer[: length - first_part]
             return result
 
     def __len__(self) -> int:
@@ -160,6 +160,7 @@ class DibitRingBuffer:
 
 class P25FrameType(Enum):
     """P25 frame types"""
+
     HDU = "Header Data Unit"
     LDU1 = "Logical Link Data Unit 1"
     LDU2 = "Logical Link Data Unit 2"
@@ -172,6 +173,7 @@ class P25FrameType(Enum):
 @dataclass
 class P25Frame:
     """Decoded P25 frame"""
+
     frame_type: P25FrameType
     nac: int  # Network Access Code
     duid: int  # Data Unit ID
@@ -237,7 +239,7 @@ class CQPSKDemodulator:
         self._costas_alpha = 0.125  # Not used
         self._costas_beta = 0.0005  # Moderate gain with magnitude weighting
         self._freq_min = -0.02  # ~-150 Hz at 48kHz
-        self._freq_max = 0.02   # ~+150 Hz at 48kHz
+        self._freq_max = 0.02  # ~+150 Hz at 48kHz
         self._phase_acc = 0.0  # Phase accumulator for NCO
         self._carrier_phase = 0.0  # Carrier phase tracking (Costas)
 
@@ -377,24 +379,28 @@ class CQPSKDemodulator:
         normalized_cutoff = self.BASEBAND_CUTOFF_HZ / nyquist
         normalized_cutoff = min(0.99, max(0.01, normalized_cutoff))
 
-        taps = scipy_signal.firwin(num_taps, normalized_cutoff, window='hamming')
+        taps = scipy_signal.firwin(num_taps, normalized_cutoff, window="hamming")
         return np.asarray(taps, dtype=np.float32)
 
     def _design_rrc_filter(self, alpha: float = 0.2, num_taps: int = 65) -> NDArrayFloat:
         """Design Root-Raised Cosine filter for P25."""
         sps = round(self.samples_per_symbol)
-        t = np.arange(-(num_taps-1)//2, (num_taps-1)//2 + 1) / sps
+        t = np.arange(-(num_taps - 1) // 2, (num_taps - 1) // 2 + 1) / sps
 
         h = np.zeros(num_taps)
         for i, ti in enumerate(t):
             if ti == 0:
-                h[i] = 1.0 - alpha + 4*alpha/np.pi
-            elif abs(ti) == 1/(4*alpha) if alpha > 0 else False:
-                h[i] = (alpha/np.sqrt(2)) * ((1+2/np.pi)*np.sin(np.pi/(4*alpha)) +
-                                              (1-2/np.pi)*np.cos(np.pi/(4*alpha)))
+                h[i] = 1.0 - alpha + 4 * alpha / np.pi
+            elif abs(ti) == 1 / (4 * alpha) if alpha > 0 else False:
+                h[i] = (alpha / np.sqrt(2)) * (
+                    (1 + 2 / np.pi) * np.sin(np.pi / (4 * alpha))
+                    + (1 - 2 / np.pi) * np.cos(np.pi / (4 * alpha))
+                )
             else:
-                num = np.sin(np.pi*ti*(1-alpha)) + 4*alpha*ti*np.cos(np.pi*ti*(1+alpha))
-                den = np.pi*ti*(1-(4*alpha*ti)**2)
+                num = np.sin(np.pi * ti * (1 - alpha)) + 4 * alpha * ti * np.cos(
+                    np.pi * ti * (1 + alpha)
+                )
+                den = np.pi * ti * (1 - (4 * alpha * ti) ** 2)
                 if abs(den) > 1e-10:
                     h[i] = num / den
                 else:
@@ -437,7 +443,7 @@ class CQPSKDemodulator:
             self._agc_gain = np.clip(self._agc_gain, 0.01, 500.0)
 
         # Log raw IQ signal strength periodically
-        if not hasattr(self, '_iq_diag_count'):
+        if not hasattr(self, "_iq_diag_count"):
             self._iq_diag_count = 0
         self._iq_diag_count += 1
         if self._iq_diag_count % 20 == 1:
@@ -460,8 +466,8 @@ class CQPSKDemodulator:
 
         # Baseband low-pass filter (7250 Hz for LSM, matches SDRTrunk)
         if len(x) >= len(self._baseband_taps):
-            x_i = np.convolve(x.real, self._baseband_taps, mode='same')
-            x_q = np.convolve(x.imag, self._baseband_taps, mode='same')
+            x_i = np.convolve(x.real, self._baseband_taps, mode="same")
+            x_q = np.convolve(x.imag, self._baseband_taps, mode="same")
             x = (x_i + 1j * x_q).astype(np.complex64)
 
         # DISABLED: RRC pulse shaping filter - testing if it causes ISI
@@ -582,7 +588,7 @@ class CQPSKDemodulator:
                 # Uses mid-point sample between current and previous symbols
                 # With 32-sample buffer and 20 sps, we can access all needed samples
                 half_sps = int(round(sps / 2))  # ~10 samples for mid-point
-                full_sps = int(round(sps))      # ~20 samples for previous symbol
+                full_sps = int(round(sps))  # ~20 samples for previous symbol
 
                 # Get mid-point sample (half symbol period back)
                 # and previous symbol (full symbol period back)
@@ -615,7 +621,7 @@ class CQPSKDemodulator:
                 self._symbol_values.append(phase)
                 self._symbol_count += 1
                 if self._symbol_count % self._diag_interval == 0:
-                    vals = np.array(self._symbol_values[-self._diag_interval:])
+                    vals = np.array(self._symbol_values[-self._diag_interval :])
                     # Count symbols in each quadrant (TIA-102.BAAB Table 2.3 mapping)
                     # d0 (00) at +135°: phase >= +90°
                     # d1 (01) at +45°:  0° <= phase < +90°
@@ -630,9 +636,9 @@ class CQPSKDemodulator:
                     pi_4 = np.pi / 4
                     pi_8 = np.pi / 8
                     near_p45 = np.sum(np.abs(vals - pi_4) < pi_8)  # +45°
-                    near_p135 = np.sum(np.abs(vals - 3*pi_4) < pi_8)  # +135°
+                    near_p135 = np.sum(np.abs(vals - 3 * pi_4) < pi_8)  # +135°
                     near_m45 = np.sum(np.abs(vals + pi_4) < pi_8)  # -45°
-                    near_m135 = np.sum(np.abs(vals + 3*pi_4) < pi_8)  # -135°
+                    near_m135 = np.sum(np.abs(vals + 3 * pi_4) < pi_8)  # -135°
                     near_wrap = np.sum((vals > np.pi - pi_8) | (vals < -np.pi + pi_8))
 
                     # Calculate clustering quality (% of phases near expected values)
@@ -642,7 +648,7 @@ class CQPSKDemodulator:
                     logger.debug(
                         f"CQPSK MMSE: count={self._symbol_count}, "
                         f"dist=[d0:{q0}, d1:{q1}, d2:{q2}, d3:{q3}], "
-                        f"freq_off={self._freq_offset*self.sample_rate/(2*np.pi):.1f}Hz, "
+                        f"freq_off={self._freq_offset * self.sample_rate / (2 * np.pi):.1f}Hz, "
                         f"agc={self._agc_gain:.2f}, "
                         f"phase mean={vals.mean():.3f}, std={vals.std():.3f}"
                     )
@@ -693,13 +699,25 @@ class C4FMDemodulator:
     # This provides much more accurate interpolation than linear
     MMSE_NTAPS = 8
     MMSE_NSTEPS = 128
-    MMSE_TAPS = np.array([
-        # Each row is tap coefficients for a fractional offset (0/128 to 128/128)
-        # Subset of key positions - full table generated at init
-        [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],  # 0/128 (integer)
-        [-6.77751e-03, 3.94578e-02, -1.42658e-01, 6.09836e-01, 6.09836e-01, -1.42658e-01, 3.94578e-02, -6.77751e-03],  # 64/128 (0.5)
-        [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0],  # 128/128 (1.0)
-    ], dtype=np.float32)
+    MMSE_TAPS = np.array(
+        [
+            # Each row is tap coefficients for a fractional offset (0/128 to 128/128)
+            # Subset of key positions - full table generated at init
+            [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],  # 0/128 (integer)
+            [
+                -6.77751e-03,
+                3.94578e-02,
+                -1.42658e-01,
+                6.09836e-01,
+                6.09836e-01,
+                -1.42658e-01,
+                3.94578e-02,
+                -6.77751e-03,
+            ],  # 64/128 (0.5)
+            [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0],  # 128/128 (1.0)
+        ],
+        dtype=np.float32,
+    )
 
     def __init__(self, sample_rate: int = 19200, symbol_rate: int = 4800) -> None:
         self.sample_rate = sample_rate
@@ -717,9 +735,9 @@ class C4FMDemodulator:
         self.max_deviation = 1800.0  # ±1800 Hz max
 
         # Thresholds for 4-level slicing (fixed, based on symbol spread)
-        self._threshold_low = -2.0   # Between -3 and -1
-        self._threshold_mid = 0.0    # Between -1 and +1
-        self._threshold_high = 2.0   # Between +1 and +3
+        self._threshold_low = -2.0  # Between -3 and -1
+        self._threshold_mid = 0.0  # Between -1 and +1
+        self._threshold_high = 2.0  # Between +1 and +3
         self._use_4level = True
 
         # Symbol timing recovery state (OP25-style)
@@ -823,24 +841,28 @@ class C4FMDemodulator:
         normalized_cutoff = min(0.99, max(0.01, normalized_cutoff))
 
         # Design low-pass FIR filter with Hamming window
-        taps = scipy_signal.firwin(num_taps, normalized_cutoff, window='hamming')
+        taps = scipy_signal.firwin(num_taps, normalized_cutoff, window="hamming")
         return np.asarray(taps, dtype=np.float32)
 
     def _design_rrc_filter(self, alpha: float = 0.2, num_taps: int = 65) -> NDArrayFloat:
         """Design Root-Raised Cosine filter for P25 C4FM."""
         sps = round(self.samples_per_symbol)
-        t = np.arange(-(num_taps-1)//2, (num_taps-1)//2 + 1) / sps
+        t = np.arange(-(num_taps - 1) // 2, (num_taps - 1) // 2 + 1) / sps
 
         h = np.zeros(num_taps)
         for i, ti in enumerate(t):
             if ti == 0:
-                h[i] = 1.0 - alpha + 4*alpha/np.pi
-            elif abs(ti) == 1/(4*alpha) if alpha > 0 else False:
-                h[i] = (alpha/np.sqrt(2)) * ((1+2/np.pi)*np.sin(np.pi/(4*alpha)) +
-                                              (1-2/np.pi)*np.cos(np.pi/(4*alpha)))
+                h[i] = 1.0 - alpha + 4 * alpha / np.pi
+            elif abs(ti) == 1 / (4 * alpha) if alpha > 0 else False:
+                h[i] = (alpha / np.sqrt(2)) * (
+                    (1 + 2 / np.pi) * np.sin(np.pi / (4 * alpha))
+                    + (1 - 2 / np.pi) * np.cos(np.pi / (4 * alpha))
+                )
             else:
-                num = np.sin(np.pi*ti*(1-alpha)) + 4*alpha*ti*np.cos(np.pi*ti*(1+alpha))
-                den = np.pi*ti*(1-(4*alpha*ti)**2)
+                num = np.sin(np.pi * ti * (1 - alpha)) + 4 * alpha * ti * np.cos(
+                    np.pi * ti * (1 + alpha)
+                )
+                den = np.pi * ti * (1 - (4 * alpha * ti) ** 2)
                 if abs(den) > 1e-10:
                     h[i] = num / den
                 else:
@@ -877,7 +899,9 @@ class C4FMDemodulator:
         prod = x[1:] * np.conj(x[:-1])
         # Scale to ±3 symbol range for ±1800 Hz deviation
         # Using deviation_hz (600) as base: ±1800/600 = ±3, ±600/600 = ±1
-        inst_freq = cast(NDArrayFloat, np.angle(prod)) * self.sample_rate / (2 * np.pi * self.deviation_hz)
+        inst_freq = (
+            cast(NDArrayFloat, np.angle(prod)) * self.sample_rate / (2 * np.pi * self.deviation_hz)
+        )
 
         if len(inst_freq) < len(self._rrc_taps):
             return np.array([], dtype=np.uint8)
@@ -895,6 +919,7 @@ class C4FMDemodulator:
         # Apply RRC matched filter using lfilter (causal, streaming-friendly)
         # Skip baseband filter - RRC already provides adequate pulse shaping
         from scipy import signal as scipy_signal
+
         try:
             filtered = scipy_signal.lfilter(self._rrc_taps, 1.0, inst_freq).astype(np.float32)
         except Exception:
@@ -999,9 +1024,8 @@ class C4FMDemodulator:
 
                 # Update frequency correction loops
                 self._coarse_freq_correction += (
-                    (self._fine_freq_correction - self._coarse_freq_correction)
-                    * self._K_COARSE_FREQUENCY
-                )
+                    self._fine_freq_correction - self._coarse_freq_correction
+                ) * self._K_COARSE_FREQUENCY
                 self._fine_freq_correction += symbol_error * self._K_FINE_FREQUENCY
 
                 # 4-level symbol slicing (using normalized output)
@@ -1020,7 +1044,7 @@ class C4FMDemodulator:
                 self._symbol_values.append(output)
                 self._symbol_count += 1
                 if self._symbol_count % self._diag_interval == 0:
-                    vals = np.array(self._symbol_values[-self._diag_interval:])
+                    vals = np.array(self._symbol_values[-self._diag_interval :])
                     d3 = np.sum(vals < -2.0)
                     d2 = np.sum((vals >= -2.0) & (vals < 0.0))
                     d0 = np.sum((vals >= 0.0) & (vals < 2.0))
@@ -1169,10 +1193,11 @@ class DiscriminatorDemodulator:
     def _design_baseband_filter(self) -> NDArrayFloat:
         """Design baseband low-pass filter."""
         from scipy.signal import firwin
+
         ntaps = 65
         cutoff = self.BASEBAND_CUTOFF_HZ / (self.sample_rate / 2)
         cutoff = min(cutoff, 0.99)
-        return np.asarray(firwin(ntaps, cutoff, window='hamming'), dtype=np.float32)
+        return np.asarray(firwin(ntaps, cutoff, window="hamming"), dtype=np.float32)
 
     def demodulate(self, audio: NDArrayFloat) -> NDArrayInt:
         """
@@ -1203,12 +1228,14 @@ class DiscriminatorDemodulator:
 
         # DC offset removal
         for i in range(len(samples)):
-            self._dc_estimate = self._dc_estimate * (1 - self._dc_alpha) + samples[i] * self._dc_alpha
+            self._dc_estimate = (
+                self._dc_estimate * (1 - self._dc_alpha) + samples[i] * self._dc_alpha
+            )
             samples[i] = samples[i] - self._dc_estimate
 
         # Baseband low-pass filter
         if len(samples) >= len(self._baseband_taps):
-            samples = np.convolve(samples, self._baseband_taps, mode='same').astype(np.float32)
+            samples = np.convolve(samples, self._baseband_taps, mode="same").astype(np.float32)
 
         # Symbol timing recovery
         return self._mmse_timing_recovery(samples)
@@ -1278,9 +1305,8 @@ class DiscriminatorDemodulator:
 
                 # Update frequency correction
                 self._coarse_freq_correction += (
-                    (self._fine_freq_correction - self._coarse_freq_correction)
-                    * self._K_COARSE_FREQUENCY
-                )
+                    self._fine_freq_correction - self._coarse_freq_correction
+                ) * self._K_COARSE_FREQUENCY
                 self._fine_freq_correction += symbol_error * self._K_FINE_FREQUENCY
 
                 # 4-level slicing
@@ -1298,7 +1324,7 @@ class DiscriminatorDemodulator:
 
                 self._symbol_values.append(output)
                 if self._symbol_count % self._diag_interval == 0:
-                    vals = np.array(self._symbol_values[-self._diag_interval:])
+                    vals = np.array(self._symbol_values[-self._diag_interval :])
                     logger.debug(
                         f"Discriminator: count={self._symbol_count}, "
                         f"spread={self._symbol_spread:.3f}, mean={vals.mean():.3f}"
@@ -1379,13 +1405,13 @@ class P25FrameSync:
     # - DUID (4 bits, 2 dibits) - Data Unit ID
     #
     # The DUID determines frame type:
-    DUID_HDU = 0x0   # Header Data Unit
-    DUID_TDU = 0x3   # Terminator Data Unit (without LC)
+    DUID_HDU = 0x0  # Header Data Unit
+    DUID_TDU = 0x3  # Terminator Data Unit (without LC)
     DUID_LDU1 = 0x5  # Logical Link Data Unit 1
     DUID_LDU2 = 0xA  # Logical Link Data Unit 2
     DUID_TSDU = 0x7  # Trunking Signaling Data Unit
-    DUID_PDU = 0xC   # Packet Data Unit
-    DUID_TDULC = 0xF # Terminator with LC
+    DUID_PDU = 0xC  # Packet Data Unit
+    DUID_TDULC = 0xF  # Terminator with LC
 
     # Frame sync pattern as dibits (24 dibits = 48 bits)
     # Per TIA-102.BAAA, P25 uses the same sync pattern for all frame types:
@@ -1396,13 +1422,41 @@ class P25FrameSync:
     # -3 symbol -> dibit 3 (binary 11)
     #
     # This matches SDRTrunk's pattern: 0x5575F5FF77FF
-    FRAME_SYNC_DIBITS = np.array([1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1,
-                                   3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3], dtype=np.uint8)
+    FRAME_SYNC_DIBITS = np.array(
+        [1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1, 3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3], dtype=np.uint8
+    )
 
     # Sync pattern as soft symbols (for soft correlation)
     # dibit 1 -> +3, dibit 3 -> -3
-    SYNC_PATTERN_SYMBOLS = np.array([+3, +3, +3, +3, +3, -3, +3, +3, -3, -3, +3, +3,
-                                      -3, -3, -3, -3, +3, -3, +3, -3, -3, -3, -3, -3], dtype=np.float32)
+    SYNC_PATTERN_SYMBOLS = np.array(
+        [
+            +3,
+            +3,
+            +3,
+            +3,
+            +3,
+            -3,
+            +3,
+            +3,
+            -3,
+            -3,
+            +3,
+            +3,
+            -3,
+            -3,
+            -3,
+            -3,
+            +3,
+            -3,
+            +3,
+            -3,
+            -3,
+            -3,
+            -3,
+            -3,
+        ],
+        dtype=np.float32,
+    )
 
     # Dibit to symbol conversion (for soft correlation)
     # dibit 0 -> +1, dibit 1 -> +3, dibit 2 -> -1, dibit 3 -> -3
@@ -1419,8 +1473,35 @@ class P25FrameSync:
     FRAME_SYNC_DIBITS_REV = FRAME_SYNC_DIBITS ^ 2  # [3,3,3,3,3,1,3,3,1,1,3,3,...]
 
     # Reversed sync symbols (for soft correlation)
-    SYNC_PATTERN_SYMBOLS_REV = np.array([-3, -3, -3, -3, -3, +3, -3, -3, +3, +3, -3, -3,
-                                          +3, +3, +3, +3, -3, +3, -3, +3, +3, +3, +3, +3], dtype=np.float32)
+    SYNC_PATTERN_SYMBOLS_REV = np.array(
+        [
+            -3,
+            -3,
+            -3,
+            -3,
+            -3,
+            +3,
+            -3,
+            -3,
+            +3,
+            +3,
+            -3,
+            -3,
+            +3,
+            +3,
+            +3,
+            +3,
+            -3,
+            +3,
+            -3,
+            +3,
+            +3,
+            +3,
+            +3,
+            +3,
+        ],
+        dtype=np.float32,
+    )
 
     def __init__(self) -> None:
         self.duid_to_frame_type = {
@@ -1455,11 +1536,11 @@ class P25FrameSync:
             - errors: Number of errors corrected (-1 if BCH failed)
         """
         # Debug: log first 8 dibits (NAC + DUID) periodically
-        if not hasattr(self, '_nid_debug_count'):
+        if not hasattr(self, "_nid_debug_count"):
             self._nid_debug_count = 0
         self._nid_debug_count += 1
         if self._nid_debug_count <= 10 or self._nid_debug_count % 100 == 0:
-            dibit_str = ' '.join(str(int(d)) for d in nid_dibits[:8])
+            dibit_str = " ".join(str(int(d)) for d in nid_dibits[:8])
             logger.info(f"NID decode #{self._nid_debug_count}: dibits[0:8]={dibit_str}")
 
         # Convert 32 dibits to 64 bits
@@ -1488,7 +1569,9 @@ class P25FrameSync:
 
         return nac, duid, errors
 
-    def _soft_correlation(self, dibits: NDArrayInt, check_reversed: bool = False) -> tuple[float, bool]:
+    def _soft_correlation(
+        self, dibits: NDArrayInt, check_reversed: bool = False
+    ) -> tuple[float, bool]:
         """
         Compute soft correlation score between dibits and sync pattern.
 
@@ -1572,7 +1655,7 @@ class P25FrameSync:
 
         # Search for frame sync pattern
         for start_pos in range(len(dibits) - sync_len - 8):  # Need sync + some NID
-            window = dibits[start_pos:start_pos + sync_len]
+            window = dibits[start_pos : start_pos + sync_len]
 
             if self.use_soft_sync:
                 # SDRTrunk-style soft correlation, also check for reversed polarity
@@ -1608,14 +1691,18 @@ class P25FrameSync:
         if self.use_soft_sync and best_score < self.SOFT_SYNC_THRESHOLD:
             # Log near-misses for debugging
             if best_score > 30:
-                logger.debug(f"P25 soft sync near-miss: score={best_score:.1f} < threshold={self.SOFT_SYNC_THRESHOLD}")
+                logger.debug(
+                    f"P25 soft sync near-miss: score={best_score:.1f} < threshold={self.SOFT_SYNC_THRESHOLD}"
+                )
             return None, None, 0, 0
 
         # Auto-flip polarity if reversed sync detected (OP25-style)
         if polarity_flip_detected:
             old_p = self.reverse_p
             self.reverse_p ^= 0x02  # Toggle between 0 and 2
-            logger.info(f"P25: Reversed FS polarity detected - autocorrecting (reverse_p={old_p}->{self.reverse_p}, id={id(self):#x}, best_score={best_score:.1f}, best_pos={best_pos})")
+            logger.info(
+                f"P25: Reversed FS polarity detected - autocorrecting (reverse_p={old_p}->{self.reverse_p}, id={id(self):#x}, best_score={best_score:.1f}, best_pos={best_pos})"
+            )
             # Re-apply polarity correction to the dibits we'll use for NID
             dibits = dibits ^ 0x02
 
@@ -1628,16 +1715,16 @@ class P25FrameSync:
             if nid_start + 8 > len(dibits):
                 return None, None, 0, 0
             # Simple extraction without BCH (no status stripping for short reads)
-            nac_dibits = dibits[nid_start:nid_start + 6]
+            nac_dibits = dibits[nid_start : nid_start + 6]
             nac = 0
             for d in nac_dibits:
                 nac = (nac << 2) | int(d)
-            duid_dibits = dibits[nid_start + 6:nid_start + 8]
+            duid_dibits = dibits[nid_start + 6 : nid_start + 8]
             duid = int((duid_dibits[0] << 2) | duid_dibits[1])
             bch_errors = 99  # Mark as uncorrected
         else:
             # Extract 33 raw dibits and remove status symbol at position 11
-            raw_nid = dibits[nid_start:nid_start + 33]
+            raw_nid = dibits[nid_start : nid_start + 33]
             # Skip status symbol: positions 0-10 + positions 12-32 = 32 clean dibits
             nid_dibits = np.concatenate([raw_nid[:11], raw_nid[12:33]])
             nac, duid, bch_errors = self._decode_nid_with_bch(nid_dibits)
@@ -1645,34 +1732,31 @@ class P25FrameSync:
         frame_type = self.duid_to_frame_type.get(duid, P25FrameType.UNKNOWN)
 
         # Track NAC for future decodes
-        if hasattr(self, '_tracked_nac') and 0x001 <= nac <= 0xFFE and bch_errors < 10:
+        if hasattr(self, "_tracked_nac") and 0x001 <= nac <= 0xFFE and bch_errors < 10:
             self._tracked_nac = nac
 
         # Debug: log NAC and DUID for first few syncs
-        if not hasattr(self, '_sync_debug_count'):
+        if not hasattr(self, "_sync_debug_count"):
             self._sync_debug_count = 0
         self._sync_debug_count += 1
         if self._sync_debug_count <= 20:
             sync_method = "soft" if self.use_soft_sync else "hard"
             logger.info(
-                "P25FrameSync (%s): pos=%s, score=%.1f, NAC=%03x, DUID=%x -> %s, BCH_err=%s",
-                sync_method,
-                best_pos,
-                best_score,
-                nac,
-                duid,
-                frame_type,
-                bch_errors,
+                f"P25FrameSync ({sync_method}): pos={best_pos}, score={best_score:.1f}, "
+                f"NAC={nac:03x}, DUID={duid:x} -> {frame_type}, BCH_err={bch_errors}"
             )
 
-        logger.debug(f"P25 sync found at {best_pos}, score={best_score:.1f}, DUID={duid:x} -> {frame_type}")
+        logger.debug(
+            f"P25 sync found at {best_pos}, score={best_score:.1f}, DUID={duid:x} -> {frame_type}"
+        )
         return best_pos, frame_type, nac, duid
 
 
 class P25Modulation(str, Enum):
     """P25 modulation types."""
-    C4FM = "c4fm"    # Phase 1: Standard 4-level FSK (non-simulcast)
-    LSM = "lsm"      # Phase 1: Linear Simulcast Modulation (CQPSK/differential QPSK)
+
+    C4FM = "c4fm"  # Phase 1: Standard 4-level FSK (non-simulcast)
+    LSM = "lsm"  # Phase 1: Linear Simulcast Modulation (CQPSK/differential QPSK)
     PHASE2 = "phase2"  # Phase 2: CQPSK TDMA with 2 timeslots at 6000 symbols/second
 
 
@@ -1726,25 +1810,34 @@ class P25Decoder:
         else:
             # Upsample to minimum rate
             from math import gcd
+
             target_rate = self.MIN_SAMPLE_RATE
             g = gcd(target_rate, sample_rate)
             self._upsample_up = target_rate // g
             self._upsample_down = sample_rate // g
             self._demod_sample_rate = target_rate
-            logger.info(f"P25 decoder: input {sample_rate}Hz -> upsampling {self._upsample_up}/{self._upsample_down} -> {target_rate}Hz")
+            logger.info(
+                f"P25 decoder: input {sample_rate}Hz -> upsampling {self._upsample_up}/{self._upsample_down} -> {target_rate}Hz"
+            )
 
         # Select demodulator based on modulation type - always use demod sample rate
         if modulation == P25Modulation.PHASE2:
             # Phase 2 uses CQPSK at 6000 symbols/second with TDMA
             self.demodulator = CQPSKDemodulator(self._demod_sample_rate, symbol_rate=6000)
-            logger.info(f"P25 decoder initialized with Phase 2 CQPSK/TDMA demodulator (demod_rate={self._demod_sample_rate})")
+            logger.info(
+                f"P25 decoder initialized with Phase 2 CQPSK/TDMA demodulator (demod_rate={self._demod_sample_rate})"
+            )
         elif modulation == P25Modulation.LSM:
             self.demodulator = CQPSKDemodulator(self._demod_sample_rate)
-            logger.info(f"P25 decoder initialized with CQPSK/LSM demodulator (demod_rate={self._demod_sample_rate})")
+            logger.info(
+                f"P25 decoder initialized with CQPSK/LSM demodulator (demod_rate={self._demod_sample_rate})"
+            )
         else:
             # Use working C4FM demodulator from dsp/p25/c4fm.py (with Gardner timing)
             self.demodulator = _C4FMDemodulatorWrapper(self._demod_sample_rate)
-            logger.info(f"P25 decoder initialized with C4FM demodulator (demod_rate={self._demod_sample_rate})")
+            logger.info(
+                f"P25 decoder initialized with C4FM demodulator (demod_rate={self._demod_sample_rate})"
+            )
 
         # Discriminator demodulator (created on demand)
         self._discriminator_demod: DiscriminatorDemodulator | None = None
@@ -1845,7 +1938,7 @@ class P25Decoder:
         self._framed_messages.clear()
 
         # Demodulate to both dibits and soft symbols
-        if hasattr(self.demodulator, 'demodulate_soft'):
+        if hasattr(self.demodulator, "demodulate_soft"):
             dibits, soft_symbols = self.demodulator.demodulate_soft(iq)
         else:
             # Fallback for demodulators without soft output
@@ -1919,7 +2012,7 @@ class P25Decoder:
             try:
                 tsbk_result = self._decode_tsbk_from_bits(msg.bits)
                 if tsbk_result:
-                    frame.tsbk_opcode = tsbk_result.get('opcode')
+                    frame.tsbk_opcode = tsbk_result.get("opcode")
                     frame.tsbk_data = tsbk_result
             except Exception as e:
                 logger.debug(f"TSBK decode error: {e}")
@@ -1932,10 +2025,10 @@ class P25Decoder:
                 else:
                     lc_info = self._decode_ldu2_from_bits(msg.bits)
                 if lc_info:
-                    frame.tgid = lc_info.get('tgid')
-                    frame.source = lc_info.get('source')
-                    frame.algid = lc_info.get('algid')
-                    frame.kid = lc_info.get('kid')
+                    frame.tgid = lc_info.get("tgid")
+                    frame.source = lc_info.get("source")
+                    frame.algid = lc_info.get("algid")
+                    frame.kid = lc_info.get("kid")
             except Exception as e:
                 logger.debug(f"LDU decode error: {e}")
 
@@ -1959,12 +2052,12 @@ class P25Decoder:
         """Decode LDU1 link control from bits."""
         # LDU1 contains Link Control in specific positions
         # For now, return minimal info
-        return {'type': 'LDU1'}
+        return {"type": "LDU1"}
 
     def _decode_ldu2_from_bits(self, bits: NDArrayInt) -> dict[str, Any] | None:
         """Decode LDU2 encryption info from bits."""
         # LDU2 contains Encryption Sync Parameters
-        return {'type': 'LDU2'}
+        return {"type": "LDU2"}
 
     def _decode_tsdu_dibits(self, dibits: NDArrayInt) -> dict[str, Any] | None:
         """Decode TSDU from dibits using existing _decode_tsdu logic.
@@ -2012,26 +2105,25 @@ class P25Decoder:
         # Extract 64-bit data payload
         data_bits = decoded_bits[16:80]
         data_bytes = bytes(
-            int(''.join(str(int(b)) for b in data_bits[i:i+8]), 2)
-            for i in range(0, 64, 8)
+            int("".join(str(int(b)) for b in data_bits[i : i + 8]), 2) for i in range(0, 64, 8)
         )
 
         # Use existing TSBK parser for full decoding
         tsbk_data: dict[str, Any] | None = self.tsbk_parser.parse(opcode, mfid, data_bytes)
 
         if tsbk_data and tsbk_data.get("type") != "PARSE_ERROR":
-            tsbk_data['opcode'] = opcode
-            tsbk_data['mfid'] = mfid
-            tsbk_data['last_block'] = lb
-            tsbk_data['protected'] = protect
+            tsbk_data["opcode"] = opcode
+            tsbk_data["mfid"] = mfid
+            tsbk_data["last_block"] = lb
+            tsbk_data["protected"] = protect
             return tsbk_data
 
         return {
-            'opcode': opcode,
-            'mfid': mfid,
-            'last_block': lb,
-            'protected': protect,
-            'raw_data': data_bytes.hex(),
+            "opcode": opcode,
+            "mfid": mfid,
+            "last_block": lb,
+            "protected": protect,
+            "raw_data": data_bytes.hex(),
         }
 
     def _process_iq_phase2(self, iq: NDArrayComplex) -> list[P25Frame]:
@@ -2062,9 +2154,7 @@ class P25Decoder:
             # Create a P25Frame for each timeslot
             # Phase 2 timeslots contain voice or SACCH/FACCH data
             frame_type = (
-                P25FrameType.LDU1
-                if ts.slot_type == P25P2TimeslotType.VOICE
-                else P25FrameType.TSDU
+                P25FrameType.LDU1 if ts.slot_type == P25P2TimeslotType.VOICE else P25FrameType.TSDU
             )
 
             frame = P25Frame(
@@ -2106,11 +2196,7 @@ class P25Decoder:
         # Log status periodically
         if self._process_count % 100 == 0:
             logger.info(
-                "P25 decoder: processed=%s, syncs=%s, no_sync=%s, buffer=%s",
-                self._process_count,
-                self._sync_count,
-                self._no_sync_count,
-                len(self._dibit_buffer),
+                f"P25 decoder: processed={self._process_count}, syncs={self._sync_count}, no_sync={self._no_sync_count}, buffer={len(self._dibit_buffer)}"
             )
 
         # Need at least MIN_FRAME_DIBITS for meaningful frame decode
@@ -2130,17 +2216,9 @@ class P25Decoder:
             return []
 
         self._sync_count += 1
-        if not hasattr(self, "_sync_log_count"):
-            self._sync_log_count = 0
-        self._sync_log_count += 1
-        if self._sync_log_count <= 5 or self._sync_log_count % 100 == 0:
-            logger.info(
-                "Found P25 frame sync at position %s: %s NAC=%03X (buffer=%s)",
-                sync_pos,
-                frame_type,
-                nac,
-                len(self._dibit_buffer),
-            )
+        logger.info(
+            f"Found P25 frame sync at position {sync_pos}: {frame_type} NAC={nac:03X} (buffer={len(self._dibit_buffer)})"
+        )
 
         # Work with the buffer_data array from here on
 
@@ -2169,13 +2247,13 @@ class P25Decoder:
         # Minimum raw frame data dibits required per frame type
         # For TSDU: 98 clean dibits requires ~101 raw dibits (with status symbols)
         MIN_FRAME_DATA: dict[P25FrameType, int] = {
-            P25FrameType.HDU: 100,    # Header data unit
-            P25FrameType.LDU1: 900,   # Voice frame 1
-            P25FrameType.LDU2: 900,   # Voice frame 2
-            P25FrameType.TDU: 10,     # Terminator (short)
-            P25FrameType.TSDU: 104,   # 98 clean + ~3 status symbols + margin
-            P25FrameType.PDU: 100,    # Packet data unit
-            P25FrameType.UNKNOWN: 32, # Minimum for any unknown frame
+            P25FrameType.HDU: 100,  # Header data unit
+            P25FrameType.LDU1: 900,  # Voice frame 1
+            P25FrameType.LDU2: 900,  # Voice frame 2
+            P25FrameType.TDU: 10,  # Terminator (short)
+            P25FrameType.TSDU: 104,  # 98 clean + ~3 status symbols + margin
+            P25FrameType.PDU: 100,  # Packet data unit
+            P25FrameType.UNKNOWN: 32,  # Minimum for any unknown frame
         }
 
         # Calculate available frame data
@@ -2184,13 +2262,15 @@ class P25Decoder:
 
         if available_data < min_required:
             # Not enough data for this frame type - keep sync position and wait for more
-            logger.debug(f"P25: Need more data for {frame_type}: have {available_data}, need {min_required}")
+            logger.debug(
+                f"P25: Need more data for {frame_type}: have {available_data}, need {min_required}"
+            )
             # Trim buffer to start at sync position (discard data before sync)
             self._dibit_buffer.consume(sync_pos)
             return []
 
         # Extract frame data after header (from the buffer_data array we already have)
-        frame_dibits = buffer_data[sync_pos + header_raw_dibits:]
+        frame_dibits = buffer_data[sync_pos + header_raw_dibits :]
 
         # Consume the entire frame from buffer
         # For TSDU, need raw dibits including status symbols
@@ -2262,9 +2342,14 @@ class P25Decoder:
             logger.warning("P25: non-finite discriminator samples, dropping")
             return []
         # Create discriminator demodulator on demand with correct sample rate
-        if self._discriminator_demod is None or self._discriminator_demod.sample_rate != sample_rate:
+        if (
+            self._discriminator_demod is None
+            or self._discriminator_demod.sample_rate != sample_rate
+        ):
             self._discriminator_demod = DiscriminatorDemodulator(sample_rate=sample_rate)
-            logger.info(f"P25 decoder: created discriminator demodulator (sample_rate={sample_rate})")
+            logger.info(
+                f"P25 decoder: created discriminator demodulator (sample_rate={sample_rate})"
+            )
 
         self._process_count += 1
 
@@ -2289,10 +2374,8 @@ class P25Decoder:
         # Log status periodically
         if self._process_count % 100 == 0:
             logger.info(
-                "P25 discriminator: processed=%s, syncs=%s, buffer=%s",
-                self._process_count,
-                self._sync_count,
-                len(self._dibit_buffer),
+                f"P25 discriminator: processed={self._process_count}, "
+                f"syncs={self._sync_count}, buffer={len(self._dibit_buffer)}"
             )
 
         # Need enough dibits for frame decode
@@ -2310,16 +2393,7 @@ class P25Decoder:
             return []
 
         self._sync_count += 1
-        if not hasattr(self, "_disc_sync_log_count"):
-            self._disc_sync_log_count = 0
-        self._disc_sync_log_count += 1
-        if self._disc_sync_log_count <= 5 or self._disc_sync_log_count % 100 == 0:
-            logger.info(
-                "Found P25 frame sync at position %s: %s NAC=%03X",
-                sync_pos,
-                frame_type,
-                nac,
-            )
+        logger.info(f"Found P25 frame sync at position {sync_pos}: {frame_type} NAC={nac:03X}")
 
         # Calculate frame boundaries (same as process_iq)
         if frame_type == P25FrameType.TSDU:
@@ -2346,10 +2420,12 @@ class P25Decoder:
 
         # Extract frame dibits
         if frame_type == P25FrameType.TSDU:
-            frame_dibits = buffer_data[sync_pos + 57:sync_pos + 57 + 104]
+            frame_dibits = buffer_data[sync_pos + 57 : sync_pos + 57 + 104]
         else:
             frame_len = min(900, len(buffer_data) - sync_pos - header_raw_dibits)
-            frame_dibits = buffer_data[sync_pos + header_raw_dibits:sync_pos + header_raw_dibits + frame_len]
+            frame_dibits = buffer_data[
+                sync_pos + header_raw_dibits : sync_pos + header_raw_dibits + frame_len
+            ]
 
         consume_len = sync_pos + header_raw_dibits + len(frame_dibits)
         self._dibit_buffer.consume(consume_len)
@@ -2413,13 +2489,7 @@ class P25Decoder:
 
         logger.info(f"HDU: NAC={nac:03x} ALGID={algid:02x} KID={kid:04x}")
 
-        return P25Frame(
-            frame_type=P25FrameType.HDU,
-            nac=nac,
-            duid=duid,
-            algid=algid,
-            kid=kid
-        )
+        return P25Frame(frame_type=P25FrameType.HDU, nac=nac, duid=duid, algid=algid, kid=kid)
 
     def _decode_ldu1(self, dibits: NDArrayInt) -> P25Frame | None:
         """Decode Logical Link Data Unit 1 (voice frame)"""
@@ -2472,12 +2542,7 @@ class P25Decoder:
         if self.on_voice_frame and voice_data:
             self.on_voice_frame(voice_data)
 
-        return P25Frame(
-            frame_type=P25FrameType.LDU2,
-            nac=0,
-            duid=10,
-            voice_data=voice_data
-        )
+        return P25Frame(frame_type=P25FrameType.LDU2, nac=0, duid=10, voice_data=voice_data)
 
     def _decode_tdu(self, dibits: NDArrayInt) -> P25Frame | None:
         """Decode Terminator Data Unit (end of transmission)"""
@@ -2487,24 +2552,214 @@ class P25Decoder:
     # P25 Data Deinterleave pattern (98 dibits)
     # From p25.rs DeinterleaveRedirector - operates on dibit positions directly
     # deinterleaved_dibits[i] = input_dibits[DEINTERLEAVE[i]]
-    DATA_DEINTERLEAVE = np.array([
-        0, 1, 26, 27, 50, 51, 74, 75, 2, 3, 28, 29, 52, 53, 76, 77,
-        4, 5, 30, 31, 54, 55, 78, 79, 6, 7, 32, 33, 56, 57, 80, 81,
-        8, 9, 34, 35, 58, 59, 82, 83, 10, 11, 36, 37, 60, 61, 84, 85,
-        12, 13, 38, 39, 62, 63, 86, 87, 14, 15, 40, 41, 64, 65, 88, 89,
-        16, 17, 42, 43, 66, 67, 90, 91, 18, 19, 44, 45, 68, 69, 92, 93,
-        20, 21, 46, 47, 70, 71, 94, 95, 22, 23, 48, 49, 72, 73, 96, 97, 24, 25
-    ], dtype=np.int16)
+    DATA_DEINTERLEAVE = np.array(
+        [
+            0,
+            1,
+            26,
+            27,
+            50,
+            51,
+            74,
+            75,
+            2,
+            3,
+            28,
+            29,
+            52,
+            53,
+            76,
+            77,
+            4,
+            5,
+            30,
+            31,
+            54,
+            55,
+            78,
+            79,
+            6,
+            7,
+            32,
+            33,
+            56,
+            57,
+            80,
+            81,
+            8,
+            9,
+            34,
+            35,
+            58,
+            59,
+            82,
+            83,
+            10,
+            11,
+            36,
+            37,
+            60,
+            61,
+            84,
+            85,
+            12,
+            13,
+            38,
+            39,
+            62,
+            63,
+            86,
+            87,
+            14,
+            15,
+            40,
+            41,
+            64,
+            65,
+            88,
+            89,
+            16,
+            17,
+            42,
+            43,
+            66,
+            67,
+            90,
+            91,
+            18,
+            19,
+            44,
+            45,
+            68,
+            69,
+            92,
+            93,
+            20,
+            21,
+            46,
+            47,
+            70,
+            71,
+            94,
+            95,
+            22,
+            23,
+            48,
+            49,
+            72,
+            73,
+            96,
+            97,
+            24,
+            25,
+        ],
+        dtype=np.int16,
+    )
 
     # P25 Data Interleave pattern (98 dibits) - inverse of deinterleave
-    DATA_INTERLEAVE = np.array([
-        0, 1, 8, 9, 16, 17, 24, 25, 32, 33, 40, 41, 48, 49, 56, 57,
-        64, 65, 72, 73, 80, 81, 88, 89, 96, 97, 2, 3, 10, 11, 18, 19,
-        26, 27, 34, 35, 42, 43, 50, 51, 58, 59, 66, 67, 74, 75, 82, 83,
-        90, 91, 4, 5, 12, 13, 20, 21, 28, 29, 36, 37, 44, 45, 52, 53,
-        60, 61, 68, 69, 76, 77, 84, 85, 92, 93, 6, 7, 14, 15, 22, 23,
-        30, 31, 38, 39, 46, 47, 54, 55, 62, 63, 70, 71, 78, 79, 86, 87, 94, 95
-    ], dtype=np.int16)
+    DATA_INTERLEAVE = np.array(
+        [
+            0,
+            1,
+            8,
+            9,
+            16,
+            17,
+            24,
+            25,
+            32,
+            33,
+            40,
+            41,
+            48,
+            49,
+            56,
+            57,
+            64,
+            65,
+            72,
+            73,
+            80,
+            81,
+            88,
+            89,
+            96,
+            97,
+            2,
+            3,
+            10,
+            11,
+            18,
+            19,
+            26,
+            27,
+            34,
+            35,
+            42,
+            43,
+            50,
+            51,
+            58,
+            59,
+            66,
+            67,
+            74,
+            75,
+            82,
+            83,
+            90,
+            91,
+            4,
+            5,
+            12,
+            13,
+            20,
+            21,
+            28,
+            29,
+            36,
+            37,
+            44,
+            45,
+            52,
+            53,
+            60,
+            61,
+            68,
+            69,
+            76,
+            77,
+            84,
+            85,
+            92,
+            93,
+            6,
+            7,
+            14,
+            15,
+            22,
+            23,
+            30,
+            31,
+            38,
+            39,
+            46,
+            47,
+            54,
+            55,
+            62,
+            63,
+            70,
+            71,
+            78,
+            79,
+            86,
+            87,
+            94,
+            95,
+        ],
+        dtype=np.int16,
+    )
 
     def _deinterleave_data(self, dibits: NDArrayInt) -> NDArrayInt:
         """
@@ -2662,10 +2917,14 @@ class P25Decoder:
 
         # Debug: dump first 20 dibits of raw data
         if raw_dibits is not None:
-            dibit_str = ' '.join(str(d) for d in raw_dibits[:20])
+            dibit_str = " ".join(str(d) for d in raw_dibits[:20])
             logger.debug(f"TSBK raw dibits[0:20]: {dibit_str}")
 
-        for name, data in [("raw", raw_dibits), ("strip22", clean_dibits), ("strip0", clean_dibits_c0)]:
+        for name, data in [
+            ("raw", raw_dibits),
+            ("strip22", clean_dibits),
+            ("strip0", clean_dibits_c0),
+        ]:
             if data is None:
                 continue
 
@@ -2691,7 +2950,9 @@ class P25Decoder:
 
         # Find best result
         best = min(results, key=lambda x: x[2])
-        logger.info(f"TSBK decode attempts: {[(n, e) for n, _, e in results]}, best={best[0]} with {best[2]} errors")
+        logger.info(
+            f"TSBK decode attempts: {[(n, e) for n, _, e in results]}, best={best[0]} with {best[2]} errors"
+        )
 
         block_dibits = best[1]
         decoded, errors = self.trellis.decode(block_dibits)
@@ -2701,18 +2962,21 @@ class P25Decoder:
             return None
 
         if len(decoded) < TSBK_DECODED_DIBITS:
-            logger.debug(f"TSBK trellis output too short: {len(decoded)} dibits (need {TSBK_DECODED_DIBITS})")
+            logger.debug(
+                f"TSBK trellis output too short: {len(decoded)} dibits (need {TSBK_DECODED_DIBITS})"
+            )
             return None
 
         # Convert dibits to bits for CRC validation
         # P25 TSBK uses MSB-first bit ordering within each dibit
         decoded_bits = np.zeros(96, dtype=np.uint8)
         for i in range(min(48, len(decoded))):
-            decoded_bits[i*2] = (decoded[i] >> 1) & 1
-            decoded_bits[i*2 + 1] = decoded[i] & 1
+            decoded_bits[i * 2] = (decoded[i] >> 1) & 1
+            decoded_bits[i * 2 + 1] = decoded[i] & 1
 
         # Use syndrome-based CRC check from p25_frames (matches SDRTrunk)
         from wavecapsdr.decoders.p25_frames import crc16_ccitt_p25
+
         crc_valid, crc_errors = crc16_ccitt_p25(decoded_bits)
         # For logging, calculate the received CRC
         received_crc = 0
@@ -2722,13 +2986,17 @@ class P25Decoder:
 
         # Log all decode attempts for debugging
         # Show first 12 decoded dibits (24 bits = 3 bytes: LB + opcode + MFID start)
-        decoded_hex = ''.join(f'{d}' for d in decoded[:12])
-        first_bytes = bytes([
-            (decoded[0] << 6) | (decoded[1] << 4) | (decoded[2] << 2) | decoded[3],
-            (decoded[4] << 6) | (decoded[5] << 4) | (decoded[6] << 2) | decoded[7],
-            (decoded[8] << 6) | (decoded[9] << 4) | (decoded[10] << 2) | decoded[11]
-        ])
-        logger.info(f"TSBK CRC check: errors={errors}, crc_valid={crc_valid}, calc_crc=0x{crc:04x}, recv_crc=0x{received_crc:04x}, first_dibits={decoded_hex}, first_bytes={first_bytes.hex()}")
+        decoded_hex = "".join(f"{d}" for d in decoded[:12])
+        first_bytes = bytes(
+            [
+                (decoded[0] << 6) | (decoded[1] << 4) | (decoded[2] << 2) | decoded[3],
+                (decoded[4] << 6) | (decoded[5] << 4) | (decoded[6] << 2) | decoded[7],
+                (decoded[8] << 6) | (decoded[9] << 4) | (decoded[10] << 2) | decoded[11],
+            ]
+        )
+        logger.info(
+            f"TSBK CRC check: errors={errors}, crc_valid={crc_valid}, calc_crc=0x{crc:04x}, recv_crc=0x{received_crc:04x}, first_dibits={decoded_hex}, first_bytes={first_bytes.hex()}"
+        )
 
         # Check error threshold - temporarily relaxed for debugging
         if errors > 30 or (errors > 8 and not crc_valid):
@@ -2772,22 +3040,20 @@ class P25Decoder:
 
         # Use TSBKParser for full parsing
         tsbk_data = self.tsbk_parser.parse(opcode, mfid, bytes(data_bytes))
-        tsbk_data['lb'] = lb
-        tsbk_data['protect'] = protect
-        tsbk_data['raw_opcode'] = opcode
-        tsbk_data['trellis_errors'] = errors
+        tsbk_data["lb"] = lb
+        tsbk_data["protect"] = protect
+        tsbk_data["raw_opcode"] = opcode
+        tsbk_data["trellis_errors"] = errors
 
-        logger.info(f"TSBK: LB={lb} Opcode=0x{opcode:02X} MFID={mfid} Errors={errors} -> {tsbk_data.get('type', 'UNKNOWN')}")
+        logger.info(
+            f"TSBK: LB={lb} Opcode=0x{opcode:02X} MFID={mfid} Errors={errors} -> {tsbk_data.get('type', 'UNKNOWN')}"
+        )
 
         if self.on_tsbk_message:
             self.on_tsbk_message(tsbk_data)
 
         return P25Frame(
-            frame_type=P25FrameType.TSDU,
-            nac=0,
-            duid=7,
-            tsbk_opcode=opcode,
-            tsbk_data=tsbk_data
+            frame_type=P25FrameType.TSDU, nac=0, duid=7, tsbk_opcode=opcode, tsbk_data=tsbk_data
         )
 
     def _decode_tsbk_opcode(self, opcode: int, dibits: NDArrayInt) -> dict[str, Any]:
@@ -2799,123 +3065,123 @@ class P25Decoder:
 
         # Voice grants (OSP) - 0x00-0x06
         if opcode == 0x00:  # Group Voice Channel Grant
-            data['type'] = 'GRP_V_CH_GRANT'
-            data['opcode_name'] = 'GRP_V_CH_GRANT'
+            data["type"] = "GRP_V_CH_GRANT"
+            data["opcode_name"] = "GRP_V_CH_GRANT"
 
         elif opcode == 0x02:  # Group Voice Channel Grant Update
-            data['type'] = 'GRP_V_CH_GRANT_UPDT'
-            data['opcode_name'] = 'GRP_V_CH_GRANT_UPDT'
+            data["type"] = "GRP_V_CH_GRANT_UPDT"
+            data["opcode_name"] = "GRP_V_CH_GRANT_UPDT"
 
         elif opcode == 0x03:  # Group Voice Channel Grant Update Explicit
-            data['type'] = 'GRP_V_CH_GRANT_UPDT_EXP'
-            data['opcode_name'] = 'GRP_V_CH_GRANT_UPDT_EXP'
+            data["type"] = "GRP_V_CH_GRANT_UPDT_EXP"
+            data["opcode_name"] = "GRP_V_CH_GRANT_UPDT_EXP"
 
         elif opcode == 0x04:  # Unit to Unit Voice Channel Grant
-            data['type'] = 'UU_V_CH_GRANT'
-            data['opcode_name'] = 'UU_V_CH_GRANT'
+            data["type"] = "UU_V_CH_GRANT"
+            data["opcode_name"] = "UU_V_CH_GRANT"
 
         elif opcode == 0x05:  # Unit to Unit Answer Request
-            data['type'] = 'UU_ANS_REQ'
-            data['opcode_name'] = 'UU_ANS_REQ'
+            data["type"] = "UU_ANS_REQ"
+            data["opcode_name"] = "UU_ANS_REQ"
 
         elif opcode == 0x06:  # Unit to Unit Voice Channel Grant Update
-            data['type'] = 'UU_V_CH_GRANT_UPDT'
-            data['opcode_name'] = 'UU_V_CH_GRANT_UPDT'
+            data["type"] = "UU_V_CH_GRANT_UPDT"
+            data["opcode_name"] = "UU_V_CH_GRANT_UPDT"
 
         # Telephone interconnect - 0x08-0x0A
         elif opcode == 0x08:  # Telephone Interconnect Voice Channel Grant
-            data['type'] = 'TEL_INT_CH_GRANT'
-            data['opcode_name'] = 'TEL_INT_CH_GRANT'
+            data["type"] = "TEL_INT_CH_GRANT"
+            data["opcode_name"] = "TEL_INT_CH_GRANT"
 
         # Control responses - 0x20-0x27
         elif opcode == 0x20:  # Acknowledge Response
-            data['type'] = 'ACK_RSP'
-            data['opcode_name'] = 'ACK_RSP'
+            data["type"] = "ACK_RSP"
+            data["opcode_name"] = "ACK_RSP"
 
         elif opcode == 0x21:  # Queued Response
-            data['type'] = 'QUE_RSP'
-            data['opcode_name'] = 'QUE_RSP'
+            data["type"] = "QUE_RSP"
+            data["opcode_name"] = "QUE_RSP"
 
         elif opcode == 0x24:  # Extended Function Command
-            data['type'] = 'EXT_FNCT_CMD'
-            data['opcode_name'] = 'EXT_FNCT_CMD'
+            data["type"] = "EXT_FNCT_CMD"
+            data["opcode_name"] = "EXT_FNCT_CMD"
 
         elif opcode == 0x27:  # Deny Response
-            data['type'] = 'DENY_RSP'
-            data['opcode_name'] = 'DENY_RSP'
+            data["type"] = "DENY_RSP"
+            data["opcode_name"] = "DENY_RSP"
 
         # Affiliation/Registration - 0x28-0x2F
         elif opcode == 0x28:  # Group Affiliation Response
-            data['type'] = 'GRP_AFF_RSP'
-            data['opcode_name'] = 'GRP_AFF_RSP'
+            data["type"] = "GRP_AFF_RSP"
+            data["opcode_name"] = "GRP_AFF_RSP"
 
         elif opcode == 0x2E:  # Authentication Command
-            data['type'] = 'AUTH_CMD'
-            data['opcode_name'] = 'AUTH_CMD'
+            data["type"] = "AUTH_CMD"
+            data["opcode_name"] = "AUTH_CMD"
 
         # Channel identification - 0x33-0x35
         elif opcode == 0x33:  # Identifier Update TDMA
-            data['type'] = 'IDEN_UP_TDMA'
-            data['opcode_name'] = 'IDEN_UP_TDMA'
+            data["type"] = "IDEN_UP_TDMA"
+            data["opcode_name"] = "IDEN_UP_TDMA"
 
         elif opcode == 0x34:  # Identifier Update VHF/UHF
-            data['type'] = 'IDEN_UP_VU'
-            data['opcode_name'] = 'IDEN_UP_VU'
+            data["type"] = "IDEN_UP_VU"
+            data["opcode_name"] = "IDEN_UP_VU"
 
         elif opcode == 0x35:  # Time and Date Announcement
-            data['type'] = 'TIME_DATE_ANN'
-            data['opcode_name'] = 'TIME_DATE_ANN'
+            data["type"] = "TIME_DATE_ANN"
+            data["opcode_name"] = "TIME_DATE_ANN"
 
         # System status broadcasts - 0x38-0x3D
         elif opcode == 0x38:  # System Service Broadcast
-            data['type'] = 'SYS_SRV_BCAST'
-            data['opcode_name'] = 'SYS_SRV_BCAST'
+            data["type"] = "SYS_SRV_BCAST"
+            data["opcode_name"] = "SYS_SRV_BCAST"
 
         elif opcode == 0x39:  # Secondary Control Channel Broadcast
-            data['type'] = 'SCCB'
-            data['opcode_name'] = 'SCCB'
+            data["type"] = "SCCB"
+            data["opcode_name"] = "SCCB"
 
         elif opcode == 0x3A:  # RFSS Status Broadcast
-            data['type'] = 'RFSS_STS_BCAST'
-            data['opcode_name'] = 'RFSS_STS_BCAST'
+            data["type"] = "RFSS_STS_BCAST"
+            data["opcode_name"] = "RFSS_STS_BCAST"
 
         elif opcode == 0x3B:  # Network Status Broadcast
-            data['type'] = 'NET_STS_BCAST'
-            data['opcode_name'] = 'NET_STS_BCAST'
+            data["type"] = "NET_STS_BCAST"
+            data["opcode_name"] = "NET_STS_BCAST"
 
         elif opcode == 0x3C:  # Adjacent Status Broadcast
-            data['type'] = 'ADJ_STS_BCAST'
-            data['opcode_name'] = 'ADJ_STS_BCAST'
+            data["type"] = "ADJ_STS_BCAST"
+            data["opcode_name"] = "ADJ_STS_BCAST"
 
         elif opcode == 0x3D:  # Identifier Update
-            data['type'] = 'IDEN_UP'
-            data['opcode_name'] = 'IDEN_UP'
+            data["type"] = "IDEN_UP"
+            data["opcode_name"] = "IDEN_UP"
 
         # Reserved opcodes that appear on SA-GRN
         elif opcode == 0x0C:  # Reserved
-            data['type'] = 'OSP_RESERVED_0C'
-            data['opcode_name'] = 'OSP_RESERVED_0C'
+            data["type"] = "OSP_RESERVED_0C"
+            data["opcode_name"] = "OSP_RESERVED_0C"
 
         elif opcode == 0x0E:  # Reserved
-            data['type'] = 'OSP_RESERVED_0E'
-            data['opcode_name'] = 'OSP_RESERVED_0E'
+            data["type"] = "OSP_RESERVED_0E"
+            data["opcode_name"] = "OSP_RESERVED_0E"
 
         elif opcode == 0x11:  # Group Data Channel Grant (obsolete)
-            data['type'] = 'GRP_DATA_CH_GRANT'
-            data['opcode_name'] = 'GRP_DATA_CH_GRANT'
+            data["type"] = "GRP_DATA_CH_GRANT"
+            data["opcode_name"] = "GRP_DATA_CH_GRANT"
 
         elif opcode == 0x13:  # Group Data Channel Announcement Explicit (obsolete)
-            data['type'] = 'GRP_DATA_CH_ANN_EXP'
-            data['opcode_name'] = 'GRP_DATA_CH_ANN_EXP'
+            data["type"] = "GRP_DATA_CH_ANN_EXP"
+            data["opcode_name"] = "GRP_DATA_CH_ANN_EXP"
 
         elif opcode == 0x1B:  # Reserved
-            data['type'] = 'OSP_RESERVED_1B'
-            data['opcode_name'] = 'OSP_RESERVED_1B'
+            data["type"] = "OSP_RESERVED_1B"
+            data["opcode_name"] = "OSP_RESERVED_1B"
 
         else:
-            data['type'] = 'UNKNOWN'
-            data['opcode'] = opcode
-            data['opcode_name'] = f'UNKNOWN_0x{opcode:02X}'
+            data["type"] = "UNKNOWN"
+            data["opcode"] = opcode
+            data["opcode_name"] = f"UNKNOWN_0x{opcode:02X}"
 
         return data
 
@@ -2939,14 +3205,14 @@ class P25Decoder:
         if not frame.tsbk_data:
             return
 
-        msg_type = frame.tsbk_data.get('type')
+        msg_type = frame.tsbk_data.get("type")
 
-        if msg_type == 'GROUP_VOICE_GRANT':
-            tgid = frame.tsbk_data.get('tgid')
-            freq_hz = frame.tsbk_data.get('frequency_mhz', 0) * 1e6
-            logger.info(f"Voice grant: TGID={tgid} Freq={freq_hz/1e6:.4f} MHz")
+        if msg_type == "GROUP_VOICE_GRANT":
+            tgid = frame.tsbk_data.get("tgid")
+            freq_hz = frame.tsbk_data.get("frequency_mhz", 0) * 1e6
+            logger.info(f"Voice grant: TGID={tgid} Freq={freq_hz / 1e6:.4f} MHz")
 
             # If we're monitoring this talkgroup, tune to voice channel
             if tgid == self.current_tgid:
                 self.voice_channel_freq = freq_hz
-                logger.info(f"Following TGID {tgid} to {freq_hz/1e6:.4f} MHz")
+                logger.info(f"Following TGID {tgid} to {freq_hz / 1e6:.4f} MHz")

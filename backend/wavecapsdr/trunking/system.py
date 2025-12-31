@@ -75,7 +75,7 @@ def _format_freq_mhz(freq_hz: float | None) -> str:
     """Format a frequency in MHz for logging."""
     if freq_hz is None:
         return "unknown"
-    return f"{freq_hz/1e6:.4f} MHz"
+    return f"{freq_hz / 1e6:.4f} MHz"
 
 
 def _get_state_file(system_id: str) -> Path:
@@ -183,35 +183,39 @@ def _parse_cached_channel_identifier(
 
 class TrunkingSystemState(str, Enum):
     """Trunking system lifecycle states."""
+
     STOPPED = "stopped"
     STARTING = "starting"
     SEARCHING = "searching"  # Looking for control channel
-    SYNCED = "synced"        # Locked to control channel
-    RUNNING = "running"      # Full operation, voice channels active
+    SYNCED = "synced"  # Locked to control channel
+    RUNNING = "running"  # Full operation, voice channels active
     STOPPING = "stopping"
     FAILED = "failed"
 
 
 class ControlChannelState(str, Enum):
     """Control channel lock state."""
-    UNLOCKED = "unlocked"    # Not receiving valid TSBK
+
+    UNLOCKED = "unlocked"  # Not receiving valid TSBK
     SEARCHING = "searching"  # Trying to find control channel
-    LOCKED = "locked"        # Receiving valid TSBK
-    LOST = "lost"            # Was locked, lost signal
+    LOCKED = "locked"  # Receiving valid TSBK
+    LOST = "lost"  # Was locked, lost signal
 
 
 class CallState(str, Enum):
     """Voice call state machine."""
+
     IDLE = "idle"
-    TUNING = "tuning"        # Voice recorder tuning to frequency
+    TUNING = "tuning"  # Voice recorder tuning to frequency
     RECORDING = "recording"  # Active voice
-    HOLD = "hold"            # Voice ended, holding for continuation
-    ENDED = "ended"          # Call complete
+    HOLD = "hold"  # Voice ended, holding for continuation
+    ENDED = "ended"  # Call complete
 
 
 @dataclass
 class ActiveCall:
     """Represents an active voice call on a trunking system."""
+
     id: str
     talkgroup_id: int
     talkgroup_name: str
@@ -267,6 +271,7 @@ class VoiceRecorder:
     grant is received, an available recorder tunes to the voice frequency
     and records/streams the audio via VoiceChannel.
     """
+
     id: str
     system_id: str
     state: str = "idle"  # idle, tuning, recording, hold
@@ -342,8 +347,8 @@ class VoiceRecorder:
             self.offset_hz = self.frequency_hz - new_center_hz
             if abs(old_offset - self.offset_hz) > 100:  # Only log if significant change
                 logger.debug(
-                    f"VoiceRecorder {self.id}: Updated offset from {old_offset/1e3:.1f} kHz "
-                    f"to {self.offset_hz/1e3:.1f} kHz (new center={new_center_hz/1e6:.4f} MHz)"
+                    f"VoiceRecorder {self.id}: Updated offset from {old_offset / 1e3:.1f} kHz "
+                    f"to {self.offset_hz / 1e3:.1f} kHz (new center={new_center_hz / 1e6:.4f} MHz)"
                 )
 
     def assign(
@@ -365,17 +370,11 @@ class VoiceRecorder:
         if not call_id:
             raise ValueError("VoiceRecorder.assign: call_id must be non-empty")
         if frequency_hz <= 0:
-            raise ValueError(
-                f"VoiceRecorder.assign: frequency_hz must be > 0 (got {frequency_hz})"
-            )
+            raise ValueError(f"VoiceRecorder.assign: frequency_hz must be > 0 (got {frequency_hz})")
         if center_hz <= 0:
-            raise ValueError(
-                f"VoiceRecorder.assign: center_hz must be > 0 (got {center_hz})"
-            )
+            raise ValueError(f"VoiceRecorder.assign: center_hz must be > 0 (got {center_hz})")
         if talkgroup_id <= 0:
-            raise ValueError(
-                f"VoiceRecorder.assign: talkgroup_id must be > 0 (got {talkgroup_id})"
-            )
+            raise ValueError(f"VoiceRecorder.assign: talkgroup_id must be > 0 (got {talkgroup_id})")
 
         self.state = "tuning"
         self.call_id = call_id
@@ -402,7 +401,7 @@ class VoiceRecorder:
 
         logger.info(
             f"VoiceRecorder {self.id}: Assigned to TG {talkgroup_id} ({talkgroup_name}) "
-            f"at {frequency_hz/1e6:.4f} MHz (offset {self.offset_hz/1e3:.1f} kHz)"
+            f"at {frequency_hz / 1e6:.4f} MHz (offset {self.offset_hz / 1e3:.1f} kHz)"
             f"{' [RECORDING]' if should_record else ''}"
         )
 
@@ -491,9 +490,7 @@ class VoiceRecorder:
         # Design Stage 1 anti-aliasing filter
         # Cutoff at 0.8 / stage1_factor, Kaiser window for 80 dB stopband
         stage1_cutoff = 0.8 / self._stage1_decim_factor
-        self._stage1_filter_taps = scipy_signal.firwin(
-            157, stage1_cutoff, window=("kaiser", 7.857)
-        )
+        self._stage1_filter_taps = scipy_signal.firwin(157, stage1_cutoff, window=("kaiser", 7.857))
         self._stage1_filter_zi_template = scipy_signal.lfilter_zi(
             self._stage1_filter_taps, 1.0
         ).astype(np.complex128)
@@ -516,8 +513,8 @@ class VoiceRecorder:
 
         logger.info(
             f"VoiceRecorder {self.id}: Two-stage decimation: "
-            f"{sample_rate/1e6:.1f} MHz → {stage1_rate/1e3:.1f} kHz ({self._stage1_decim_factor}:1) → "
-            f"{target_rate/1e3:.1f} kHz ({self._stage2_decim_factor}:1), "
+            f"{sample_rate / 1e6:.1f} MHz → {stage1_rate / 1e3:.1f} kHz ({self._stage1_decim_factor}:1) → "
+            f"{target_rate / 1e3:.1f} kHz ({self._stage2_decim_factor}:1), "
             f"total {total_decim}:1"
         )
 
@@ -548,15 +545,15 @@ class VoiceRecorder:
         # If offset > half the sample rate, signal is outside the captured spectrum
         max_offset = sample_rate / 2 - 50000  # Leave 50 kHz margin for filter rolloff
         if abs(self.offset_hz) > max_offset:
-            if not hasattr(self, '_bandwidth_fail_count'):
+            if not hasattr(self, "_bandwidth_fail_count"):
                 self._bandwidth_fail_count = 0
             self._bandwidth_fail_count += 1
             # Only log first few and periodically
             if self._bandwidth_fail_count <= 3 or self._bandwidth_fail_count % 100 == 0:
                 logger.error(
                     f"VoiceRecorder {self.id}: VOICE CHANNEL OUTSIDE BANDWIDTH - "
-                    f"offset={self.offset_hz/1e3:.1f} kHz exceeds max ±{max_offset/1e3:.0f} kHz, "
-                    f"voice_freq={self.frequency_hz/1e6:.4f} MHz. "
+                    f"offset={self.offset_hz / 1e3:.1f} kHz exceeds max ±{max_offset / 1e3:.0f} kHz, "
+                    f"voice_freq={self.frequency_hz / 1e6:.4f} MHz. "
                     f"Need to adjust capture center or widen sample_rate!"
                 )
             return  # Skip processing - can't receive this frequency
@@ -587,7 +584,7 @@ class VoiceRecorder:
             centered_iq = (iq.astype(np.complex64, copy=False) * shift).astype(np.complex64)
 
         # Diagnostic: measure power before and after frequency shift
-        if not hasattr(self, '_vr_power_diag_count'):
+        if not hasattr(self, "_vr_power_diag_count"):
             self._vr_power_diag_count = 0
         self._vr_power_diag_count += 1
         if self._vr_power_diag_count <= 5:
@@ -609,21 +606,23 @@ class VoiceRecorder:
                 # Also check power at expected voice offset (should be low if shift worked)
                 voice_bin = int(abs(self.offset_hz) / sample_rate * fft_len)
                 if voice_bin > 0 and voice_bin < fft_len // 2:
-                    voice_band_power = float(np.sum(fft_power[voice_bin-dc_bins:voice_bin+dc_bins]))
+                    voice_band_power = float(
+                        np.sum(fft_power[voice_bin - dc_bins : voice_bin + dc_bins])
+                    )
                     voice_ratio = voice_band_power / total_fft_power if total_fft_power > 0 else 0
                 else:
                     voice_ratio = 0.0
 
                 logger.info(
                     f"VoiceRecorder {self.id}: freq_shift diag #{self._vr_power_diag_count}, "
-                    f"offset={self.offset_hz/1e3:.1f}kHz, raw_power={raw_power:.6f}, "
+                    f"offset={self.offset_hz / 1e3:.1f}kHz, raw_power={raw_power:.6f}, "
                     f"centered_power={centered_power:.6f}, "
                     f"DC_band_ratio={dc_ratio:.3f}, orig_offset_ratio={voice_ratio:.3f}"
                 )
             else:
                 logger.info(
                     f"VoiceRecorder {self.id}: freq_shift diag #{self._vr_power_diag_count}, "
-                    f"offset={self.offset_hz/1e3:.1f}kHz, raw_power={raw_power:.6f}, "
+                    f"offset={self.offset_hz / 1e3:.1f}kHz, raw_power={raw_power:.6f}, "
                     f"centered_power={centered_power:.6f}"
                 )
 
@@ -634,12 +633,11 @@ class VoiceRecorder:
                 self._stage1_filter_zi = self._stage1_filter_zi_template * centered_iq[0]
             if self._stage1_filter_zi is not None:
                 filtered1, self._stage1_filter_zi = scipy_signal.lfilter(
-                    self._stage1_filter_taps, 1.0, centered_iq,
-                    zi=self._stage1_filter_zi
+                    self._stage1_filter_taps, 1.0, centered_iq, zi=self._stage1_filter_zi
                 )
             else:
                 filtered1 = scipy_signal.lfilter(self._stage1_filter_taps, 1.0, centered_iq)
-            decimated1 = filtered1[::self._stage1_decim_factor]
+            decimated1 = filtered1[:: self._stage1_decim_factor]
         else:
             decimated1 = centered_iq
 
@@ -649,12 +647,11 @@ class VoiceRecorder:
                 self._stage2_filter_zi = self._stage2_filter_zi_template * decimated1[0]
             if self._stage2_filter_zi is not None:
                 filtered2, self._stage2_filter_zi = scipy_signal.lfilter(
-                    self._stage2_filter_taps, 1.0, decimated1,
-                    zi=self._stage2_filter_zi
+                    self._stage2_filter_taps, 1.0, decimated1, zi=self._stage2_filter_zi
                 )
             else:
                 filtered2 = scipy_signal.lfilter(self._stage2_filter_taps, 1.0, decimated1)
-            decimated_iq = filtered2[::self._stage2_decim_factor]
+            decimated_iq = filtered2[:: self._stage2_decim_factor]
         else:
             decimated_iq = decimated1
 
@@ -676,7 +673,7 @@ class VoiceRecorder:
         decim_peak = float(np.max(np.abs(decimated_iq)))
 
         # Track signal quality for this recorder
-        if not hasattr(self, '_signal_quality_fail_count'):
+        if not hasattr(self, "_signal_quality_fail_count"):
             self._signal_quality_fail_count = 0
             self._signal_quality_total_count = 0
         self._signal_quality_total_count += 1
@@ -693,7 +690,7 @@ class VoiceRecorder:
                 fail_rate = 100 * self._signal_quality_fail_count / self._signal_quality_total_count
                 logger.debug(
                     f"VoiceRecorder {self.id}: Silence detected - "
-                    f"decim_power={decim_power:.2e}, offset={self.offset_hz/1e3:.1f}kHz, "
+                    f"decim_power={decim_power:.2e}, offset={self.offset_hz / 1e3:.1f}kHz, "
                     f"silence_rate={fail_rate:.0f}% ({self._signal_quality_fail_count}/{self._signal_quality_total_count})"
                 )
             # Continue processing - voice may start any moment
@@ -748,7 +745,7 @@ class VoiceRecorder:
         is_silence = disc_range > MAX_VALID_DISC_RANGE
 
         if is_silence:
-            if not hasattr(self, '_disc_range_fail_count'):
+            if not hasattr(self, "_disc_range_fail_count"):
                 self._disc_range_fail_count = 0
                 self._disc_range_total_count = 0
             self._disc_range_total_count += 1
@@ -772,14 +769,16 @@ class VoiceRecorder:
         if self._p25_decoder is not None:
             # process_discriminator will extract LDU frames and call on_location
             # when GPS data is found in Extended Link Control.
-            self._p25_decoder.process_discriminator(disc_audio.astype(np.float32), sample_rate=48000)
+            self._p25_decoder.process_discriminator(
+                disc_audio.astype(np.float32), sample_rate=48000
+            )
 
         # Feed to voice channel (async, schedule on event loop)
         loop = self._event_loop
         voice_channel = self._voice_channel  # Capture reference before scheduling
 
         # Track IQ processing stats (first 5 calls only)
-        if not hasattr(self, '_iq_diag_count'):
+        if not hasattr(self, "_iq_diag_count"):
             self._iq_diag_count = 0
         self._iq_diag_count += 1
         if self._iq_diag_count <= 5:
@@ -802,8 +801,7 @@ class VoiceRecorder:
         audio_data = disc_audio.astype(np.float32)
         # Use run_coroutine_threadsafe to properly schedule the async method
         asyncio.run_coroutine_threadsafe(
-            voice_channel.process_discriminator_audio(audio_data),
-            loop
+            voice_channel.process_discriminator_audio(audio_data), loop
         )
 
     async def release(self) -> None:
@@ -816,9 +814,7 @@ class VoiceRecorder:
         self._p25_decoder = None
 
         if self.call_id:
-            logger.info(
-                f"VoiceRecorder {self.id}: Released from TG {self.talkgroup_id}"
-            )
+            logger.info(f"VoiceRecorder {self.id}: Released from TG {self.talkgroup_id}")
 
         self.state = "idle"
         self.call_id = None
@@ -857,6 +853,7 @@ class TrunkingSystem:
     Manages control channel monitoring and voice channel recording for
     a single P25 system (e.g., PSERN or SA-GRN).
     """
+
     cfg: TrunkingSystemConfig
     state: TrunkingSystemState = TrunkingSystemState.STOPPED
 
@@ -972,7 +969,7 @@ class TrunkingSystem:
                         self._locked_frequency = saved_freq
                         logger.info(
                             f"TrunkingSystem {self.cfg.id}: Restored locked frequency "
-                            f"{saved_freq/1e6:.4f} MHz from saved state"
+                            f"{saved_freq / 1e6:.4f} MHz from saved state"
                         )
                         break
 
@@ -1098,9 +1095,7 @@ class TrunkingSystem:
             self._set_state(TrunkingSystemState.FAILED)
             return
         if self.cfg.center_hz <= 0:
-            logger.error(
-                f"TrunkingSystem {self.cfg.id}: Invalid center_hz={self.cfg.center_hz}"
-            )
+            logger.error(f"TrunkingSystem {self.cfg.id}: Invalid center_hz={self.cfg.center_hz}")
             self._set_state(TrunkingSystemState.FAILED)
             return
         if self.cfg.max_voice_recorders < 1:
@@ -1123,14 +1118,11 @@ class TrunkingSystem:
             return
 
         half_bw = self.cfg.sample_rate / 2.0
-        out_of_band = [
-            freq for freq in control_freqs
-            if abs(freq - self.cfg.center_hz) > half_bw
-        ]
+        out_of_band = [freq for freq in control_freqs if abs(freq - self.cfg.center_hz) > half_bw]
         if out_of_band:
             logger.error(
                 f"TrunkingSystem {self.cfg.id}: Control channels outside capture bandwidth "
-                f"(center={self.cfg.center_hz/1e6:.4f} MHz, bw={self.cfg.sample_rate/1e6:.1f} Msps): "
+                f"(center={self.cfg.center_hz / 1e6:.4f} MHz, bw={self.cfg.sample_rate / 1e6:.1f} Msps): "
                 f"{[round(f / 1e6, 6) for f in out_of_band]} MHz"
             )
             self._set_state(TrunkingSystemState.FAILED)
@@ -1140,13 +1132,15 @@ class TrunkingSystem:
         # If we have a saved locked frequency, start there; otherwise use first channel
         if self._locked_frequency is not None:
             try:
-                self.control_channel_index = self.cfg.control_channel_frequencies.index(self._locked_frequency)
+                self.control_channel_index = self.cfg.control_channel_frequencies.index(
+                    self._locked_frequency
+                )
             except ValueError:
                 self.control_channel_index = 0
             self.control_channel_freq_hz = self._locked_frequency
             logger.info(
                 f"TrunkingSystem {self.cfg.id}: Starting on saved frequency "
-                f"{self._locked_frequency/1e6:.4f} MHz"
+                f"{self._locked_frequency / 1e6:.4f} MHz"
             )
         else:
             self.control_channel_index = 0
@@ -1156,7 +1150,9 @@ class TrunkingSystem:
         if not self._initial_scan_enabled or self._locked_frequency is not None:
             self._initial_scan_complete = True
             if not self._initial_scan_enabled:
-                logger.info(f"TrunkingSystem {self.cfg.id}: Initial scan disabled, starting on first channel")
+                logger.info(
+                    f"TrunkingSystem {self.cfg.id}: Initial scan disabled, starting on first channel"
+                )
         else:
             self._initial_scan_complete = False
 
@@ -1178,7 +1174,7 @@ class TrunkingSystem:
 
             logger.info(
                 f"TrunkingSystem {self.cfg.id}: Created capture {self._capture.cfg.id} "
-                f"at {self.cfg.center_hz/1e6:.4f} MHz, {self.cfg.sample_rate/1e6:.1f} Msps"
+                f"at {self.cfg.center_hz / 1e6:.4f} MHz, {self.cfg.sample_rate / 1e6:.1f} Msps"
             )
 
             # Calculate control channel offset from capture center
@@ -1211,13 +1207,15 @@ class TrunkingSystem:
 
             logger.info(
                 f"TrunkingSystem {self.cfg.id}: Created P25 control channel {self._control_channel.cfg.id} "
-                f"at offset {cc_offset_hz/1e3:.1f} kHz"
+                f"at offset {cc_offset_hz / 1e3:.1f} kHz"
             )
 
             # Start the capture (sync method, runs in background thread)
             self._capture.start()
 
-            logger.info(f"TrunkingSystem {self.cfg.id}: Capture started, searching for control channel")
+            logger.info(
+                f"TrunkingSystem {self.cfg.id}: Capture started, searching for control channel"
+            )
 
         except Exception as e:
             logger.error(f"TrunkingSystem {self.cfg.id}: Failed to start: {e}")
@@ -1289,9 +1287,7 @@ class TrunkingSystem:
 
         # Create ControlChannelMonitor with actual sample rate for correct timing
         control_modulation = (
-            ControlChannelModulation(self.cfg.modulation.value)
-            if self.cfg.modulation
-            else None
+            ControlChannelModulation(self.cfg.modulation.value) if self.cfg.modulation else None
         )
         self._control_monitor = create_control_monitor(
             protocol=self.cfg.protocol,
@@ -1327,16 +1323,14 @@ class TrunkingSystem:
         logger.info(
             f"TrunkingSystem {self.cfg.id}: Created ControlChannelMonitor "
             f"for {self.cfg.protocol.value} (modulation: {mod_str}, rate={actual_sample_rate}Hz, "
-            f"SPS={actual_sample_rate/4800:.1f})"
+            f"SPS={actual_sample_rate / 4800:.1f})"
         )
 
         # Design Stage 1 anti-aliasing filter
         # Cutoff at 0.8 * (stage1_rate/2) / (input_rate/2) = 0.8 / stage1_factor
         # Use Kaiser window with beta=7.857 for 80 dB stopband attenuation (matches SDRTrunk)
         stage1_normalized_cutoff = 0.8 / stage1_factor
-        stage1_taps = scipy_signal.firwin(
-            157, stage1_normalized_cutoff, window=("kaiser", 7.857)
-        )
+        stage1_taps = scipy_signal.firwin(157, stage1_normalized_cutoff, window=("kaiser", 7.857))
         # Store lfilter_zi as template - will be scaled by first sample
         stage1_zi_template = scipy_signal.lfilter_zi(stage1_taps, 1.0).astype(np.complex128)
 
@@ -1344,9 +1338,7 @@ class TrunkingSystem:
         # Cutoff at 0.8 * (stage2_rate/2) / (stage1_rate/2) = 0.8 / stage2_factor
         # Use Kaiser window with beta=7.857 for 80 dB stopband attenuation (matches SDRTrunk)
         stage2_normalized_cutoff = 0.8 / stage2_factor
-        stage2_taps = scipy_signal.firwin(
-            73, stage2_normalized_cutoff, window=("kaiser", 7.857)
-        )
+        stage2_taps = scipy_signal.firwin(73, stage2_normalized_cutoff, window=("kaiser", 7.857))
         # Store lfilter_zi as template - will be scaled by first sample
         stage2_zi_template = scipy_signal.lfilter_zi(stage2_taps, 1.0).astype(np.complex128)
 
@@ -1354,8 +1346,8 @@ class TrunkingSystem:
 
         logger.info(
             f"TrunkingSystem {self.cfg.id}: Two-stage decimation: "
-            f"{input_rate/1e6:.1f} MHz → {stage1_rate/1e3:.1f} kHz ({stage1_factor}:1, {len(stage1_taps)} taps) → "
-            f"{stage2_rate/1e3:.1f} kHz ({stage2_factor}:1, {len(stage2_taps)} taps), "
+            f"{input_rate / 1e6:.1f} MHz → {stage1_rate / 1e3:.1f} kHz ({stage1_factor}:1, {len(stage1_taps)} taps) → "
+            f"{stage2_rate / 1e3:.1f} kHz ({stage2_factor}:1, {len(stage2_taps)} taps), "
             f"total {total_decim}:1"
         )
 
@@ -1376,7 +1368,9 @@ class TrunkingSystem:
         # Phase discontinuities at chunk boundaries corrupt the narrowband signal
         freq_shift_state = {"sample_idx": 0, "last_offset_hz": 0.0}
 
-        def phase_continuous_freq_shift(iq: NDArrayComplex, offset_hz: float, sample_rate: int) -> NDArrayComplex:
+        def phase_continuous_freq_shift(
+            iq: NDArrayComplex, offset_hz: float, sample_rate: int
+        ) -> NDArrayComplex:
             """Frequency shift with phase continuity across calls.
 
             Unlike the regular freq_shift which starts at phase=0 each call,
@@ -1410,15 +1404,16 @@ class TrunkingSystem:
             if "call_count" not in freq_shift_state:
                 freq_shift_state["call_count"] = 0
             freq_shift_state["call_count"] += 1
-            shifted_iq = iq.astype(np.complex64, copy=False) * shift
-            if logger.isEnabledFor(logging.DEBUG) and freq_shift_state["call_count"] % 100 == 0:
+
+            if freq_shift_state["call_count"] % 100 == 0:
                 # Check phase continuity
                 actual_start_phase = float(phase[0]) if len(phase) > 0 else 0.0
-                iq_power_before = float(np.mean(np.abs(iq)**2))
-                iq_power_after = float(np.mean(np.abs(shifted_iq)**2))
-                logger.debug(
+                iq_power_before = float(np.mean(np.abs(iq) ** 2))
+                shifted_iq = (iq.astype(np.complex64, copy=False) * shift).astype(np.complex64)
+                iq_power_after = float(np.mean(np.abs(shifted_iq) ** 2))
+                logger.info(
                     f"[DIAG-STAGE2] calls={freq_shift_state['call_count']}, "
-                    f"offset={offset_hz/1e3:.1f}kHz, sample_idx={freq_shift_state['sample_idx']}, "
+                    f"offset={offset_hz / 1e3:.1f}kHz, sample_idx={freq_shift_state['sample_idx']}, "
                     f"start_phase={actual_start_phase:.4f}rad, "
                     f"power_before={iq_power_before:.6f}, power_after={iq_power_after:.6f}"
                 )
@@ -1428,7 +1423,7 @@ class TrunkingSystem:
 
                     # FFT BEFORE shift
                     fft_before = np.fft.fft(iq[:4096])
-                    fft_power_before = np.abs(fft_before)**2
+                    fft_power_before = np.abs(fft_before) ** 2
                     peak_bin_before = np.argmax(fft_power_before)
                     peak_freq_before = peak_bin_before * freq_resolution
                     if peak_bin_before > 2048:
@@ -1436,7 +1431,7 @@ class TrunkingSystem:
 
                     # FFT AFTER shift
                     fft_after = np.fft.fft(shifted_iq[:4096])
-                    fft_power_after = np.abs(fft_after)**2
+                    fft_power_after = np.abs(fft_after) ** 2
                     peak_bin_after = np.argmax(fft_power_after)
                     peak_freq_after = peak_bin_after * freq_resolution
                     if peak_bin_after > 2048:
@@ -1448,23 +1443,29 @@ class TrunkingSystem:
                         expected_bin += 4096
                     expected_power = fft_power_before[expected_bin]
                     noise_floor = np.median(fft_power_before)
-                    snr_at_expected = 10 * np.log10(expected_power / noise_floor) if noise_floor > 0 else 0
+                    snr_at_expected = (
+                        10 * np.log10(expected_power / noise_floor) if noise_floor > 0 else 0
+                    )
 
                     # Check power in baseband (0 Hz ± 50 kHz) AFTER shift
                     baseband_bins = int(50000 / freq_resolution)
-                    baseband_power = np.sum(fft_power_after[:baseband_bins]) + np.sum(fft_power_after[-baseband_bins:])
+                    baseband_power = np.sum(fft_power_after[:baseband_bins]) + np.sum(
+                        fft_power_after[-baseband_bins:]
+                    )
                     total_power = np.sum(fft_power_after)
                     baseband_ratio = baseband_power / total_power if total_power > 0 else 0
 
-                    logger.debug(
-                        f"[DIAG-STAGE2b] BEFORE shift: peak_bin={peak_bin_before}, peak_freq={peak_freq_before/1e3:.1f}kHz, "
-                        f"SNR_at_{offset_hz/1e3:.0f}kHz={snr_at_expected:.1f}dB"
+                    logger.info(
+                        f"[DIAG-STAGE2b] BEFORE shift: peak_bin={peak_bin_before}, peak_freq={peak_freq_before / 1e3:.1f}kHz, "
+                        f"SNR_at_{offset_hz / 1e3:.0f}kHz={snr_at_expected:.1f}dB"
                     )
-                    logger.debug(
-                        f"[DIAG-STAGE2b] AFTER shift: peak_bin={peak_bin_after}, peak_freq={peak_freq_after/1e3:.1f}kHz, "
+                    logger.info(
+                        f"[DIAG-STAGE2b] AFTER shift: peak_bin={peak_bin_after}, peak_freq={peak_freq_after / 1e3:.1f}kHz, "
                         f"baseband_power_ratio={baseband_ratio:.4f} (should be >0.8 if signal centered)"
                     )
-            return np.asarray(shifted_iq, dtype=np.complex64)
+                return np.asarray(shifted_iq, dtype=np.complex64)
+
+            return np.asarray(iq.astype(np.complex64, copy=False) * shift, dtype=np.complex64)
 
         # IQ buffer for control channel - accumulate decimated samples before processing
         # SDRplay returns small chunks (~8192 samples), after decimation we get only ~26 samples
@@ -1480,7 +1481,9 @@ class TrunkingSystem:
         INITIAL_SCAN_SAMPLES = capture_sample_rate * 2  # 2 seconds of samples
         ROAM_SCAN_SAMPLES = capture_sample_rate  # 1 second of samples for roaming check
 
-        def on_raw_iq_callback(iq: NDArrayComplex, sample_rate: int, overflow: bool = False) -> None:
+        def on_raw_iq_callback(
+            iq: NDArrayComplex, sample_rate: int, overflow: bool = False
+        ) -> None:
             """IQ callback for trunking system processing.
 
             This receives raw wideband IQ samples, handles initial scanning,
@@ -1491,7 +1494,6 @@ class TrunkingSystem:
                 sample_rate: Sample rate in Hz
                 overflow: True if ring buffer overrun occurred (samples were lost)
             """
-            debug_enabled = logger.isEnabledFor(logging.DEBUG)
             # Handle overflow: reset all stateful processing when samples are lost
             # Without this, the decimation filters, frequency shift phase, and demodulator
             # will produce corrupted output because their state is now invalid
@@ -1517,7 +1519,7 @@ class TrunkingSystem:
             iq_debug_state["samples"] += len(iq)
             iq_debug_state["calls"] += 1
             _verbose = iq_debug_state["calls"] <= 5 or iq_debug_state["calls"] % 500 == 0
-            if _verbose and debug_enabled:
+            if _verbose:
                 # Log raw IQ magnitude at DEBUG level
                 raw_mag = np.abs(iq)
                 logger.debug(
@@ -1572,11 +1574,11 @@ class TrunkingSystem:
                                 system._control_channel.cfg.offset_hz = new_offset
                                 logger.info(
                                     f"TrunkingSystem {self.cfg.id}: Set control channel offset to "
-                                    f"{new_offset/1e3:.1f} kHz for {best_freq/1e6:.4f} MHz"
+                                    f"{new_offset / 1e3:.1f} kHz for {best_freq / 1e6:.4f} MHz"
                                 )
                                 logger.info(
                                     f"TrunkingSystem {self.cfg.id}: Selected best control channel: "
-                                    f"{best_freq/1e6:.4f} MHz (SNR={best_measurement.snr_db:.1f} dB, "
+                                    f"{best_freq / 1e6:.4f} MHz (SNR={best_measurement.snr_db:.1f} dB, "
                                     f"sync={'YES' if best_measurement.sync_detected else 'NO'})"
                                 )
                         else:
@@ -1627,7 +1629,7 @@ class TrunkingSystem:
                             if roam_to is not None:
                                 logger.info(
                                     f"TrunkingSystem {self.cfg.id}: Roaming from "
-                                    f"{_format_freq_mhz(current_freq)} to {roam_to/1e6:.4f} MHz"
+                                    f"{_format_freq_mhz(current_freq)} to {roam_to / 1e6:.4f} MHz"
                                 )
                                 # Update scanner's current channel tracking
                                 system._cc_scanner._current_channel_hz = roam_to
@@ -1646,7 +1648,7 @@ class TrunkingSystem:
                                     system._control_channel.cfg.offset_hz = new_offset
                                     logger.info(
                                         f"TrunkingSystem {self.cfg.id}: Set control channel offset to "
-                                        f"{new_offset/1e3:.1f} kHz for {roam_to/1e6:.4f} MHz"
+                                        f"{new_offset / 1e3:.1f} kHz for {roam_to / 1e6:.4f} MHz"
                                     )
 
                                 # Reset control monitor and IQ buffer for new channel
@@ -1663,10 +1665,10 @@ class TrunkingSystem:
             with _iq_profiler.measure("freq_shift"):
                 centered_iq = phase_continuous_freq_shift(iq, cc_offset_hz, sample_rate)
             _iq_profiler.add_samples(len(iq))
-            if _verbose and debug_enabled:
+            if _verbose:
                 centered_mag = np.abs(centered_iq)
                 logger.debug(
-                    f"TrunkingSystem {self.cfg.id}: after freq_shift offset={cc_offset_hz/1e3:.1f}kHz, "
+                    f"TrunkingSystem {self.cfg.id}: after freq_shift offset={cc_offset_hz / 1e3:.1f}kHz, "
                     f"centered_mean={np.mean(centered_mag):.4f}"
                 )
 
@@ -1702,20 +1704,16 @@ class TrunkingSystem:
                     decimated_iq = decimated2
 
                 # [DIAG-DECIM] Decimation diagnostics
-                if debug_enabled and iq_debug_state["calls"] % 100 == 0:
-                    power_in = float(np.mean(np.abs(centered_iq)**2))
-                    power_stage1 = float(np.mean(np.abs(decimated1)**2))
-                    power_out = float(np.mean(np.abs(decimated_iq)**2))
+                if iq_debug_state["calls"] % 100 == 0:
+                    power_in = float(np.mean(np.abs(centered_iq) ** 2))
+                    power_stage1 = float(np.mean(np.abs(decimated1) ** 2))
+                    power_out = float(np.mean(np.abs(decimated_iq) ** 2))
                     # Use scientific notation to see actual values - show filter vs decim power loss
-                    logger.debug(
-                        f"[DIAG-DECIM] Stage1: in={power_in:.2e}, decim={power_stage1:.2e}"
-                    )
-                    logger.debug(
-                        f"[DIAG-DECIM] Stage2: in={power_stage1:.2e}, out={power_out:.2e}"
-                    )
+                    logger.info(f"[DIAG-DECIM] Stage1: in={power_in:.2e}, decim={power_stage1:.2e}")
+                    logger.info(f"[DIAG-DECIM] Stage2: in={power_stage1:.2e}, out={power_out:.2e}")
             else:
                 decimated_iq = centered_iq
-            if _verbose and debug_enabled:
+            if _verbose:
                 decim_mag = np.abs(decimated_iq)
                 logger.debug(
                     f"TrunkingSystem {self.cfg.id}: after decim factor={total_decim}, "
@@ -1731,10 +1729,10 @@ class TrunkingSystem:
                 buffered_iq = system._cc_iq_buffer
                 system._cc_iq_buffer = np.array([], dtype=np.complex128)
 
-                if _verbose and debug_enabled:
+                if _verbose:
                     logger.debug(
                         f"TrunkingSystem {self.cfg.id}: Processing buffered IQ: "
-                        f"{len(buffered_iq)} samples ({len(buffered_iq)/10:.0f} symbols)"
+                        f"{len(buffered_iq)} samples ({len(buffered_iq) / 10:.0f} symbols)"
                     )
 
                 # Feed to ControlChannelMonitor
@@ -1742,8 +1740,10 @@ class TrunkingSystem:
                     try:
                         with _iq_profiler.measure("control_monitor"):
                             tsbk_results = self._control_monitor.process_iq(buffered_iq)
-                        if _verbose and debug_enabled:
-                            logger.debug(f"TrunkingSystem {self.cfg.id}: process_iq returned {len(tsbk_results)} results")
+                        if _verbose:
+                            logger.debug(
+                                f"TrunkingSystem {self.cfg.id}: process_iq returned {len(tsbk_results)} results"
+                            )
 
                         # Handle each TSBK result and update decode rate at batch level
                         valid_tsbk_count = 0
@@ -1765,7 +1765,10 @@ class TrunkingSystem:
 
                     except Exception as e:
                         import traceback
-                        logger.error(f"TrunkingSystem {self.cfg.id}: Control monitor error: {e}\n{traceback.format_exc()}")
+
+                        logger.error(
+                            f"TrunkingSystem {self.cfg.id}: Control monitor error: {e}\n{traceback.format_exc()}"
+                        )
 
             # Check for control channel hunting (no TSBK received for too long)
             self._check_control_channel_hunt()
@@ -1785,7 +1788,9 @@ class TrunkingSystem:
 
         # Register the IQ callback on the control channel
         self._control_channel.on_raw_iq = on_raw_iq_callback
-        logger.info(f"TrunkingSystem {self.cfg.id}: Registered on_raw_iq callback for scanning and decoding")
+        logger.info(
+            f"TrunkingSystem {self.cfg.id}: Registered on_raw_iq callback for scanning and decoding"
+        )
 
     def _schedule_coroutine(self, coro: Coroutine[Any, Any, Any], context: str) -> None:
         """Schedule a coroutine on the system event loop."""
@@ -1922,7 +1927,9 @@ class TrunkingSystem:
             old_state = self.state
             self.state = new_state
             self._state_change_time = time.time()
-            logger.info(f"TrunkingSystem {self.cfg.id}: State {old_state.value} -> {new_state.value}")
+            logger.info(
+                f"TrunkingSystem {self.cfg.id}: State {old_state.value} -> {new_state.value}"
+            )
 
             if self.on_system_update:
                 try:
@@ -1953,14 +1960,10 @@ class TrunkingSystem:
         try:
             tgid = int(tgid)
         except (TypeError, ValueError):
-            logger.error(
-                f"TrunkingSystem {self.cfg.id}: Voice grant invalid tgid={tgid!r}"
-            )
+            logger.error(f"TrunkingSystem {self.cfg.id}: Voice grant invalid tgid={tgid!r}")
             return
         if tgid <= 0:
-            logger.error(
-                f"TrunkingSystem {self.cfg.id}: Voice grant invalid tgid={tgid}"
-            )
+            logger.error(f"TrunkingSystem {self.cfg.id}: Voice grant invalid tgid={tgid}")
             return
 
         self._grant_count += 1
@@ -2006,8 +2009,8 @@ class TrunkingSystem:
         if abs(freq_hz - self.cfg.center_hz) > self.cfg.sample_rate / 2.0:
             logger.error(
                 f"TrunkingSystem {self.cfg.id}: Voice frequency outside capture bandwidth "
-                f"(freq={freq_hz/1e6:.6f} MHz, center={self.cfg.center_hz/1e6:.6f} MHz, "
-                f"bw={self.cfg.sample_rate/1e6:.1f} Msps)"
+                f"(freq={freq_hz / 1e6:.6f} MHz, center={self.cfg.center_hz / 1e6:.6f} MHz, "
+                f"bw={self.cfg.sample_rate / 1e6:.1f} Msps)"
             )
             return
 
@@ -2021,11 +2024,7 @@ class TrunkingSystem:
             # SDRTrunk-style call identity: TALKGROUP + SOURCE_RADIO
             # A different source_id means a different talker, which should be a new call
             # UNLESS the source_id is 0 (some systems don't send source on every grant)
-            source_changed = (
-                source_id != 0 and
-                call.source_id != 0 and
-                source_id != call.source_id
-            )
+            source_changed = source_id != 0 and call.source_id != 0 and source_id != call.source_id
 
             # Hard 2-second staleness threshold (per SDRTrunk)
             # If activity is stale, treat as new call even with same source
@@ -2064,7 +2063,7 @@ class TrunkingSystem:
                 if abs(call.frequency_hz - freq_hz) > 1000:
                     logger.info(
                         f"TrunkingSystem {self.cfg.id}: TG {tgid} moving from "
-                        f"{call.frequency_hz/1e6:.4f} to {freq_hz/1e6:.4f} MHz"
+                        f"{call.frequency_hz / 1e6:.4f} to {freq_hz / 1e6:.4f} MHz"
                     )
                     call.frequency_hz = freq_hz
                     call.channel_id = channel_id
@@ -2137,12 +2136,11 @@ class TrunkingSystem:
 
             logger.info(
                 f"TrunkingSystem {self.cfg.id}: Call started - "
-                f"TG {tgid} ({tg_name}) at {freq_hz/1e6:.4f} MHz"
+                f"TG {tgid} ({tg_name}) at {freq_hz / 1e6:.4f} MHz"
             )
         else:
             logger.warning(
-                f"TrunkingSystem {self.cfg.id}: No recorder available for "
-                f"TG {tgid} ({tg_name})"
+                f"TrunkingSystem {self.cfg.id}: No recorder available for TG {tgid} ({tg_name})"
             )
 
         self._active_calls[call.id] = call
@@ -2238,14 +2236,10 @@ class TrunkingSystem:
         try:
             ident = int(ident)
         except (TypeError, ValueError):
-            logger.error(
-                f"TrunkingSystem {self.cfg.id}: IDEN_UP invalid identifier={ident!r}"
-            )
+            logger.error(f"TrunkingSystem {self.cfg.id}: IDEN_UP invalid identifier={ident!r}")
             return
         if ident < 0 or ident > 0xF:
-            logger.error(
-                f"TrunkingSystem {self.cfg.id}: IDEN_UP identifier out of range: {ident}"
-            )
+            logger.error(f"TrunkingSystem {self.cfg.id}: IDEN_UP identifier out of range: {ident}")
             return
 
         spacing_khz = result.get("channel_spacing_khz", 12.5)
@@ -2261,11 +2255,7 @@ class TrunkingSystem:
                 f"(base={base_mhz}, spacing={spacing_khz}, bw={bw_khz})"
             )
             return
-        if not (
-            math.isfinite(spacing_khz)
-            and math.isfinite(base_mhz)
-            and math.isfinite(bw_khz)
-        ):
+        if not (math.isfinite(spacing_khz) and math.isfinite(base_mhz) and math.isfinite(bw_khz)):
             logger.error(
                 f"TrunkingSystem {self.cfg.id}: IDEN_UP contains non-finite values "
                 f"(base={base_mhz}, spacing={spacing_khz}, bw={bw_khz})"
@@ -2334,7 +2324,7 @@ class TrunkingSystem:
 
         # Get sync state from control monitor (SDRTrunk-style lock criteria)
         has_sync = False
-        sync_age = float('inf')
+        sync_age = float("inf")
         if self._control_monitor is not None:
             has_sync = self._control_monitor.has_sync
             sync_age = self._control_monitor.last_sync_age
@@ -2354,7 +2344,7 @@ class TrunkingSystem:
             hunt_timeout = 10.0  # Conservative when locked (shouldn't reach this path normally)
 
         # Debug: Log hunting status periodically
-        if not hasattr(self, '_hunt_log_count'):
+        if not hasattr(self, "_hunt_log_count"):
             self._hunt_log_count = 0
         self._hunt_log_count += 1
         if self._hunt_log_count % 100 == 1:
@@ -2385,13 +2375,9 @@ class TrunkingSystem:
                     self._scan_once_complete = True
                     self._locked_frequency = self.control_channel_freq_hz
                     # Persist the lock so it survives restart
-                    _save_state(
-                        self.cfg.id,
-                        self._hunt_mode.value,
-                        self._locked_frequency
-                    )
+                    _save_state(self.cfg.id, self._hunt_mode.value, self._locked_frequency)
                     freq_hz = self.control_channel_freq_hz
-                    freq_label = f"{freq_hz/1e6:.4f} MHz" if freq_hz is not None else "unknown"
+                    freq_label = f"{freq_hz / 1e6:.4f} MHz" if freq_hz is not None else "unknown"
                     logger.info(
                         f"TrunkingSystem {self.cfg.id}: SCAN_ONCE complete, "
                         f"locked to {freq_label} (saved)"
@@ -2419,8 +2405,7 @@ class TrunkingSystem:
         sorted_channels = sorted(enabled_channels)
         try:
             current_idx = next(
-                i for i, f in enumerate(sorted_channels)
-                if abs(f - current_freq) < 1000
+                i for i, f in enumerate(sorted_channels) if abs(f - current_freq) < 1000
             )
             next_idx = (current_idx + 1) % len(sorted_channels)
         except StopIteration:
@@ -2452,7 +2437,7 @@ class TrunkingSystem:
             f"TrunkingSystem {self.cfg.id}: Control channel hunt - "
             f"trying {_format_freq_mhz(self.control_channel_freq_hz)} "
             f"(channel {next_idx + 1}/{num_enabled} enabled, "
-            f"offset={new_offset_hz/1e3:.1f} kHz)"
+            f"offset={new_offset_hz / 1e3:.1f} kHz)"
         )
 
         # Update the control channel offset for frequency shifting
@@ -2517,8 +2502,7 @@ class TrunkingSystem:
             self.system_id = result["system_id"]
 
         logger.debug(
-            f"TrunkingSystem {self.cfg.id}: Network status - "
-            f"NAC={self.nac}, SysID={self.system_id}"
+            f"TrunkingSystem {self.cfg.id}: Network status - NAC={self.nac}, SysID={self.system_id}"
         )
 
     def _calculate_frequency(self, channel_id: int) -> float | None:
@@ -2529,9 +2513,7 @@ class TrunkingSystem:
         Returns frequency in Hz.
         """
         if channel_id <= 0 or channel_id > 0xFFFF:
-            logger.error(
-                f"TrunkingSystem {self.cfg.id}: Invalid channel_id=0x{channel_id:X}"
-            )
+            logger.error(f"TrunkingSystem {self.cfg.id}: Invalid channel_id=0x{channel_id:X}")
             return None
 
         iden = (channel_id >> 12) & 0xF
@@ -2540,9 +2522,7 @@ class TrunkingSystem:
         chan_info = self._channel_identifiers.get(iden)
         if chan_info is None:
             # No IDEN_UP received yet for this band
-            logger.warning(
-                f"TrunkingSystem {self.cfg.id}: No channel identifier for IDEN {iden}"
-            )
+            logger.warning(f"TrunkingSystem {self.cfg.id}: No channel identifier for IDEN {iden}")
             return None
 
         if chan_info.base_freq <= 0 or chan_info.channel_spacing <= 0:
@@ -2611,7 +2591,7 @@ class TrunkingSystem:
                 recorder.last_activity = time.time()
                 logger.debug(
                     f"VoiceRecorder {recorder_id}: Retuned to "
-                    f"{new_freq_hz/1e6:.4f} MHz (offset {recorder.offset_hz/1e3:.1f} kHz)"
+                    f"{new_freq_hz / 1e6:.4f} MHz (offset {recorder.offset_hz / 1e3:.1f} kHz)"
                 )
                 break
 
@@ -2643,7 +2623,7 @@ class TrunkingSystem:
         call_record["endTime"] = time.time()
         self._call_history.append(call_record)
         if len(self._call_history) > self._call_history_max_size:
-            self._call_history = self._call_history[-self._call_history_max_size:]
+            self._call_history = self._call_history[-self._call_history_max_size :]
 
         # Notify callback
         if self.on_call_end:
@@ -2789,7 +2769,7 @@ class TrunkingSystem:
         # Validate locked_freq if provided
         if locked_freq is not None and locked_freq not in self.cfg.control_channel_frequencies:
             raise ValueError(
-                f"Frequency {locked_freq/1e6:.4f} MHz is not a configured control channel"
+                f"Frequency {locked_freq / 1e6:.4f} MHz is not a configured control channel"
             )
 
         old_mode = self._hunt_mode
@@ -2807,7 +2787,7 @@ class TrunkingSystem:
             self._tune_to_frequency(locked_freq)
             logger.info(
                 f"TrunkingSystem {self.cfg.id}: Hunt mode set to MANUAL, "
-                f"locked to {locked_freq/1e6:.4f} MHz"
+                f"locked to {locked_freq / 1e6:.4f} MHz"
             )
         elif mode == HuntMode.SCAN_ONCE:
             # Reset scan_once state to trigger a new scan
@@ -2864,7 +2844,7 @@ class TrunkingSystem:
         """
         if freq_hz not in self.cfg.control_channel_frequencies:
             raise ValueError(
-                f"Frequency {freq_hz/1e6:.4f} MHz is not a configured control channel"
+                f"Frequency {freq_hz / 1e6:.4f} MHz is not a configured control channel"
             )
 
         # Initialize enabled_channels set if needed
@@ -2873,10 +2853,10 @@ class TrunkingSystem:
 
         if enabled:
             self._enabled_channels.add(freq_hz)
-            logger.info(f"TrunkingSystem {self.cfg.id}: Enabled channel {freq_hz/1e6:.4f} MHz")
+            logger.info(f"TrunkingSystem {self.cfg.id}: Enabled channel {freq_hz / 1e6:.4f} MHz")
         else:
             self._enabled_channels.discard(freq_hz)
-            logger.info(f"TrunkingSystem {self.cfg.id}: Disabled channel {freq_hz/1e6:.4f} MHz")
+            logger.info(f"TrunkingSystem {self.cfg.id}: Disabled channel {freq_hz / 1e6:.4f} MHz")
 
         # Notify observers
         if self.on_system_update:
@@ -2976,8 +2956,8 @@ class TrunkingSystem:
         new_offset_hz = freq_hz - self.cfg.center_hz
 
         logger.info(
-            f"TrunkingSystem {self.cfg.id}: Tuning to {freq_hz/1e6:.4f} MHz "
-            f"(offset={new_offset_hz/1e3:.1f} kHz)"
+            f"TrunkingSystem {self.cfg.id}: Tuning to {freq_hz / 1e6:.4f} MHz "
+            f"(offset={new_offset_hz / 1e3:.1f} kHz)"
         )
 
         # Update the control channel offset
@@ -3098,10 +3078,7 @@ class TrunkingSystem:
         """Get location cache statistics."""
         if self._location_cache is None:
             return {"enabled": False}
-        return {
-            "enabled": True,
-            **self._location_cache.to_dict()
-        }
+        return {"enabled": True, **self._location_cache.to_dict()}
 
     # =========================================================================
     # Message Log (decoded TSBK messages for UI display)
@@ -3134,7 +3111,7 @@ class TrunkingSystem:
         # Add to ring buffer
         self._message_log.append(message)
         if len(self._message_log) > self._message_log_max_size:
-            self._message_log = self._message_log[-self._message_log_max_size:]
+            self._message_log = self._message_log[-self._message_log_max_size :]
 
         # Notify callback (for WebSocket broadcast)
         if self.on_message:
@@ -3159,7 +3136,7 @@ class TrunkingSystem:
             source = tsbk_data.get("source_id", 0)
             channel = tsbk_data.get("channel", 0)
             freq = tsbk_data.get("frequency_hz")
-            freq_str = f" ({freq/1e6:.4f} MHz)" if freq else ""
+            freq_str = f" ({freq / 1e6:.4f} MHz)" if freq else ""
             return f"Voice Grant TG:{tgid} SRC:{source} CH:0x{channel:04X}{freq_str}"
 
         elif opcode_name == "GRP_V_CH_GRANT_UPDT":
@@ -3252,7 +3229,7 @@ class TrunkingSystem:
         """
         # Return messages in reverse order (newest first)
         messages = list(reversed(self._message_log))
-        return messages[offset:offset + limit]
+        return messages[offset : offset + limit]
 
     def clear_messages(self) -> int:
         """Clear the message log.
@@ -3276,7 +3253,7 @@ class TrunkingSystem:
         """
         # Return calls in reverse order (newest first)
         calls = list(reversed(self._call_history))
-        return calls[offset:offset + limit]
+        return calls[offset : offset + limit]
 
     def clear_call_history(self) -> int:
         """Clear the call history buffer.

@@ -22,21 +22,27 @@ from wavecapsdr.typing import NDArrayFloat
 # Try to import scipy for optimized filtering
 try:
     from scipy import signal as scipy_signal
+
     SCIPY_AVAILABLE = True
 except ImportError:
     SCIPY_AVAILABLE = False
 
 F = TypeVar("F", bound=Callable[..., Any])
 
+
 def _fallback_jit(*args: Any, **kwargs: Any) -> Callable[[F], F]:
     """No-op decorator when numba is not available."""
+
     def decorator(func: F) -> F:
         return func
+
     return decorator
+
 
 # Try to import numba for JIT compilation (fallback when scipy unavailable)
 try:
     from numba import jit as _numba_jit
+
     NUMBA_AVAILABLE = True
 except ImportError:
     _numba_jit = cast(Callable[..., Any], _fallback_jit)
@@ -95,7 +101,9 @@ def _envelope_detector_vectorized(
 
     # Combine: use attack envelope where signal is rising, release where falling
     # This is approximated by taking the maximum of both envelopes
-    envelope: NDArrayFloat = cast(NDArrayFloat, np.maximum(env_attack, env_release)).astype(np.float32)
+    envelope: NDArrayFloat = cast(NDArrayFloat, np.maximum(env_attack, env_release)).astype(
+        np.float32
+    )
 
     return envelope
 

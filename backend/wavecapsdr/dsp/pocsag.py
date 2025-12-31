@@ -33,6 +33,7 @@ NUMERIC_CHARS = "0123456789*U -)(  "
 
 class MessageType(IntEnum):
     """POCSAG message type based on function code."""
+
     NUMERIC = 0
     ALPHA = 1
     ALERT_ONLY = 2
@@ -75,7 +76,7 @@ def _bch_check(codeword: int) -> bool:
     syndrome &= 0x3FF  # 10-bit syndrome
 
     # Also verify even parity
-    parity = bin(codeword).count('1') & 1
+    parity = bin(codeword).count("1") & 1
 
     return syndrome == 0 and parity == 0
 
@@ -85,13 +86,18 @@ def _decode_numeric(data_bits: list[int]) -> str:
     result: list[str] = []
     # Process 4 bits at a time (BCD)
     for i in range(0, len(data_bits) - 3, 4):
-        value = (data_bits[i] << 3) | (data_bits[i+1] << 2) | (data_bits[i+2] << 1) | data_bits[i+3]
+        value = (
+            (data_bits[i] << 3)
+            | (data_bits[i + 1] << 2)
+            | (data_bits[i + 2] << 1)
+            | data_bits[i + 3]
+        )
         if value < len(NUMERIC_CHARS):
             char = NUMERIC_CHARS[value]
-            if char != ' ' or (result and result[-1] != ' '):
+            if char != " " or (result and result[-1] != " "):
                 result.append(char)
 
-    return ''.join(result).strip()
+    return "".join(result).strip()
 
 
 def _decode_alpha(data_bits: list[int]) -> str:
@@ -109,7 +115,7 @@ def _decode_alpha(data_bits: list[int]) -> str:
         elif value == 0:
             break  # End of message
 
-    return ''.join(result).strip()
+    return "".join(result).strip()
 
 
 class POCSAGDecoder:
@@ -171,7 +177,7 @@ class POCSAGDecoder:
         while len(self._sample_buffer) >= self.samples_per_bit * 2:
             # Look for zero crossings
             bit_samples = int(self.samples_per_bit)
-            chunk = self._sample_buffer[:bit_samples * 2]
+            chunk = self._sample_buffer[: bit_samples * 2]
 
             # Simple bit slicer: compare average of first half vs second half
             avg = np.mean(chunk)
@@ -191,7 +197,7 @@ class POCSAGDecoder:
 
         # Limit sample buffer size
         if len(self._sample_buffer) > self.sample_rate * 2:
-            self._sample_buffer = self._sample_buffer[-self.sample_rate:]
+            self._sample_buffer = self._sample_buffer[-self.sample_rate :]
 
         # Add to message history
         for msg in new_messages:

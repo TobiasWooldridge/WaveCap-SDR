@@ -49,31 +49,31 @@ class CreateCaptureRequest(BaseModel):
     fftFps: int | None = Field(None, ge=1, le=60)  # Target FPS (1-60)
     fftMaxFps: int | None = Field(None, ge=1, le=120)  # Max FPS cap (1-120)
     fftSize: int | None = Field(None)  # 512, 1024, 2048, 4096
-    fftAccelerator: str | None = Field(None, pattern=r'^(auto|scipy|fftw|mlx|cuda)$')  # FFT backend
+    fftAccelerator: str | None = Field(None, pattern=r"^(auto|scipy|fftw|mlx|cuda)$")  # FFT backend
 
-    @field_validator('fftSize')
+    @field_validator("fftSize")
     @classmethod
     def validate_fft_size(cls, v: int | None) -> int | None:
         if v is not None and v not in [512, 1024, 2048, 4096]:
-            raise ValueError('fftSize must be 512, 1024, 2048, or 4096')
+            raise ValueError("fftSize must be 512, 1024, 2048, or 4096")
         return v
 
-    @field_validator('name', 'antenna', 'deviceId', 'streamFormat')
+    @field_validator("name", "antenna", "deviceId", "streamFormat")
     @classmethod
     def sanitize_string(cls, v: str | None) -> str | None:
         if v is None:
             return None
         # Remove control characters and trim whitespace
-        v = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', v)
+        v = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", v)
         v = v.strip()
         # Return None if empty after sanitization
         return v if v else None
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_bandwidth_with_sample_rate(self) -> CreateCaptureRequest:
         if self.bandwidth is not None and self.sampleRate is not None:
             if self.bandwidth > self.sampleRate:
-                raise ValueError('Bandwidth cannot exceed sample rate')
+                raise ValueError("Bandwidth cannot exceed sample rate")
         return self
 
 
@@ -95,22 +95,22 @@ class UpdateCaptureRequest(BaseModel):
     fftFps: int | None = Field(None, ge=1, le=60)  # Target FPS (1-60)
     fftMaxFps: int | None = Field(None, ge=1, le=120)  # Max FPS cap (1-120)
     fftSize: int | None = Field(None)  # 512, 1024, 2048, 4096
-    fftAccelerator: str | None = Field(None, pattern=r'^(auto|scipy|fftw|mlx|cuda)$')  # FFT backend
+    fftAccelerator: str | None = Field(None, pattern=r"^(auto|scipy|fftw|mlx|cuda)$")  # FFT backend
 
-    @field_validator('fftSize')
+    @field_validator("fftSize")
     @classmethod
     def validate_fft_size(cls, v: int | None) -> int | None:
         if v is not None and v not in [512, 1024, 2048, 4096]:
-            raise ValueError('fftSize must be 512, 1024, 2048, or 4096')
+            raise ValueError("fftSize must be 512, 1024, 2048, or 4096")
         return v
 
-    @field_validator('name', 'antenna', 'deviceId', 'streamFormat')
+    @field_validator("name", "antenna", "deviceId", "streamFormat")
     @classmethod
     def sanitize_string(cls, v: str | None) -> str | None:
         if v is None:
             return None
         # Remove control characters and trim whitespace
-        v = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', v)
+        v = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", v)
         v = v.strip()
         # Return None if empty after sanitization
         return v if v else None
@@ -118,6 +118,7 @@ class UpdateCaptureRequest(BaseModel):
 
 class ConfigWarning(BaseModel):
     """A configuration warning for display in the UI."""
+
     code: str  # Machine-readable code (e.g., "rtl_unstable_sample_rate")
     severity: Literal["warning", "info"] = "warning"
     message: str  # Human-readable message
@@ -204,23 +205,18 @@ class CreateChannelRequest(BaseModel):
     enableNoiseReduction: bool | None = None
     noiseReductionDb: float | None = Field(None, ge=3, le=30)  # 3-30 dB reduction
 
-    # Pager decoding (NBFM only)
-    enablePocsag: bool | None = None
-    pocsagBaud: int | None = Field(None, ge=512, le=2400)
-    enableFlex: bool | None = None
-
-    @field_validator('name')
+    @field_validator("name")
     @classmethod
     def sanitize_name(cls, v: str | None) -> str | None:
         if v is None:
             return None
         # Remove control characters and trim whitespace
-        v = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', v)
+        v = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", v)
         v = v.strip()
         # Return None if empty after sanitization
         return v if v else None
 
-    @field_validator('notchFrequencies')
+    @field_validator("notchFrequencies")
     @classmethod
     def validate_notch_frequencies(cls, v: list[float] | None) -> list[float] | None:
         if v is None:
@@ -228,7 +224,7 @@ class CreateChannelRequest(BaseModel):
         # Validate each frequency is positive and reasonable (0-20kHz for audio)
         for freq in v:
             if freq <= 0 or freq > 20000:
-                raise ValueError(f'Notch frequency must be between 0 and 20000 Hz, got {freq}')
+                raise ValueError(f"Notch frequency must be between 0 and 20000 Hz, got {freq}")
         return v
 
 
@@ -282,23 +278,18 @@ class UpdateChannelRequest(BaseModel):
     enableNoiseReduction: bool | None = None
     noiseReductionDb: float | None = Field(None, ge=3, le=30)  # 3-30 dB reduction
 
-    # Pager decoding (NBFM only)
-    enablePocsag: bool | None = None
-    pocsagBaud: int | None = Field(None, ge=512, le=2400)
-    enableFlex: bool | None = None
-
-    @field_validator('name')
+    @field_validator("name")
     @classmethod
     def sanitize_name(cls, v: str | None) -> str | None:
         if v is None:
             return None
         # Remove control characters and trim whitespace
-        v = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', v)
+        v = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", v)
         v = v.strip()
         # Return None if empty after sanitization
         return v if v else None
 
-    @field_validator('notchFrequencies')
+    @field_validator("notchFrequencies")
     @classmethod
     def validate_notch_frequencies(cls, v: list[float] | None) -> list[float] | None:
         if v is None:
@@ -306,7 +297,7 @@ class UpdateChannelRequest(BaseModel):
         # Validate each frequency is positive and reasonable (0-20kHz for audio)
         for freq in v:
             if freq <= 0 or freq > 20000:
-                raise ValueError(f'Notch frequency must be between 0 and 20000 Hz, got {freq}')
+                raise ValueError(f"Notch frequency must be between 0 and 20000 Hz, got {freq}")
         return v
 
 
@@ -370,11 +361,6 @@ class ChannelModel(BaseModel):
     enableNoiseReduction: bool
     noiseReductionDb: float
 
-    # Pager decoding (NBFM only)
-    enablePocsag: bool = False
-    pocsagBaud: int = 1200
-    enableFlex: bool = False
-
     # RDS data (WBFM only)
     rdsData: RDSDataModel | None = None
 
@@ -387,8 +373,6 @@ class RecipeChannelModel(BaseModel):
     # POCSAG decoding settings (NBFM only)
     enablePocsag: bool = False
     pocsagBaud: int = 1200
-    # FLEX decoding settings (NBFM only)
-    enableFlex: bool = False
 
 
 class RecipeModel(BaseModel):
@@ -403,6 +387,7 @@ class RecipeModel(BaseModel):
     channels: list[RecipeChannelModel] = []
     allowFrequencyInput: bool = False
     frequencyLabel: str | None = None
+
 
 # Scanner models
 class ScanMode(str):
@@ -466,6 +451,7 @@ class ScannerModel(BaseModel):
 # RDS (Radio Data System) data for FM broadcast
 class RDSDataModel(BaseModel):
     """RDS data decoded from FM broadcast."""
+
     piCode: str | None = None  # Program Identification (hex string like "A1B2")
     psName: str | None = None  # Program Service name (8 chars, station name)
     radioText: str | None = None  # Radio Text (up to 64 chars)
@@ -479,6 +465,7 @@ class RDSDataModel(BaseModel):
 # POCSAG pager message
 class POCSAGMessageModel(BaseModel):
     """A decoded POCSAG pager message."""
+
     address: int  # 21-bit address (capcode)
     function: int  # 2-bit function code (0-3)
     messageType: str  # "numeric", "alpha", "alert_only", or "alpha_2"
@@ -488,23 +475,10 @@ class POCSAGMessageModel(BaseModel):
     alias: str | None = None  # Human-readable name from config (e.g., "CFS Dispatch")
 
 
-class FlexMessageModel(BaseModel):
-    """A decoded FLEX pager message."""
-    capcode: int
-    messageType: str  # "alpha", "numeric", "tone", or "unknown"
-    message: str
-    timestamp: float
-    baudRate: int | None = None
-    levels: int | None = None
-    phase: str | None = None
-    cycleNumber: int | None = None
-    frameNumber: int | None = None
-    alias: str | None = None
-
-
 # Signal monitoring models
 class SpectrumSnapshotModel(BaseModel):
     """Single FFT spectrum snapshot (no WebSocket required)."""
+
     power: list[float]  # Power spectrum in dB
     freqs: list[float]  # Frequency bins in Hz
     centerHz: float
@@ -514,6 +488,7 @@ class SpectrumSnapshotModel(BaseModel):
 
 class ClassifiedChannelModel(BaseModel):
     """A channel classified by power variance analysis."""
+
     freqHz: float
     powerDb: float
     stdDevDb: float
@@ -522,12 +497,14 @@ class ClassifiedChannelModel(BaseModel):
 
 class ClassifiedChannelsResponse(BaseModel):
     """Response for channel classification endpoint."""
+
     channels: list[ClassifiedChannelModel]
     status: dict[str, Any]  # elapsed_seconds, sample_count, is_ready, remaining_seconds
 
 
 class ExtendedMetricsModel(BaseModel):
     """Extended signal metrics for tuning and monitoring."""
+
     channelId: str
     # Core signal metrics
     rssiDb: float | None = None  # Received signal strength (dB)
@@ -546,6 +523,7 @@ class ExtendedMetricsModel(BaseModel):
 
 class MetricsHistoryPoint(BaseModel):
     """Single point in metrics history."""
+
     timestamp: float
     rssiDb: float | None = None
     snrDb: float | None = None
@@ -554,6 +532,7 @@ class MetricsHistoryPoint(BaseModel):
 
 class MetricsHistoryModel(BaseModel):
     """Time-series of signal metrics."""
+
     channelId: str
     points: list[MetricsHistoryPoint]
     durationSeconds: float

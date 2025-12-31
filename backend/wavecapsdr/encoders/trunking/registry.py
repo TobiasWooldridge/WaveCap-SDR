@@ -19,6 +19,7 @@ TrafficChannelEncoderFactory = Callable[[TrunkingProtocol], TrafficChannelEncode
 @dataclass
 class EncoderRegistration:
     """Factory registration for a trunking protocol."""
+
     control_factory: ControlChannelEncoderFactory | None = None
     traffic_factory: TrafficChannelEncoderFactory | None = None
 

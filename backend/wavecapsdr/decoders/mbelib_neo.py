@@ -31,41 +31,40 @@ logger = logging.getLogger(__name__)
 # mbelib-neo C structure definitions
 # ============================================================================
 
+
 class MbeParms(Structure):
     """mbe_parms structure from mbelib-neo.
 
     Contains vocoder parameters for one frame plus synthesis state.
     """
+
     _fields_ = [
         # Core vocoder parameters
-        ("w0", c_float),           # Fundamental radian frequency
-        ("L", c_int),              # Number of harmonic bands
-        ("K", c_int),              # Number of voiced bands
-        ("Vl", c_int * 57),        # Voiced/unvoiced flags per band
-        ("Ml", c_float * 57),      # Magnitude per band
+        ("w0", c_float),  # Fundamental radian frequency
+        ("L", c_int),  # Number of harmonic bands
+        ("K", c_int),  # Number of voiced bands
+        ("Vl", c_int * 57),  # Voiced/unvoiced flags per band
+        ("Ml", c_float * 57),  # Magnitude per band
         ("log2Ml", c_float * 57),  # Base-2 log magnitude per band
-        ("PHIl", c_float * 57),    # Absolute phase per band
-        ("PSIl", c_float * 57),    # Smoothed phase per band
-        ("gamma", c_float),        # Spectral amplitude enhancement scale
-        ("un", c_int),             # Legacy/unused
-        ("repeat", c_int),         # Repeat frame flag (legacy)
-        ("swn", c_int),            # Sine wave increment for tone synthesis
-
+        ("PHIl", c_float * 57),  # Absolute phase per band
+        ("PSIl", c_float * 57),  # Smoothed phase per band
+        ("gamma", c_float),  # Spectral amplitude enhancement scale
+        ("un", c_int),  # Legacy/unused
+        ("repeat", c_int),  # Repeat frame flag (legacy)
+        ("swn", c_int),  # Sine wave increment for tone synthesis
         # Adaptive smoothing state
-        ("localEnergy", c_float),         # Local energy tracking
-        ("amplitudeThreshold", c_int),    # Amplitude threshold for scaling
-        ("errorRate", c_float),           # Bit error rate (0.0 to 1.0)
-        ("errorCountTotal", c_int),       # Total bit errors in frame
-        ("errorCount4", c_int),           # Coset 4 error count (IMBE)
-
+        ("localEnergy", c_float),  # Local energy tracking
+        ("amplitudeThreshold", c_int),  # Amplitude threshold for scaling
+        ("errorRate", c_float),  # Bit error rate (0.0 to 1.0)
+        ("errorCountTotal", c_int),  # Total bit errors in frame
+        ("errorCount4", c_int),  # Coset 4 error count (IMBE)
         # Frame repeat/muting state
-        ("repeatCount", c_int),           # Consecutive repeat count
-        ("mutingThreshold", c_float),     # Muting threshold
-
+        ("repeatCount", c_int),  # Consecutive repeat count
+        ("mutingThreshold", c_float),  # Muting threshold
         # FFT-based unvoiced synthesis state
-        ("previousUw", c_float * 256),    # Previous frame inverse FFT output
-        ("noiseSeed", c_float),           # LCG noise generator state
-        ("noiseOverlap", c_float * 96),   # Noise buffer overlap
+        ("previousUw", c_float * 256),  # Previous frame inverse FFT output
+        ("noiseSeed", c_float),  # LCG noise generator state
+        ("noiseOverlap", c_float * 96),  # Noise buffer overlap
     ]
 
 
@@ -135,8 +134,7 @@ def _get_lib() -> ctypes.CDLL:
     lib_path = _find_mbelib_neo()
     if lib_path is None:
         raise MbelibNeoError(
-            "mbelib-neo not found. Install from: "
-            "https://github.com/arancormonk/mbelib-neo"
+            "mbelib-neo not found. Install from: https://github.com/arancormonk/mbelib-neo"
         )
 
     try:
@@ -174,16 +172,16 @@ def _setup_function_signatures(lib: ctypes.CDLL) -> None:
     ImbeData = c_char * 88
 
     lib.mbe_processImbe7200x4400Framef.argtypes = [
-        POINTER(c_float),       # aout_buf (160 floats)
-        POINTER(c_int),         # errs
-        POINTER(c_int),         # errs2
-        ctypes.c_char_p,        # err_str
-        ImbeFrame,              # imbe_fr[8][23]
-        ImbeData,               # imbe_d[88]
-        POINTER(MbeParms),      # cur_mp
-        POINTER(MbeParms),      # prev_mp
-        POINTER(MbeParms),      # prev_mp_enhanced
-        c_int,                  # uvquality
+        POINTER(c_float),  # aout_buf (160 floats)
+        POINTER(c_int),  # errs
+        POINTER(c_int),  # errs2
+        ctypes.c_char_p,  # err_str
+        ImbeFrame,  # imbe_fr[8][23]
+        ImbeData,  # imbe_d[88]
+        POINTER(MbeParms),  # cur_mp
+        POINTER(MbeParms),  # prev_mp
+        POINTER(MbeParms),  # prev_mp_enhanced
+        c_int,  # uvquality
     ]
     lib.mbe_processImbe7200x4400Framef.restype = None
 
@@ -191,23 +189,23 @@ def _setup_function_signatures(lib: ctypes.CDLL) -> None:
     ImbeFrame7100 = c_char * 24 * 7
 
     lib.mbe_processImbe7100x4400Framef.argtypes = [
-        POINTER(c_float),       # aout_buf (160 floats)
-        POINTER(c_int),         # errs
-        POINTER(c_int),         # errs2
-        ctypes.c_char_p,        # err_str
-        ImbeFrame7100,          # imbe_fr[7][24]
-        ImbeData,               # imbe_d[88]
-        POINTER(MbeParms),      # cur_mp
-        POINTER(MbeParms),      # prev_mp
-        POINTER(MbeParms),      # prev_mp_enhanced
-        c_int,                  # uvquality
+        POINTER(c_float),  # aout_buf (160 floats)
+        POINTER(c_int),  # errs
+        POINTER(c_int),  # errs2
+        ctypes.c_char_p,  # err_str
+        ImbeFrame7100,  # imbe_fr[7][24]
+        ImbeData,  # imbe_d[88]
+        POINTER(MbeParms),  # cur_mp
+        POINTER(MbeParms),  # prev_mp
+        POINTER(MbeParms),  # prev_mp_enhanced
+        c_int,  # uvquality
     ]
     lib.mbe_processImbe7100x4400Framef.restype = None
 
     # Float to short conversion
     lib.mbe_floattoshort.argtypes = [
-        POINTER(c_float),       # float_buf (160 floats)
-        POINTER(c_short),       # aout_buf (160 shorts)
+        POINTER(c_float),  # float_buf (160 floats)
+        POINTER(c_short),  # aout_buf (160 shorts)
     ]
     lib.mbe_floattoshort.restype = None
 
@@ -255,6 +253,7 @@ def check_available() -> tuple[bool, str]:
 # IMBE Decoder using mbelib-neo
 # ============================================================================
 
+
 @dataclass
 class IMBEDecoderNeo:
     """IMBE decoder using mbelib-neo for P25 Phase 1 voice.
@@ -279,7 +278,7 @@ class IMBEDecoderNeo:
 
     # Output configuration
     output_rate: int = 48000  # Target sample rate (will resample from 8kHz)
-    uvquality: int = 3        # Unvoiced synthesis quality (1-64, 3 is good balance)
+    uvquality: int = 3  # Unvoiced synthesis quality (1-64, 3 is good balance)
 
     # State
     _lib: ctypes.CDLL | None = field(default=None, repr=False)
@@ -363,7 +362,9 @@ class IMBEDecoderNeo:
 
         version_bytes = cast(bytes, self._lib.mbe_versionString())
         version = version_bytes.decode("utf-8")
-        logger.info(f"IMBEDecoderNeo started (mbelib-neo {version}, output_rate={self.output_rate})")
+        logger.info(
+            f"IMBEDecoderNeo started (mbelib-neo {version}, output_rate={self.output_rate})"
+        )
 
     def stop(self) -> None:
         """Stop the decoder and release resources."""
@@ -475,6 +476,7 @@ class IMBEDecoderNeo:
         # Resample if needed
         if self._resample_ratio != 1.0:
             from scipy import signal
+
             # Calculate rational resampling factors
             up = self.output_rate
             down = OUTPUT_SAMPLE_RATE
@@ -503,7 +505,7 @@ class IMBEDecoderNeo:
                 # Pad to 184 bits if needed
                 if len(imbe_bits) < 184:
                     padded = np.zeros(184, dtype=np.uint8)
-                    padded[:len(imbe_bits)] = imbe_bits
+                    padded[: len(imbe_bits)] = imbe_bits
                     return padded
                 return imbe_bits[:184].astype(np.uint8)
 
@@ -514,7 +516,12 @@ class IMBEDecoderNeo:
 
     def decode_silence(self) -> NDArrayAny:
         """Generate a frame of silence."""
-        if not self.running or self._lib is None or self._audio_buf is None or self._audio_buf_ptr is None:
+        if (
+            not self.running
+            or self._lib is None
+            or self._audio_buf is None
+            or self._audio_buf_ptr is None
+        ):
             return np.zeros(int(SAMPLES_PER_FRAME * self._resample_ratio), dtype=np.float32)
 
         self._lib.mbe_synthesizeSilencef(self._audio_buf_ptr)
@@ -522,6 +529,7 @@ class IMBEDecoderNeo:
 
         if self._resample_ratio != 1.0:
             from scipy import signal
+
             up = self.output_rate
             down = OUTPUT_SAMPLE_RATE
             gcd = np.gcd(up, down)
@@ -533,6 +541,7 @@ class IMBEDecoderNeo:
 # ============================================================================
 # Convenience functions
 # ============================================================================
+
 
 def create_imbe_decoder(output_rate: int = 48000) -> IMBEDecoderNeo:
     """Create an IMBE decoder instance."""
@@ -562,6 +571,8 @@ if __name__ == "__main__":
         dummy_frame = np.zeros(184, dtype=np.uint8)
         audio = decoder.decode_frame(dummy_frame)
         if audio is not None:
-            print(f"Decoded frame: {len(audio)} samples, range [{audio.min():.3f}, {audio.max():.3f}]")
+            print(
+                f"Decoded frame: {len(audio)} samples, range [{audio.min():.3f}, {audio.max():.3f}]"
+            )
 
         decoder.stop()

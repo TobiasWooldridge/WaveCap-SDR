@@ -54,9 +54,7 @@ class FFTWBackend(FFTBackend):
             ImportError: If pyFFTW is not installed
         """
         if not PYFFTW_AVAILABLE or _pyfftw is None:
-            raise ImportError(
-                "pyFFTW not available. Install with: pip install pyfftw"
-            )
+            raise ImportError("pyFFTW not available. Install with: pip install pyfftw")
 
         super().__init__(fft_size)
         self._pyfftw = _pyfftw
@@ -76,9 +74,7 @@ class FFTWBackend(FFTBackend):
             threads=threads,
         )
 
-        logger.info(
-            f"FFTW backend initialized (fft_size={fft_size}, threads={threads})"
-        )
+        logger.info(f"FFTW backend initialized (fft_size={fft_size}, threads={threads})")
 
     def execute(self, iq: NDArrayComplex, sample_rate: int) -> FFTResult:
         """Compute FFT using pre-planned FFTW.
@@ -112,9 +108,7 @@ class FFTWBackend(FFTBackend):
         power_db = 20.0 * np.log10(magnitude + 1e-10)
 
         # Generate frequency array
-        freqs = np.fft.fftshift(
-            np.fft.fftfreq(self.fft_size, 1.0 / sample_rate)
-        ).astype(np.float32)
+        freqs = np.fft.fftshift(np.fft.fftfreq(self.fft_size, 1.0 / sample_rate)).astype(np.float32)
 
         return FFTResult(
             power_db=power_db.astype(np.float32),

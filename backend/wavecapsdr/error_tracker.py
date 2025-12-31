@@ -75,7 +75,9 @@ class ErrorTracker:
         self._subscribers_lock = threading.Lock()
 
         # Rate calculation window
-        self._rate_window: dict[str, deque[tuple[float, int]]] = {}  # type -> deque of (timestamp, count)
+        self._rate_window: dict[
+            str, deque[tuple[float, int]]
+        ] = {}  # type -> deque of (timestamp, count)
         self._rate_window_seconds = 10.0  # Calculate rate over 10 seconds
 
     def record(self, event: ErrorEvent) -> None:
@@ -175,9 +177,7 @@ class ErrorTracker:
             # Return a copy to avoid race conditions
             return {k: ErrorStats(**asdict(v)) for k, v in self._stats.items()}
 
-    def get_recent_events(
-        self, since: float | None = None, limit: int = 50
-    ) -> list[ErrorEvent]:
+    def get_recent_events(self, since: float | None = None, limit: int = 50) -> list[ErrorEvent]:
         """Get recent error events.
 
         Args:

@@ -16,22 +16,24 @@ from typing import Any
 
 class IdentifierRole(Enum):
     """Role of an identifier in a call event."""
-    FROM = "from"       # Source (transmitting unit)
-    TO = "to"           # Destination (talkgroup or target unit)
-    ANY = "any"         # No specific role
+
+    FROM = "from"  # Source (transmitting unit)
+    TO = "to"  # Destination (talkgroup or target unit)
+    ANY = "any"  # No specific role
 
 
 class IdentifierForm(Enum):
     """Type/form of identifier."""
-    RADIO = "radio"           # Radio unit ID
-    TALKGROUP = "talkgroup"   # Talkgroup ID
-    ALIAS = "alias"           # Human-readable alias
-    PATCH = "patch"           # Patched talkgroup
-    ENCRYPTION = "encryption" # Encryption key ID
-    SITE = "site"             # Site identifier
-    SYSTEM = "system"         # System identifier
-    NAC = "nac"               # Network Access Code
-    LOCATION = "location"     # GPS location
+
+    RADIO = "radio"  # Radio unit ID
+    TALKGROUP = "talkgroup"  # Talkgroup ID
+    ALIAS = "alias"  # Human-readable alias
+    PATCH = "patch"  # Patched talkgroup
+    ENCRYPTION = "encryption"  # Encryption key ID
+    SITE = "site"  # Site identifier
+    SYSTEM = "system"  # System identifier
+    NAC = "nac"  # Network Access Code
+    LOCATION = "location"  # GPS location
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,7 @@ class Identifier:
         Identifier(1001, IdentifierRole.TO, IdentifierForm.TALKGROUP)
         Identifier("Engine 1", IdentifierRole.FROM, IdentifierForm.ALIAS)
     """
+
     value: Any
     role: IdentifierRole = IdentifierRole.ANY
     form: IdentifierForm = IdentifierForm.RADIO
@@ -53,9 +56,7 @@ class Identifier:
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Identifier):
             return False
-        return (self.value == other.value and
-                self.role == other.role and
-                self.form == other.form)
+        return self.value == other.value and self.role == other.role and self.form == other.form
 
     def __repr__(self) -> str:
         return f"Identifier({self.value}, {self.role.name}, {self.form.name})"
@@ -77,8 +78,7 @@ class IdentifierCollection:
         tg = ic.get_to_identifier()        # Talkgroup 1001
     """
 
-    def __init__(self, identifiers: list[Identifier] | None = None,
-                 timeslot: int = 0) -> None:
+    def __init__(self, identifiers: list[Identifier] | None = None, timeslot: int = 0) -> None:
         self._identifiers: list[Identifier] = list(identifiers or [])
         self.timeslot = timeslot
 
@@ -192,7 +192,8 @@ class MutableIdentifierCollection(IdentifierCollection):
         """
         # Remove existing with same role+form
         self._identifiers = [
-            i for i in self._identifiers
+            i
+            for i in self._identifiers
             if not (i.role == identifier.role and i.form == identifier.form)
         ]
         self._identifiers.append(identifier)
@@ -258,8 +259,9 @@ class TalkerAliasManager:
         """Get alias for talkgroup."""
         return self._talkgroup_aliases.get(tgid)
 
-    def load_from_config(self, radio_aliases: dict[int, str],
-                         talkgroup_aliases: dict[int, str]) -> None:
+    def load_from_config(
+        self, radio_aliases: dict[int, str], talkgroup_aliases: dict[int, str]
+    ) -> None:
         """Bulk load aliases from configuration."""
         self._radio_aliases.update(radio_aliases)
         self._talkgroup_aliases.update(talkgroup_aliases)

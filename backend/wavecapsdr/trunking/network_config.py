@@ -29,6 +29,7 @@ class FrequencyBand:
     P25 uses a 4-bit identifier + 12-bit channel number system
     where the identifier selects the frequency band.
     """
+
     identifier: int  # 4-bit band identifier (0-15)
     base_frequency_hz: int  # Base frequency in Hz
     channel_spacing_hz: int  # Channel spacing in Hz
@@ -60,6 +61,7 @@ class FrequencyBand:
 @dataclass
 class SiteStatus:
     """Site status from RFSS_STS_BCAST."""
+
     rfss_id: int  # RF Subsystem ID
     site_id: int  # Site ID within RFSS
     system_id: int  # System ID
@@ -93,6 +95,7 @@ class SiteStatus:
 @dataclass
 class NetworkStatus:
     """Network status from NET_STS_BCAST."""
+
     wacn: int  # Wide Area Communication Network (20-bit)
     system_id: int  # System ID (12-bit)
     lra: int  # Location Registration Area
@@ -116,6 +119,7 @@ class NetworkStatus:
 @dataclass
 class AdjacentSite:
     """Adjacent site from ADJ_STS_BCAST."""
+
     system_id: int
     rfss_id: int
     site_id: int
@@ -148,6 +152,7 @@ class AdjacentSite:
 @dataclass
 class SystemServices:
     """System services from SYS_SRV_BCAST."""
+
     services_available: int  # 24-bit flags
     services_supported: int  # 24-bit flags
     last_update: float = 0.0
@@ -272,10 +277,16 @@ class P25NetworkConfigurationMonitor:
             return self._site_status.site_key
         return None
 
-    def process_identifier_update(self, identifier: int, base_freq_mhz: float,
-                                  channel_spacing_khz: float, tx_offset_mhz: float = 0,
-                                  bandwidth_khz: float = 12.5, is_tdma: bool = False,
-                                  slot_count: int = 1) -> FrequencyBand:
+    def process_identifier_update(
+        self,
+        identifier: int,
+        base_freq_mhz: float,
+        channel_spacing_khz: float,
+        tx_offset_mhz: float = 0,
+        bandwidth_khz: float = 12.5,
+        is_tdma: bool = False,
+        slot_count: int = 1,
+    ) -> FrequencyBand:
         """Process IDEN_UP message to learn frequency band.
 
         Args:
@@ -302,16 +313,19 @@ class P25NetworkConfigurationMonitor:
 
         self._frequency_bands[band.identifier] = band
 
-        logger.debug(f"Frequency band {identifier}: base={base_freq_mhz:.4f} MHz, "
-                    f"spacing={channel_spacing_khz} kHz")
+        logger.debug(
+            f"Frequency band {identifier}: base={base_freq_mhz:.4f} MHz, "
+            f"spacing={channel_spacing_khz} kHz"
+        )
 
         if self.on_frequency_band:
             self.on_frequency_band(band)
 
         return band
 
-    def process_rfss_status(self, system_id: int, rfss_id: int, site_id: int,
-                           lra: int, channel: int, service_class: int) -> SiteStatus:
+    def process_rfss_status(
+        self, system_id: int, rfss_id: int, site_id: int, lra: int, channel: int, service_class: int
+    ) -> SiteStatus:
         """Process RFSS_STS_BCAST message."""
         status = SiteStatus(
             rfss_id=rfss_id,
@@ -330,8 +344,9 @@ class P25NetworkConfigurationMonitor:
 
         return status
 
-    def process_network_status(self, wacn: int, system_id: int, lra: int,
-                              channel: int) -> NetworkStatus:
+    def process_network_status(
+        self, wacn: int, system_id: int, lra: int, channel: int
+    ) -> NetworkStatus:
         """Process NET_STS_BCAST message."""
         status = NetworkStatus(
             wacn=wacn,
@@ -345,8 +360,9 @@ class P25NetworkConfigurationMonitor:
 
         return status
 
-    def process_adjacent_status(self, system_id: int, rfss_id: int, site_id: int,
-                               lra: int, channel: int, service_class: int) -> AdjacentSite:
+    def process_adjacent_status(
+        self, system_id: int, rfss_id: int, site_id: int, lra: int, channel: int, service_class: int
+    ) -> AdjacentSite:
         """Process ADJ_STS_BCAST message."""
         site = AdjacentSite(
             system_id=system_id,
@@ -366,8 +382,9 @@ class P25NetworkConfigurationMonitor:
 
         return site
 
-    def process_system_service(self, services_available: int,
-                              services_supported: int) -> SystemServices:
+    def process_system_service(
+        self, services_available: int, services_supported: int
+    ) -> SystemServices:
         """Process SYS_SRV_BCAST message."""
         services = SystemServices(
             services_available=services_available,
@@ -375,8 +392,10 @@ class P25NetworkConfigurationMonitor:
         )
         self._system_services = services
 
-        logger.debug(f"System services: voice={services.has_voice_services}, "
-                    f"data={services.has_data_services}")
+        logger.debug(
+            f"System services: voice={services.has_voice_services}, "
+            f"data={services.has_data_services}"
+        )
 
         return services
 

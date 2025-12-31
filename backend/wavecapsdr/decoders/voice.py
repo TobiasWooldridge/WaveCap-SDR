@@ -25,16 +25,24 @@ from wavecapsdr.typing import NDArrayFloat
 from wavecapsdr.decoders.ambe import AMBEDecoder, AMBEDecoderError, check_ambe_available
 from wavecapsdr.decoders.imbe import IMBEDecoderError, check_imbe_available
 from wavecapsdr.decoders.imbe_threaded import IMBEDecoderThreaded
-from wavecapsdr.decoders.imbe_native import IMBEDecoderNative, IMBENativeError, check_native_imbe_available
-from wavecapsdr.decoders.mbelib_neo import is_available as mbelib_neo_available, check_available as check_mbelib_neo
+from wavecapsdr.decoders.imbe_native import (
+    IMBEDecoderNative,
+    IMBENativeError,
+    check_native_imbe_available,
+)
+from wavecapsdr.decoders.mbelib_neo import (
+    is_available as mbelib_neo_available,
+    check_available as check_mbelib_neo,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class VocoderType(str, Enum):
     """P25 vocoder types."""
-    IMBE = "imbe"      # Phase I
-    AMBE2 = "ambe2"    # Phase II
+
+    IMBE = "imbe"  # Phase I
+    AMBE2 = "ambe2"  # Phase II
 
 
 class VoiceDecoderError(Exception):
@@ -44,6 +52,7 @@ class VoiceDecoderError(Exception):
 @dataclass
 class VoiceDecoderStats:
     """Voice decoder statistics."""
+
     frames_decoded: int = 0
     frames_dropped: int = 0
     frames_errored: int = 0

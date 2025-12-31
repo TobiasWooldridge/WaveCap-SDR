@@ -245,9 +245,7 @@ class CQPSKDemodulator:
         self.samples_per_symbol = sample_rate / symbol_rate
 
         # RRC matched filter
-        self._rrc = design_rrc_filter_phase2(
-            self.samples_per_symbol, rrc_taps, rrc_alpha
-        )
+        self._rrc = design_rrc_filter_phase2(self.samples_per_symbol, rrc_taps, rrc_alpha)
 
         # Carrier recovery (Costas loop)
         self._carrier_loop = CostasLoop(loop_bw=carrier_loop_bw)

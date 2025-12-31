@@ -27,11 +27,11 @@ RDS_SAMPLES_PER_SYMBOL = 48  # For internal processing at ~57 kHz sample rate
 # Syndrome words for block identification
 # Block A, B, C, C', D with their offset words
 SYNDROMES = {
-    0x3D8: 'A',
-    0x3D4: 'B',
-    0x25C: 'C',
-    0x3CC: 'Cp',  # C' for type B groups
-    0x258: 'D',
+    0x3D8: "A",
+    0x3D4: "B",
+    0x25C: "C",
+    0x3CC: "Cp",  # C' for type B groups
+    0x258: "D",
 }
 
 # Generator polynomial for RDS CRC: x^10 + x^8 + x^7 + x^5 + x^4 + x^3 + 1
@@ -88,7 +88,9 @@ class RDSData:
     ms: bool = True  # Music/Speech switch (True = Music)
 
     # Internal state for building strings
-    _ps_segments: dict[int, str] = field(default_factory=lambda: {0: "  ", 1: "  ", 2: "  ", 3: "  "})
+    _ps_segments: dict[int, str] = field(
+        default_factory=lambda: {0: "  ", 1: "  ", 2: "  ", 3: "  "}
+    )
     _rt_segments: dict[int, str] = field(default_factory=dict)
     _rt_ab_flag: bool = False
 
@@ -124,7 +126,7 @@ def _get_bpf_coeffs(
     if low >= high:
         return None
 
-    b, a = signal.butter(4, [low, high], btype='band')
+    b, a = signal.butter(4, [low, high], btype="band")
     return b, a
 
 
@@ -150,7 +152,7 @@ def _crc_check(block: int) -> tuple[bool, str]:
     if reg in SYNDROMES:
         return True, SYNDROMES[reg]
 
-    return False, ''
+    return False, ""
 
 
 class RDSDecoder:
@@ -222,13 +224,15 @@ class RDSDecoder:
             baseband = rds_signal * carrier * 2  # *2 to compensate for mixing loss
 
             # Update PLL phase for next block
-            self._pll_phase = (self._pll_phase + 2 * np.pi * RDS_SUBCARRIER_HZ * len(rds_signal) / self.sample_rate) % (2 * np.pi)
+            self._pll_phase = (
+                self._pll_phase + 2 * np.pi * RDS_SUBCARRIER_HZ * len(rds_signal) / self.sample_rate
+            ) % (2 * np.pi)
 
             # Lowpass filter to get BPSK baseband (cutoff ~2.4 kHz for 1187.5 baud)
             nyquist = self.sample_rate / 2
             cutoff = 2400 / nyquist
             if cutoff < 1.0:
-                b_lpf, a_lpf = signal.butter(4, cutoff, btype='low')
+                b_lpf, a_lpf = signal.butter(4, cutoff, btype="low")
                 baseband = signal.lfilter(b_lpf, a_lpf, baseband).astype(np.float32)
 
             # Decimate to ~10x symbol rate for bit recovery
@@ -299,22 +303,22 @@ class RDSDecoder:
         if valid:
             data = block >> 10  # Extract 16-bit data
 
-            if block_type == 'A':
+            if block_type == "A":
                 # Block A: PI code
-                self._group_blocks = {'A': data}
+                self._group_blocks = {"A": data}
                 self._synced = True
                 self._bit_buffer = self._bit_buffer[26:]
 
-            elif self._synced and block_type == 'B' and 'A' in self._group_blocks:
-                self._group_blocks['B'] = data
+            elif self._synced and block_type == "B" and "A" in self._group_blocks:
+                self._group_blocks["B"] = data
                 self._bit_buffer = self._bit_buffer[26:]
 
-            elif self._synced and block_type in ('C', 'Cp') and 'B' in self._group_blocks:
-                self._group_blocks['C'] = data
+            elif self._synced and block_type in ("C", "Cp") and "B" in self._group_blocks:
+                self._group_blocks["C"] = data
                 self._bit_buffer = self._bit_buffer[26:]
 
-            elif self._synced and block_type == 'D' and 'C' in self._group_blocks:
-                self._group_blocks['D'] = data
+            elif self._synced and block_type == "D" and "C" in self._group_blocks:
+                self._group_blocks["D"] = data
                 self._bit_buffer = self._bit_buffer[26:]
 
                 # Complete group - decode it
@@ -340,13 +344,13 @@ class RDSDecoder:
         Returns:
             True if group was successfully decoded.
         """
-        if not all(k in self._group_blocks for k in ('A', 'B', 'C', 'D')):
+        if not all(k in self._group_blocks for k in ("A", "B", "C", "D")):
             return False
 
-        block_a = self._group_blocks['A']
-        block_b = self._group_blocks['B']
-        block_c = self._group_blocks['C']
-        block_d = self._group_blocks['D']
+        block_a = self._group_blocks["A"]
+        block_b = self._group_blocks["B"]
+        block_c = self._group_blocks["C"]
+        block_d = self._group_blocks["D"]
 
         # Block A: PI code
         self.data.pi_code = f"{block_a:04X}"
@@ -380,9 +384,7 @@ class RDSDecoder:
                 self.data._ps_segments[segment] = chr(char1) + chr(char2)
 
                 # Rebuild PS name
-                self.data.ps_name = "".join(
-                    self.data._ps_segments.get(i, "  ") for i in range(4)
-                )
+                self.data.ps_name = "".join(self.data._ps_segments.get(i, "  ") for i in range(4))
 
             return True
 
@@ -405,7 +407,7 @@ class RDSDecoder:
                     elif val == 0x0D:  # Carriage return = end of message
                         break
                     else:
-                        chars.append(' ')
+                        chars.append(" ")
 
                 self.data._rt_segments[segment] = "".join(chars)
             else:
@@ -419,7 +421,7 @@ class RDSDecoder:
                     elif val == 0x0D:
                         break
                     else:
-                        chars.append(' ')
+                        chars.append(" ")
 
                 self.data._rt_segments[segment] = "".join(chars)
 

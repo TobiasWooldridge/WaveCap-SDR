@@ -28,6 +28,7 @@ else:
     RadioReferenceTalkgroupRequest = radioreference.RadioReferenceTalkgroupRequest
     fetch_talkgroups = radioreference.fetch_talkgroups
 
+
 def parse_frequency(value: str | int | float) -> float:
     """Parse a frequency value with optional unit suffix.
 
@@ -48,18 +49,18 @@ def parse_frequency(value: str | int | float) -> float:
     value = str(value).strip()
 
     # Match number with optional unit
-    match = re.match(r'^([\d.]+)\s*(MHz|mhz|MHZ|kHz|khz|KHZ|Hz|hz|HZ)?$', value)
+    match = re.match(r"^([\d.]+)\s*(MHz|mhz|MHZ|kHz|khz|KHZ|Hz|hz|HZ)?$", value)
     if not match:
         raise ValueError(f"Invalid frequency format: {value}")
 
     num = float(match.group(1))
-    unit = (match.group(2) or '').lower()
+    unit = (match.group(2) or "").lower()
 
-    if unit == 'mhz':
+    if unit == "mhz":
         return num * 1_000_000
-    elif unit == 'khz':
+    elif unit == "khz":
         return num * 1_000
-    elif unit == 'hz':
+    elif unit == "hz":
         return num
     else:
         # No unit specified - assume MHz if small number, Hz if large
@@ -71,14 +72,16 @@ def parse_frequency(value: str | int | float) -> float:
 
 class TrunkingProtocol(str, Enum):
     """Supported trunking protocols."""
+
     P25_PHASE1 = "p25_phase1"  # C4FM, IMBE (SA-GRN, most systems)
     P25_PHASE2 = "p25_phase2"  # CQPSK/TDMA, AMBE+2 (PSERN, newer systems)
 
 
 class P25Modulation(str, Enum):
     """P25 modulation types."""
-    C4FM = "c4fm"    # Standard 4FSK modulation
-    LSM = "lsm"      # Linear Simulcast Modulation (CQPSK)
+
+    C4FM = "c4fm"  # Standard 4FSK modulation
+    LSM = "lsm"  # Linear Simulcast Modulation (CQPSK)
 
 
 class HuntMode(str, Enum):
@@ -86,9 +89,10 @@ class HuntMode(str, Enum):
 
     Determines how the trunking system finds and maintains control channel lock.
     """
-    AUTO = "auto"           # Default: hunt continuously, roam if better channel found
-    MANUAL = "manual"       # Lock to specified channel, no hunting ever
-    SCAN_ONCE = "scan_once" # Scan all channels once, lock to best, stay there
+
+    AUTO = "auto"  # Default: hunt continuously, roam if better channel found
+    MANUAL = "manual"  # Lock to specified channel, no hunting ever
+    SCAN_ONCE = "scan_once"  # Scan all channels once, lock to best, stay there
 
 
 @dataclass
@@ -97,6 +101,7 @@ class ChannelIdentifierConfig:
 
     Uses MHz/kHz units to match IDEN_UP fields and avoid rounding.
     """
+
     identifier: int  # 4-bit band identifier (0-15)
     base_freq_mhz: float
     channel_spacing_khz: float
@@ -109,7 +114,9 @@ class ChannelIdentifierConfig:
         base_freq_mhz = data.get("base_freq_mhz", data.get("base_freq"))
         channel_spacing_khz = data.get("channel_spacing_khz", data.get("spacing_khz"))
         if base_freq_mhz is None or channel_spacing_khz is None:
-            raise ValueError("channel_identifiers entry requires base_freq_mhz and channel_spacing_khz")
+            raise ValueError(
+                "channel_identifiers entry requires base_freq_mhz and channel_spacing_khz"
+            )
 
         tx_offset_mhz = data.get("tx_offset_mhz", data.get("tx_offset", 0.0))
         tx_offset_hz = data.get("tx_offset_hz")
@@ -143,6 +150,7 @@ class ControlChannelConfig:
         frequency_hz: Control channel frequency in Hz
         name: Optional human-readable name (e.g., "CC1 - Primary", "Mt Barker")
     """
+
     frequency_hz: float
     name: str = ""
 
@@ -183,6 +191,7 @@ class TalkgroupConfig:
         record: Whether to record calls
         monitor: Whether to stream audio live
     """
+
     tgid: int
     name: str
     alpha_tag: str = ""
@@ -230,6 +239,7 @@ class TrunkingSystemConfig:
         squelch_db: Squelch level for voice channels
         channel_identifiers: Optional IDEN_UP seed data for channel-to-frequency lookup
     """
+
     id: str
     name: str
     protocol: TrunkingProtocol = TrunkingProtocol.P25_PHASE1
@@ -240,8 +250,12 @@ class TrunkingSystemConfig:
     device_id: str = ""
     gain: float | None = None  # RF gain (None = auto)
     antenna: str | None = None  # SDR antenna port
-    device_settings: dict[str, str] = field(default_factory=dict)  # Device-specific settings (e.g., rfnotch_ctrl, dabnotch_ctrl)
-    element_gains: dict[str, float] = field(default_factory=dict)  # Per-element gains (e.g., RFGR for SDRplay LNA)
+    device_settings: dict[str, str] = field(
+        default_factory=dict
+    )  # Device-specific settings (e.g., rfnotch_ctrl, dabnotch_ctrl)
+    element_gains: dict[str, float] = field(
+        default_factory=dict
+    )  # Per-element gains (e.g., RFGR for SDRplay LNA)
     agc_enabled: bool = False  # Enable automatic gain control (SDRplay only)
     max_voice_recorders: int = 4
     talkgroups: dict[int, TalkgroupConfig] = field(default_factory=dict)
@@ -357,14 +371,13 @@ class TrunkingSystemConfig:
                 )
             else:
                 import logging
+
                 logging.getLogger(__name__).warning(
                     "talkgroups_rr configured without system_id; skipping RadioReference import"
                 )
 
         if rr_settings and rr_settings.enabled:
-            rr_talkgroups = load_talkgroups_radioreference(
-                rr_settings, rr_config, config_dir
-            )
+            rr_talkgroups = load_talkgroups_radioreference(rr_settings, rr_config, config_dir)
             if rr_talkgroups:
                 talkgroups.update(rr_talkgroups)
 
@@ -419,7 +432,9 @@ class TrunkingSystemConfig:
                         ident = int(key)
                     except (TypeError, ValueError):
                         continue
-                channel_identifiers[int(ident)] = ChannelIdentifierConfig.from_dict(int(ident), entry)
+                channel_identifiers[int(ident)] = ChannelIdentifierConfig.from_dict(
+                    int(ident), entry
+                )
         elif isinstance(channel_raw, list):
             for entry in channel_raw:
                 if not isinstance(entry, dict):
@@ -427,14 +442,18 @@ class TrunkingSystemConfig:
                 ident = entry.get("identifier")
                 if ident is None:
                     continue
-                channel_identifiers[int(ident)] = ChannelIdentifierConfig.from_dict(int(ident), entry)
+                channel_identifiers[int(ident)] = ChannelIdentifierConfig.from_dict(
+                    int(ident), entry
+                )
 
         return cls(
             id=data.get("id", "system"),
             name=data.get("name", "P25 System"),
             protocol=protocol,
             modulation=modulation,
-            control_channels=[ControlChannelConfig.from_value(f) for f in data.get("control_channels", [])],
+            control_channels=[
+                ControlChannelConfig.from_value(f) for f in data.get("control_channels", [])
+            ],
             center_hz=parse_frequency(data.get("center_hz", 851_000_000)),
             sample_rate=int(data.get("sample_rate", 8_000_000)),
             device_id=data.get("device_id", ""),
@@ -542,7 +561,9 @@ def load_talkgroups_csv(csv_path: str) -> dict[int, TalkgroupConfig]:
     return talkgroups
 
 
-def load_talkgroups_yaml(yaml_path: str, config_dir: str | None = None) -> dict[int, TalkgroupConfig]:
+def load_talkgroups_yaml(
+    yaml_path: str, config_dir: str | None = None
+) -> dict[int, TalkgroupConfig]:
     """Load talkgroups from YAML file.
 
     Expected YAML format:
@@ -604,9 +625,11 @@ def load_talkgroups_yaml(yaml_path: str, config_dir: str | None = None) -> dict[
 
     except FileNotFoundError:
         import logging
+
         logging.getLogger(__name__).warning(f"Talkgroups file not found: {yaml_path}")
     except Exception as e:
         import logging
+
         logging.getLogger(__name__).error(f"Error loading talkgroups from {yaml_path}: {e}")
 
     return talkgroups
@@ -614,6 +637,7 @@ def load_talkgroups_yaml(yaml_path: str, config_dir: str | None = None) -> dict[
 
 def _resolve_config_path(path: str, config_dir: str | None) -> str:
     import os
+
     if config_dir and not os.path.isabs(path):
         return os.path.join(config_dir, path)
     return path
@@ -637,6 +661,7 @@ def _rr_talkgroups_to_config(
 
 def _write_talkgroups_yaml(path: str, talkgroups: dict[int, TalkgroupConfig]) -> None:
     import yaml
+
     data = {
         "talkgroups": {
             tgid: {

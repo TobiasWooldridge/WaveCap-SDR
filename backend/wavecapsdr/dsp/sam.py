@@ -34,6 +34,7 @@ class CarrierRecoveryPLL:
         loop_bandwidth: PLL loop bandwidth in Hz (controls tracking speed)
         damping: Damping factor (0.707 = critically damped)
     """
+
     sample_rate: float
     loop_bandwidth: float = 50.0  # Hz - wider = faster tracking, more noise
     damping: float = 0.707  # Critically damped
@@ -61,7 +62,7 @@ class CarrierRecoveryPLL:
         """
         omega_n = 2 * np.pi * self.loop_bandwidth
         self._alpha = 2 * self.damping * omega_n / self.sample_rate
-        self._beta = (omega_n ** 2) / (self.sample_rate ** 2)
+        self._beta = (omega_n**2) / (self.sample_rate**2)
 
     def set_bandwidth(self, bandwidth_hz: float) -> None:
         """Dynamically adjust loop bandwidth."""
@@ -81,11 +82,7 @@ class CarrierRecoveryPLL:
             - freq_offset: Estimated carrier frequency offset in Hz
         """
         if iq.size == 0:
-            return (
-                np.empty(0, dtype=np.float32),
-                np.empty(0, dtype=np.float32),
-                0.0
-            )
+            return (np.empty(0, dtype=np.float32), np.empty(0, dtype=np.float32), 0.0)
 
         n_samples = len(iq)
         coherent_i = np.zeros(n_samples, dtype=np.float32)
@@ -205,18 +202,12 @@ def sam_demod(
         - Fading signals: pll_bandwidth=100 (faster tracking)
     """
     if iq.size == 0:
-        return (
-            cast(NDArrayFloat, np.empty(0, dtype=np.float32)),
-            0.0,
-            pll_state
-        )
+        return (cast(NDArrayFloat, np.empty(0, dtype=np.float32)), 0.0, pll_state)
 
     # 1. Initialize or reuse PLL state
     if pll_state is None:
         pll_state = CarrierRecoveryPLL(
-            sample_rate=float(sample_rate),
-            loop_bandwidth=pll_bandwidth,
-            damping=pll_damping
+            sample_rate=float(sample_rate), loop_bandwidth=pll_bandwidth, damping=pll_damping
         )
     else:
         # Update bandwidth if changed

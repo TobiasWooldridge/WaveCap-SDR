@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 class TrunkingProtocol(Enum):
     """Supported trunking protocols"""
+
     P25_PHASE1 = "P25 Phase 1"
     P25_PHASE2 = "P25 Phase 2"
     DMR_TIER2 = "DMR Tier 2"
@@ -27,6 +28,7 @@ class TrunkingProtocol(Enum):
 @dataclass
 class VoiceGrant:
     """Voice channel grant information"""
+
     talkgroup_id: int
     frequency_hz: float
     timestamp: float
@@ -37,6 +39,7 @@ class VoiceGrant:
 @dataclass
 class TalkgroupConfig:
     """Talkgroup monitoring configuration"""
+
     tgid: int
     name: str
     priority: int = 5  # 1-10, higher = more important
@@ -47,6 +50,7 @@ class TalkgroupConfig:
 @dataclass
 class TrunkingSystem:
     """Trunking system configuration"""
+
     system_id: str
     name: str
     protocol: TrunkingProtocol
@@ -84,9 +88,7 @@ class TrunkingManager:
         self.monitored_talkgroups.add(tgid)
         if tgid not in self.system.talkgroups:
             self.system.talkgroups[tgid] = TalkgroupConfig(
-                tgid=tgid,
-                name=name or f"TG {tgid}",
-                priority=priority
+                tgid=tgid, name=name or f"TG {tgid}", priority=priority
             )
         logger.info(f"Monitoring talkgroup {tgid}: {name}")
 
@@ -95,7 +97,9 @@ class TrunkingManager:
         self.monitored_talkgroups.discard(tgid)
         logger.info(f"Stopped monitoring talkgroup {tgid}")
 
-    def handle_voice_grant(self, tgid: int, frequency_hz: float, source_id: int | None = None) -> None:
+    def handle_voice_grant(
+        self, tgid: int, frequency_hz: float, source_id: int | None = None
+    ) -> None:
         """
         Handle a voice channel grant from control channel.
 
@@ -114,16 +118,15 @@ class TrunkingManager:
             self._drop_lowest_priority_grant()
 
         grant = VoiceGrant(
-            talkgroup_id=tgid,
-            frequency_hz=frequency_hz,
-            timestamp=time.time(),
-            source_id=source_id
+            talkgroup_id=tgid, frequency_hz=frequency_hz, timestamp=time.time(), source_id=source_id
         )
 
         self.active_grants[tgid] = grant
 
-        tg_name = self.system.talkgroups.get(tgid, TalkgroupConfig(tgid=tgid, name=f"TG {tgid}")).name
-        logger.info(f"Voice grant: {tg_name} (TG {tgid}) on {frequency_hz/1e6:.4f} MHz")
+        tg_name = self.system.talkgroups.get(
+            tgid, TalkgroupConfig(tgid=tgid, name=f"TG {tgid}")
+        ).name
+        logger.info(f"Voice grant: {tg_name} (TG {tgid}) on {frequency_hz / 1e6:.4f} MHz")
 
         if self.on_grant:
             self.on_grant(grant)
@@ -179,36 +182,28 @@ def create_p25_system(name: str, control_freq: float, talkgroups: dict[int, str]
         name=name,
         protocol=TrunkingProtocol.P25_PHASE1,
         control_channels=[control_freq],
-        max_voice_channels=4
+        max_voice_channels=4,
     )
 
     for tgid, tg_name in talkgroups.items():
-        system.talkgroups[tgid] = TalkgroupConfig(
-            tgid=tgid,
-            name=tg_name,
-            priority=5,
-            record=True
-        )
+        system.talkgroups[tgid] = TalkgroupConfig(tgid=tgid, name=tg_name, priority=5, record=True)
 
     return system
 
 
-def create_dmr_system(name: str, control_freq: float, color_code: int, talkgroups: dict[int, str]) -> TrunkingSystem:
+def create_dmr_system(
+    name: str, control_freq: float, color_code: int, talkgroups: dict[int, str]
+) -> TrunkingSystem:
     """Create a DMR trunking system configuration"""
     system = TrunkingSystem(
         system_id=name.lower().replace(" ", "_"),
         name=name,
         protocol=TrunkingProtocol.DMR_TIER3,
         control_channels=[control_freq],
-        max_voice_channels=2  # DMR has 2 time slots
+        max_voice_channels=2,  # DMR has 2 time slots
     )
 
     for tgid, tg_name in talkgroups.items():
-        system.talkgroups[tgid] = TalkgroupConfig(
-            tgid=tgid,
-            name=tg_name,
-            priority=5,
-            record=True
-        )
+        system.talkgroups[tgid] = TalkgroupConfig(tgid=tgid, name=tg_name, priority=5, record=True)
 
     return system

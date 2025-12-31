@@ -56,75 +56,76 @@ class TSBKOpcode(IntEnum):
     OSP = Outbound Signaling Packet (tower to mobile)
     ISP = Inbound Signaling Packet (mobile to tower)
     """
+
     # Voice grants (OSP) - 0x00-0x07
-    GRP_V_CH_GRANT = 0x00           # Group Voice Channel Grant
-    GRP_V_CH_GRANT_UPDT = 0x02      # Group Voice Channel Grant Update
+    GRP_V_CH_GRANT = 0x00  # Group Voice Channel Grant
+    GRP_V_CH_GRANT_UPDT = 0x02  # Group Voice Channel Grant Update
     GRP_V_CH_GRANT_UPDT_EXP = 0x03  # Group Voice Channel Grant Update Explicit
-    UU_V_CH_GRANT = 0x04            # Unit to Unit Voice Channel Grant
-    UU_ANS_REQ = 0x05               # Unit to Unit Answer Request
-    UU_V_CH_GRANT_UPDT = 0x06       # Unit to Unit Voice Channel Grant Update
+    UU_V_CH_GRANT = 0x04  # Unit to Unit Voice Channel Grant
+    UU_ANS_REQ = 0x05  # Unit to Unit Answer Request
+    UU_V_CH_GRANT_UPDT = 0x06  # Unit to Unit Voice Channel Grant Update
 
     # Telephone interconnect - 0x08-0x0A
-    TEL_INT_CH_GRANT = 0x08         # Telephone Interconnect Voice Channel Grant
-    TEL_INT_CH_GRANT_UPDT = 0x09    # Telephone Interconnect Voice Channel Grant Update
-    TEL_INT_ANS_REQ = 0x0A          # Telephone Interconnect Answer Request
+    TEL_INT_CH_GRANT = 0x08  # Telephone Interconnect Voice Channel Grant
+    TEL_INT_CH_GRANT_UPDT = 0x09  # Telephone Interconnect Voice Channel Grant Update
+    TEL_INT_ANS_REQ = 0x0A  # Telephone Interconnect Answer Request
 
     # Data grants (obsolete) - 0x10-0x13
-    IND_DATA_CH_GRANT = 0x10        # Individual Data Channel Grant (obsolete)
-    GRP_DATA_CH_GRANT = 0x11        # Group Data Channel Grant (obsolete)
-    GRP_DATA_CH_ANN = 0x12          # Group Data Channel Announcement (obsolete)
-    GRP_DATA_CH_ANN_EXP = 0x13      # Group Data Channel Announcement Explicit (obsolete)
+    IND_DATA_CH_GRANT = 0x10  # Individual Data Channel Grant (obsolete)
+    GRP_DATA_CH_GRANT = 0x11  # Group Data Channel Grant (obsolete)
+    GRP_DATA_CH_ANN = 0x12  # Group Data Channel Announcement (obsolete)
+    GRP_DATA_CH_ANN_EXP = 0x13  # Group Data Channel Announcement Explicit (obsolete)
 
     # SNDCP data - 0x14-0x16
-    SNDCP_CH_GNT = 0x14             # SNDCP Data Channel Grant
-    SNDCP_PAGE_REQ = 0x15           # SNDCP Data Page Request
-    SNDCP_CH_ANN_EXP = 0x16         # SNDCP Data Channel Announcement Explicit
+    SNDCP_CH_GNT = 0x14  # SNDCP Data Channel Grant
+    SNDCP_PAGE_REQ = 0x15  # SNDCP Data Page Request
+    SNDCP_CH_ANN_EXP = 0x16  # SNDCP Data Channel Announcement Explicit
 
     # Status/Message - 0x18-0x1F
-    STATUS_UPDT = 0x18              # Status Update
-    STATUS_QUERY = 0x1A             # Status Query
-    MSG_UPDT = 0x1C                 # Message Update
-    RADIO_MON_CMD = 0x1D            # Radio Unit Monitor Command
-    RADIO_MON_ENH_CMD = 0x1E        # Radio Unit Monitor Enhanced Command
-    CALL_ALRT = 0x1F                # Call Alert
+    STATUS_UPDT = 0x18  # Status Update
+    STATUS_QUERY = 0x1A  # Status Query
+    MSG_UPDT = 0x1C  # Message Update
+    RADIO_MON_CMD = 0x1D  # Radio Unit Monitor Command
+    RADIO_MON_ENH_CMD = 0x1E  # Radio Unit Monitor Enhanced Command
+    CALL_ALRT = 0x1F  # Call Alert
 
     # Control responses - 0x20-0x27
-    ACK_RSP = 0x20                  # Acknowledge Response
-    QUE_RSP = 0x21                  # Queued Response
-    EXT_FNCT_CMD = 0x24             # Extended Function Command
-    DENY_RSP = 0x27                 # Deny Response
+    ACK_RSP = 0x20  # Acknowledge Response
+    QUE_RSP = 0x21  # Queued Response
+    EXT_FNCT_CMD = 0x24  # Extended Function Command
+    DENY_RSP = 0x27  # Deny Response
 
     # Affiliation/Registration - 0x28-0x2F
-    GRP_AFF_RSP = 0x28              # Group Affiliation Response
-    SCCB_EXP = 0x29                 # Secondary Control Channel Broadcast Explicit
-    GRP_AFF_QUERY = 0x2A            # Group Affiliation Query
-    LOC_REG_RSP = 0x2B              # Location Registration Response
-    UNIT_REG_RSP = 0x2C             # Unit Registration Response
-    UNIT_REG_CMD = 0x2D             # Unit Registration Command
-    AUTH_CMD = 0x2E                 # Authentication Command
-    UNIT_DEREG_ACK = 0x2F           # Unit De-registration Acknowledge
+    GRP_AFF_RSP = 0x28  # Group Affiliation Response
+    SCCB_EXP = 0x29  # Secondary Control Channel Broadcast Explicit
+    GRP_AFF_QUERY = 0x2A  # Group Affiliation Query
+    LOC_REG_RSP = 0x2B  # Location Registration Response
+    UNIT_REG_RSP = 0x2C  # Unit Registration Response
+    UNIT_REG_CMD = 0x2D  # Unit Registration Command
+    AUTH_CMD = 0x2E  # Authentication Command
+    UNIT_DEREG_ACK = 0x2F  # Unit De-registration Acknowledge
 
     # Synchronization/Authentication - 0x30-0x32
-    TDMA_SYNC = 0x30                # TDMA Sync Broadcast
-    AUTH_DMAN = 0x31                # Authentication Demand
-    AUTH_FNE_RSP = 0x32             # Authentication FNE Response
+    TDMA_SYNC = 0x30  # TDMA Sync Broadcast
+    AUTH_DMAN = 0x31  # Authentication Demand
+    AUTH_FNE_RSP = 0x32  # Authentication FNE Response
 
     # Channel identification - 0x33-0x35
-    IDEN_UP_TDMA = 0x33             # Identifier Update TDMA
-    IDEN_UP_VU = 0x34               # Identifier Update VHF/UHF
-    TIME_DATE_ANN = 0x35            # Time and Date Announcement
+    IDEN_UP_TDMA = 0x33  # Identifier Update TDMA
+    IDEN_UP_VU = 0x34  # Identifier Update VHF/UHF
+    TIME_DATE_ANN = 0x35  # Time and Date Announcement
 
     # Roaming - 0x36-0x37
-    ROAM_ADDR_CMD = 0x36            # Roaming Address Command
-    ROAM_ADDR_UPDT = 0x37           # Roaming Address Update
+    ROAM_ADDR_CMD = 0x36  # Roaming Address Command
+    ROAM_ADDR_UPDT = 0x37  # Roaming Address Update
 
     # System status broadcasts - 0x38-0x3D
-    SYS_SRV_BCAST = 0x38            # System Service Broadcast
-    SCCB = 0x39                     # Secondary Control Channel Broadcast
-    RFSS_STS_BCAST = 0x3A           # RFSS Status Broadcast
-    NET_STS_BCAST = 0x3B            # Network Status Broadcast
-    ADJ_STS_BCAST = 0x3C            # Adjacent Status Broadcast
-    IDEN_UP = 0x3D                  # Identifier Update
+    SYS_SRV_BCAST = 0x38  # System Service Broadcast
+    SCCB = 0x39  # Secondary Control Channel Broadcast
+    RFSS_STS_BCAST = 0x3A  # RFSS Status Broadcast
+    NET_STS_BCAST = 0x3B  # Network Status Broadcast
+    ADJ_STS_BCAST = 0x3C  # Adjacent Status Broadcast
+    IDEN_UP = 0x3D  # Identifier Update
 
 
 @dataclass
@@ -133,6 +134,7 @@ class ChannelIdentifier:
 
     Used to calculate actual frequencies from channel numbers.
     """
+
     identifier: int  # 4-bit channel ID
     bw: float  # Bandwidth (kHz)
     tx_offset: float  # TX offset (MHz)
@@ -151,6 +153,7 @@ class ChannelIdentifier:
 @dataclass
 class VoiceGrant:
     """Voice channel grant information."""
+
     tgid: int  # Talkgroup ID
     source_id: int  # Source unit ID (caller)
     channel: int  # Channel number
@@ -163,6 +166,7 @@ class VoiceGrant:
 @dataclass
 class SystemStatus:
     """System status information from control channel."""
+
     nac: int = 0  # Network Access Code
     system_id: int = 0  # System ID
     rfss_id: int = 0  # RF Subsystem ID
@@ -192,8 +196,10 @@ class TSBKParser:
     def add_channel_id(self, ident: ChannelIdentifier) -> None:
         """Add or update channel identifier."""
         self._channel_ids[ident.identifier] = ident
-        logger.debug(f"Channel ID {ident.identifier}: base={ident.base_freq} MHz, "
-                    f"spacing={ident.channel_spacing} kHz")
+        logger.debug(
+            f"Channel ID {ident.identifier}: base={ident.base_freq} MHz, "
+            f"spacing={ident.channel_spacing} kHz"
+        )
 
     def get_frequency(self, channel: int) -> float:
         """Get frequency for channel number.
@@ -227,15 +233,15 @@ class TSBKParser:
             raise ValueError(f"TSBK data must be 8 bytes (got {len(data)})")
 
         result: dict[str, Any] = {
-            'opcode': opcode,
-            'opcode_name': self._opcode_name(opcode),
-            'mfid': mfid,
+            "opcode": opcode,
+            "opcode_name": self._opcode_name(opcode),
+            "mfid": mfid,
         }
 
         if mfid != 0:
             # Non-standard (manufacturer-specific) message
-            result['type'] = 'MANUFACTURER_SPECIFIC'
-            result['data'] = data.hex()
+            result["type"] = "MANUFACTURER_SPECIFIC"
+            result["data"] = data.hex()
             return result
 
         # Parse based on opcode
@@ -277,32 +283,32 @@ class TSBKParser:
             elif opcode == TSBKOpcode.IDEN_UP:
                 # IDEN_UP (0x3D) uses same format as IDEN_UP_VU (0x34)
                 self._parse_iden_up_vu(data, result)
-                result['type'] = 'IDENTIFIER_UPDATE'
+                result["type"] = "IDENTIFIER_UPDATE"
             elif opcode == TSBKOpcode.UU_V_CH_GRANT_UPDT:
                 self._parse_uu_v_ch_grant_updt(data, result)
             elif opcode == TSBKOpcode.ACK_RSP:
-                result['type'] = 'ACKNOWLEDGE_RESPONSE'
-                result['data'] = data.hex()
+                result["type"] = "ACKNOWLEDGE_RESPONSE"
+                result["data"] = data.hex()
             elif opcode == TSBKOpcode.QUE_RSP:
-                result['type'] = 'QUEUED_RESPONSE'
-                result['data'] = data.hex()
+                result["type"] = "QUEUED_RESPONSE"
+                result["data"] = data.hex()
             elif opcode == TSBKOpcode.EXT_FNCT_CMD:
-                result['type'] = 'EXTENDED_FUNCTION_COMMAND'
-                result['data'] = data.hex()
+                result["type"] = "EXTENDED_FUNCTION_COMMAND"
+                result["data"] = data.hex()
             elif opcode == TSBKOpcode.SCCB:
-                result['type'] = 'SECONDARY_CONTROL_CHANNEL'
-                result['data'] = data.hex()
+                result["type"] = "SECONDARY_CONTROL_CHANNEL"
+                result["data"] = data.hex()
             else:
-                result['type'] = 'UNKNOWN'
-                result['data'] = data.hex()
+                result["type"] = "UNKNOWN"
+                result["data"] = data.hex()
                 logger.debug(f"Unknown TSBK opcode 0x{opcode:02X}: {data.hex()}")
 
             self._validate_result(result)
         except Exception as e:
             logger.warning(f"Error parsing TSBK opcode {opcode:02X}: {e}")
-            result['type'] = 'PARSE_ERROR'
-            result['error'] = str(e)
-            result['data'] = data.hex()
+            result["type"] = "PARSE_ERROR"
+            result["error"] = str(e)
+            result["data"] = data.hex()
 
         return result
 
@@ -359,7 +365,9 @@ class TSBKParser:
         if msg_type == "GROUP_VOICE_GRANT":
             self._require_int_range(result.get("tgid"), 1, TGID_MAX, "tgid")
             self._require_int_range(result.get("source_id"), 0, UNIT_ID_MAX, "source_id")
-            self._require_int_range(result.get("channel"), CHANNEL_ID_MIN, CHANNEL_ID_MAX, "channel")
+            self._require_int_range(
+                result.get("channel"), CHANNEL_ID_MIN, CHANNEL_ID_MAX, "channel"
+            )
             freq = result.get("frequency_hz")
             if freq is not None and float(freq) > 0:
                 self._require_frequency(freq, "frequency_hz")
@@ -389,7 +397,9 @@ class TSBKParser:
         if msg_type == "UNIT_TO_UNIT_GRANT":
             self._require_int_range(result.get("target_id"), 0, UNIT_ID_MAX, "target_id")
             self._require_int_range(result.get("source_id"), 0, UNIT_ID_MAX, "source_id")
-            self._require_int_range(result.get("channel"), CHANNEL_ID_MIN, CHANNEL_ID_MAX, "channel")
+            self._require_int_range(
+                result.get("channel"), CHANNEL_ID_MIN, CHANNEL_ID_MAX, "channel"
+            )
             freq = result.get("frequency_hz")
             if freq is not None and float(freq) > 0:
                 self._require_frequency(freq, "frequency_hz")
@@ -434,7 +444,9 @@ class TSBKParser:
 
         if msg_type == "GROUP_AFFILIATION_RESPONSE":
             self._require_int_range(result.get("tgid"), 1, TGID_MAX, "tgid")
-            self._require_int_range(result.get("announcement_group"), 1, TGID_MAX, "announcement_group")
+            self._require_int_range(
+                result.get("announcement_group"), 1, TGID_MAX, "announcement_group"
+            )
             self._require_int_range(result.get("target_id"), UNIT_ID_MIN, UNIT_ID_MAX, "target_id")
             return
 
@@ -449,7 +461,9 @@ class TSBKParser:
             self._require_int_range(result.get("response"), 0, 3, "response")
             self._require_int_range(result.get("system_id"), 0, SYSTEM_ID_MAX, "system_id")
             self._require_int_range(result.get("source_id"), UNIT_ID_MIN, UNIT_ID_MAX, "source_id")
-            self._require_int_range(result.get("registered_address"), UNIT_ID_MIN, UNIT_ID_MAX, "registered_address")
+            self._require_int_range(
+                result.get("registered_address"), UNIT_ID_MIN, UNIT_ID_MAX, "registered_address"
+            )
             return
 
         if msg_type == "UNIT_DEREGISTRATION_ACK":
@@ -474,7 +488,7 @@ class TSBKParser:
         - Bits 40-55: Group Address (16 bits)
         - Bits 56-79: Source Address (24 bits)
         """
-        result['type'] = 'GROUP_VOICE_GRANT'
+        result["type"] = "GROUP_VOICE_GRANT"
 
         # Service options (byte 0 = bits 16-23)
         svc_opts = data[0]
@@ -494,27 +508,29 @@ class TSBKParser:
         # Source address (bytes 5-7 = bits 56-79)
         source = (data[5] << 16) | (data[6] << 8) | data[7]
 
-        result['emergency'] = bool(svc_opts & 0x80)
-        result['encrypted'] = bool(svc_opts & 0x40)
-        result['duplex'] = bool(svc_opts & 0x20)
-        result['priority'] = (svc_opts >> 0) & 0x07
+        result["emergency"] = bool(svc_opts & 0x80)
+        result["encrypted"] = bool(svc_opts & 0x40)
+        result["duplex"] = bool(svc_opts & 0x20)
+        result["priority"] = (svc_opts >> 0) & 0x07
         slot_id = (svc_opts >> 3) & 0x01
-        result['slot_id'] = slot_id
+        result["slot_id"] = slot_id
 
-        result['channel'] = channel
-        result['frequency_band'] = freq_band
-        result['channel_number'] = channel_num
-        result['tgid'] = tgid
-        result['source_id'] = source
+        result["channel"] = channel
+        result["frequency_band"] = freq_band
+        result["channel_number"] = channel_num
+        result["tgid"] = tgid
+        result["source_id"] = source
 
         # Calculate frequency
         freq = self.get_frequency(channel)
-        result['frequency_hz'] = freq
-        result['frequency_mhz'] = freq / 1e6 if freq else 0
+        result["frequency_hz"] = freq
+        result["frequency_mhz"] = freq / 1e6 if freq else 0
 
-        logger.info(f"Voice Grant: TGID={tgid} BAND={freq_band} CH={channel_num} "
-                   f"FREQ={result['frequency_mhz']:.4f} MHz "
-                   f"SRC={source}")
+        logger.info(
+            f"Voice Grant: TGID={tgid} BAND={freq_band} CH={channel_num} "
+            f"FREQ={result['frequency_mhz']:.4f} MHz "
+            f"SRC={source}"
+        )
 
         # Fire callback
         if self.on_voice_grant:
@@ -523,8 +539,8 @@ class TSBKParser:
                 source_id=source,
                 channel=channel,
                 frequency_hz=freq,
-                emergency=result['emergency'],
-                encrypted=result['encrypted'],
+                emergency=result["emergency"],
+                encrypted=result["encrypted"],
                 slot_id=slot_id,
             )
             self.on_voice_grant(grant)
@@ -543,7 +559,7 @@ class TSBKParser:
         - Bits 52-63: Uplink Channel Number (12 bits)
         - Bits 64-79: Group Address (16 bits)
         """
-        result['type'] = 'GROUP_VOICE_GRANT_UPDATE_EXPLICIT'
+        result["type"] = "GROUP_VOICE_GRANT_UPDATE_EXPLICIT"
 
         # Service options (byte 0)
         svc_opts = data[0]
@@ -566,27 +582,29 @@ class TSBKParser:
         # Group address (bytes 6-7)
         tgid = (data[6] << 8) | data[7]
 
-        result['emergency'] = bool(svc_opts & 0x80)
-        result['encrypted'] = bool(svc_opts & 0x40)
-        result['duplex'] = bool(svc_opts & 0x20)
-        result['priority'] = (svc_opts >> 0) & 0x07
-        result['slot_id'] = (svc_opts >> 3) & 0x01
+        result["emergency"] = bool(svc_opts & 0x80)
+        result["encrypted"] = bool(svc_opts & 0x40)
+        result["duplex"] = bool(svc_opts & 0x20)
+        result["priority"] = (svc_opts >> 0) & 0x07
+        result["slot_id"] = (svc_opts >> 3) & 0x01
 
-        result['downlink_channel'] = dl_channel
-        result['downlink_frequency_band'] = dl_freq_band
-        result['downlink_channel_number'] = dl_channel_num
-        result['downlink_frequency_hz'] = self.get_frequency(dl_channel)
+        result["downlink_channel"] = dl_channel
+        result["downlink_frequency_band"] = dl_freq_band
+        result["downlink_channel_number"] = dl_channel_num
+        result["downlink_frequency_hz"] = self.get_frequency(dl_channel)
 
-        result['uplink_channel'] = ul_channel
-        result['uplink_frequency_band'] = ul_freq_band
-        result['uplink_channel_number'] = ul_channel_num
-        result['uplink_frequency_hz'] = self.get_frequency(ul_channel)
+        result["uplink_channel"] = ul_channel
+        result["uplink_frequency_band"] = ul_freq_band
+        result["uplink_channel_number"] = ul_channel_num
+        result["uplink_frequency_hz"] = self.get_frequency(ul_channel)
 
-        result['tgid'] = tgid
+        result["tgid"] = tgid
 
-        logger.info(f"Voice Grant Update Explicit: TGID={tgid} "
-                   f"DL_BAND={dl_freq_band} DL_CH={dl_channel_num} "
-                   f"UL_BAND={ul_freq_band} UL_CH={ul_channel_num}")
+        logger.info(
+            f"Voice Grant Update Explicit: TGID={tgid} "
+            f"DL_BAND={dl_freq_band} DL_CH={dl_channel_num} "
+            f"UL_BAND={ul_freq_band} UL_CH={ul_channel_num}"
+        )
 
     def _parse_grp_v_ch_grant_updt(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Group Voice Channel Grant Update.
@@ -601,7 +619,7 @@ class TSBKParser:
         - Bits 52-63: Channel Number B (12 bits)
         - Bits 64-79: Group Address B (16 bits)
         """
-        result['type'] = 'GROUP_VOICE_GRANT_UPDATE'
+        result["type"] = "GROUP_VOICE_GRANT_UPDATE"
 
         # Grant A: Frequency band (upper 4 bits of byte 0)
         freq_band_a = (data[0] >> 4) & 0x0F
@@ -611,12 +629,12 @@ class TSBKParser:
         # Group address (bytes 2-3)
         tgid_a = (data[2] << 8) | data[3]
 
-        result['grant1'] = {
-            'channel': channel_a,
-            'frequency_band': freq_band_a,
-            'channel_number': channel_num_a,
-            'tgid': tgid_a,
-            'frequency_hz': self.get_frequency(channel_a)
+        result["grant1"] = {
+            "channel": channel_a,
+            "frequency_band": freq_band_a,
+            "channel_number": channel_num_a,
+            "tgid": tgid_a,
+            "frequency_hz": self.get_frequency(channel_a),
         }
 
         # Grant B: Frequency band (upper 4 bits of byte 4)
@@ -629,12 +647,12 @@ class TSBKParser:
 
         # Only include grant B if it's valid (non-zero and different from A)
         if tgid_b != 0 and tgid_b != tgid_a:
-            result['grant2'] = {
-                'channel': channel_b,
-                'frequency_band': freq_band_b,
-                'channel_number': channel_num_b,
-                'tgid': tgid_b,
-                'frequency_hz': self.get_frequency(channel_b)
+            result["grant2"] = {
+                "channel": channel_b,
+                "frequency_band": freq_band_b,
+                "channel_number": channel_num_b,
+                "tgid": tgid_b,
+                "frequency_hz": self.get_frequency(channel_b),
             }
 
     def _parse_uu_v_ch_grant(self, data: bytes, result: dict[str, Any]) -> None:
@@ -648,7 +666,7 @@ class TSBKParser:
 
         Note: This opcode has NO service options field - channel starts at bit 16.
         """
-        result['type'] = 'UNIT_TO_UNIT_GRANT'
+        result["type"] = "UNIT_TO_UNIT_GRANT"
 
         # Frequency band (upper 4 bits of byte 0 = bits 16-19)
         freq_band = (data[0] >> 4) & 0x0F
@@ -661,17 +679,19 @@ class TSBKParser:
         # Source address (bytes 5-7 = bits 56-79)
         source = (data[5] << 16) | (data[6] << 8) | data[7]
 
-        result['channel'] = channel
-        result['frequency_band'] = freq_band
-        result['channel_number'] = channel_num
-        result['target_id'] = target
-        result['source_id'] = source
-        result['frequency_hz'] = self.get_frequency(channel)
-        result['emergency'] = False  # No service options in this opcode
-        result['encrypted'] = False
+        result["channel"] = channel
+        result["frequency_band"] = freq_band
+        result["channel_number"] = channel_num
+        result["target_id"] = target
+        result["source_id"] = source
+        result["frequency_hz"] = self.get_frequency(channel)
+        result["emergency"] = False  # No service options in this opcode
+        result["encrypted"] = False
 
-        logger.info(f"Unit-to-Unit Grant: TARGET={target} SRC={source} CH={channel} "
-                   f"FREQ={result['frequency_hz']/1e6:.4f} MHz")
+        logger.info(
+            f"Unit-to-Unit Grant: TARGET={target} SRC={source} CH={channel} "
+            f"FREQ={result['frequency_hz'] / 1e6:.4f} MHz"
+        )
 
     def _parse_uu_v_ch_grant_updt(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Unit to Unit Voice Channel Grant Update.
@@ -684,7 +704,7 @@ class TSBKParser:
         - Bits 60-71: Channel Number B (12 bits)
         - Bits 72-95: Target Address B (24 bits)
         """
-        result['type'] = 'UNIT_TO_UNIT_GRANT_UPDATE'
+        result["type"] = "UNIT_TO_UNIT_GRANT_UPDATE"
 
         # Grant A
         freq_band_a = (data[0] >> 4) & 0x0F
@@ -692,12 +712,12 @@ class TSBKParser:
         channel_a = (freq_band_a << 12) | channel_num_a
         target_a = (data[2] << 16) | (data[3] << 8) | data[4]
 
-        result['grant1'] = {
-            'channel': channel_a,
-            'frequency_band': freq_band_a,
-            'channel_number': channel_num_a,
-            'target_id': target_a,
-            'frequency_hz': self.get_frequency(channel_a)
+        result["grant1"] = {
+            "channel": channel_a,
+            "frequency_band": freq_band_a,
+            "channel_number": channel_num_a,
+            "target_id": target_a,
+            "frequency_hz": self.get_frequency(channel_a),
         }
 
         # Grant B (if present - check if non-zero)
@@ -709,12 +729,12 @@ class TSBKParser:
                 channel_b = (freq_band_b << 12) | channel_num_b
                 target_b = data[7] if len(data) > 7 else 0
 
-                result['grant2'] = {
-                    'channel': channel_b,
-                    'frequency_band': freq_band_b,
-                    'channel_number': channel_num_b,
-                    'target_id': target_b,
-                    'frequency_hz': self.get_frequency(channel_b)
+                result["grant2"] = {
+                    "channel": channel_b,
+                    "frequency_band": freq_band_b,
+                    "channel_number": channel_num_b,
+                    "target_id": target_b,
+                    "frequency_hz": self.get_frequency(channel_b),
                 }
 
     def _parse_rfss_sts_bcast(self, data: bytes, result: dict[str, Any]) -> None:
@@ -732,7 +752,7 @@ class TSBKParser:
         - Bits 60-71: Channel Number (12 bits)
         - Bits 72-79: System Service Class (8 bits)
         """
-        result['type'] = 'RFSS_STATUS'
+        result["type"] = "RFSS_STATUS"
 
         # LRA (byte 0 = bits 16-23)
         lra = data[0]
@@ -762,15 +782,15 @@ class TSBKParser:
         # Service class (byte 7 = bits 72-79)
         svc_class = data[7]
 
-        result['lra'] = lra
-        result['active_network_connection'] = active_network
-        result['system_id'] = sys_id
-        result['rfss_id'] = rfss_id
-        result['site_id'] = site_id
-        result['channel'] = channel
-        result['frequency_band'] = freq_band
-        result['channel_number'] = channel_num
-        result['service_class'] = svc_class
+        result["lra"] = lra
+        result["active_network_connection"] = active_network
+        result["system_id"] = sys_id
+        result["rfss_id"] = rfss_id
+        result["site_id"] = site_id
+        result["channel"] = channel
+        result["frequency_band"] = freq_band
+        result["channel_number"] = channel_num
+        result["service_class"] = svc_class
 
         # Update system status
         self.system_status.system_id = sys_id
@@ -778,8 +798,10 @@ class TSBKParser:
         self.system_status.site_id = site_id
         self.system_status.channel = channel
 
-        logger.info(f"RFSS Status: SysID={sys_id:03X} RFSS={rfss_id} Site={site_id} "
-                   f"BAND={freq_band} CH={channel_num}")
+        logger.info(
+            f"RFSS Status: SysID={sys_id:03X} RFSS={rfss_id} Site={site_id} "
+            f"BAND={freq_band} CH={channel_num}"
+        )
 
         if self.on_system_update:
             self.on_system_update(self.system_status)
@@ -795,7 +817,7 @@ class TSBKParser:
         - Bits 60-71: Channel Number (12 bits)
         - Bits 72-79: System Service Class (8 bits)
         """
-        result['type'] = 'NETWORK_STATUS'
+        result["type"] = "NETWORK_STATUS"
 
         # LRA (byte 0 = bits 16-23)
         lra = data[0]
@@ -818,13 +840,13 @@ class TSBKParser:
         # System service class (byte 7)
         svc_class = data[7]
 
-        result['lra'] = lra
-        result['wacn'] = wacn  # Wide Area Communication Network
-        result['system_id'] = sys_id
-        result['channel'] = channel
-        result['frequency_band'] = freq_band
-        result['channel_number'] = channel_num
-        result['service_class'] = svc_class
+        result["lra"] = lra
+        result["wacn"] = wacn  # Wide Area Communication Network
+        result["system_id"] = sys_id
+        result["channel"] = channel
+        result["frequency_band"] = freq_band
+        result["channel_number"] = channel_num
+        result["service_class"] = svc_class
 
         self.system_status.system_id = sys_id
         self.system_status.services = svc_class
@@ -844,7 +866,7 @@ class TSBKParser:
         - Bits 60-71: Channel Number (12 bits)
         - Bits 72-79: System Service Class (8 bits)
         """
-        result['type'] = 'ADJACENT_STATUS'
+        result["type"] = "ADJACENT_STATUS"
 
         # LRA (byte 0)
         lra = data[0]
@@ -871,15 +893,15 @@ class TSBKParser:
         # Service class (byte 7)
         svc_class = data[7]
 
-        result['lra'] = lra
-        result['active_network_connection'] = active_network
-        result['system_id'] = sys_id
-        result['rfss_id'] = rfss_id
-        result['site_id'] = site_id
-        result['channel'] = channel
-        result['frequency_band'] = freq_band
-        result['channel_number'] = channel_num
-        result['service_class'] = svc_class
+        result["lra"] = lra
+        result["active_network_connection"] = active_network
+        result["system_id"] = sys_id
+        result["rfss_id"] = rfss_id
+        result["site_id"] = site_id
+        result["channel"] = channel
+        result["frequency_band"] = freq_band
+        result["channel_number"] = channel_num
+        result["service_class"] = svc_class
 
     def _parse_iden_up_vu(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Identifier Update for VHF/UHF.
@@ -894,7 +916,7 @@ class TSBKParser:
         - Bits 38-47: Channel Spacing (10 bits)
         - Bits 48-79: Base Frequency (32 bits)
         """
-        result['type'] = 'IDENTIFIER_UPDATE_VU'
+        result["type"] = "IDENTIFIER_UPDATE_VU"
 
         # Identifier (upper 4 bits of byte 0 = bits 16-19)
         ident = (data[0] >> 4) & 0x0F
@@ -937,14 +959,14 @@ class TSBKParser:
                 f"spacing={spacing} bw_khz={bw_khz}"
             )
 
-        result['identifier'] = ident
-        result['bandwidth_khz'] = bw_khz
-        result['bandwidth_code'] = bw
-        result['tx_offset_sign'] = tx_offset_sign
-        result['tx_offset_hz'] = tx_offset_hz
-        result['tx_offset_mhz'] = tx_offset_hz / 1e6
-        result['channel_spacing_khz'] = spacing * 0.125
-        result['base_freq_mhz'] = base_freq
+        result["identifier"] = ident
+        result["bandwidth_khz"] = bw_khz
+        result["bandwidth_code"] = bw
+        result["tx_offset_sign"] = tx_offset_sign
+        result["tx_offset_hz"] = tx_offset_hz
+        result["tx_offset_mhz"] = tx_offset_hz / 1e6
+        result["channel_spacing_khz"] = spacing * 0.125
+        result["base_freq_mhz"] = base_freq
 
         # Store channel identifier
         chan_id = ChannelIdentifier(
@@ -952,13 +974,15 @@ class TSBKParser:
             bw=int(bw_khz),
             tx_offset=int(tx_offset_hz / 1e6),
             channel_spacing=int(spacing * 0.125),
-            base_freq=base_freq
+            base_freq=base_freq,
         )
         self.add_channel_id(chan_id)
 
-        logger.info(f"Channel ID {ident}: base={base_freq:.4f} MHz, "
-                   f"spacing={spacing * 0.125} kHz, bw={bw_khz} kHz, "
-                   f"tx_offset={tx_offset_hz/1e6:.4f} MHz")
+        logger.info(
+            f"Channel ID {ident}: base={base_freq:.4f} MHz, "
+            f"spacing={spacing * 0.125} kHz, bw={bw_khz} kHz, "
+            f"tx_offset={tx_offset_hz / 1e6:.4f} MHz"
+        )
 
     def _parse_iden_up_tdma(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Identifier Update for TDMA (Phase II).
@@ -971,7 +995,7 @@ class TSBKParser:
         - Bits 38-47: Channel Spacing (10 bits)
         - Bits 48-79: Base Frequency (32 bits)
         """
-        result['type'] = 'IDENTIFIER_UPDATE_TDMA'
+        result["type"] = "IDENTIFIER_UPDATE_TDMA"
 
         # Identifier (upper 4 bits of byte 0 = bits 16-19)
         ident = (data[0] >> 4) & 0x0F
@@ -1008,27 +1032,27 @@ class TSBKParser:
         # Decode channel type (per SDRTrunk ChannelType.java)
         # Common values: 0x0=FDMA, 0x2=TDMA_2SLOT, 0x3=TDMA_4SLOT, 0x6=TDMA_6SLOT
         if channel_type == 0x02:
-            access_type = 'TDMA'
+            access_type = "TDMA"
             slot_count = 2
         elif channel_type == 0x03:
-            access_type = 'TDMA'
+            access_type = "TDMA"
             slot_count = 4
         elif channel_type == 0x06:
-            access_type = 'TDMA'
+            access_type = "TDMA"
             slot_count = 6
         else:
-            access_type = 'FDMA'
+            access_type = "FDMA"
             slot_count = 1
 
-        result['identifier'] = ident
-        result['channel_type'] = channel_type
-        result['access_type'] = access_type
-        result['slot_count'] = slot_count
-        result['tx_offset_sign'] = tx_offset_sign
-        result['tx_offset_hz'] = tx_offset_hz
-        result['tx_offset_mhz'] = tx_offset_hz / 1e6
-        result['channel_spacing_khz'] = spacing * 0.125
-        result['base_freq_mhz'] = base_freq
+        result["identifier"] = ident
+        result["channel_type"] = channel_type
+        result["access_type"] = access_type
+        result["slot_count"] = slot_count
+        result["tx_offset_sign"] = tx_offset_sign
+        result["tx_offset_hz"] = tx_offset_hz
+        result["tx_offset_mhz"] = tx_offset_hz / 1e6
+        result["channel_spacing_khz"] = spacing * 0.125
+        result["base_freq_mhz"] = base_freq
 
         # Store channel identifier
         chan_id = ChannelIdentifier(
@@ -1036,62 +1060,64 @@ class TSBKParser:
             bw=0,  # Not specified in TDMA IDEN
             tx_offset=int(tx_offset_hz / 1e6),
             channel_spacing=int(spacing * 0.125),
-            base_freq=base_freq
+            base_freq=base_freq,
         )
         self.add_channel_id(chan_id)
 
-        logger.info(f"Channel ID {ident} ({access_type} {slot_count}-slot): base={base_freq:.4f} MHz, "
-                   f"spacing={spacing * 0.125} kHz, tx_offset={tx_offset_hz/1e6:.4f} MHz")
+        logger.info(
+            f"Channel ID {ident} ({access_type} {slot_count}-slot): base={base_freq:.4f} MHz, "
+            f"spacing={spacing * 0.125} kHz, tx_offset={tx_offset_hz / 1e6:.4f} MHz"
+        )
 
     def _parse_sys_srv_bcast(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse System Service Broadcast.
 
         Available services bitmap.
         """
-        result['type'] = 'SYSTEM_SERVICE'
+        result["type"] = "SYSTEM_SERVICE"
 
         svc_available = (data[0] << 16) | (data[1] << 8) | data[2]
         svc_supported = (data[3] << 16) | (data[4] << 8) | data[5]
 
-        result['services_available'] = svc_available
-        result['services_supported'] = svc_supported
+        result["services_available"] = svc_available
+        result["services_supported"] = svc_supported
 
         # Decode service flags
-        result['composite_control'] = bool(svc_available & 0x800000)
-        result['data_services'] = bool(svc_available & 0x400000)
-        result['voice_services'] = bool(svc_available & 0x200000)
-        result['registration'] = bool(svc_available & 0x100000)
-        result['authentication'] = bool(svc_available & 0x080000)
+        result["composite_control"] = bool(svc_available & 0x800000)
+        result["data_services"] = bool(svc_available & 0x400000)
+        result["voice_services"] = bool(svc_available & 0x200000)
+        result["registration"] = bool(svc_available & 0x100000)
+        result["authentication"] = bool(svc_available & 0x080000)
 
         self.system_status.services = svc_available
 
     def _parse_grp_aff_rsp(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Group Affiliation Response."""
-        result['type'] = 'GROUP_AFFILIATION_RESPONSE'
+        result["type"] = "GROUP_AFFILIATION_RESPONSE"
         bits = payload_to_bits(data)
 
-        result['global'] = bool(read_field(bits, 0, 1))
+        result["global"] = bool(read_field(bits, 0, 1))
         response_code = read_field(bits, 6, 2)
-        result['response'] = response_code
-        result['success'] = response_code == 0
+        result["response"] = response_code
+        result["success"] = response_code == 0
 
         announcement_group = read_field(bits, 8, 16)
         tgid = read_field(bits, 24, 16)
         target = read_field(bits, 40, 24)
 
-        result['tgid'] = tgid
-        result['announcement_group'] = announcement_group
-        result['target_id'] = target
-        result['source_id'] = target
+        result["tgid"] = tgid
+        result["announcement_group"] = announcement_group
+        result["target_id"] = target
+        result["source_id"] = target
 
     def _parse_status_update(self, data: bytes, result: dict[str, Any], msg_type: str) -> None:
         """Parse Status Update (OSP) or Status Update Request (ISP)."""
         bits = payload_to_bits(data)
-        result['type'] = msg_type
-        result['unit_status'] = read_field(bits, 0, 8)
-        result['user_status'] = read_field(bits, 8, 8)
-        result['target_id'] = read_field(bits, 16, 24)
-        result['source_id'] = read_field(bits, 40, 24)
+        result["type"] = msg_type
+        result["unit_status"] = read_field(bits, 0, 8)
+        result["user_status"] = read_field(bits, 8, 8)
+        result["target_id"] = read_field(bits, 16, 24)
+        result["source_id"] = read_field(bits, 40, 24)
 
     def _parse_unit_reg_rsp(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Unit Registration Response."""
@@ -1101,12 +1127,12 @@ class TSBKParser:
         source_id = read_field(bits, 16, 24)
         registered_address = read_field(bits, 40, 24)
 
-        result['type'] = 'UNIT_REGISTRATION_RESPONSE'
-        result['response'] = response
-        result['success'] = response == 0
-        result['system_id'] = system_id
-        result['source_id'] = source_id
-        result['registered_address'] = registered_address
+        result["type"] = "UNIT_REGISTRATION_RESPONSE"
+        result["response"] = response
+        result["success"] = response == 0
+        result["system_id"] = system_id
+        result["source_id"] = source_id
+        result["registered_address"] = registered_address
 
     def _parse_unit_dereg_ack(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Unit De-registration Acknowledge."""
@@ -1115,42 +1141,42 @@ class TSBKParser:
         system_id = read_field(bits, 28, 12)
         target_id = read_field(bits, 40, 24)
 
-        result['type'] = 'UNIT_DEREGISTRATION_ACK'
-        result['wacn'] = wacn
-        result['system_id'] = system_id
-        result['target_id'] = target_id
+        result["type"] = "UNIT_DEREGISTRATION_ACK"
+        result["wacn"] = wacn
+        result["system_id"] = system_id
+        result["target_id"] = target_id
 
     def _parse_deny_rsp(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Deny Response."""
-        result['type'] = 'DENY_RESPONSE'
+        result["type"] = "DENY_RESPONSE"
 
         # Deny reason
-        result['service_type'] = (data[0] >> 2) & 0x3F
-        result['reason'] = data[1]
+        result["service_type"] = (data[0] >> 2) & 0x3F
+        result["reason"] = data[1]
 
         # Reason codes
         reason_names = {
-            0x00: 'No reason',
-            0x10: 'Unit not valid',
-            0x11: 'Unit not authorized',
-            0x12: 'Target not valid',
-            0x20: 'Group not valid',
-            0x21: 'Group not authorized',
-            0x2F: 'Unit busy',
-            0x30: 'Target unit busy',
-            0x40: 'Site access denied',
+            0x00: "No reason",
+            0x10: "Unit not valid",
+            0x11: "Unit not authorized",
+            0x12: "Target not valid",
+            0x20: "Group not valid",
+            0x21: "Group not authorized",
+            0x2F: "Unit busy",
+            0x30: "Target unit busy",
+            0x40: "Site access denied",
         }
-        result['reason_text'] = reason_names.get(data[1], f'Unknown (0x{data[1]:02X})')
+        result["reason_text"] = reason_names.get(data[1], f"Unknown (0x{data[1]:02X})")
 
         target = (data[2] << 16) | (data[3] << 8) | data[4]
-        result['target_address'] = target
+        result["target_address"] = target
 
         logger.info(f"Deny: {result['reason_text']} for target {target}")
 
     def _parse_unit_service_request(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Unit-to-Unit Voice Service Request (opcode 0x05)."""
         bits = payload_to_bits(data)
-        result['type'] = 'UNIT_SERVICE_REQUEST'
-        result['service_options'] = read_field(bits, 0, 8)
-        result['target_id'] = read_field(bits, 16, 24)
-        result['source_id'] = read_field(bits, 40, 24)
+        result["type"] = "UNIT_SERVICE_REQUEST"
+        result["service_options"] = read_field(bits, 0, 8)
+        result["target_id"] = read_field(bits, 16, 24)
+        result["source_id"] = read_field(bits, 40, 24)

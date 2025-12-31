@@ -35,10 +35,10 @@ def pack_pcm16(samples: NDArrayFloat) -> bytes:
     return (clipped * 32767.0).astype(np.int16).tobytes()
 
 
-
 @dataclass
 class VoiceChannelConfig:
     """Configuration for a voice channel."""
+
     id: str
     system_id: str
     call_id: str
@@ -246,8 +246,7 @@ class VoiceChannel:
             if item[0] is q:
                 self._audio_sinks.discard(item)
                 logger.info(
-                    f"VoiceChannel {self.id}: Subscriber removed "
-                    f"(total={len(self._audio_sinks)})"
+                    f"VoiceChannel {self.id}: Subscriber removed (total={len(self._audio_sinks)})"
                 )
                 break
 
@@ -258,7 +257,7 @@ class VoiceChannel:
             disc_audio: Instantaneous frequency values from FM discriminator (48kHz)
         """
         # Diagnostic: track first few calls
-        if not hasattr(self, '_proc_diag_count'):
+        if not hasattr(self, "_proc_diag_count"):
             self._proc_diag_count = 0
         self._proc_diag_count += 1
         if self._proc_diag_count <= 3:
@@ -310,8 +309,7 @@ class VoiceChannel:
                 if self.is_silent and self.state == "active":
                     self.state = "silent"
                     logger.info(
-                        f"VoiceChannel {self.id}: Silence timeout "
-                        f"({self.silence_seconds:.1f}s)"
+                        f"VoiceChannel {self.id}: Silence timeout ({self.silence_seconds:.1f}s)"
                     )
 
             except asyncio.CancelledError:

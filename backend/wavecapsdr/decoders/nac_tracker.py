@@ -65,9 +65,7 @@ class NACTracker:
             # Prune oldest if we exceed max count
             if len(self._trackers) > self.MAX_TRACKER_COUNT:
                 # Find oldest by timestamp
-                oldest_nac = min(
-                    self._trackers.keys(), key=lambda k: self._trackers[k].timestamp
-                )
+                oldest_nac = min(self._trackers.keys(), key=lambda k: self._trackers[k].timestamp)
                 del self._trackers[oldest_nac]
                 logger.debug(f"Pruned oldest NAC tracker: 0x{oldest_nac:03x}")
 

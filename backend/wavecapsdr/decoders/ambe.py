@@ -261,13 +261,17 @@ class AMBEDecoder:
         """Get DSD-FME command line arguments for P25 Phase II."""
         args = [
             "dsd-fme",
-            "-i", "-",           # Read from stdin
-            "-o", "-",           # Write to stdout
-            "-fp",               # Force P25 (includes Phase II)
-            "-N",                # No audio output to speaker
-            "-g", "0",           # No gain adjustment
-            "-u", "0",           # No upsampling (we handle it)
-            "-L",                # Low CPU mode (skip some features)
+            "-i",
+            "-",  # Read from stdin
+            "-o",
+            "-",  # Write to stdout
+            "-fp",  # Force P25 (includes Phase II)
+            "-N",  # No audio output to speaker
+            "-g",
+            "0",  # No gain adjustment
+            "-u",
+            "0",  # No upsampling (we handle it)
+            "-L",  # Low CPU mode (skip some features)
         ]
 
         # Specify timeslot if needed
@@ -318,9 +322,7 @@ class AMBEDecoder:
                     scaled = np.clip(audio * 12.0, -32767, 32767).astype(np.int16)
                     audio_bytes = scaled.tobytes()
 
-                    await loop.run_in_executor(
-                        None, self.process.stdin.write, audio_bytes
-                    )
+                    await loop.run_in_executor(None, self.process.stdin.write, audio_bytes)
                     await loop.run_in_executor(None, self.process.stdin.flush)
 
             except asyncio.TimeoutError:
@@ -341,9 +343,7 @@ class AMBEDecoder:
         while self.running and self.process:
             try:
                 if self.process and self.process.stdout:
-                    data = await loop.run_in_executor(
-                        None, self.process.stdout.read, chunk_bytes
-                    )
+                    data = await loop.run_in_executor(None, self.process.stdout.read, chunk_bytes)
                     if not data:
                         break
 
@@ -428,13 +428,17 @@ class DMRVoiceDecoder(AMBEDecoder):
         """Get DSD-FME command line arguments for DMR."""
         args = [
             "dsd-fme",
-            "-i", "-",           # Read from stdin
-            "-o", "-",           # Write to stdout
-            "-fd",               # DMR/DMR+ mode (4FSK)
-            "-N",                # No audio output to speaker
-            "-g", "0",           # No gain adjustment
-            "-u", "0",           # No upsampling (we handle it)
-            "-L",                # Low CPU mode (skip some features)
+            "-i",
+            "-",  # Read from stdin
+            "-o",
+            "-",  # Write to stdout
+            "-fd",  # DMR/DMR+ mode (4FSK)
+            "-N",  # No audio output to speaker
+            "-g",
+            "0",  # No gain adjustment
+            "-u",
+            "0",  # No upsampling (we handle it)
+            "-L",  # Low CPU mode (skip some features)
         ]
 
         # Specify timeslot if needed
@@ -536,9 +540,7 @@ class DMRVoiceDecoder(AMBEDecoder):
                     scaled = np.clip(audio * 17.0, -32767, 32767).astype(np.int16)
                     audio_bytes = scaled.tobytes()
 
-                    await loop.run_in_executor(
-                        None, self.process.stdin.write, audio_bytes
-                    )
+                    await loop.run_in_executor(None, self.process.stdin.write, audio_bytes)
                     await loop.run_in_executor(None, self.process.stdin.flush)
 
             except asyncio.TimeoutError:

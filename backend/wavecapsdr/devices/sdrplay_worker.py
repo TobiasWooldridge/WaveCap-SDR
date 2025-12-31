@@ -65,18 +65,19 @@ def _setup_subprocess_logging(device_serial: str) -> logging.Logger:
         backupCount=3,
     )
     file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(logging.Formatter(
-        '%(asctime)s [%(levelname)s] [PID:%(process)d] %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    ))
+    file_handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s [%(levelname)s] [PID:%(process)d] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+        )
+    )
     worker_logger.addHandler(file_handler)
 
     # Also log to stderr (captured by parent if configured)
     stderr_handler = logging.StreamHandler(sys.stderr)
     stderr_handler.setLevel(logging.INFO)
-    stderr_handler.setFormatter(logging.Formatter(
-        '[SDRplayWorker:%(process)d] %(levelname)s: %(message)s'
-    ))
+    stderr_handler.setFormatter(
+        logging.Formatter("[SDRplayWorker:%(process)d] %(levelname)s: %(message)s")
+    )
     worker_logger.addHandler(stderr_handler)
 
     return worker_logger
@@ -91,11 +92,13 @@ def _log_to_pipe(status_pipe: Connection, level: str, message: str) -> None:
         message: Log message
     """
     try:
-        status_pipe.send({
-            "type": "log",
-            "level": level,
-            "message": message,
-        })
+        status_pipe.send(
+            {
+                "type": "log",
+                "level": level,
+                "message": message,
+            }
+        )
     except Exception:
         pass  # Don't crash if pipe is broken
 
@@ -130,6 +133,7 @@ FLAG_DATA_READY = 1 << 3  # Set after first successful sample write
 @dataclass
 class WorkerConfig:
     """Configuration sent to worker subprocess."""
+
     device_args: str
     shm_name: str
     center_hz: float = 100e6
@@ -317,7 +321,9 @@ class SDRplayWorker:
             loop_count += 1
             if loop_count <= 5 or loop_count % 10000 == 0:
                 if logger:
-                    logger.debug(f"Main loop[{loop_count}]: running={self.running}, streaming={self.streaming}, stream={self.stream is not None}")
+                    logger.debug(
+                        f"Main loop[{loop_count}]: running={self.running}, streaming={self.streaming}, stream={self.stream is not None}"
+                    )
 
             # Check for commands (non-blocking)
             while self.cmd_pipe.poll(timeout=0.001):
@@ -375,14 +381,18 @@ class SDRplayWorker:
             antennas: list[str] = list(sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0))
 
             if logger:
-                logger.info(f"Device opened: driver={driver}, hardware={hardware}, antennas={antennas}")
+                logger.info(
+                    f"Device opened: driver={driver}, hardware={hardware}, antennas={antennas}"
+                )
 
-            self.status_pipe.send({
-                "type": "opened",
-                "driver": driver,
-                "hardware": hardware,
-                "antennas": antennas,
-            })
+            self.status_pipe.send(
+                {
+                    "type": "opened",
+                    "driver": driver,
+                    "hardware": hardware,
+                    "antennas": antennas,
+                }
+            )
 
         except Exception as e:
             error_msg = f"Failed to open device: {e}\n{traceback.format_exc()}"
@@ -409,6 +419,7 @@ class SDRplayWorker:
             return
 
         import SoapySDR
+
         sdr = self.sdr
         assert sdr is not None
 
@@ -428,7 +439,9 @@ class SDRplayWorker:
             actual = _safe_get(lambda: float(getter()))
             if actual is None:
                 return "", None
-            actual_text = f"{actual:.{precision}f}{unit}" if isinstance(actual, float) else f"{actual}{unit}"
+            actual_text = (
+                f"{actual:.{precision}f}{unit}" if isinstance(actual, float) else f"{actual}{unit}"
+            )
             mismatch: str | None = None
             if expected is not None and abs(float(actual) - float(expected)) > tolerance:
                 mismatch = f"{label} expected {expected}{unit}, got {actual_text}"
@@ -516,7 +529,9 @@ class SDRplayWorker:
                 mismatches.append(f"setting {key} expected {expected_value}, got {actual_text}")
 
         for element, expected_gain in (expected_element_gains or {}).items():
-            actual_element_gain = _safe_get(lambda: float(sdr.getGain(SoapySDR.SOAPY_SDR_RX, 0, element)))
+            actual_element_gain = _safe_get(
+                lambda: float(sdr.getGain(SoapySDR.SOAPY_SDR_RX, 0, element))
+            )
             if actual_element_gain is None:
                 continue
             readback_parts.append(f"gain[{element}]={actual_element_gain:.2f}dB")
@@ -560,7 +575,9 @@ class SDRplayWorker:
             agc_enabled = cmd.get("agc_enabled", False)
 
             if logger:
-                logger.info(f"Configuring: center={center_hz/1e6:.3f}MHz, rate={sample_rate/1e6:.3f}MHz, antenna={antenna}")
+                logger.info(
+                    f"Configuring: center={center_hz / 1e6:.3f}MHz, rate={sample_rate / 1e6:.3f}MHz, antenna={antenna}"
+                )
                 logger.debug(f"Full config: gain={gain}, bandwidth={bandwidth}, ppm={ppm}")
                 logger.debug(f"Device settings: {device_settings}, element_gains: {element_gains}")
 
@@ -611,7 +628,9 @@ class SDRplayWorker:
                     try:
                         sdr.setGainMode(SoapySDR.SOAPY_SDR_RX, 0, True)
                         if logger:
-                            logger.info("AGC enabled (controls IFGR, RFGR stays at configured value)")
+                            logger.info(
+                                "AGC enabled (controls IFGR, RFGR stays at configured value)"
+                            )
                     except Exception as e:
                         if logger:
                             logger.warning(f"Failed to enable AGC: {e}")
@@ -625,7 +644,9 @@ class SDRplayWorker:
                     ifgr = sdr.getGain(SoapySDR.SOAPY_SDR_RX, 0, "IFGR")
                     rfgr = sdr.getGain(SoapySDR.SOAPY_SDR_RX, 0, "RFGR")
                     if logger:
-                        logger.info(f"Gain set: requested={gain:.1f}dB -> actual={actual_gain:.1f}dB (IFGR={ifgr:.0f}, RFGR={rfgr:.0f})")
+                        logger.info(
+                            f"Gain set: requested={gain:.1f}dB -> actual={actual_gain:.1f}dB (IFGR={ifgr:.0f}, RFGR={rfgr:.0f})"
+                        )
                 except Exception as e:
                     if logger:
                         logger.info(f"Set overall gain={gain}dB (readback failed: {e})")
@@ -738,6 +759,7 @@ class SDRplayWorker:
             # Still send success response since we're in the desired state
             try:
                 import SoapySDR
+
                 current_antenna = sdr.getAntenna(SoapySDR.SOAPY_SDR_RX, 0)
             except Exception:
                 current_antenna = None
@@ -779,16 +801,22 @@ class SDRplayWorker:
 
                 # activateStream failed - clean up and potentially retry
                 if logger:
-                    logger.warning(f"activateStream failed with code {result} (attempt {attempt + 1}/{max_retries})")
+                    logger.warning(
+                        f"activateStream failed with code {result} (attempt {attempt + 1}/{max_retries})"
+                    )
                 sdr.closeStream(self.stream)
                 self.stream = None
 
                 # Error -5 is sdrplay_api_Fail - often transient, worth retrying
                 if result == -5 and attempt < max_retries - 1:
-                    delay = retry_delay * (2 ** attempt)
+                    delay = retry_delay * (2**attempt)
                     if logger:
                         logger.info(f"Retrying in {delay:.1f}s...")
-                    _log_to_pipe(self.status_pipe, "warning", f"Stream activation failed, retrying in {delay:.1f}s")
+                    _log_to_pipe(
+                        self.status_pipe,
+                        "warning",
+                        f"Stream activation failed, retrying in {delay:.1f}s",
+                    )
                     time.sleep(delay)
                 else:
                     # Non-retryable error or exhausted retries
@@ -815,7 +843,9 @@ class SDRplayWorker:
             self.status_pipe.send({"type": "started", "antenna": current_antenna})
             if logger:
                 logger.info(f"Stream started successfully, rate={self.sample_rate}")
-            _log_to_pipe(self.status_pipe, "info", f"Stream started at {self.sample_rate/1e6:.1f} MHz")
+            _log_to_pipe(
+                self.status_pipe, "info", f"Stream started at {self.sample_rate / 1e6:.1f} MHz"
+            )
 
         except Exception as e:
             error_msg = f"Start stream failed: {e}\n{traceback.format_exc()}"
@@ -854,7 +884,9 @@ class SDRplayWorker:
 
             self.status_pipe.send({"type": "stopped"})
             if logger:
-                logger.info(f"Stream stopped, total samples: {self.sample_count}, overflows: {self.overflow_count}")
+                logger.info(
+                    f"Stream stopped, total samples: {self.sample_count}, overflows: {self.overflow_count}"
+                )
 
         except Exception as e:
             if logger:
@@ -876,9 +908,9 @@ class SDRplayWorker:
         sr = sdr.readStream(self.stream, [buff.view(np.float32)], chunk_size, flags=0)
 
         # Handle StreamResult
-        if hasattr(sr, 'ret'):
+        if hasattr(sr, "ret"):
             ret = sr.ret
-            flags = sr.flags if hasattr(sr, 'flags') else 0
+            flags = sr.flags if hasattr(sr, "flags") else 0
         elif isinstance(sr, tuple):
             ret = sr[0]
             flags = sr[1] if len(sr) > 1 else 0
@@ -887,16 +919,18 @@ class SDRplayWorker:
             flags = 0
 
         # Log sample reads periodically (every 1000 calls or on error)
-        self._stream_call_count = getattr(self, '_stream_call_count', 0) + 1
+        self._stream_call_count = getattr(self, "_stream_call_count", 0) + 1
         if ret <= 0 or self._stream_call_count <= 5 or self._stream_call_count % 1000 == 0:
             if logger:
-                logger.debug(f"_stream_samples[{self._stream_call_count}]: ret={ret}, flags={flags}")
+                logger.debug(
+                    f"_stream_samples[{self._stream_call_count}]: ret={ret}, flags={flags}"
+                )
 
         if ret <= 0:
             return
 
         # Check for overflow
-        SOAPY_SDR_READ_FLAG_OVERFLOW = (1 << 1)
+        SOAPY_SDR_READ_FLAG_OVERFLOW = 1 << 1
         if flags & SOAPY_SDR_READ_FLAG_OVERFLOW:
             self.overflow_count += 1
 
@@ -925,18 +959,22 @@ class SDRplayWorker:
         samples_to_end = BUFFER_SAMPLES - write_pos
         if num_samples <= samples_to_end:
             # Single write (no wrap)
-            iq_buffer[write_pos:write_pos + num_samples] = samples
+            iq_buffer[write_pos : write_pos + num_samples] = samples
         else:
             # Split write (wrap around)
             iq_buffer[write_pos:] = samples[:samples_to_end]
-            iq_buffer[:num_samples - samples_to_end] = samples[samples_to_end:]
+            iq_buffer[: num_samples - samples_to_end] = samples[samples_to_end:]
 
         # Update indices
         self.write_idx += num_samples
         self.sample_count += num_samples
 
         # Update header
-        header_flags = FLAG_RUNNING | (FLAG_OVERFLOW if self.overflow_count > 0 else 0) | (FLAG_DATA_READY if self.sample_count > 0 else 0)
+        header_flags = (
+            FLAG_RUNNING
+            | (FLAG_OVERFLOW if self.overflow_count > 0 else 0)
+            | (FLAG_DATA_READY if self.sample_count > 0 else 0)
+        )
         _write_header(
             self.shm,
             write_idx=self.write_idx,
@@ -956,7 +994,9 @@ class SDRplayWorker:
         # Log first few header writes for debugging
         if self._stream_call_count <= 5:
             if logger:
-                logger.debug(f"Header write: shm={self.shm_name}, write_idx={self.write_idx}, flags={header_flags}")
+                logger.debug(
+                    f"Header write: shm={self.shm_name}, write_idx={self.write_idx}, flags={header_flags}"
+                )
 
     def cleanup(self) -> None:
         """Clean up resources."""
@@ -969,6 +1009,7 @@ class SDRplayWorker:
         if self.sdr is not None:
             try:
                 import SoapySDR
+
                 if logger:
                     logger.debug("Calling SoapySDR.Device.unmake...")
                 SoapySDR.Device.unmake(self.sdr)

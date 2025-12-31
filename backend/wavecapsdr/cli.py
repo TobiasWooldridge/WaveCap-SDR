@@ -133,12 +133,12 @@ def cmd_capture_iq(args: argparse.Namespace) -> int:
         capture_sample_rate = WIDEBAND_SAMPLE_RATE
         output_sample_rate = 50_000  # After channelizer: 2x oversampled 25kHz channel
         print(f"Wideband capture mode:")
-        print(f"  Capture rate: {capture_sample_rate/1e6:.1f} MHz")
+        print(f"  Capture rate: {capture_sample_rate / 1e6:.1f} MHz")
         print(f"  Output rate: {output_sample_rate} Hz (after channelizer)")
         if args.channel_freq:
-            print(f"  Extract channel: {args.channel_freq/1e6:.6f} MHz")
+            print(f"  Extract channel: {args.channel_freq / 1e6:.6f} MHz")
         else:
-            print(f"  Extract channel: {args.frequency/1e6:.6f} MHz (center)")
+            print(f"  Extract channel: {args.frequency / 1e6:.6f} MHz (center)")
     else:
         capture_sample_rate = args.sample_rate
         output_sample_rate = args.sample_rate
@@ -214,7 +214,9 @@ def cmd_capture_iq(args: argparse.Namespace) -> int:
         if is_rspdx:
             max_lna = get_rspdx_max_lna(args.frequency)
             if lna > max_lna:
-                print(f"  Warning: LNA={lna} exceeds max for {args.frequency/1e6:.1f} MHz, clamping to {max_lna}")
+                print(
+                    f"  Warning: LNA={lna} exceeds max for {args.frequency / 1e6:.1f} MHz, clamping to {max_lna}"
+                )
                 lna = max_lna
 
         # Map to SoapySDR element gains
@@ -269,7 +271,9 @@ def cmd_capture_iq(args: argparse.Namespace) -> int:
                 elapsed = time.time() - start_time
                 if elapsed - last_update >= 1.0:
                     pct = 100 * samples_captured / total_samples
-                    print(f"  {pct:.0f}% ({samples_captured}/{total_samples} samples, {elapsed:.1f}s)")
+                    print(
+                        f"  {pct:.0f}% ({samples_captured}/{total_samples} samples, {elapsed:.1f}s)"
+                    )
                     last_update = elapsed
             elif ret == timeout_code:
                 # Timeout is normal, just retry
@@ -307,19 +311,19 @@ def cmd_capture_iq(args: argparse.Namespace) -> int:
 
         target_freq = args.channel_freq if args.channel_freq else args.frequency
         print(f"\n=== Polyphase Channelizer ===")
-        print(f"  Input: {len(iq_data)} samples at {capture_sample_rate/1e6:.1f} MHz")
+        print(f"  Input: {len(iq_data)} samples at {capture_sample_rate / 1e6:.1f} MHz")
 
         # Create channelizer
         channelizer = PolyphaseChannelizer(capture_sample_rate, CHANNEL_BANDWIDTH)
-        print(f"  Channels: {channelizer.channel_count} x {CHANNEL_BANDWIDTH/1000:.0f} kHz")
+        print(f"  Channels: {channelizer.channel_count} x {CHANNEL_BANDWIDTH / 1000:.0f} kHz")
         print(f"  Output sample rate: {channelizer.channel_sample_rate:.0f} Hz")
 
         # Calculate target channel index
         calculator = ChannelCalculator(args.frequency, capture_sample_rate, CHANNEL_BANDWIDTH)
         channel_idx = calculator.get_channel_index(target_freq)
         channel_center = calculator.get_channel_center_frequency(channel_idx)
-        print(f"  Target: {target_freq/1e6:.6f} MHz → channel {channel_idx}")
-        print(f"  Channel center: {channel_center/1e6:.6f} MHz")
+        print(f"  Target: {target_freq / 1e6:.6f} MHz → channel {channel_idx}")
+        print(f"  Channel center: {channel_center / 1e6:.6f} MHz")
 
         # Process through channelizer
         print("  Processing...")
@@ -331,7 +335,9 @@ def cmd_capture_iq(args: argparse.Namespace) -> int:
         output_sample_rate = int(channelizer.channel_sample_rate)
 
         print(f"  Extracted {len(iq_data)} samples for channel {channel_idx}")
-        print(f"  Output magnitude: mean={np.mean(np.abs(iq_data)):.4f}, max={np.max(np.abs(iq_data)):.4f}")
+        print(
+            f"  Output magnitude: mean={np.mean(np.abs(iq_data)):.4f}, max={np.max(np.abs(iq_data)):.4f}"
+        )
 
     # Save as WAV (stereo: I=left, Q=right, int16)
     output_path = Path(args.output)
@@ -366,7 +372,7 @@ def estimate_freq_offset(iq: NDArrayComplex, sample_rate: int) -> float:
     from scipy import signal as sig
 
     # Use a few seconds of data
-    chunk = iq[:min(len(iq), sample_rate * 3)]
+    chunk = iq[: min(len(iq), sample_rate * 3)]
 
     # Compute power spectrum using Welch method
     f, psd = sig.welch(chunk, sample_rate, nperseg=4096, return_onesided=False)
@@ -406,6 +412,7 @@ def cmd_decode_audio(args: argparse.Namespace) -> int:
 
     # Check for DSD-FME
     import shutil
+
     if not shutil.which("dsd-fme"):
         print("Error: DSD-FME not found in PATH")
         print("Install with:")
@@ -439,6 +446,7 @@ def cmd_decode_audio(args: argparse.Namespace) -> int:
         iq = data[::2] + 1j * data[1::2]
     elif channels == 1:
         from scipy.signal import hilbert
+
         iq = hilbert(data).astype(np.complex64)
     else:
         print(f"Error: Unsupported channel count: {channels}")
@@ -464,9 +472,10 @@ def cmd_decode_audio(args: argparse.Namespace) -> int:
 
     # Lowpass filter before FM demod to reduce noise
     from scipy.signal import butter, lfilter
+
     nyq = sample_rate / 2
     cutoff = 7500  # P25 C4FM bandwidth ~7.5 kHz
-    b, a = butter(4, cutoff / nyq, btype='low')
+    b, a = butter(4, cutoff / nyq, btype="low")
     iq_filtered = lfilter(b, a, iq)
 
     # Differential phase (FM demod) using complex multiplication
@@ -483,7 +492,9 @@ def cmd_decode_audio(args: argparse.Namespace) -> int:
     # At symbol peak (±1800 Hz), discriminator ≈ ±0.226 radians
 
     print(f"  Discriminator output: {len(discriminator)} samples")
-    print(f"  Discriminator range: [{np.min(discriminator):.4f}, {np.max(discriminator):.4f}] radians")
+    print(
+        f"  Discriminator range: [{np.min(discriminator):.4f}, {np.max(discriminator):.4f}] radians"
+    )
 
     # DSD-FME expects 48kHz input
     target_rate = 48000
@@ -511,11 +522,12 @@ def cmd_decode_audio(args: argparse.Namespace) -> int:
 
     # Write discriminator to temp WAV file for DSD-FME
     import tempfile
-    temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+
+    temp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     temp_wav_path = temp_wav.name
     temp_wav.close()
 
-    with wave_mod.open(temp_wav_path, 'wb') as wf:
+    with wave_mod.open(temp_wav_path, "wb") as wf:
         wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(target_rate)
@@ -532,11 +544,14 @@ def cmd_decode_audio(args: argparse.Namespace) -> int:
     # -w output.wav = write WAV output
     dsd_args = [
         "dsd-fme",
-        "-f1",           # Force P25 Phase 1 (not -fp which is ProVoice!)
-        "-mc",           # C4FM modulation
-        "-i", temp_wav_path,  # Read from WAV file
-        "-o", "null",    # No audio output device
-        "-w", str(output_path),  # Write WAV output
+        "-f1",  # Force P25 Phase 1 (not -fp which is ProVoice!)
+        "-mc",  # C4FM modulation
+        "-i",
+        temp_wav_path,  # Read from WAV file
+        "-o",
+        "null",  # No audio output device
+        "-w",
+        str(output_path),  # Write WAV output
     ]
 
     try:
@@ -551,6 +566,7 @@ def cmd_decode_audio(args: argparse.Namespace) -> int:
 
         # Clean up temp file
         import os
+
         os.unlink(temp_wav_path)
 
         if proc.returncode != 0:
@@ -628,6 +644,7 @@ def cmd_decode_iq(args: argparse.Namespace) -> int:
     elif channels == 1:
         # Assume real samples, create analytic signal
         from scipy.signal import hilbert
+
         iq = hilbert(data).astype(np.complex64)
     else:
         print(f"Error: Unsupported channel count: {channels}")
@@ -669,12 +686,15 @@ def cmd_decode_iq(args: argparse.Namespace) -> int:
     from wavecapsdr.decoders.p25_framer import P25P1MessageFramer
 
     messages = []
+
     def on_message(msg: Any) -> None:
-        messages.append({
-            'nac': msg.nac,
-            'duid': str(msg.duid.name if hasattr(msg.duid, 'name') else msg.duid),
-            'bits': len(msg._bits) if hasattr(msg, '_bits') else 0,
-        })
+        messages.append(
+            {
+                "nac": msg.nac,
+                "duid": str(msg.duid.name if hasattr(msg.duid, "name") else msg.duid),
+                "bits": len(msg._bits) if hasattr(msg, "_bits") else 0,
+            }
+        )
 
     framer = P25P1MessageFramer()
     framer.set_listener(on_message)
@@ -695,7 +715,7 @@ def cmd_decode_iq(args: argparse.Namespace) -> int:
         # Group by DUID
         duid_counts: dict[str, int] = {}
         for msg in messages:
-            duid = msg.get('duid', 'UNKNOWN')
+            duid = msg.get("duid", "UNKNOWN")
             duid_counts[duid] = duid_counts.get(duid, 0) + 1
 
         for duid, count in sorted(duid_counts.items()):
@@ -704,8 +724,8 @@ def cmd_decode_iq(args: argparse.Namespace) -> int:
         # Show sample messages
         print("\n  Sample messages:")
         for msg in messages[:10]:
-            nac = msg.get('nac', 0)
-            duid = msg.get('duid', 'UNKNOWN')
+            nac = msg.get("nac", 0)
+            duid = msg.get("duid", "UNKNOWN")
             print(f"    NAC=0x{nac:03X} DUID={duid}")
 
     # Also run simple sync search for comparison
@@ -715,7 +735,9 @@ def cmd_decode_iq(args: argparse.Namespace) -> int:
     return 0
 
 
-def demod_c4fm(iq: NDArrayComplex, sample_rate: int, symbol_rate: int = 4800) -> tuple[NDArrayInt, NDArrayFloat]:
+def demod_c4fm(
+    iq: NDArrayComplex, sample_rate: int, symbol_rate: int = 4800
+) -> tuple[NDArrayInt, NDArrayFloat]:
     """C4FM demodulation using proper SDRTrunk-style demodulator."""
     from wavecapsdr.dsp.p25.c4fm import C4FMDemodulator
 
@@ -734,7 +756,9 @@ def demod_c4fm(iq: NDArrayComplex, sample_rate: int, symbol_rate: int = 4800) ->
     return dibits, soft_symbols
 
 
-def demod_cqpsk(iq: NDArrayComplex, sample_rate: int, symbol_rate: int = 4800) -> tuple[NDArrayInt, NDArrayFloat]:
+def demod_cqpsk(
+    iq: NDArrayComplex, sample_rate: int, symbol_rate: int = 4800
+) -> tuple[NDArrayInt, NDArrayFloat]:
     """CQPSK/LSM demodulation (π/4-DQPSK)."""
     from scipy.signal import firwin, lfilter
 
@@ -747,7 +771,7 @@ def demod_cqpsk(iq: NDArrayComplex, sample_rate: int, symbol_rate: int = 4800) -
     sps = sample_rate / symbol_rate
     symbols = []
     pos = sps / 2
-    prev = filtered[0] if len(filtered) > 0 else 1+0j
+    prev = filtered[0] if len(filtered) > 0 else 1 + 0j
 
     while pos < len(filtered):
         curr = filtered[int(pos)]
@@ -778,7 +802,9 @@ def demod_cqpsk(iq: NDArrayComplex, sample_rate: int, symbol_rate: int = 4800) -
 
 
 # P25 sync pattern (48 bits = 24 dibits)
-P25_SYNC_DIBITS = np.array([1,1,1,1,1,3,1,1,3,3,1,1,3,3,3,3,1,3,1,3,3,3,3,3], dtype=np.uint8)
+P25_SYNC_DIBITS = np.array(
+    [1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1, 3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3], dtype=np.uint8
+)
 
 
 def find_p25_syncs(dibits: NDArrayInt, min_match: int = 18) -> list[tuple[int, int]]:
@@ -787,7 +813,7 @@ def find_p25_syncs(dibits: NDArrayInt, min_match: int = 18) -> list[tuple[int, i
     matches = []
 
     for i in range(len(dibits) - sync_len):
-        match_count = np.sum(dibits[i:i+sync_len] == P25_SYNC_DIBITS)
+        match_count = np.sum(dibits[i : i + sync_len] == P25_SYNC_DIBITS)
         if match_count >= min_match:
             matches.append((i, match_count))
 
@@ -805,7 +831,7 @@ def decode_tsbks(dibits: NDArrayInt, syncs: list[tuple[int, int]]) -> None:
         if nid_start + 32 > len(dibits):
             continue
 
-        nid_dibits = dibits[nid_start:nid_start + 32]
+        nid_dibits = dibits[nid_start : nid_start + 32]
 
         # Extract DUID from NID (simplified - last 4 bits after deinterleave)
         # This is a simplified check
@@ -818,10 +844,12 @@ def decode_tsbks(dibits: NDArrayInt, syncs: list[tuple[int, int]]) -> None:
             7: "TSBK",
             10: "LDU2 (Voice 2)",
             12: "PDU",
-            15: "TDULC"
+            15: "TDULC",
         }
 
-        print(f"  Sync at {pos} ({score}/24): DUID≈{duid_approx} ({duid_names.get(duid_approx, 'Unknown')})")
+        print(
+            f"  Sync at {pos} ({score}/24): DUID≈{duid_approx} ({duid_names.get(duid_approx, 'Unknown')})"
+        )
 
 
 def cmd_trunking(args: argparse.Namespace) -> int:
@@ -930,21 +958,23 @@ def cmd_trunking(args: argparse.Namespace) -> int:
         tg_name = call.talkgroup_name or ""
 
         if args.json:
-            return json.dumps({
-                "event": event_type,
-                "timestamp": datetime.now().isoformat(),
-                "talkgroup_id": tg,
-                "talkgroup_name": tg_name,
-                "source_id": call.source_id,
-                "frequency": call.frequency_hz,
-                "encrypted": call.encrypted,
-                "duration": call.duration_seconds if event_type == "call_end" else None,
-                "recording_path": getattr(call, "recording_path", None),
-            })
+            return json.dumps(
+                {
+                    "event": event_type,
+                    "timestamp": datetime.now().isoformat(),
+                    "talkgroup_id": tg,
+                    "talkgroup_name": tg_name,
+                    "source_id": call.source_id,
+                    "frequency": call.frequency_hz,
+                    "encrypted": call.encrypted,
+                    "duration": call.duration_seconds if event_type == "call_end" else None,
+                    "recording_path": getattr(call, "recording_path", None),
+                }
+            )
         else:
             if event_type == "call_start":
                 tg_display = f"{tg} ({tg_name})" if tg_name else str(tg)
-                return f"[CALL START] TG={tg_display} SRC={call.source_id} FREQ={call.frequency_hz/1e6:.4f} MHz"
+                return f"[CALL START] TG={tg_display} SRC={call.source_id} FREQ={call.frequency_hz / 1e6:.4f} MHz"
             elif event_type == "call_end":
                 return f"[CALL END] TG={tg} duration={call.duration_seconds:.1f}s"
             elif event_type == "call_update":
@@ -987,14 +1017,18 @@ def cmd_trunking(args: argparse.Namespace) -> int:
             opcode = message.get("opcode_name", message.get("opcode", "?"))
             summary = message.get("summary", "")
             if args.json:
-                print(json.dumps({
-                    "event": "tsbk",
-                    "timestamp": datetime.now().isoformat(),
-                    "opcode": message.get("opcode"),
-                    "opcode_name": message.get("opcode_name"),
-                    "nac": message.get("nac"),
-                    "summary": summary,
-                }))
+                print(
+                    json.dumps(
+                        {
+                            "event": "tsbk",
+                            "timestamp": datetime.now().isoformat(),
+                            "opcode": message.get("opcode"),
+                            "opcode_name": message.get("opcode_name"),
+                            "nac": message.get("nac"),
+                            "summary": summary,
+                        }
+                    )
+                )
             else:
                 print(f"[TSBK] {opcode}: {summary}")
 
@@ -1081,8 +1115,7 @@ def cmd_trunking(args: argparse.Namespace) -> int:
 def main() -> int:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        prog="wavecapsdr-cli",
-        description="WaveCap-SDR Command Line Interface"
+        prog="wavecapsdr-cli", description="WaveCap-SDR Command Line Interface"
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
 
@@ -1096,42 +1129,65 @@ def main() -> int:
     p_capture = subparsers.add_parser("capture-iq", help="Capture IQ samples to WAV file")
     p_capture.add_argument("-d", "--device", help="Device serial (partial match)")
     p_capture.add_argument("-a", "--antenna", help="Antenna: A, B, or C (RSP only)")
-    p_capture.add_argument("-f", "--frequency", type=float, required=True,
-                          help="Center frequency in Hz")
-    p_capture.add_argument("-r", "--sample-rate", type=int, default=50000,
-                          help="Sample rate (default: 50000)")
-    p_capture.add_argument("-t", "--duration", type=float, default=60,
-                          help="Duration in seconds (default: 60)")
+    p_capture.add_argument(
+        "-f", "--frequency", type=float, required=True, help="Center frequency in Hz"
+    )
+    p_capture.add_argument(
+        "-r", "--sample-rate", type=int, default=50000, help="Sample rate (default: 50000)"
+    )
+    p_capture.add_argument(
+        "-t", "--duration", type=float, default=60, help="Duration in seconds (default: 60)"
+    )
     p_capture.add_argument("-o", "--output", required=True, help="Output WAV file")
     p_capture.add_argument("--gain", type=float, help="Overall gain in dB")
     p_capture.add_argument("--lna", type=int, help="LNA state 0-27 (RSP, SDRTrunk-style)")
     p_capture.add_argument("--gr", type=int, help="Gain reduction 20-59 dB (RSP, SDRTrunk-style)")
-    p_capture.add_argument("--wideband", action="store_true",
-                          help="Use wideband capture (8 MHz) with polyphase channelizer")
-    p_capture.add_argument("--channel-freq", type=float,
-                          help="Extract specific channel frequency (requires --wideband)")
+    p_capture.add_argument(
+        "--wideband",
+        action="store_true",
+        help="Use wideband capture (8 MHz) with polyphase channelizer",
+    )
+    p_capture.add_argument(
+        "--channel-freq",
+        type=float,
+        help="Extract specific channel frequency (requires --wideband)",
+    )
     p_capture.set_defaults(func=cmd_capture_iq)
 
     # decode-iq
     p_decode = subparsers.add_parser("decode-iq", help="Decode IQ file through P25 pipeline")
     p_decode.add_argument("-f", "--file", required=True, help="Input WAV file")
-    p_decode.add_argument("-m", "--modulation", default="c4fm",
-                         choices=["c4fm", "cqpsk", "lsm"],
-                         help="Modulation type (default: c4fm)")
-    p_decode.add_argument("--freq-offset", type=float, default=None,
-                         help="Manual frequency offset in Hz (auto-detected if not specified)")
+    p_decode.add_argument(
+        "-m",
+        "--modulation",
+        default="c4fm",
+        choices=["c4fm", "cqpsk", "lsm"],
+        help="Modulation type (default: c4fm)",
+    )
+    p_decode.add_argument(
+        "--freq-offset",
+        type=float,
+        default=None,
+        help="Manual frequency offset in Hz (auto-detected if not specified)",
+    )
     p_decode.set_defaults(func=cmd_decode_iq)
 
     # decode-audio
     p_audio = subparsers.add_parser("decode-audio", help="Decode P25 IQ to audio WAV file")
     p_audio.add_argument("-f", "--file", required=True, help="Input IQ WAV file")
     p_audio.add_argument("-o", "--output", required=True, help="Output audio WAV file")
-    p_audio.add_argument("--freq-offset", type=float, default=None,
-                        help="Manual frequency offset in Hz (auto-detected if not specified)")
+    p_audio.add_argument(
+        "--freq-offset",
+        type=float,
+        default=None,
+        help="Manual frequency offset in Hz (auto-detected if not specified)",
+    )
     p_audio.set_defaults(func=cmd_decode_audio)
 
     # trunking - P25 trunking with channel following
-    p_trunking = subparsers.add_parser("trunking", help="Run P25 trunking system with channel following")
+    p_trunking = subparsers.add_parser(
+        "trunking", help="Run P25 trunking system with channel following"
+    )
     p_trunking.add_argument("system", nargs="?", help="System ID from config (e.g., 'sa_grn')")
     p_trunking.add_argument(
         "-c",
@@ -1140,8 +1196,12 @@ def main() -> int:
     )
     p_trunking.add_argument("--list", action="store_true", help="List available trunking systems")
     p_trunking.add_argument("--no-record", action="store_true", help="Disable WAV recording")
-    p_trunking.add_argument("--tg", type=str, help="Filter talkgroups (comma-separated, e.g., '100,101,200')")
-    p_trunking.add_argument("--json", action="store_true", help="Output call events as JSON (NDJSON)")
+    p_trunking.add_argument(
+        "--tg", type=str, help="Filter talkgroups (comma-separated, e.g., '100,101,200')"
+    )
+    p_trunking.add_argument(
+        "--json", action="store_true", help="Output call events as JSON (NDJSON)"
+    )
     p_trunking.add_argument("--stats", type=int, metavar="SEC", help="Show stats every N seconds")
     p_trunking.add_argument("-o", "--output", type=str, help="Recording output directory")
     p_trunking.set_defaults(func=cmd_trunking)
@@ -1155,7 +1215,7 @@ def main() -> int:
     # Setup logging
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s"
+        format="%(asctime)s %(levelname)s %(message)s",
     )
 
     result = args.func(args)

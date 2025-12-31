@@ -16,11 +16,12 @@ import numpy as np
 @dataclass
 class BinStats:
     """Running statistics for a single frequency bin."""
+
     sum: float = 0.0
     sum_sq: float = 0.0
     count: int = 0
-    min_val: float = float('inf')
-    max_val: float = float('-inf')
+    min_val: float = float("inf")
+    max_val: float = float("-inf")
 
     def update(self, value: float) -> None:
         self.sum += value
@@ -50,6 +51,7 @@ class BinStats:
 @dataclass
 class ClassifiedChannel:
     """A classified channel with frequency and type."""
+
     freq_hz: float
     power_db: float
     std_dev_db: float
@@ -73,7 +75,7 @@ class ChannelClassifier:
     min_samples_per_bin: int = 50
     noise_threshold_db: float = -50.0
     control_variance_threshold: float = 4.0  # Low std dev = control
-    voice_variance_threshold: float = 10.0   # High std dev = voice
+    voice_variance_threshold: float = 10.0  # High std dev = voice
 
     # State
     _bin_stats: dict[int, BinStats] = field(default_factory=dict)
@@ -95,7 +97,9 @@ class ChannelClassifier:
             self._cached_channels.clear()
             self._last_classify_time = 0.0
 
-    def update(self, power_db: list[float], freqs: list[float], center_hz: float, sample_rate: float) -> None:
+    def update(
+        self, power_db: list[float], freqs: list[float], center_hz: float, sample_rate: float
+    ) -> None:
         """Update statistics with a new FFT frame."""
         with self._lock:
             # Check if parameters changed
@@ -153,7 +157,9 @@ class ChannelClassifier:
                 return []
 
             # Calculate noise floor from 20th percentile
-            averages = [s.mean for s in self._bin_stats.values() if s.count >= self.min_samples_per_bin]
+            averages = [
+                s.mean for s in self._bin_stats.values() if s.count >= self.min_samples_per_bin
+            ]
             if not averages:
                 return []
 
@@ -169,7 +175,7 @@ class ChannelClassifier:
             sorted_bins = sorted(
                 [(i, s) for i, s in self._bin_stats.items() if s.count >= self.min_samples_per_bin],
                 key=lambda x: x[1].mean,
-                reverse=True
+                reverse=True,
             )
 
             for bin_idx, stats in sorted_bins:
@@ -185,8 +191,8 @@ class ChannelClassifier:
                 # Check if local peak
                 prev_stats = self._bin_stats.get(bin_idx - 1)
                 next_stats = self._bin_stats.get(bin_idx + 1)
-                prev_avg = prev_stats.mean if prev_stats else float('-inf')
-                next_avg = next_stats.mean if next_stats else float('-inf')
+                prev_avg = prev_stats.mean if prev_stats else float("-inf")
+                next_avg = next_stats.mean if next_stats else float("-inf")
 
                 if avg <= prev_avg or avg <= next_avg:
                     continue
@@ -196,7 +202,9 @@ class ChannelClassifier:
                     visited.add(bin_idx + offset)
 
                 # Calculate frequency
-                freq_hz = self._center_hz + (self._freqs[bin_idx] if bin_idx < len(self._freqs) else 0)
+                freq_hz = self._center_hz + (
+                    self._freqs[bin_idx] if bin_idx < len(self._freqs) else 0
+                )
 
                 # Classify
                 if avg < noise_floor + 5:
@@ -208,12 +216,14 @@ class ChannelClassifier:
                 else:
                     channel_type = "variable"
 
-                classified.append(ClassifiedChannel(
-                    freq_hz=freq_hz,
-                    power_db=avg,
-                    std_dev_db=std_dev,
-                    channel_type=channel_type,
-                ))
+                classified.append(
+                    ClassifiedChannel(
+                        freq_hz=freq_hz,
+                        power_db=avg,
+                        std_dev_db=std_dev,
+                        channel_type=channel_type,
+                    )
+                )
 
             # Sort by power
             classified.sort(key=lambda c: c.power_db, reverse=True)
@@ -229,7 +239,9 @@ class ChannelClassifier:
             "elapsed_seconds": round(self.elapsed_seconds, 1),
             "sample_count": self._sample_count,
             "is_ready": self.is_ready,
-            "remaining_seconds": max(0, round(self.min_collection_seconds - self.elapsed_seconds, 1)),
+            "remaining_seconds": max(
+                0, round(self.min_collection_seconds - self.elapsed_seconds, 1)
+            ),
             "center_hz": self._center_hz,
             "sample_rate": self._sample_rate,
         }

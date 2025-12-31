@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 class P25P1DataUnitID(IntEnum):
     """P25 Phase 1 Data Unit IDs (DUID)."""
+
     HEADER_DATA_UNIT = 0x0  # HDU
     TERMINATOR_DATA_UNIT = 0x3  # TDU (without LC)
     LOGICAL_LINK_DATA_UNIT_1 = 0x5  # LDU1
@@ -54,7 +55,7 @@ class P25P1DataUnitID(IntEnum):
     PACKET_DATA_UNIT_BLOCK_5 = 0x5C
 
     @classmethod
-    def from_value(cls, value: int) -> 'P25P1DataUnitID':
+    def from_value(cls, value: int) -> "P25P1DataUnitID":
         """Get DUID from 4-bit value."""
         try:
             return cls(value)
@@ -91,6 +92,7 @@ class P25P1DataUnitID(IntEnum):
 @dataclass
 class Dibit:
     """P25 dibit (2-bit symbol) with ideal phase for correlation."""
+
     value: int  # 0, 1, 2, or 3
 
     # Dibit to ideal phase mapping (radians)
@@ -99,10 +101,10 @@ class Dibit:
     # dibit 2 -> -1 symbol -> -π/4
     # dibit 3 -> -3 symbol -> -3π/4
     IDEAL_PHASES = {
-        0: np.pi / 4,      # +1
+        0: np.pi / 4,  # +1
         1: 3 * np.pi / 4,  # +3
-        2: -np.pi / 4,     # -1
-        3: -3 * np.pi / 4, # -3
+        2: -np.pi / 4,  # -1
+        3: -3 * np.pi / 4,  # -3
     }
 
     @property
@@ -184,7 +186,9 @@ class P25P1SoftSyncDetector:
     def _calculate(self) -> float:
         """Calculate correlation score against sync pattern."""
         # Vectorized dot product instead of Python loop
-        return float(np.dot(self.SYNC_PATTERN_SYMBOLS, self._symbols[self._pointer:self._pointer + 24]))
+        return float(
+            np.dot(self.SYNC_PATTERN_SYMBOLS, self._symbols[self._pointer : self._pointer + 24])
+        )
 
     def process_batch(self, soft_symbols: NDArrayFloat) -> NDArrayFloat:
         """
@@ -204,12 +208,12 @@ class P25P1SoftSyncDetector:
 
         # Extend symbol buffer with new symbols
         # We need 24 symbols of history for correlation
-        extended = np.concatenate([self._symbols[self._pointer:self._pointer + 24], soft_symbols])
+        extended = np.concatenate([self._symbols[self._pointer : self._pointer + 24], soft_symbols])
 
         # Use numpy correlate for sliding window correlation
         # mode='valid' gives output length = len(extended) - len(pattern) + 1 = n + 1
         # We take the last n scores (one per input symbol, after it's been added)
-        scores = np.correlate(extended, self.SYNC_PATTERN_SYMBOLS, mode='valid')
+        scores = np.correlate(extended, self.SYNC_PATTERN_SYMBOLS, mode="valid")
         scores = scores[-n:]  # Align with input: scores[i] = correlation after symbol[i]
 
         # Update circular buffer with last 24 symbols
@@ -280,11 +284,7 @@ class P25P1MessageAssembler:
         """Return True when the message was force-completed after a resync."""
         return self._force_completed
 
-    def force_completion(
-        self,
-        previous_duid: P25P1DataUnitID,
-        next_duid: P25P1DataUnitID
-    ) -> int:
+    def force_completion(self, previous_duid: P25P1DataUnitID, next_duid: P25P1DataUnitID) -> int:
         """
         Force message completion and attempt DUID inference.
 
@@ -351,6 +351,7 @@ class NACTracker:
 @dataclass
 class P25P1Message:
     """Assembled P25 Phase 1 message."""
+
     duid: P25P1DataUnitID
     nac: int
     timestamp: int
@@ -559,16 +560,14 @@ class P25P1MessageFramer:
         elif self._dibit_counter == 57:
             if self._message_assembly_required:
                 self._message_assembler = P25P1MessageAssembler(
-                    self._detected_nac,
-                    self._detected_duid
+                    self._detected_nac, self._detected_duid
                 )
                 self._message_assembly_required = False
             elif self._detected_nac > 0:
                 # Start placeholder assembly
                 self._detected_duid = P25P1DataUnitID.PLACE_HOLDER
                 self._message_assembler = P25P1MessageAssembler(
-                    self._detected_nac,
-                    self._detected_duid
+                    self._detected_nac, self._detected_duid
                 )
 
         # Sync loss detection (1 second without sync)
@@ -634,8 +633,7 @@ class P25P1MessageFramer:
                     self._dispatch_message()
             else:
                 dropped = self._message_assembler.force_completion(
-                    self._previous_duid,
-                    self._detected_duid
+                    self._previous_duid, self._detected_duid
                 )
                 if dropped > 0:
                     logger.debug(f"P25 dropped {dropped} bits")
@@ -651,10 +649,7 @@ class P25P1MessageFramer:
         self._status_symbol_counter = 21  # SDRTrunk value
 
     def _assert_message_length(
-        self,
-        bits: np.ndarray,
-        duid: P25P1DataUnitID,
-        allow_truncated: bool = False
+        self, bits: NDArrayInt, duid: P25P1DataUnitID, allow_truncated: bool = False
     ) -> None:
         """Validate message length to fast-fail on malformed frames."""
         if duid == P25P1DataUnitID.PLACE_HOLDER:
@@ -734,9 +729,7 @@ class P25P1MessageFramer:
 
         bits = self._message_assembler.get_message_bits()
         self._assert_message_length(
-            bits,
-            self._message_assembler.duid,
-            allow_truncated=allow_truncated
+            bits, self._message_assembler.duid, allow_truncated=allow_truncated
         )
 
         message = P25P1Message(
@@ -820,9 +813,7 @@ class P25P1MessageFramer:
 
         bits = self._message_assembler.get_message_bits()
         self._assert_message_length(
-            bits,
-            self._message_assembler.duid,
-            allow_truncated=allow_truncated
+            bits, self._message_assembler.duid, allow_truncated=allow_truncated
         )
 
         message = P25P1Message(

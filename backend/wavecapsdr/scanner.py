@@ -6,6 +6,7 @@ Supports multiple scan modes:
 - Priority: Check priority frequencies at regular intervals
 - Activity: Pause on active signals (squelch-based)
 """
+
 import asyncio
 import time
 from collections.abc import Awaitable
@@ -16,22 +17,25 @@ from typing import Callable, Optional, Union
 
 class ScanMode(str, Enum):
     """Scan mode types."""
+
     SEQUENTIAL = "sequential"  # A→B→C→A
-    PRIORITY = "priority"      # Check priority freq every N seconds
-    ACTIVITY = "activity"      # Pause on active signal (squelch-based)
+    PRIORITY = "priority"  # Check priority freq every N seconds
+    ACTIVITY = "activity"  # Pause on active signal (squelch-based)
 
 
 class ScanState(str, Enum):
     """Scanner state."""
+
     STOPPED = "stopped"
     SCANNING = "scanning"
-    PAUSED = "paused"      # Paused on activity
-    LOCKED = "locked"      # Manually locked on frequency
+    PAUSED = "paused"  # Paused on activity
+    LOCKED = "locked"  # Manually locked on frequency
 
 
 @dataclass
 class ScanConfig:
     """Scanner configuration."""
+
     scan_list: list[float]  # Frequencies to scan (Hz)
     mode: ScanMode = ScanMode.SEQUENTIAL
     dwell_time_ms: int = 500  # Time per frequency
@@ -45,6 +49,7 @@ class ScanConfig:
 @dataclass
 class ScanStatus:
     """Current scanner status."""
+
     state: ScanState
     current_frequency: float
     current_index: int
@@ -79,7 +84,9 @@ class ScannerService:
         self._rssi_callback: Optional[Callable[[], float]] = None  # Get current RSSI
         self._status_callback: Optional[Callable[[], None]] = None
 
-    def set_update_callback(self, callback: Callable[[float], Union[None, Awaitable[None]]]) -> None:
+    def set_update_callback(
+        self, callback: Callable[[float], Union[None, Awaitable[None]]]
+    ) -> None:
         """Set callback for frequency updates: callback(frequency_hz)."""
         self._update_callback = callback
 
@@ -166,10 +173,7 @@ class ScannerService:
             (frequency, index) tuple
         """
         # Build scan list excluding lockouts
-        scan_list = [
-            freq for freq in self.config.scan_list
-            if freq not in self.status.lockout_list
-        ]
+        scan_list = [freq for freq in self.config.scan_list if freq not in self.status.lockout_list]
 
         if not scan_list:
             # All locked out, use first non-locked frequency
@@ -224,10 +228,7 @@ class ScannerService:
                     continue
 
                 # Check priority frequencies
-                if (
-                    self.config.mode == ScanMode.PRIORITY
-                    and self._should_check_priority()
-                ):
+                if self.config.mode == ScanMode.PRIORITY and self._should_check_priority():
                     self.status.last_priority_check = time.time()
                     for priority_freq in self.config.priority_frequencies:
                         if priority_freq in self.status.lockout_list:

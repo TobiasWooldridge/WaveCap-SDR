@@ -40,7 +40,7 @@ echo "=== Frontend Checks ==="
 cd "$REPO_ROOT/frontend"
 
 # Run lint-staged (ESLint + Prettier on staged files only)
-echo "Running lint-staged..."
+echo "Running lint-staged (ESLint)..."
 npx lint-staged
 
 # Run TypeScript type checking
@@ -56,12 +56,14 @@ echo "=== Backend Checks ==="
 
 cd "$REPO_ROOT/backend"
 
-# Check if virtual environment exists and mypy is available
-if [ -d ".venv" ] && [ -f ".venv/bin/mypy" ]; then
+# Check if virtual environment exists and mypy/ruff are available
+if [ -d ".venv" ] && [ -f ".venv/bin/mypy" ] && [ -f ".venv/bin/ruff" ]; then
+    echo "Running ruff format check..."
+    .venv/bin/ruff format --check wavecapsdr
     echo "Running mypy type check..."
     PYTHONPATH=. .venv/bin/mypy wavecapsdr
 else
-    echo "Error: mypy not available. Set up the backend venv first."
+    echo "Error: mypy/ruff not available. Set up the backend venv first."
     echo "Run: cd backend && python3.12 -m venv .venv && source .venv/bin/activate && pip install -e ."
     echo "Then: pip install mypy ruff pytest types-PyYAML"
     exit 1

@@ -13,49 +13,40 @@ PatternReplacement = Union[str, Callable[[re.Match[str]], str]]
 # Common SDR device patterns and their shorthand names
 DEVICE_PATTERNS: list[tuple[str, PatternReplacement]] = [
     # RTL-SDR variants
-    (r'rtl[-_]?sdr', 'RTL-SDR'),
-    (r'rtl2832', 'RTL-SDR'),
-    (r'blog\s*v4', 'RTL-SDR V4'),
-    (r'blog\s*v3', 'RTL-SDR V3'),
-
+    (r"rtl[-_]?sdr", "RTL-SDR"),
+    (r"rtl2832", "RTL-SDR"),
+    (r"blog\s*v4", "RTL-SDR V4"),
+    (r"blog\s*v3", "RTL-SDR V3"),
     # SDRplay
-    (r'sdrplay.*rsp(?:dx|1a|1b|2|duo|2pro)', lambda m: f"SDRplay {m.group(0).split()[-1].upper()}"),
-    (r'sdrplay.*rsp\s*(\w+)', lambda m: f"SDRplay RSP{m.group(1).upper()}"),
-    (r'sdrplay', 'SDRplay'),
-
+    (r"sdrplay.*rsp(?:dx|1a|1b|2|duo|2pro)", lambda m: f"SDRplay {m.group(0).split()[-1].upper()}"),
+    (r"sdrplay.*rsp\s*(\w+)", lambda m: f"SDRplay RSP{m.group(1).upper()}"),
+    (r"sdrplay", "SDRplay"),
     # HackRF
-    (r'hackrf\s+one', 'HackRF One'),
-    (r'hackrf', 'HackRF'),
-
+    (r"hackrf\s+one", "HackRF One"),
+    (r"hackrf", "HackRF"),
     # Airspy
-    (r'airspy\s+mini', 'Airspy Mini'),
-    (r'airspy\s+hf\+', 'Airspy HF+'),
-    (r'airspy\s+r2', 'Airspy R2'),
-    (r'airspy', 'Airspy'),
-
+    (r"airspy\s+mini", "Airspy Mini"),
+    (r"airspy\s+hf\+", "Airspy HF+"),
+    (r"airspy\s+r2", "Airspy R2"),
+    (r"airspy", "Airspy"),
     # LimeSDR
-    (r'lime\s?sdr[\s-]?mini', 'LimeSDR Mini'),
-    (r'lime\s?sdr', 'LimeSDR'),
-
+    (r"lime\s?sdr[\s-]?mini", "LimeSDR Mini"),
+    (r"lime\s?sdr", "LimeSDR"),
     # USRP
-    (r'usrp\s+[bn]\d+', lambda m: m.group(0).upper()),
-    (r'usrp', 'USRP'),
-
+    (r"usrp\s+[bn]\d+", lambda m: m.group(0).upper()),
+    (r"usrp", "USRP"),
     # PlutoSDR
-    (r'plutosdr', 'PlutoSDR'),
-    (r'pluto', 'PlutoSDR'),
-
+    (r"plutosdr", "PlutoSDR"),
+    (r"pluto", "PlutoSDR"),
     # BladeRF
-    (r'bladerf\s+2\.0', 'bladeRF 2.0'),
-    (r'bladerf', 'bladeRF'),
-
+    (r"bladerf\s+2\.0", "bladeRF 2.0"),
+    (r"bladerf", "bladeRF"),
     # FunCube Dongle
-    (r'funcube.*pro\+', 'FunCube Pro+'),
-    (r'funcube.*pro', 'FunCube Pro'),
-    (r'funcube', 'FunCube'),
-
+    (r"funcube.*pro\+", "FunCube Pro+"),
+    (r"funcube.*pro", "FunCube Pro"),
+    (r"funcube", "FunCube"),
     # Generic driver fallbacks
-    (r'driver=(\w+)', lambda m: m.group(1).upper()),
+    (r"driver=(\w+)", lambda m: m.group(1).upper()),
 ]
 
 
@@ -83,7 +74,7 @@ def get_device_shorthand(device_id: str, device_label: str) -> str:
 
     # Fallback: Extract serial or device number from label
     # E.g., "Generic RTL2832U OEM :: 00000001" -> "SDR-00000001"
-    serial_match = re.search(r'(?:serial[=:]?\s*)?([0-9A-F]{6,})', combined, re.IGNORECASE)
+    serial_match = re.search(r"(?:serial[=:]?\s*)?([0-9A-F]{6,})", combined, re.IGNORECASE)
     if serial_match:
         serial = serial_match.group(1)
         # Shorten long serials
@@ -92,11 +83,11 @@ def get_device_shorthand(device_id: str, device_label: str) -> str:
         return f"SDR-{serial}"
 
     # Last resort: Use driver name + index
-    driver_match = re.search(r'driver=(\w+)', device_id, re.IGNORECASE)
+    driver_match = re.search(r"driver=(\w+)", device_id, re.IGNORECASE)
     if driver_match:
         driver = driver_match.group(1).upper()
         # Try to extract device number from label
-        dev_num_match = re.search(r'dev[ice]?\s*(\d+)', device_label, re.IGNORECASE)
+        dev_num_match = re.search(r"dev[ice]?\s*(\d+)", device_label, re.IGNORECASE)
         if dev_num_match:
             return f"{driver} #{dev_num_match.group(1)}"
         return driver

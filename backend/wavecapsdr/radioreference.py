@@ -48,7 +48,7 @@ def _soap_text(val: str) -> str:
         val.replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
-        .replace("\"", "&quot;")
+        .replace('"', "&quot;")
         .replace("'", "&apos;")
     )
 
@@ -67,15 +67,17 @@ def _build_auth_block(config: RadioReferenceConfig) -> str:
     )
 
 
-def _build_talkgroups_request_xml(config: RadioReferenceConfig, req: RadioReferenceTalkgroupRequest) -> str:
+def _build_talkgroups_request_xml(
+    config: RadioReferenceConfig, req: RadioReferenceTalkgroupRequest
+) -> str:
     auth_block = _build_auth_block(config)
     tg_cid = req.category_id or 0
     tg_tag = req.tag_id or 0
     tg_dec = req.tgid or 0
     return (
-        "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
-        "<soap:Envelope xmlns:soap=\"http://schemas.xmlsoap.org/soap/envelope/\" "
-        "xmlns:tns=\"http://api.radioreference.com/soap2\">"
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" '
+        'xmlns:tns="http://api.radioreference.com/soap2">'
         "<soap:Body>"
         "<tns:getTrsTalkgroups>"
         f"<sid>{int(req.system_id)}</sid>"

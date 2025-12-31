@@ -96,9 +96,7 @@ class GardnerTED:
         self.samples_per_symbol = samples_per_symbol
 
         # Loop filter coefficients
-        self._kp, self._ki = calculate_loop_coefficients(
-            samples_per_symbol, loop_bw, damping
-        )
+        self._kp, self._ki = calculate_loop_coefficients(samples_per_symbol, loop_bw, damping)
 
         # State
         self._phase = 0.0  # Fractional sample phase
@@ -117,8 +115,7 @@ class GardnerTED:
         self._sample_count = 0
 
         logger.debug(
-            f"Gardner TED: sps={samples_per_symbol:.2f}, "
-            f"kp={self._kp:.4f}, ki={self._ki:.4f}"
+            f"Gardner TED: sps={samples_per_symbol:.2f}, kp={self._kp:.4f}, ki={self._ki:.4f}"
         )
 
     def reset(self) -> None:
@@ -254,9 +251,7 @@ class MuellerMullerTED:
         self.samples_per_symbol = samples_per_symbol
 
         # Loop filter coefficients
-        self._kp, self._ki = calculate_loop_coefficients(
-            samples_per_symbol, loop_bw, damping
-        )
+        self._kp, self._ki = calculate_loop_coefficients(samples_per_symbol, loop_bw, damping)
 
         # State
         self._phase = 0.0
@@ -271,10 +266,7 @@ class MuellerMullerTED:
         self._prev_symbol = complex(0, 0)
         self._prev_decision = complex(0, 0)
 
-        logger.debug(
-            f"M&M TED: sps={samples_per_symbol:.2f}, "
-            f"kp={self._kp:.4f}, ki={self._ki:.4f}"
-        )
+        logger.debug(f"M&M TED: sps={samples_per_symbol:.2f}, kp={self._kp:.4f}, ki={self._ki:.4f}")
 
     def reset(self) -> None:
         """Reset TED state."""
@@ -327,9 +319,7 @@ class MuellerMullerTED:
         distances = np.abs(self.QPSK_CONSTELLATION - symbol)
         return complex(self.QPSK_CONSTELLATION[np.argmin(distances)])
 
-    def process_block(
-        self, samples: NDArrayAny
-    ) -> tuple[NDArrayAny, NDArrayAny, NDArrayAny]:
+    def process_block(self, samples: NDArrayAny) -> tuple[NDArrayAny, NDArrayAny, NDArrayAny]:
         """Process a block of complex samples.
 
         Args:
@@ -363,8 +353,7 @@ class MuellerMullerTED:
                 # Mueller-Muller timing error
                 # e = Re{ d*[n-1] * x[n] - d*[n] * x[n-1] }
                 error = np.real(
-                    np.conj(self._prev_decision) * current
-                    - np.conj(decision) * self._prev_symbol
+                    np.conj(self._prev_decision) * current - np.conj(decision) * self._prev_symbol
                 )
 
                 # Update loop filter

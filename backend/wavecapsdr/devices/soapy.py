@@ -75,6 +75,7 @@ class SDRplayServiceError(Exception):
     This exception indicates the SDRplay service needs to be restarted.
     Use: POST /api/v1/devices/sdrplay/restart-service
     """
+
     pass
 
 
@@ -92,8 +93,12 @@ def get_sdrplay_health_status() -> dict[str, Any]:
     return {
         "is_healthy": _sdrplay_consecutive_timeouts == 0,
         "consecutive_timeouts": _sdrplay_consecutive_timeouts,
-        "last_success_timestamp": _sdrplay_last_enumeration_success if _sdrplay_last_enumeration_success > 0 else None,
-        "seconds_since_success": (now - _sdrplay_last_enumeration_success) if _sdrplay_last_enumeration_success > 0 else None,
+        "last_success_timestamp": _sdrplay_last_enumeration_success
+        if _sdrplay_last_enumeration_success > 0
+        else None,
+        "seconds_since_success": (now - _sdrplay_last_enumeration_success)
+        if _sdrplay_last_enumeration_success > 0
+        else None,
         "recovery_threshold": _SDRPLAY_MAX_TIMEOUTS_BEFORE_RECOVERY,
     }
 
@@ -127,7 +132,7 @@ def invalidate_sdrplay_caches() -> None:
         _soapy_driver_instance.invalidate_cache()
 
 
-F = TypeVar('F', bound=Callable[..., Any])
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 def _enumerate_worker(driver_name: str, queue: MPQueue[Any]) -> None:
@@ -137,6 +142,7 @@ def _enumerate_worker(driver_name: str, queue: MPQueue[Any]) -> None:
     """
     try:
         import SoapySDR
+
         # Unload and reload modules to reset any stuck state
         with contextlib.suppress(Exception):
             SoapySDR.Device.unmake()
@@ -161,7 +167,7 @@ def _enumerate_worker(driver_name: str, queue: MPQueue[Any]) -> None:
 
             # Build a canonical args string, excluding volatile fields
             # 'tuner' field changes to 'unavailable' when device is busy
-            volatile_fields = {'tuner'}
+            volatile_fields = {"tuner"}
             try:
                 items = []
                 for k in sorted(args.keys()):
@@ -183,16 +189,36 @@ def _enumerate_worker(driver_name: str, queue: MPQueue[Any]) -> None:
             antennas: tuple[str, ...]
             if driver == "rtlsdr":
                 # RTL-SDR common sample rates
-                sample_rates = (250_000, 1_000_000, 1_024_000, 1_800_000, 1_920_000, 2_000_000, 2_048_000, 2_400_000, 2_560_000)
+                sample_rates = (
+                    250_000,
+                    1_000_000,
+                    1_024_000,
+                    1_800_000,
+                    1_920_000,
+                    2_000_000,
+                    2_048_000,
+                    2_400_000,
+                    2_560_000,
+                )
                 gain_min, gain_max = 0.0, 49.6
                 bandwidth_min, bandwidth_max = 200_000.0, 3_200_000.0
                 antennas = ("RX",)
             elif driver == "sdrplay":
                 # SDRplay supports a wide range of sample rates from 200 kHz to 10 MHz
                 sample_rates = (
-                    200_000, 250_000, 500_000, 1_000_000, 2_000_000,
-                    3_000_000, 4_000_000, 5_000_000, 6_000_000,
-                    7_000_000, 8_000_000, 9_000_000, 10_000_000
+                    200_000,
+                    250_000,
+                    500_000,
+                    1_000_000,
+                    2_000_000,
+                    3_000_000,
+                    4_000_000,
+                    5_000_000,
+                    6_000_000,
+                    7_000_000,
+                    8_000_000,
+                    9_000_000,
+                    10_000_000,
                 )
                 gain_min, gain_max = 0.0, 59.0
                 bandwidth_min, bandwidth_max = 200_000.0, 8_000_000.0
@@ -206,22 +232,24 @@ def _enumerate_worker(driver_name: str, queue: MPQueue[Any]) -> None:
 
             ppm_min, ppm_max = -100.0, 100.0
 
-            results.append({
-                "id": id_,
-                "driver": driver,
-                "label": label,
-                "freq_min_hz": freq_min,
-                "freq_max_hz": freq_max,
-                "sample_rates": sample_rates,
-                "gains": gains,
-                "gain_min": gain_min,
-                "gain_max": gain_max,
-                "bandwidth_min": bandwidth_min,
-                "bandwidth_max": bandwidth_max,
-                "ppm_min": ppm_min,
-                "ppm_max": ppm_max,
-                "antennas": antennas,
-            })
+            results.append(
+                {
+                    "id": id_,
+                    "driver": driver,
+                    "label": label,
+                    "freq_min_hz": freq_min,
+                    "freq_max_hz": freq_max,
+                    "sample_rates": sample_rates,
+                    "gains": gains,
+                    "gain_min": gain_min,
+                    "gain_max": gain_max,
+                    "bandwidth_min": bandwidth_min,
+                    "bandwidth_max": bandwidth_max,
+                    "ppm_min": ppm_min,
+                    "ppm_max": ppm_max,
+                    "antennas": antennas,
+                }
+            )
         queue.put(("success", results))
     except Exception as e:
         queue.put(("error", str(e)))
@@ -270,20 +298,26 @@ def _device_open_worker(device_args: str, result_queue: MPQueue[Any]) -> None:
         with contextlib.suppress(Exception):
             SoapySDR.Device.unmake(sdr)
 
-        result_queue.put(("success", {
-            "driver": driver,
-            "hardware": hardware,
-            "freq_min": freq_min,
-            "freq_max": freq_max,
-            "sample_rates": sample_rates,
-            "antennas": antennas,
-        }))
+        result_queue.put(
+            (
+                "success",
+                {
+                    "driver": driver,
+                    "hardware": hardware,
+                    "freq_min": freq_min,
+                    "freq_max": freq_max,
+                    "sample_rates": sample_rates,
+                    "antennas": antennas,
+                },
+            )
+        )
     except Exception as e:
         result_queue.put(("error", str(e)))
 
 
 class TimeoutError(Exception):
     """Raised when an operation times out."""
+
     pass
 
 
@@ -296,6 +330,7 @@ def with_timeout(timeout_seconds: float) -> Callable[[F], F]:
     Returns:
         Decorated function that will raise TimeoutError if it takes too long
     """
+
     def decorator(func: F) -> F:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -316,9 +351,7 @@ def with_timeout(timeout_seconds: float) -> Callable[[F], F]:
                 # Thread is still running - operation timed out
                 # Note: We can't kill the thread, but marking it as daemon means
                 # it won't prevent program exit
-                raise TimeoutError(
-                    f"{func.__name__} timed out after {timeout_seconds} seconds"
-                )
+                raise TimeoutError(f"{func.__name__} timed out after {timeout_seconds} seconds")
 
             if exception:
                 raise exception[0]
@@ -326,6 +359,7 @@ def with_timeout(timeout_seconds: float) -> Callable[[F], F]:
             return result[0] if result else None
 
         return wrapper  # type: ignore[return-value]
+
     return decorator
 
 
@@ -351,13 +385,13 @@ class _SoapyStream(StreamHandle):
         # ret = number of samples read (or negative error code)
         # flags = stream flags (bit 1 = overflow)
         # Use integer constants since not all SoapySDR bindings expose named constants
-        SOAPY_SDR_READ_FLAG_OVERFLOW = (1 << 1)
+        SOAPY_SDR_READ_FLAG_OVERFLOW = 1 << 1
         sr = self.sdr.readStream(self.stream, [buff.view(np.float32)], num_samples, flags=0)
         # Handle both tuple and StreamResult object
-        if hasattr(sr, 'ret'):
+        if hasattr(sr, "ret"):
             # StreamResult object
             ret = sr.ret
-            flags = sr.flags if hasattr(sr, 'flags') else 0
+            flags = sr.flags if hasattr(sr, "flags") else 0
         elif isinstance(sr, tuple):
             padded = (*sr, 0, 0, 0, 0)
             ret, flags, _timeNs, _ = padded[0], padded[1], padded[2], padded[3]
@@ -372,6 +406,7 @@ class _SoapyStream(StreamHandle):
 
     def close(self) -> None:
         """Close stream with timeout protection."""
+
         @with_timeout(5.0)
         def _deactivate() -> None:
             self.sdr.deactivateStream(self.stream)
@@ -437,7 +472,7 @@ class _SoapyDevice(Device):
                 try:
                     settings_info = self.sdr.getSettingInfo()
                     for setting in settings_info:
-                        setting_key = setting.key if hasattr(setting, 'key') else str(setting)
+                        setting_key = setting.key if hasattr(setting, "key") else str(setting)
                         available_settings.add(setting_key)
                 except Exception:
                     pass
@@ -445,14 +480,20 @@ class _SoapyDevice(Device):
                 for key, value in device_settings.items():
                     # Validate setting exists (if we got the list)
                     if available_settings and key not in available_settings:
-                        print(f"[WARNING] Setting '{key}' may not be supported by this device", flush=True)
+                        print(
+                            f"[WARNING] Setting '{key}' may not be supported by this device",
+                            flush=True,
+                        )
 
                     try:
                         # Convert value to string as required by writeSetting
                         self.sdr.writeSetting(key, str(value))
                         print(f"[SOAPY] Applied device setting: {key}={value}", flush=True)
                     except Exception as e:
-                        print(f"[WARNING] Failed to apply device setting {key}={value}: {e}", flush=True)
+                        print(
+                            f"[WARNING] Failed to apply device setting {key}={value}: {e}",
+                            flush=True,
+                        )
 
             # Per-element gain control (e.g., LNA, VGA, TIA)
             if element_gains:
@@ -464,7 +505,10 @@ class _SoapyDevice(Device):
                 for element_name, element_gain in element_gains.items():
                     # Validate element exists
                     if available_gains and element_name not in available_gains:
-                        print(f"[WARNING] Gain element '{element_name}' may not be supported by this device. Available: {available_gains}", flush=True)
+                        print(
+                            f"[WARNING] Gain element '{element_name}' may not be supported by this device. Available: {available_gains}",
+                            flush=True,
+                        )
 
                     # Validate gain value is in range
                     try:
@@ -473,7 +517,10 @@ class _SoapyDevice(Device):
                             gain_min = float(gain_range.minimum())
                             gain_max = float(gain_range.maximum())
                             if element_gain < gain_min or element_gain > gain_max:
-                                print(f"[WARNING] {element_name} gain {element_gain} dB is outside valid range [{gain_min}, {gain_max}] dB", flush=True)
+                                print(
+                                    f"[WARNING] {element_name} gain {element_gain} dB is outside valid range [{gain_min}, {gain_max}] dB",
+                                    flush=True,
+                                )
                     except Exception:
                         pass
 
@@ -569,7 +616,9 @@ class _SoapyDevice(Device):
         ) -> tuple[str, str | None]:
             if actual is None:
                 return "", None
-            actual_text = f"{actual:.{precision}f}{unit}" if isinstance(actual, float) else f"{actual}{unit}"
+            actual_text = (
+                f"{actual:.{precision}f}{unit}" if isinstance(actual, float) else f"{actual}{unit}"
+            )
             mismatch: str | None = None
             if expected is not None and abs(float(actual) - float(expected)) > tolerance:
                 mismatch = f"{label} expected {expected}{unit}, got {actual_text}"
@@ -578,7 +627,9 @@ class _SoapyDevice(Device):
         readback_parts: list[str] = []
         mismatches: list[str] = []
 
-        actual_sample_rate = _safe_get(lambda: float(self.sdr.getSampleRate(SoapySDR.SOAPY_SDR_RX, 0)))
+        actual_sample_rate = _safe_get(
+            lambda: float(self.sdr.getSampleRate(SoapySDR.SOAPY_SDR_RX, 0))
+        )
         text, mismatch = _check_numeric(
             "sample_rate",
             sample_rate,
@@ -634,7 +685,9 @@ class _SoapyDevice(Device):
         if mismatch:
             mismatches.append(mismatch)
 
-        actual_ppm = _safe_get(lambda: float(self.sdr.getFrequencyCorrection(SoapySDR.SOAPY_SDR_RX, 0)))
+        actual_ppm = _safe_get(
+            lambda: float(self.sdr.getFrequencyCorrection(SoapySDR.SOAPY_SDR_RX, 0))
+        )
         text, mismatch = _check_numeric(
             "ppm",
             ppm,
@@ -664,7 +717,9 @@ class _SoapyDevice(Device):
                 mismatches.append(f"setting {key} expected {expected_value}, got {actual_text}")
 
         for element, expected_gain in (element_gains or {}).items():
-            actual_element_gain = _safe_get(lambda: float(self.sdr.getGain(SoapySDR.SOAPY_SDR_RX, 0, element)))
+            actual_element_gain = _safe_get(
+                lambda: float(self.sdr.getGain(SoapySDR.SOAPY_SDR_RX, 0, element))
+            )
             if actual_element_gain is None:
                 continue
             readback_parts.append(f"gain[{element}]={actual_element_gain:.2f}dB")
@@ -676,27 +731,41 @@ class _SoapyDevice(Device):
         if readback_parts:
             print(f"[SOAPY] Readback: {', '.join(readback_parts)}", flush=True)
         if mismatches:
-            print(f"[SOAPY] WARNING: Setting mismatches detected: {'; '.join(mismatches)}", flush=True)
+            print(
+                f"[SOAPY] WARNING: Setting mismatches detected: {'; '.join(mismatches)}", flush=True
+            )
 
     def start_stream(self) -> StreamHandle:
         """Start stream with timeout protection."""
+
         @with_timeout(10.0)
         def _do_start_stream() -> StreamHandle:
             import SoapySDR
 
             # Set antenna: use configured antenna if specified, otherwise use first available
             available_antennas = self.sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0)
-            print(f"[DEBUG] Device {self.info.driver}: Available antennas: {available_antennas}", flush=True)
+            print(
+                f"[DEBUG] Device {self.info.driver}: Available antennas: {available_antennas}",
+                flush=True,
+            )
             if self._antenna is not None:
                 antenna = self._antenna
-                print(f"[DEBUG] Device {self.info.driver}: Requested antenna: {antenna}", flush=True)
+                print(
+                    f"[DEBUG] Device {self.info.driver}: Requested antenna: {antenna}", flush=True
+                )
             else:
                 antenna = available_antennas[0] if available_antennas else "RX"
-                print(f"[DEBUG] Device {self.info.driver}: Using default antenna: {antenna}", flush=True)
+                print(
+                    f"[DEBUG] Device {self.info.driver}: Using default antenna: {antenna}",
+                    flush=True,
+                )
             self.sdr.setAntenna(SoapySDR.SOAPY_SDR_RX, 0, antenna)
             # Verify what was actually set by querying the device
             actual_antenna = self.sdr.getAntenna(SoapySDR.SOAPY_SDR_RX, 0)
-            print(f"[DEBUG] Device {self.info.driver}: Antenna set to: {antenna}, device reports: {actual_antenna}", flush=True)
+            print(
+                f"[DEBUG] Device {self.info.driver}: Antenna set to: {antenna}, device reports: {actual_antenna}",
+                flush=True,
+            )
             # Update _antenna to reflect what was actually set
             self._antenna = actual_antenna
 
@@ -705,7 +774,7 @@ class _SoapyDevice(Device):
             format_map = {
                 "CF32": SoapySDR.SOAPY_SDR_CF32,  # Complex float32 (default)
                 "CS16": SoapySDR.SOAPY_SDR_CS16,  # Complex int16
-                "CS8": SoapySDR.SOAPY_SDR_CS8,    # Complex int8
+                "CS8": SoapySDR.SOAPY_SDR_CS8,  # Complex int8
             }
             stream_fmt = format_map.get(self._stream_format or "CF32", SoapySDR.SOAPY_SDR_CF32)
             print(f"[SOAPY] Using stream format: {self._stream_format or 'CF32'}", flush=True)
@@ -761,7 +830,7 @@ class _SoapyDevice(Device):
                     if gain_range:
                         caps["gain_ranges"][elem] = {
                             "min": float(gain_range.minimum()),
-                            "max": float(gain_range.maximum())
+                            "max": float(gain_range.maximum()),
                         }
                 except Exception:
                     pass
@@ -772,7 +841,7 @@ class _SoapyDevice(Device):
                 if overall_gain:
                     caps["overall_gain_range"] = {
                         "min": float(overall_gain.minimum()),
-                        "max": float(overall_gain.maximum())
+                        "max": float(overall_gain.maximum()),
                     }
             except Exception:
                 pass
@@ -782,10 +851,12 @@ class _SoapyDevice(Device):
                 settings_info = self.sdr.getSettingInfo()
                 caps["settings"] = {}
                 for setting in settings_info:
-                    setting_key = setting.key if hasattr(setting, 'key') else str(setting)
+                    setting_key = setting.key if hasattr(setting, "key") else str(setting)
                     caps["settings"][setting_key] = {
-                        "description": setting.description if hasattr(setting, 'description') else "",
-                        "type": setting.type if hasattr(setting, 'type') else "unknown"
+                        "description": setting.description
+                        if hasattr(setting, "description")
+                        else "",
+                        "type": setting.type if hasattr(setting, "type") else "unknown",
                     }
             except Exception:
                 caps["settings"] = {}
@@ -802,10 +873,9 @@ class _SoapyDevice(Device):
                 freq_ranges = self.sdr.getFrequencyRange(SoapySDR.SOAPY_SDR_RX, 0)
                 caps["frequency_ranges"] = []
                 for fr in freq_ranges:
-                    caps["frequency_ranges"].append({
-                        "min": float(fr.minimum()),
-                        "max": float(fr.maximum())
-                    })
+                    caps["frequency_ranges"].append(
+                        {"min": float(fr.minimum()), "max": float(fr.maximum())}
+                    )
             except Exception:
                 caps["frequency_ranges"] = []
 
@@ -814,10 +884,9 @@ class _SoapyDevice(Device):
                 rate_ranges = self.sdr.getSampleRateRange(SoapySDR.SOAPY_SDR_RX, 0)
                 caps["sample_rate_ranges"] = []
                 for rr in rate_ranges:
-                    caps["sample_rate_ranges"].append({
-                        "min": float(rr.minimum()),
-                        "max": float(rr.maximum())
-                    })
+                    caps["sample_rate_ranges"].append(
+                        {"min": float(rr.minimum()), "max": float(rr.maximum())}
+                    )
             except Exception:
                 # Try discrete sample rates instead
                 try:
@@ -831,10 +900,9 @@ class _SoapyDevice(Device):
                 bw_ranges = self.sdr.getBandwidthRange(SoapySDR.SOAPY_SDR_RX, 0)
                 caps["bandwidth_ranges"] = []
                 for bw in bw_ranges:
-                    caps["bandwidth_ranges"].append({
-                        "min": float(bw.minimum()),
-                        "max": float(bw.maximum())
-                    })
+                    caps["bandwidth_ranges"].append(
+                        {"min": float(bw.minimum()), "max": float(bw.maximum())}
+                    )
             except Exception:
                 caps["bandwidth_ranges"] = []
 
@@ -891,6 +959,7 @@ class _SoapyDevice(Device):
         ppm: float | None = None,
     ) -> None:
         """Reconfigure device while stream is running (hot reconfiguration)."""
+
         @with_timeout(10.0)
         def _do_reconfigure() -> None:
             import SoapySDR
@@ -941,6 +1010,7 @@ class _SoapyDevice(Device):
         def _unmake() -> None:
             # Properly close the SoapySDR device
             import SoapySDR
+
             with contextlib.suppress(Exception):
                 SoapySDR.Device.unmake(self.sdr)
 
@@ -1004,7 +1074,10 @@ class SoapyDriver(DeviceDriver):
             if process.is_alive():
                 process.kill()
                 process.join()
-            print(f"Warning: Enumeration for driver '{driver_name}' timed out after {timeout}s", flush=True)
+            print(
+                f"Warning: Enumeration for driver '{driver_name}' timed out after {timeout}s",
+                flush=True,
+            )
         else:
             # Check results
             if not queue.empty():
@@ -1012,7 +1085,10 @@ class SoapyDriver(DeviceDriver):
                 if status == "success":
                     results = [DeviceInfo(**d) for d in data]
                 else:
-                    print(f"Warning: Enumeration for driver '{driver_name}' failed: {data}", flush=True)
+                    print(
+                        f"Warning: Enumeration for driver '{driver_name}' failed: {data}",
+                        flush=True,
+                    )
 
         return results
 
@@ -1044,7 +1120,10 @@ class SoapyDriver(DeviceDriver):
         active_captures = get_sdrplay_active_captures()
         if active_captures > 0 and self._sdrplay_device_cache:
             # Use cached SDRplay devices when captures are active
-            print(f"[SOAPY] Skipping SDRplay enumeration ({active_captures} active captures), using cached devices", flush=True)
+            print(
+                f"[SOAPY] Skipping SDRplay enumeration ({active_captures} active captures), using cached devices",
+                flush=True,
+            )
             results.extend(self._sdrplay_device_cache)
         else:
             try:
@@ -1056,18 +1135,27 @@ class SoapyDriver(DeviceDriver):
                     # Success - reset timeout counter
                     _sdrplay_consecutive_timeouts = 0
                     _sdrplay_last_enumeration_success = now
-                    print(f"[SOAPY] SDRplay enumeration success: {len(sdrplay_results)} device(s)", flush=True)
+                    print(
+                        f"[SOAPY] SDRplay enumeration success: {len(sdrplay_results)} device(s)",
+                        flush=True,
+                    )
                 else:
                     # Empty result could indicate stuck service
                     _sdrplay_consecutive_timeouts += 1
                     # Invalidate cache on empty result - don't serve stale data
                     self._enumerate_cache = None
-                    print(f"[SOAPY] SDRplay enumeration returned no devices (timeout count: {_sdrplay_consecutive_timeouts})", flush=True)
+                    print(
+                        f"[SOAPY] SDRplay enumeration returned no devices (timeout count: {_sdrplay_consecutive_timeouts})",
+                        flush=True,
+                    )
             except Exception as e:
                 _sdrplay_consecutive_timeouts += 1
                 # Invalidate cache on failure - don't serve stale data
                 self._enumerate_cache = None
-                print(f"Warning: Failed to enumerate driver 'sdrplay': {e} (timeout count: {_sdrplay_consecutive_timeouts})", flush=True)
+                print(
+                    f"Warning: Failed to enumerate driver 'sdrplay': {e} (timeout count: {_sdrplay_consecutive_timeouts})",
+                    flush=True,
+                )
 
         # Proactive recovery: If SDRplay has timed out multiple times, attempt service restart
         # CRITICAL: Only do this when NO active SDRplay captures are running!
@@ -1076,18 +1164,25 @@ class SoapyDriver(DeviceDriver):
 
         # Note: active_captures check is now handled above (skip enumeration when busy)
         # Recovery is only triggered when enumeration actually fails/times out
-        if not sdrplay_found and active_captures == 0 and _sdrplay_consecutive_timeouts >= _SDRPLAY_MAX_TIMEOUTS_BEFORE_RECOVERY:
+        if (
+            not sdrplay_found
+            and active_captures == 0
+            and _sdrplay_consecutive_timeouts >= _SDRPLAY_MAX_TIMEOUTS_BEFORE_RECOVERY
+        ):
             recovery = get_recovery()
             allowed, reason = recovery.can_restart()
             if allowed:
                 print(
                     f"[SOAPY] SDRplay stuck detected ({_sdrplay_consecutive_timeouts} consecutive failures), "
                     f"attempting automatic recovery...",
-                    flush=True
+                    flush=True,
                 )
                 success = attempt_recovery(reason="Enumeration timeout - proactive recovery")
                 if success:
-                    print("[SOAPY] Recovery successful, clearing caches and retrying enumeration...", flush=True)
+                    print(
+                        "[SOAPY] Recovery successful, clearing caches and retrying enumeration...",
+                        flush=True,
+                    )
                     # Clear all caches before retry
                     self._enumerate_cache = None
                     self._sdrplay_device_cache.clear()
@@ -1098,7 +1193,10 @@ class SoapyDriver(DeviceDriver):
                             results.extend(sdrplay_results)
                             _sdrplay_consecutive_timeouts = 0
                             _sdrplay_last_enumeration_success = now
-                            print(f"[SOAPY] SDRplay recovery enumeration success: {len(sdrplay_results)} device(s)", flush=True)
+                            print(
+                                f"[SOAPY] SDRplay recovery enumeration success: {len(sdrplay_results)} device(s)",
+                                flush=True,
+                            )
                     except Exception as e:
                         print(f"[SOAPY] SDRplay enumeration failed after recovery: {e}", flush=True)
                 else:
@@ -1106,7 +1204,10 @@ class SoapyDriver(DeviceDriver):
             else:
                 print(f"[SOAPY] Cannot attempt recovery: {reason}", flush=True)
         elif not sdrplay_found and active_captures == 0:
-            print(f"[SOAPY] No SDRplay devices found (timeout count: {_sdrplay_consecutive_timeouts})", flush=True)
+            print(
+                f"[SOAPY] No SDRplay devices found (timeout count: {_sdrplay_consecutive_timeouts})",
+                flush=True,
+            )
 
         # Device count stability tracking
         global _sdrplay_expected_device_count
@@ -1115,7 +1216,7 @@ class SoapyDriver(DeviceDriver):
             if sdrplay_count < _sdrplay_expected_device_count:
                 print(
                     f"[SOAPY] WARNING: SDRplay device count dropped from {_sdrplay_expected_device_count} to {sdrplay_count}",
-                    flush=True
+                    flush=True,
                 )
                 # Clear device cache to avoid serving stale device list
                 self._sdrplay_device_cache.clear()
@@ -1143,7 +1244,10 @@ class SoapyDriver(DeviceDriver):
         now = time.time()
 
         # Use cache if fresh (< 5 seconds old)
-        if _sdrplay_health_status and (now - _sdrplay_last_health_check) < _SDRPLAY_HEALTH_CACHE_TTL:
+        if (
+            _sdrplay_health_status
+            and (now - _sdrplay_last_health_check) < _SDRPLAY_HEALTH_CACHE_TTL
+        ):
             return True
 
         # Fresh health check via subprocess enumeration
@@ -1154,21 +1258,32 @@ class SoapyDriver(DeviceDriver):
                     _sdrplay_health_status = True
                     _sdrplay_last_health_check = now
                     _sdrplay_consecutive_timeouts = 0
-                    print(f"[SOAPY] SDRplay health check passed ({len(results)} device(s))", flush=True)
+                    print(
+                        f"[SOAPY] SDRplay health check passed ({len(results)} device(s))",
+                        flush=True,
+                    )
                     return True
                 else:
                     _sdrplay_consecutive_timeouts += 1
-                    print(f"[SOAPY] SDRplay health check: no devices (attempt {attempt + 1})", flush=True)
+                    print(
+                        f"[SOAPY] SDRplay health check: no devices (attempt {attempt + 1})",
+                        flush=True,
+                    )
             except Exception as e:
                 _sdrplay_consecutive_timeouts += 1
-                print(f"[SOAPY] SDRplay health check failed: {e} (attempt {attempt + 1})", flush=True)
+                print(
+                    f"[SOAPY] SDRplay health check failed: {e} (attempt {attempt + 1})", flush=True
+                )
 
             # Try recovery (except on last attempt)
             if attempt < max_recovery_attempts:
                 recovery = get_recovery()
                 allowed, reason = recovery.can_restart()
                 if allowed:
-                    print(f"[SOAPY] Attempting recovery ({attempt + 1}/{max_recovery_attempts})...", flush=True)
+                    print(
+                        f"[SOAPY] Attempting recovery ({attempt + 1}/{max_recovery_attempts})...",
+                        flush=True,
+                    )
                     if attempt_recovery(f"Health check failed (attempt {attempt + 1})"):
                         print("[SOAPY] Recovery completed, retrying health check...", flush=True)
                         continue
@@ -1201,16 +1316,15 @@ class SoapyDriver(DeviceDriver):
         global _sdrplay_health_status
 
         queue: multiprocessing.Queue[Any] = multiprocessing.Queue()
-        process = multiprocessing.Process(
-            target=_device_open_worker,
-            args=(args, queue)
-        )
+        process = multiprocessing.Process(target=_device_open_worker, args=(args, queue))
         process.start()
         process.join(timeout=timeout)
 
         if process.is_alive():
             # Timeout - kill the subprocess cleanly
-            print(f"[SOAPY] Device open timed out after {timeout}s, killing subprocess...", flush=True)
+            print(
+                f"[SOAPY] Device open timed out after {timeout}s, killing subprocess...", flush=True
+            )
             process.terminate()
             process.join(timeout=2.0)
             if process.is_alive():
@@ -1293,8 +1407,15 @@ class SoapyDriver(DeviceDriver):
                 freq_min_hz=1e4,
                 freq_max_hz=6e9,
                 sample_rates=(
-                    200_000, 250_000, 500_000, 1_000_000, 2_000_000,
-                    3_000_000, 4_000_000, 5_000_000, 6_000_000,
+                    200_000,
+                    250_000,
+                    500_000,
+                    1_000_000,
+                    2_000_000,
+                    3_000_000,
+                    4_000_000,
+                    5_000_000,
+                    6_000_000,
                 ),
                 gains=("IFGR", "RFGR"),
                 gain_min=0.0,
@@ -1355,7 +1476,11 @@ class SoapyDriver(DeviceDriver):
                 bandwidth_min = float(bandwidth_range[0].minimum()) if bandwidth_range else None
                 bandwidth_max = float(bandwidth_range[0].maximum()) if bandwidth_range else None
                 # If min == max, the driver didn't report a useful range - use fallbacks
-                if bandwidth_min is not None and bandwidth_max is not None and bandwidth_min >= bandwidth_max:
+                if (
+                    bandwidth_min is not None
+                    and bandwidth_max is not None
+                    and bandwidth_min >= bandwidth_max
+                ):
                     if driver == "rtlsdr":
                         bandwidth_min, bandwidth_max = 200_000.0, 3_200_000.0
                     elif driver == "sdrplay":

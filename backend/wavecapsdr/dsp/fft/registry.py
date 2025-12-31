@@ -38,9 +38,7 @@ def register(name: str) -> Callable[[type[FFTBackend]], type[FFTBackend]]:
     return decorator
 
 
-def _try_create_backend(
-    name: str, fft_size: int, **kwargs: Any
-) -> FFTBackend | None:
+def _try_create_backend(name: str, fft_size: int, **kwargs: Any) -> FFTBackend | None:
     """Try to create a backend, returning None if unavailable."""
     if name not in _BACKENDS:
         return None
@@ -119,10 +117,7 @@ def get_backend(
         return backend
 
     # Requested backend not available, fall back to scipy
-    logger.warning(
-        f"Requested FFT backend '{accelerator}' not available, "
-        "falling back to scipy"
-    )
+    logger.warning(f"Requested FFT backend '{accelerator}' not available, falling back to scipy")
     return _BACKENDS["scipy"](fft_size=fft_size)
 
 

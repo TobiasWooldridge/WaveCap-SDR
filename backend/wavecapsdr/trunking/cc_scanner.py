@@ -54,7 +54,7 @@ class ChannelMeasurement:
     def __str__(self) -> str:
         sync_str = "SYNC" if self.sync_detected else "----"
         return (
-            f"{self.frequency_hz/1e6:.4f} MHz: "
+            f"{self.frequency_hz / 1e6:.4f} MHz: "
             f"power={self.power_db:.1f} dB, "
             f"SNR={self.snr_db:.1f} dB, "
             f"{sync_str}"
@@ -102,14 +102,13 @@ class ControlChannelScanner:
         # P25 frame sync pattern as dibits (same as ControlChannelMonitor)
         # +3 +3 +3 +3 +3 -3 +3 +3 -3 -3 +3 +3 -3 -3 -3 -3 +3 -3 +3 -3 -3 -3 -3 -3
         # +3 -> dibit 1, -3 -> dibit 3
-        self._sync_pattern = np.array([
-            1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1,
-            3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3
-        ], dtype=np.uint8)
+        self._sync_pattern = np.array(
+            [1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1, 3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3], dtype=np.uint8
+        )
 
         logger.info(
             f"ControlChannelScanner initialized: "
-            f"center={self.center_hz/1e6:.4f} MHz, "
+            f"center={self.center_hz / 1e6:.4f} MHz, "
             f"channels={len(self.control_channels)}"
         )
 
@@ -140,7 +139,7 @@ class ControlChannelScanner:
         for freq_hz in self.control_channels:
             if not self.is_channel_in_range(freq_hz):
                 logger.warning(
-                    f"Control channel {freq_hz/1e6:.4f} MHz is outside "
+                    f"Control channel {freq_hz / 1e6:.4f} MHz is outside "
                     f"capture bandwidth, skipping"
                 )
                 continue
@@ -157,7 +156,7 @@ class ControlChannelScanner:
             m = measurements[freq_hz]
             sync_str = "SYNC" if m.sync_detected else "----"
             logger.info(
-                f"[SCANNER]   {freq_hz/1e6:.4f} MHz: "
+                f"[SCANNER]   {freq_hz / 1e6:.4f} MHz: "
                 f"power={m.power_db:.1f} dB, SNR={m.snr_db:.1f} dB, {sync_str}"
             )
 
@@ -194,9 +193,7 @@ class ControlChannelScanner:
                 # Cutoff at 0.8 / decim_factor to leave margin before Nyquist
                 # Use 65 taps for reasonable stopband attenuation with low computational cost
                 cutoff = 0.8 / decim_factor
-                _SCANNER_DECIM_FILTER_TAPS = scipy_signal.firwin(
-                    65, cutoff, window=("kaiser", 6.0)
-                )
+                _SCANNER_DECIM_FILTER_TAPS = scipy_signal.firwin(65, cutoff, window=("kaiser", 6.0))
                 _SCANNER_DECIM_FACTOR = decim_factor
                 logger.info(
                     f"ControlChannelScanner: Created decimation filter: "
@@ -225,9 +222,7 @@ class ControlChannelScanner:
         for edge_offset in edge_offsets:
             noise_iq = freq_shift(iq, edge_offset, self.sample_rate)
             if decim_factor > 1:
-                noise_filtered = scipy_signal.lfilter(
-                    _SCANNER_DECIM_FILTER_TAPS, 1.0, noise_iq
-                )
+                noise_filtered = scipy_signal.lfilter(_SCANNER_DECIM_FILTER_TAPS, 1.0, noise_iq)
                 noise_decimated = noise_filtered[::decim_factor]
             else:
                 noise_decimated = noise_iq
@@ -240,7 +235,7 @@ class ControlChannelScanner:
         else:
             # Fallback: use quietest 5% of samples (less reliable)
             sorted_power = np.sort(np.abs(decimated_iq) ** 2)
-            noise_samples = sorted_power[:max(1, len(sorted_power) // 20)]
+            noise_samples = sorted_power[: max(1, len(sorted_power) // 20)]
             noise_floor = np.mean(noise_samples)
 
         # Convert to dB
@@ -307,7 +302,7 @@ class ControlChannelScanner:
         if symbols_count < sync_len:
             return False
 
-        symbol_samples = fm_demod[samples_per_symbol // 2::samples_per_symbol][:symbols_count]
+        symbol_samples = fm_demod[samples_per_symbol // 2 :: samples_per_symbol][:symbols_count]
 
         # P25 C4FM deviation: ±1.8 kHz for ±3 symbols, ±0.6 kHz for ±1 symbols
         # At 48 kHz sample rate: phase/sample = 2π × freq / 48000
@@ -317,10 +312,9 @@ class ControlChannelScanner:
 
         # Build the expected sync waveform as FM deviation values
         # Sync pattern dibits: 1=+3, 3=-3 (only uses outer symbols)
-        sync_waveform = np.array([
-            expected_deviation if d == 1 else -expected_deviation
-            for d in sync_pattern
-        ])
+        sync_waveform = np.array(
+            [expected_deviation if d == 1 else -expected_deviation for d in sync_pattern]
+        )
 
         # Use soft correlation: correlate FM demod output with expected waveform
         # For real P25 signal, correlation peak will be high
@@ -335,13 +329,13 @@ class ControlChannelScanner:
         # Compute correlation at each position
         best_correlation = 0.0
         for i in range(search_len):
-            window = symbol_samples[i:i + sync_len]
+            window = symbol_samples[i : i + sync_len]
             # Normalized cross-correlation
             # For perfect match: correlation = 1.0
             # For random noise: correlation ≈ 0.0
             dot_product = np.sum(window * sync_waveform)
-            norm_window = np.sqrt(np.sum(window ** 2) + 1e-10)
-            norm_sync = np.sqrt(np.sum(sync_waveform ** 2))
+            norm_window = np.sqrt(np.sum(window**2) + 1e-10)
+            norm_sync = np.sqrt(np.sum(sync_waveform**2))
             correlation = dot_product / (norm_window * norm_sync)
             if abs(correlation) > abs(best_correlation):
                 best_correlation = correlation
@@ -390,7 +384,7 @@ class ControlChannelScanner:
             with_sync.sort(key=lambda x: x[1].snr_db, reverse=True)
             best = with_sync[0]
             logger.info(
-                f"[SCANNER] Best channel (sync): {best[0]/1e6:.4f} MHz, "
+                f"[SCANNER] Best channel (sync): {best[0] / 1e6:.4f} MHz, "
                 f"SNR={best[1].snr_db:.1f} dB, power={best[1].power_db:.1f} dB"
             )
             return best
@@ -400,7 +394,7 @@ class ControlChannelScanner:
         without_sync.sort(key=lambda x: x[1].snr_db, reverse=True)
         best = without_sync[0]
         logger.info(
-            f"[SCANNER] Best channel (no sync): {best[0]/1e6:.4f} MHz, "
+            f"[SCANNER] Best channel (no sync): {best[0] / 1e6:.4f} MHz, "
             f"SNR={best[1].snr_db:.1f} dB (highest SNR without sync)"
         )
         return best
@@ -463,16 +457,12 @@ class ControlChannelScanner:
         # 1. Current channel has no sync but better one does, OR
         # 2. SNR improvement exceeds threshold
         if not current.sync_detected and best_measurement.sync_detected:
-            logger.info(
-                f"Roaming to {best_freq/1e6:.4f} MHz: "
-                f"has sync pattern (current doesn't)"
-            )
+            logger.info(f"Roaming to {best_freq / 1e6:.4f} MHz: has sync pattern (current doesn't)")
             return best_freq
 
         if snr_improvement >= roam_threshold_db:
             logger.info(
-                f"Roaming to {best_freq/1e6:.4f} MHz: "
-                f"SNR improvement {snr_improvement:.1f} dB"
+                f"Roaming to {best_freq / 1e6:.4f} MHz: SNR improvement {snr_improvement:.1f} dB"
             )
             return best_freq
 
@@ -490,7 +480,7 @@ class ControlChannelScanner:
         ranked = self.get_channel_ranking()
         for i, (_freq, m) in enumerate(ranked):
             marker = " *" if i == 0 else ""
-            logger.info(f"  {i+1}. {m}{marker}")
+            logger.info(f"  {i + 1}. {m}{marker}")
 
         logger.info("-" * 60)
 
@@ -500,9 +490,11 @@ class ControlChannelScanner:
             "channels_configured": len(self.control_channels),
             "channels_measured": len(self._measurements),
             "last_scan_time": float(self._last_scan_time),
-            "current_channel_hz": float(self._current_channel_hz) if self._current_channel_hz else None,
+            "current_channel_hz": float(self._current_channel_hz)
+            if self._current_channel_hz
+            else None,
             "measurements": {
-                f"{freq/1e6:.4f}_MHz": {
+                f"{freq / 1e6:.4f}_MHz": {
                     "power_db": float(m.power_db),
                     "snr_db": float(m.snr_db),
                     "sync_detected": bool(m.sync_detected),

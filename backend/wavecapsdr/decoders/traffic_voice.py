@@ -166,7 +166,9 @@ def encode_explicit_voice_grant_pdu(
     grant: TrafficChannelGrant, uplink_channel: tuple[int, int] | None = None
 ) -> bytes:
     """Encode an explicit Group Voice Channel Grant Update PDU (8 bytes)."""
-    uplink_id, uplink_num = uplink_channel if uplink_channel else (grant.channel_id, grant.channel_number)
+    uplink_id, uplink_num = (
+        uplink_channel if uplink_channel else (grant.channel_id, grant.channel_number)
+    )
 
     svc_opts = (
         (0x80 if grant.emergency else 0)

@@ -53,8 +53,10 @@ router = APIRouter(prefix="/trunking", tags=["trunking"])
 # Pydantic Models for API
 # ============================================================================
 
+
 class TalkgroupRequest(BaseModel):
     """Request to create/update a talkgroup."""
+
     tgid: int = Field(..., description="Talkgroup ID (decimal)")
     name: str = Field(..., description="Human-readable name")
     alpha_tag: str | None = Field(None, description="Short identifier")
@@ -66,10 +68,13 @@ class TalkgroupRequest(BaseModel):
 
 class CreateSystemRequest(BaseModel):
     """Request to create a new trunking system."""
+
     id: str = Field(..., description="Unique system identifier")
     name: str = Field(..., description="Human-readable system name")
     protocol: str = Field("p25_phase1", description="Protocol: p25_phase1 or p25_phase2")
-    modulation: str | None = Field(None, description="Modulation: c4fm (standard) or lsm (simulcast)")
+    modulation: str | None = Field(
+        None, description="Modulation: c4fm (standard) or lsm (simulcast)"
+    )
     control_channels: list[float] = Field(..., description="Control channel frequencies (Hz)")
     center_hz: float = Field(..., description="SDR center frequency (Hz)")
     sample_rate: int = Field(8_000_000, description="SDR sample rate (Hz)")
@@ -88,6 +93,7 @@ class CreateSystemRequest(BaseModel):
 
 class ControlChannelResponse(BaseModel):
     """Response containing control channel details."""
+
     frequencyHz: float
     name: str = ""
     enabled: bool
@@ -101,6 +107,7 @@ class ControlChannelResponse(BaseModel):
 
 class SystemResponse(BaseModel):
     """Response containing system details."""
+
     id: str
     name: str
     protocol: str
@@ -124,6 +131,7 @@ class SystemResponse(BaseModel):
 
 class ActiveCallResponse(BaseModel):
     """Response containing active call details."""
+
     id: str
     talkgroupId: int
     talkgroupName: str
@@ -147,6 +155,7 @@ class ActiveCallResponse(BaseModel):
 
 class TalkgroupResponse(BaseModel):
     """Response containing talkgroup details."""
+
     tgid: int
     name: str
     alphaTag: str
@@ -158,6 +167,7 @@ class TalkgroupResponse(BaseModel):
 
 class VocoderStatusResponse(BaseModel):
     """Response containing vocoder availability."""
+
     imbe: dict[str, Any]
     ambe2: dict[str, Any]
     anyAvailable: bool
@@ -165,6 +175,7 @@ class VocoderStatusResponse(BaseModel):
 
 class LocationResponse(BaseModel):
     """Response containing GPS location."""
+
     unitId: int
     latitude: float
     longitude: float
@@ -179,6 +190,7 @@ class LocationResponse(BaseModel):
 
 class VoiceStreamResponse(BaseModel):
     """Response containing voice stream details."""
+
     id: str
     systemId: str
     callId: str
@@ -199,6 +211,7 @@ class VoiceStreamResponse(BaseModel):
 
 class TrunkingRecipeResponse(BaseModel):
     """Response containing a trunking system recipe/template."""
+
     id: str
     name: str
     description: str | None = None
@@ -214,6 +227,7 @@ class TrunkingRecipeResponse(BaseModel):
 # ============================================================================
 # Helper Functions
 # ============================================================================
+
 
 def get_trunking_manager(request: Request) -> TrunkingManager:
     """Get the TrunkingManager from app state."""
@@ -258,6 +272,7 @@ def system_to_response(system: TrunkingSystem) -> SystemResponse:
 # REST Endpoints
 # ============================================================================
 
+
 @router.get("/systems", response_model=list[SystemResponse])
 async def list_systems(request: Request) -> list[SystemResponse]:
     """List all trunking systems."""
@@ -277,7 +292,7 @@ async def create_system(request: Request, req: CreateSystemRequest) -> SystemRes
     except ValueError:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid protocol: {req.protocol}. Use 'p25_phase1' or 'p25_phase2'"
+            detail=f"Invalid protocol: {req.protocol}. Use 'p25_phase1' or 'p25_phase2'",
         )
 
     # Parse modulation
@@ -287,8 +302,7 @@ async def create_system(request: Request, req: CreateSystemRequest) -> SystemRes
             modulation = P25Modulation(req.modulation)
         except ValueError:
             raise HTTPException(
-                status_code=400,
-                detail=f"Invalid modulation: {req.modulation}. Use 'c4fm' or 'lsm'"
+                status_code=400, detail=f"Invalid modulation: {req.modulation}. Use 'c4fm' or 'lsm'"
             )
 
     # Build talkgroups dict
@@ -306,9 +320,7 @@ async def create_system(request: Request, req: CreateSystemRequest) -> SystemRes
                 monitor=tg_req.monitor,
             )
 
-    control_channels = [
-        ControlChannelConfig(frequency_hz=freq) for freq in req.control_channels
-    ]
+    control_channels = [ControlChannelConfig(frequency_hz=freq) for freq in req.control_channels]
 
     # Create config
     config = TrunkingSystemConfig(
@@ -491,7 +503,9 @@ async def get_system_active_calls(request: Request, system_id: str) -> list[Acti
                 timestamp=c.source_location.timestamp,
                 ageSeconds=c.source_location.age_seconds(),
                 source=c.source_location.source,
-            ) if c.source_location else None,
+            )
+            if c.source_location
+            else None,
         )
         for c in calls
     ]
@@ -534,7 +548,9 @@ async def get_all_active_calls(request: Request) -> list[ActiveCallResponse]:
                 timestamp=c.source_location.timestamp,
                 ageSeconds=c.source_location.age_seconds(),
                 source=c.source_location.source,
-            ) if c.source_location else None,
+            )
+            if c.source_location
+            else None,
         )
         for c in calls
     ]
@@ -585,6 +601,7 @@ async def get_radio_locations(system_id: str, request: Request) -> list[Location
 
 class MessageResponse(BaseModel):
     """Response containing a decoded P25 message."""
+
     timestamp: float
     opcode: int
     opcodeName: str
@@ -679,18 +696,20 @@ async def list_trunking_recipes(request: Request) -> list[TrunkingRecipeResponse
         talkgroups = sys_data.get("talkgroups", {})
         tg_count = len(talkgroups) if isinstance(talkgroups, dict) else 0
 
-        recipes.append(TrunkingRecipeResponse(
-            id=sys_id,
-            name=sys_data.get("name", f"System {sys_id}"),
-            description=f"{category} trunking system with {tg_count} talkgroups configured",
-            category=category,
-            protocol=protocol,
-            controlChannels=[float(f) for f in sys_data.get("control_channels", [])],
-            centerHz=float(sys_data.get("center_hz", 851_000_000)),
-            sampleRate=int(sys_data.get("sample_rate", 8_000_000)),
-            gain=sys_data.get("gain"),
-            talkgroupCount=tg_count,
-        ))
+        recipes.append(
+            TrunkingRecipeResponse(
+                id=sys_id,
+                name=sys_data.get("name", f"System {sys_id}"),
+                description=f"{category} trunking system with {tg_count} talkgroups configured",
+                category=category,
+                protocol=protocol,
+                controlChannels=[float(f) for f in sys_data.get("control_channels", [])],
+                centerHz=float(sys_data.get("center_hz", 851_000_000)),
+                sampleRate=int(sys_data.get("sample_rate", 8_000_000)),
+                gain=sys_data.get("gain"),
+                talkgroupCount=tg_count,
+            )
+        )
 
     return recipes
 
@@ -699,14 +718,19 @@ async def list_trunking_recipes(request: Request) -> list[TrunkingRecipeResponse
 # Hunt Mode Control Endpoints
 # ============================================================================
 
+
 class HuntModeRequest(BaseModel):
     """Request to set hunt mode."""
+
     mode: str = Field(..., description="Hunt mode: auto, manual, or scan_once")
-    lockedFrequency: float | None = Field(None, description="Frequency to lock to (for manual mode)")
+    lockedFrequency: float | None = Field(
+        None, description="Frequency to lock to (for manual mode)"
+    )
 
 
 class ChannelEnabledRequest(BaseModel):
     """Request to enable/disable a channel."""
+
     enabled: bool = Field(..., description="Whether to enable the channel")
 
 
@@ -747,7 +771,7 @@ async def set_hunt_mode(
     except ValueError:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid hunt mode: {req.mode}. Use 'auto', 'manual', or 'scan_once'"
+            detail=f"Invalid hunt mode: {req.mode}. Use 'auto', 'manual', or 'scan_once'",
         )
 
     try:
@@ -831,9 +855,9 @@ async def trigger_scan(request: Request, system_id: str) -> dict[str, Any]:
 
     # Find the best channel
     best_freq = None
-    best_snr = float('-inf')
+    best_snr = float("-inf")
     for freq, m in measurements.items():
-        if m.get("syncDetected") and m.get("snrDb", float('-inf')) > best_snr:
+        if m.get("syncDetected") and m.get("snrDb", float("-inf")) > best_snr:
             best_snr = m["snrDb"]
             best_freq = freq
 
@@ -879,6 +903,7 @@ async def lock_to_channel(
 # WebSocket Endpoints
 # ============================================================================
 
+
 @router.websocket("/stream/{system_id}")
 async def trunking_stream(websocket: WebSocket, system_id: str) -> None:
     """WebSocket stream for real-time trunking events for a specific system."""
@@ -918,16 +943,15 @@ async def trunking_stream(websocket: WebSocket, system_id: str) -> None:
                     "type": "snapshot",
                     "systems": [s for s in event.get("systems", []) if s.get("id") == system_id],
                     "activeCalls": [
-                        c for c in event.get("activeCalls", [])
+                        c
+                        for c in event.get("activeCalls", [])
                         if c.get("systemId") == system_id or "systemId" not in c
                     ],
                     "messages": [
-                        m for m in event.get("messages", [])
-                        if m.get("systemId") == system_id
+                        m for m in event.get("messages", []) if m.get("systemId") == system_id
                     ],
                     "callHistory": [
-                        c for c in event.get("callHistory", [])
-                        if c.get("systemId") == system_id
+                        c for c in event.get("callHistory", []) if c.get("systemId") == system_id
                     ],
                 }
 
@@ -977,6 +1001,7 @@ async def trunking_stream_all(websocket: WebSocket) -> None:
 # Voice Stream Endpoints
 # ============================================================================
 
+
 @router.get("/systems/{system_id}/voice-streams", response_model=list[VoiceStreamResponse])
 async def list_voice_streams(system_id: str, request: Request) -> list[VoiceStreamResponse]:
     """List active voice streams for a trunking system."""
@@ -1014,7 +1039,9 @@ async def list_voice_streams(system_id: str, request: Request) -> list[VoiceStre
                 timestamp=vc.source_location.timestamp,
                 ageSeconds=vc.source_location.age_seconds(),
                 source=vc.source_location.source,
-            ) if vc.source_location else None,
+            )
+            if vc.source_location
+            else None,
         )
         for vc in voice_channels
     ]
@@ -1090,7 +1117,9 @@ async def voice_stream_all(websocket: WebSocket, system_id: str) -> None:
                         bytes_sent += len(data)
                         messages_sent += 1
                         if messages_sent % 10 == 0:
-                            logger.info(f"Voice stream {system_id}: Sent {messages_sent} messages, {bytes_sent} bytes")
+                            logger.info(
+                                f"Voice stream {system_id}: Sent {messages_sent} messages, {bytes_sent} bytes"
+                            )
                     except asyncio.QueueEmpty:
                         pass
                 except Exception as e:

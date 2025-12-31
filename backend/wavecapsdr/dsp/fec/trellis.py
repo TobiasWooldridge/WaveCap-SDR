@@ -70,8 +70,8 @@ for (state, inp), (next_state, output) in TRELLIS_ENCODER.items():
 
 # Constellation mapping (C4FM dibit to soft value)
 CONSTELLATION = {
-    0: 1.0,   # +1
-    1: 3.0,   # +3
+    0: 1.0,  # +1
+    1: 3.0,  # +3
     2: -1.0,  # -1
     3: -3.0,  # -3
 }
@@ -120,7 +120,10 @@ class TrellisDecoder:
         self._symbol_count = 0
 
     def _branch_metric(
-        self, received: tuple[int, int], expected: tuple[int, int], soft: tuple[float, float] | None = None
+        self,
+        received: tuple[int, int],
+        expected: tuple[int, int],
+        soft: tuple[float, float] | None = None,
     ) -> float:
         """Calculate branch metric between received and expected symbol pair.
 
@@ -142,7 +145,7 @@ class TrellisDecoder:
             # This matches OP25's count_bits(codeword ^ next_words[state][j])
             xor0 = received[0] ^ expected[0]
             xor1 = received[1] ^ expected[1]
-            metric = float(bin(xor0).count('1') + bin(xor1).count('1'))
+            metric = float(bin(xor0).count("1") + bin(xor1).count("1"))
 
         return metric
 
@@ -230,12 +233,12 @@ class TrellisDecoder:
             if soft_values is not None:
                 soft_values = soft_values[:-1]
 
-        if debug and logger.isEnabledFor(logging.DEBUG):
-            dibit_str = ' '.join(str(d) for d in dibits[:20])
-            logger.debug(f"Trellis decode: input {len(dibits)} dibits, first 20: {dibit_str}")
+        if debug:
+            dibit_str = " ".join(str(d) for d in dibits[:20])
+            logger.info(f"Trellis decode: input {len(dibits)} dibits, first 20: {dibit_str}")
             if soft_values is not None:
-                soft_str = ' '.join(f'{s:.1f}' for s in soft_values[:20])
-                logger.debug(f"Trellis decode: soft values first 20: {soft_str}")
+                soft_str = " ".join(f"{s:.1f}" for s in soft_values[:20])
+                logger.info(f"Trellis decode: soft values first 20: {soft_str}")
 
         self.reset()
         decoded = []
@@ -261,10 +264,10 @@ class TrellisDecoder:
         best_path = min(self._paths, key=lambda p: p.metric)
         error_metric = int(best_path.metric)
 
-        if debug and logger.isEnabledFor(logging.DEBUG):
-            decoded_str = ' '.join(str(d) for d in decoded[:20])
-            logger.debug(f"Trellis decode: output {len(decoded)} dibits, first 20: {decoded_str}")
-            logger.debug(f"Trellis decode: error_metric={error_metric}")
+        if debug:
+            decoded_str = " ".join(str(d) for d in decoded[:20])
+            logger.info(f"Trellis decode: output {len(decoded)} dibits, first 20: {decoded_str}")
+            logger.info(f"Trellis decode: error_metric={error_metric}")
 
         return np.array(decoded, dtype=np.uint8), error_metric
 
@@ -384,16 +387,19 @@ def trellis_deinterleave(dibits: NDArrayAny, block_size: int = 98) -> NDArrayAny
 # From SDRTrunk P25_3_4_Node.java TRANSITION_MATRIX
 # Row = current state (0-7), Column = input tribit (0-7), Value = output nibble (0-15)
 # The output nibble represents the 4-bit transmitted symbol
-TRELLIS_3_4_TRANSITION = np.array([
-    [2, 13, 14, 1, 7, 8, 11, 4],    # state 0
-    [14, 1, 7, 8, 11, 4, 2, 13],    # state 1
-    [10, 5, 6, 9, 15, 0, 3, 12],    # state 2
-    [6, 9, 15, 0, 3, 12, 10, 5],    # state 3
-    [15, 0, 3, 12, 10, 5, 6, 9],    # state 4
-    [3, 12, 10, 5, 6, 9, 15, 0],    # state 5
-    [7, 8, 11, 4, 2, 13, 14, 1],    # state 6
-    [11, 4, 2, 13, 14, 1, 7, 8],    # state 7
-], dtype=np.int32)
+TRELLIS_3_4_TRANSITION = np.array(
+    [
+        [2, 13, 14, 1, 7, 8, 11, 4],  # state 0
+        [14, 1, 7, 8, 11, 4, 2, 13],  # state 1
+        [10, 5, 6, 9, 15, 0, 3, 12],  # state 2
+        [6, 9, 15, 0, 3, 12, 10, 5],  # state 3
+        [15, 0, 3, 12, 10, 5, 6, 9],  # state 4
+        [3, 12, 10, 5, 6, 9, 15, 0],  # state 5
+        [7, 8, 11, 4, 2, 13, 14, 1],  # state 6
+        [11, 4, 2, 13, 14, 1, 7, 8],  # state 7
+    ],
+    dtype=np.int32,
+)
 
 # Hamming weight lookup for 0-15 (used for branch metric calculation)
 HAMMING_WEIGHT = np.array([0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4], dtype=np.int32)
@@ -445,9 +451,9 @@ class TrellisDecoder34:
         if n_symbols < 2:
             return np.array([], dtype=np.uint8), 0
 
-        if debug and logger.isEnabledFor(logging.DEBUG):
-            sym_str = ' '.join(f'{s:x}' for s in symbols[:20])
-            logger.debug(f"Trellis34 decode: {n_symbols} symbols, first 20: {sym_str}")
+        if debug:
+            sym_str = " ".join(f"{s:x}" for s in symbols[:20])
+            logger.info(f"Trellis34 decode: {n_symbols} symbols, first 20: {sym_str}")
 
         # Initialize paths - all start with infinite metric except state 0
         paths: list[TrellisPath34 | None] = [
@@ -568,11 +574,13 @@ class TrellisDecoder34:
 
         error_metric = best_path.metric
 
-        if debug and logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"Trellis34 decode: output {len(decoded_bits)} bits, error_metric={error_metric}")
+        if debug:
+            logger.info(
+                f"Trellis34 decode: output {len(decoded_bits)} bits, error_metric={error_metric}"
+            )
             if decoded_bits:
-                bit_str = ''.join(str(b) for b in decoded_bits[:24])
-                logger.debug(f"Trellis34 decode: first 24 bits: {bit_str}")
+                bit_str = "".join(str(b) for b in decoded_bits[:24])
+                logger.info(f"Trellis34 decode: first 24 bits: {bit_str}")
 
         return np.array(decoded_bits, dtype=np.uint8), error_metric
 

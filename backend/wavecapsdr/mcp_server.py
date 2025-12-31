@@ -512,14 +512,10 @@ async def get_channel_metrics(state: AppState, args: dict[str, Any]) -> dict[str
     name="list_trunking_systems",
     description="List configured P25 trunking systems",
 )
-async def list_trunking_systems(
-    state: AppState, args: dict[str, Any]
-) -> dict[str, Any]:
+async def list_trunking_systems(state: AppState, args: dict[str, Any]) -> dict[str, Any]:
     """List trunking systems."""
     systems = state.trunking_manager.list_systems()
-    return {
-        "systems": [s.to_dict() for s in systems]
-    }
+    return {"systems": [s.to_dict() for s in systems]}
 
 
 @register_tool(
@@ -710,9 +706,7 @@ def check_mcp_auth(
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
-async def handle_mcp_request(
-    state: AppState, request_data: dict[str, Any]
-) -> dict[str, Any]:
+async def handle_mcp_request(state: AppState, request_data: dict[str, Any]) -> dict[str, Any]:
     """Handle a single MCP JSON-RPC request."""
     try:
         req = MCPRequest(**request_data)
@@ -775,11 +769,7 @@ async def handle_mcp_request(
                 return {
                     "jsonrpc": "2.0",
                     "id": req.id,
-                    "result": {
-                        "content": [
-                            {"type": "text", "text": json.dumps(result, indent=2)}
-                        ]
-                    },
+                    "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]},
                 }
             except Exception as e:
                 logger.exception(f"Tool {params.name} failed")

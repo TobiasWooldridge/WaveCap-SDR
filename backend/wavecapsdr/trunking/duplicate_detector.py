@@ -24,22 +24,24 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CallEventSignature:
     """Unique signature for a call event."""
+
     talkgroup_id: int
     source_id: int | None
     frequency_hz: float
     event_type: str  # "voice", "data", etc.
 
     def __hash__(self) -> int:
-        return hash((self.talkgroup_id, self.source_id,
-                    int(self.frequency_hz), self.event_type))
+        return hash((self.talkgroup_id, self.source_id, int(self.frequency_hz), self.event_type))
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, CallEventSignature):
             return False
-        return (self.talkgroup_id == other.talkgroup_id and
-                self.source_id == other.source_id and
-                int(self.frequency_hz) == int(other.frequency_hz) and
-                self.event_type == other.event_type)
+        return (
+            self.talkgroup_id == other.talkgroup_id
+            and self.source_id == other.source_id
+            and int(self.frequency_hz) == int(other.frequency_hz)
+            and self.event_type == other.event_type
+        )
 
 
 class DuplicateCallDetector:
@@ -69,8 +71,7 @@ class DuplicateCallDetector:
         # is_dup = False
     """
 
-    def __init__(self, duplicate_window_ms: float = 500,
-                 max_entries: int = 1000) -> None:
+    def __init__(self, duplicate_window_ms: float = 500, max_entries: int = 1000) -> None:
         """Initialize detector.
 
         Args:
@@ -88,9 +89,14 @@ class DuplicateCallDetector:
         self._total_checked = 0
         self._duplicates_detected = 0
 
-    def is_duplicate(self, talkgroup_id: int, source_id: int | None,
-                    frequency_hz: float, event_type: str = "voice",
-                    timestamp_ms: float | None = None) -> bool:
+    def is_duplicate(
+        self,
+        talkgroup_id: int,
+        source_id: int | None,
+        frequency_hz: float,
+        event_type: str = "voice",
+        timestamp_ms: float | None = None,
+    ) -> bool:
         """Check if event is a duplicate.
 
         Args:
@@ -174,8 +180,11 @@ class DuplicateCallDetector:
                 "trackedEvents": len(self._recent_events),
                 "totalChecked": self._total_checked,
                 "duplicatesDetected": self._duplicates_detected,
-                "duplicateRate": (self._duplicates_detected / self._total_checked
-                                 if self._total_checked > 0 else 0),
+                "duplicateRate": (
+                    self._duplicates_detected / self._total_checked
+                    if self._total_checked > 0
+                    else 0
+                ),
                 "duplicateWindowMs": self.duplicate_window_ms,
             }
 
@@ -223,8 +232,9 @@ class FrequencyBasedDuplicateDetector:
             self._cleanup_stale()
             return frequency_hz in self._allocations
 
-    def allocate(self, frequency_hz: float, talkgroup_id: int,
-                source_id: int | None = None) -> bool:
+    def allocate(
+        self, frequency_hz: float, talkgroup_id: int, source_id: int | None = None
+    ) -> bool:
         """Allocate frequency to a call.
 
         Returns True if allocation succeeded, False if already allocated.
@@ -239,8 +249,7 @@ class FrequencyBasedDuplicateDetector:
                 existing_tgid, _existing_src, _ = self._allocations[frequency_hz]
                 if existing_tgid == talkgroup_id:
                     # Same call - update timestamp
-                    self._allocations[frequency_hz] = (talkgroup_id, source_id,
-                                                        timestamp_ms)
+                    self._allocations[frequency_hz] = (talkgroup_id, source_id, timestamp_ms)
                     return True
                 return False
 
@@ -289,12 +298,11 @@ class FrequencyBasedDuplicateDetector:
         timestamp_ms = time.time() * 1000
         cutoff = timestamp_ms - self.allocation_timeout_ms
 
-        stale = [freq for freq, (_, _, ts) in self._allocations.items()
-                if ts < cutoff]
+        stale = [freq for freq, (_, _, ts) in self._allocations.items() if ts < cutoff]
 
         for freq in stale:
             del self._allocations[freq]
-            logger.debug(f"Released stale allocation: {freq/1e6:.4f} MHz")
+            logger.debug(f"Released stale allocation: {freq / 1e6:.4f} MHz")
 
     def clear(self) -> None:
         """Clear all allocations."""

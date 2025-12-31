@@ -178,9 +178,7 @@ class TrunkingManager:
         if talkgroups_csv:
             talkgroups = load_talkgroups_csv(talkgroups_csv)
             config.talkgroups.update(talkgroups)
-            logger.info(
-                f"Loaded {len(talkgroups)} talkgroups from {talkgroups_csv}"
-            )
+            logger.info(f"Loaded {len(talkgroups)} talkgroups from {talkgroups_csv}")
 
         # Create system
         system = TrunkingSystem(cfg=config)
@@ -197,11 +195,13 @@ class TrunkingManager:
         logger.info(f"Added trunking system: {config.id} ({config.name})")
 
         # Broadcast event
-        await self._broadcast_event({
-            "type": "system_added",
-            "systemId": config.id,
-            "system": system.to_dict(),
-        })
+        await self._broadcast_event(
+            {
+                "type": "system_added",
+                "systemId": config.id,
+                "system": system.to_dict(),
+            }
+        )
 
         # Auto-start if configured (persist=False since config already has auto_start=true)
         if config.auto_start:
@@ -233,10 +233,12 @@ class TrunkingManager:
         logger.info(f"Removed trunking system: {system_id}")
 
         # Broadcast event
-        await self._broadcast_event({
-            "type": "system_removed",
-            "systemId": system_id,
-        })
+        await self._broadcast_event(
+            {
+                "type": "system_removed",
+                "systemId": system_id,
+            }
+        )
 
     async def start_system(self, system_id: str, persist: bool = True) -> None:
         """Start a trunking system.
@@ -362,15 +364,17 @@ class TrunkingManager:
             # Add system ID to each message/call for frontend routing
             # Transform messages to match WebSocket format (camelCase)
             for msg in system.get_messages(limit=200):
-                all_messages.append({
-                    "systemId": system.cfg.id,
-                    "timestamp": msg.get("timestamp", 0),
-                    "opcode": msg.get("opcode", 0),
-                    "opcodeName": msg.get("opcode_name", ""),
-                    "nac": msg.get("nac"),
-                    "summary": msg.get("summary", ""),
-                    "raw": msg.get("raw"),
-                })
+                all_messages.append(
+                    {
+                        "systemId": system.cfg.id,
+                        "timestamp": msg.get("timestamp", 0),
+                        "opcode": msg.get("opcode", 0),
+                        "opcodeName": msg.get("opcode_name", ""),
+                        "nac": msg.get("nac"),
+                        "summary": msg.get("summary", ""),
+                        "raw": msg.get("raw"),
+                    }
+                )
             for call in system.get_call_history(limit=50):
                 call["systemId"] = system.cfg.id
                 all_call_history.append(call)
@@ -438,54 +442,64 @@ class TrunkingManager:
 
     def _on_call_start(self, system_id: str, call: ActiveCall) -> None:
         """Handle call start event."""
-        self._schedule_broadcast({
-            "type": "call_start",
-            "systemId": system_id,
-            "call": call.to_dict(),
-        })
+        self._schedule_broadcast(
+            {
+                "type": "call_start",
+                "systemId": system_id,
+                "call": call.to_dict(),
+            }
+        )
 
     def _on_call_update(self, system_id: str, call: ActiveCall) -> None:
         """Handle call update event."""
-        self._schedule_broadcast({
-            "type": "call_update",
-            "systemId": system_id,
-            "call": call.to_dict(),
-        })
+        self._schedule_broadcast(
+            {
+                "type": "call_update",
+                "systemId": system_id,
+                "call": call.to_dict(),
+            }
+        )
 
     def _on_call_end(self, system_id: str, call: ActiveCall) -> None:
         """Handle call end event."""
-        self._schedule_broadcast({
-            "type": "call_end",
-            "systemId": system_id,
-            "callId": call.id,
-            "call": call.to_dict(),
-        })
+        self._schedule_broadcast(
+            {
+                "type": "call_end",
+                "systemId": system_id,
+                "callId": call.id,
+                "call": call.to_dict(),
+            }
+        )
 
     def _on_system_update(self, system: TrunkingSystem) -> None:
         """Handle system state update event."""
-        self._schedule_broadcast({
-            "type": "system_update",
-            "systemId": system.cfg.id,
-            "system": system.to_dict(),
-        })
+        self._schedule_broadcast(
+            {
+                "type": "system_update",
+                "systemId": system.cfg.id,
+                "system": system.to_dict(),
+            }
+        )
 
     def _on_message(self, system_id: str, message: dict[str, Any]) -> None:
         """Handle decoded message event.
 
         Broadcasts the message to WebSocket subscribers for real-time display.
         """
-        self._schedule_broadcast({
-            "type": "message",
-            "systemId": system_id,
-            "message": {
-                "timestamp": message.get("timestamp", 0),
-                "opcode": message.get("opcode", 0),
-                "opcodeName": message.get("opcode_name", ""),
-                "nac": message.get("nac"),
-                "summary": message.get("summary", ""),
-                "raw": message.get("raw"),
-            },
-        })
+        self._schedule_broadcast(
+            {
+                "type": "message",
+                "systemId": system_id,
+                "message": {
+                    "timestamp": message.get("timestamp", 0),
+                    "opcode": message.get("opcode", 0),
+                    "opcodeName": message.get("opcode_name", ""),
+                    "nac": message.get("nac"),
+                    "summary": message.get("summary", ""),
+                    "raw": message.get("raw"),
+                },
+            }
+        )
 
     async def _maintenance_loop(self) -> None:
         """Background maintenance loop.

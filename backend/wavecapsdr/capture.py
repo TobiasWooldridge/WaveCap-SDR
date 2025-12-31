@@ -25,7 +25,6 @@ _decimate_debug_count = 0
 _invalid_audio_log_times: dict[str, float] = {}
 _invalid_audio_log_counts: dict[str, int] = {}
 _invalid_audio_log_lock = threading.Lock()
-CHANNEL_METRICS_INTERVAL_S = 1.0
 
 import contextlib
 
@@ -41,7 +40,6 @@ from .dsp.am import am_demod, ssb_demod
 # Disabled: automatic recovery tends to cause thrashing
 # from .sdrplay_recovery import attempt_recovery
 from .dsp.fm import nbfm_demod, quadrature_demod, wbfm_demod
-from .dsp.flex import FlexDecoder, FlexMessage
 from .dsp.pocsag import POCSAGDecoder, POCSAGMessage
 from .dsp.rds import RDSData, RDSDecoder
 from .dsp.sam import sam_demod_simple
@@ -49,11 +47,12 @@ from .encoders import AudioEncoder, create_encoder
 from .trunking.config import P25Modulation
 from .validation import validate_audio_samples, validate_finite_array
 
-F = TypeVar('F', bound=Callable[..., Any])
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 class CaptureState(Enum):
     """Capture lifecycle states."""
+
     STOPPED = "stopped"
     STARTING = "starting"
     RUNNING = "running"
@@ -71,6 +70,7 @@ def with_retry(max_attempts: int = 3, backoff_factor: float = 2.0) -> Callable[[
     Returns:
         Decorated function that will retry on failure
     """
+
     def decorator(func: F) -> F:
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -85,19 +85,17 @@ def with_retry(max_attempts: int = 3, backoff_factor: float = 2.0) -> Callable[[
                     if attempt < max_attempts - 1:
                         print(
                             f"[RETRY] {func.__name__} failed (attempt {attempt + 1}/{max_attempts}): {e}",
-                            flush=True
+                            flush=True,
                         )
                         time.sleep(delay)
                         delay *= backoff_factor
 
             # All attempts failed
-            print(
-                f"[ERROR] {func.__name__} failed after {max_attempts} attempts",
-                flush=True
-            )
+            print(f"[ERROR] {func.__name__} failed after {max_attempts} attempts", flush=True)
             raise last_exception  # type: ignore[misc]
 
         return wrapper  # type: ignore[return-value]
+
     return decorator
 
 
@@ -156,8 +154,7 @@ def _validate_audio_output(audio: NDArrayFloat, context: str) -> bool:
             if now - last >= 5.0:
                 count = _invalid_audio_log_counts[context]
                 logger.warning(
-                    f"{context}: invalid audio samples ({reason}), "
-                    f"dropped {count} chunks"
+                    f"{context}: invalid audio samples ({reason}), dropped {count} chunks"
                 )
                 _invalid_audio_log_times[context] = now
                 _invalid_audio_log_counts[context] = 0
@@ -174,7 +171,9 @@ def _get_freq_shift_exp(size: int, offset_hz: int, sample_rate: int) -> NDArrayC
     Note: offset_hz is int (rounded from float) to ensure consistent cache keys.
     """
     n = np.arange(size, dtype=np.float32)
-    result: NDArrayComplex = np.exp(-1j * 2.0 * np.pi * (offset_hz / float(sample_rate)) * n).astype(np.complex64)
+    result: NDArrayComplex = np.exp(
+        -1j * 2.0 * np.pi * (offset_hz / float(sample_rate)) * n
+    ).astype(np.complex64)
     return result
 
 
@@ -265,7 +264,7 @@ def decimate_iq_for_p25(iq: NDArrayComplex, sample_rate: int) -> tuple[NDArrayCo
                     f"before={before_mean:.4f}, after={after_mean:.4f}, "
                     f"ratio={ratio:.1f}x, decim={decim_factor}x (simple), "
                     f"output_rate={output_rate}",
-                    flush=True
+                    flush=True,
                 )
             return result, output_rate
 
@@ -285,7 +284,7 @@ def decimate_iq_for_p25(iq: NDArrayComplex, sample_rate: int) -> tuple[NDArrayCo
                 f"before={before_mean:.4f}, after={after_mean:.4f}, "
                 f"ratio={ratio:.1f}x, resample={up}/{down}, "
                 f"output_rate={output_rate}",
-                flush=True
+                flush=True,
             )
 
         return result, output_rate
@@ -331,8 +330,8 @@ def _process_channel_dsp_stateless(
     # Calculate RSSI from shifted IQ
     if base.size > 0:
         magnitudes = np.abs(base)
-        power = np.mean(magnitudes ** 2)
-        metrics['rssi_db'] = float(10.0 * np.log10(power + 1e-10))
+        power = np.mean(magnitudes**2)
+        metrics["rssi_db"] = float(10.0 * np.log10(power + 1e-10))
 
     audio: NDArrayFloat | None = None
 
@@ -427,15 +426,15 @@ def _process_channel_dsp_stateless(
         # Just return base IQ for stateful processing later
         if base.size > 0:
             power = np.mean(np.abs(base) ** 2)
-            metrics['signal_power_db'] = float(10.0 * np.log10(power + 1e-10))
+            metrics["signal_power_db"] = float(10.0 * np.log10(power + 1e-10))
         return None, metrics
 
     # Calculate signal power from audio
     if audio is not None and audio.size > 0:
         if not _validate_audio_output(audio, f"Channel {cfg.id}"):
             return None, metrics
-        power = np.mean(audio ** 2)
-        metrics['signal_power_db'] = float(10.0 * np.log10(power + 1e-10))
+        power = np.mean(audio**2)
+        metrics["signal_power_db"] = float(10.0 * np.log10(power + 1e-10))
 
     return audio, metrics
 
@@ -500,8 +499,6 @@ class ChannelConfig:
     # POCSAG decoding (NBFM only)
     enable_pocsag: bool = False  # Disabled by default
     pocsag_baud: int = 1200  # 512, 1200, or 2400
-    # FLEX decoding (NBFM only, via multimon-ng)
-    enable_flex: bool = False  # Disabled by default
 
 
 @dataclass
@@ -542,10 +539,6 @@ class Channel:
     _pocsag_decoder: POCSAGDecoder | None = None
     _pocsag_messages: list[POCSAGMessage] = field(default_factory=list)
     _pocsag_max_messages: int = 100  # Ring buffer size
-    # FLEX decoder for NBFM pager feeds (lazily initialized, via multimon-ng)
-    _flex_decoder: FlexDecoder | None = None
-    _flex_messages: list[FlexMessage] = field(default_factory=list)
-    _flex_max_messages: int = 100  # Ring buffer size
     # TSBK callback for trunking integration (called when P25 TSBK is decoded)
     on_tsbk: Callable[[dict[str, Any]], None] | None = None
     # Raw IQ callback for trunking/scanning (called with wideband IQ before P25 processing)
@@ -570,7 +563,6 @@ class Channel:
     _last_drop_log_time: float = 0.0
     # Metrics counter for throttled signal metrics calculation
     _metrics_counter: int = 0
-    _last_metrics_emit: float = 0.0
     _p25_diag_count: int = 0
     _nxdn_warned: bool = False
     _dstar_warned: bool = False
@@ -585,7 +577,9 @@ class Channel:
     def stop(self) -> None:
         self.state = "stopped"
 
-        def _schedule_stop(decoder_stop_coro: Any, stored_loop: asyncio.AbstractEventLoop | None) -> None:
+        def _schedule_stop(
+            decoder_stop_coro: Any, stored_loop: asyncio.AbstractEventLoop | None
+        ) -> None:
             """Schedule decoder stop on an available event loop."""
             # Try stored loop first
             if stored_loop is not None and not stored_loop.is_closed():
@@ -619,13 +613,9 @@ class Channel:
             _schedule_stop(self._dmr_voice_decoder.stop(), self._dmr_voice_loop)
             self._dmr_voice_loop = None
 
-        # Clean up FLEX decoder process if running
-        if self._flex_decoder is not None:
-            with contextlib.suppress(Exception):
-                self._flex_decoder.stop()
-            self._flex_decoder = None
-
-    def get_pocsag_messages(self, limit: int = 50, since_timestamp: float | None = None) -> list[dict[str, Any]]:
+    def get_pocsag_messages(
+        self, limit: int = 50, since_timestamp: float | None = None
+    ) -> list[dict[str, Any]]:
         """Get recent POCSAG messages.
 
         Args:
@@ -636,21 +626,6 @@ class Channel:
             List of message dictionaries (most recent first)
         """
         msgs = self._pocsag_messages
-        if since_timestamp is not None:
-            msgs = [m for m in msgs if m.timestamp > since_timestamp]
-        return [m.to_dict() for m in reversed(msgs[-limit:])]
-
-    def get_flex_messages(self, limit: int = 50, since_timestamp: float | None = None) -> list[dict[str, Any]]:
-        """Get recent FLEX messages.
-
-        Args:
-            limit: Maximum number of messages to return
-            since_timestamp: Only return messages after this timestamp (for polling)
-
-        Returns:
-            List of message dictionaries (most recent first)
-        """
-        msgs = self._flex_messages
         if since_timestamp is not None:
             msgs = [m for m in msgs if m.timestamp > since_timestamp]
         return [m.to_dict() for m in reversed(msgs[-limit:])]
@@ -667,7 +642,7 @@ class Channel:
             return
 
         # Calculate RMS level in dB
-        rms: float = float(np.sqrt(np.mean(audio ** 2)))
+        rms: float = float(np.sqrt(np.mean(audio**2)))
         if rms > 1e-10:
             self.audio_rms_db = float(20.0 * np.log10(rms))
         else:
@@ -685,7 +660,6 @@ class Channel:
         clipping_samples: int = int(np.sum(np.abs(audio) > 0.95))
         self.audio_clipping_count += clipping_samples
 
-
     def _log_drop_warning(self, fmt: str) -> None:
         """Rate-limited logging for queue drops (once per 10 seconds)."""
         self._drop_count += 1
@@ -694,14 +668,17 @@ class Channel:
         # Report to error tracker (once per second)
         if now - self._last_drop_log_time >= 1.0:
             from .error_tracker import ErrorEvent, get_error_tracker
-            get_error_tracker().record(ErrorEvent(
-                type="audio_drop",
-                capture_id=self.cfg.capture_id,
-                channel_id=self.cfg.id,
-                timestamp=now,
-                count=self._drop_count,
-                details={"format": fmt},
-            ))
+
+            get_error_tracker().record(
+                ErrorEvent(
+                    type="audio_drop",
+                    capture_id=self.cfg.capture_id,
+                    channel_id=self.cfg.id,
+                    timestamp=now,
+                    count=self._drop_count,
+                    details={"format": fmt},
+                )
+            )
 
         # Log warning (once per 10 seconds)
         if now - self._last_drop_log_time >= 10.0:
@@ -790,12 +767,12 @@ class Channel:
         magnitudes = np.abs(shifted_iq)
 
         # Calculate RSSI (power of IQ samples in dB) - always needed for squelch
-        power = np.mean(magnitudes ** 2)
+        power = np.mean(magnitudes**2)
         self.rssi_db = float(10.0 * np.log10(power + 1e-10))
 
         # OPTIMIZATION: Throttle SNR calculation to every 10th call
         # np.partition is O(n) but still expensive - SNR doesn't need real-time updates
-        self._snr_counter = getattr(self, '_snr_counter', 0) + 1
+        self._snr_counter = getattr(self, "_snr_counter", 0) + 1
         if self._snr_counter % 10 != 0:
             return  # Skip SNR calculation this time
 
@@ -810,8 +787,8 @@ class Channel:
             noise_floor = partitioned[k_noise]
             signal_peak = partitioned[k_signal]
 
-            noise_power = noise_floor ** 2
-            signal_power = signal_peak ** 2
+            noise_power = noise_floor**2
+            signal_power = signal_peak**2
 
             if noise_power > 1e-10:
                 self.snr_db = float(10.0 * np.log10(signal_power / noise_power))
@@ -842,10 +819,14 @@ class Channel:
 
             # Increment subscriber count
             self._encoder_subscribers[format] = self._encoder_subscribers.get(format, 0) + 1
-            logger.info(f"Channel {self.cfg.id}: Encoder subscriber added, format={format}, subscribers={self._encoder_subscribers[format]}")
+            logger.info(
+                f"Channel {self.cfg.id}: Encoder subscriber added, format={format}, subscribers={self._encoder_subscribers[format]}"
+            )
 
         self._audio_sinks.add((q, loop, format))
-        logger.info(f"Channel {self.cfg.id}: Audio subscriber added, format={format}, total_subscribers={len(self._audio_sinks)}")
+        logger.info(
+            f"Channel {self.cfg.id}: Audio subscriber added, format={format}, total_subscribers={len(self._audio_sinks)}"
+        )
         return q
 
     def unsubscribe(self, q: asyncio.Queue[bytes]) -> None:
@@ -853,13 +834,19 @@ class Channel:
             if item[0] is q:
                 fmt = item[2]
                 self._audio_sinks.discard(item)
-                logger.info(f"Channel {self.cfg.id}: Audio subscriber removed, format={fmt}, total_subscribers={len(self._audio_sinks)}")
+                logger.info(
+                    f"Channel {self.cfg.id}: Audio subscriber removed, format={fmt}, total_subscribers={len(self._audio_sinks)}"
+                )
 
                 # Stop encoder if this was the last subscriber for an encoded format
                 if fmt in ("mp3", "opus", "aac"):
-                    self._encoder_subscribers[fmt] = max(0, self._encoder_subscribers.get(fmt, 1) - 1)
+                    self._encoder_subscribers[fmt] = max(
+                        0, self._encoder_subscribers.get(fmt, 1) - 1
+                    )
                     if self._encoder_subscribers[fmt] == 0 and fmt in self._encoders:
-                        logger.info(f"Channel {self.cfg.id}: Stopping {fmt} encoder (no more subscribers)")
+                        logger.info(
+                            f"Channel {self.cfg.id}: Stopping {fmt} encoder (no more subscribers)"
+                        )
                         encoder = self._encoders.pop(fmt)
                         asyncio.create_task(encoder.stop())
                         del self._encoder_subscribers[fmt]
@@ -876,7 +863,7 @@ class Channel:
                 data = await encoder.get_encoded()
 
                 # Broadcast to all subscribers of this format
-                for (q, loop, fmt) in list(self._audio_sinks):
+                for q, loop, fmt in list(self._audio_sinks):
                     if fmt != format:
                         continue
 
@@ -909,7 +896,7 @@ class Channel:
         for _format, encoder in self._encoders.items():
             await encoder.encode(pcm_data)
 
-        for (q, loop, fmt) in list(self._audio_sinks):
+        for q, loop, fmt in list(self._audio_sinks):
             # Skip encoded formats - they get data from _read_encoder_output
             if fmt in ("mp3", "opus", "aac"):
                 continue
@@ -954,7 +941,9 @@ class Channel:
                     loop.call_soon_threadsafe(_try_put)
                 except Exception as e:
                     # If loop is closed or unavailable, drop sink
-                    logger.warning(f"Channel {self.cfg.id}: Removing audio sink for format={fmt} due to loop error: {type(e).__name__}: {e}")
+                    logger.warning(
+                        f"Channel {self.cfg.id}: Removing audio sink for format={fmt} due to loop error: {type(e).__name__}: {e}"
+                    )
                     with contextlib.suppress(Exception):
                         self._audio_sinks.discard((q, loop, fmt))
 
@@ -987,7 +976,9 @@ class Channel:
                         if rds_result:
                             self.rds_data = rds_result
                             if rds_result.ps_name.strip():
-                                logger.debug(f"Channel {self.cfg.id}: RDS PS={rds_result.ps_name.strip()}")
+                                logger.debug(
+                                    f"Channel {self.cfg.id}: RDS PS={rds_result.ps_name.strip()}"
+                                )
                     except Exception as e:
                         logger.error(f"Channel {self.cfg.id}: RDS decoding error: {e}")
 
@@ -1001,7 +992,9 @@ class Channel:
                     mpx_cutoff_hz=self.cfg.mpx_cutoff_hz,
                     enable_highpass=self.cfg.enable_fm_highpass,
                     highpass_hz=self.cfg.fm_highpass_hz,
-                    notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+                    notch_frequencies=self.cfg.notch_frequencies
+                    if self.cfg.notch_frequencies
+                    else None,
                     enable_noise_reduction=self.cfg.enable_noise_reduction,
                     noise_reduction_db=self.cfg.noise_reduction_db,
                 )
@@ -1016,7 +1009,9 @@ class Channel:
                     highpass_hz=self.cfg.fm_highpass_hz,
                     enable_lowpass=self.cfg.enable_fm_lowpass,
                     lowpass_hz=self.cfg.fm_lowpass_hz,
-                    notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+                    notch_frequencies=self.cfg.notch_frequencies
+                    if self.cfg.notch_frequencies
+                    else None,
                     enable_noise_reduction=self.cfg.enable_noise_reduction,
                     noise_reduction_db=self.cfg.noise_reduction_db,
                 )
@@ -1026,10 +1021,11 @@ class Channel:
                     # Initialize POCSAG decoder if needed
                     if self._pocsag_decoder is None:
                         self._pocsag_decoder = POCSAGDecoder(
-                            sample_rate=self.cfg.audio_rate,
-                            baud_rate=self.cfg.pocsag_baud
+                            sample_rate=self.cfg.audio_rate, baud_rate=self.cfg.pocsag_baud
                         )
-                        logger.info(f"Channel {self.cfg.id}: POCSAG decoder initialized (baud={self.cfg.pocsag_baud})")
+                        logger.info(
+                            f"Channel {self.cfg.id}: POCSAG decoder initialized (baud={self.cfg.pocsag_baud})"
+                        )
 
                     # Process audio and extract messages
                     try:
@@ -1039,7 +1035,9 @@ class Channel:
                             # Keep ring buffer bounded
                             if len(self._pocsag_messages) > self._pocsag_max_messages:
                                 self._pocsag_messages.pop(0)
-                            logger.info(f"Channel {self.cfg.id}: POCSAG msg addr={msg.address} func={msg.function}: {msg.message[:50] if msg.message else '(empty)'}")
+                            logger.info(
+                                f"Channel {self.cfg.id}: POCSAG msg addr={msg.address} func={msg.function}: {msg.message[:50] if msg.message else '(empty)'}"
+                            )
                     except Exception as e:
                         logger.error(f"Channel {self.cfg.id}: POCSAG decoding error: {e}")
 
@@ -1047,7 +1045,7 @@ class Channel:
             if not _validate_audio_output(audio, f"Channel {self.cfg.id}"):
                 return
             if audio.size > 0:
-                power = np.mean(audio ** 2)
+                power = np.mean(audio**2)
                 power_db = 10.0 * np.log10(power + 1e-10)  # Add small value to avoid log(0)
                 self.signal_power_db = float(power_db)
                 logger.debug(f"Channel {self.cfg.id}: signal_power_db={power_db:.2f}")
@@ -1081,14 +1079,16 @@ class Channel:
                 enable_lowpass=self.cfg.enable_am_lowpass,
                 lowpass_hz=self.cfg.am_lowpass_hz,
                 agc_target_db=self.cfg.agc_target_db,
-                notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+                notch_frequencies=self.cfg.notch_frequencies
+                if self.cfg.notch_frequencies
+                else None,
             )
 
             # Calculate signal power in dB (always, for metrics)
             if not _validate_audio_output(audio, f"Channel {self.cfg.id}"):
                 return
             if audio.size > 0:
-                power = np.mean(audio ** 2)
+                power = np.mean(audio**2)
                 power_db = 10.0 * np.log10(power + 1e-10)
                 self.signal_power_db = float(power_db)
             else:
@@ -1125,7 +1125,7 @@ class Channel:
             if not _validate_audio_output(audio, f"Channel {self.cfg.id}"):
                 return
             if audio.size > 0:
-                power = np.mean(audio ** 2)
+                power = np.mean(audio**2)
                 power_db = 10.0 * np.log10(power + 1e-10)
                 self.signal_power_db = float(power_db)
             else:
@@ -1154,7 +1154,9 @@ class Channel:
                 bandpass_low=self.cfg.ssb_bandpass_low_hz,
                 bandpass_high=self.cfg.ssb_bandpass_high_hz,
                 agc_target_db=self.cfg.agc_target_db,
-                notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+                notch_frequencies=self.cfg.notch_frequencies
+                if self.cfg.notch_frequencies
+                else None,
                 bfo_offset_hz=self.cfg.ssb_bfo_offset_hz,
             )
 
@@ -1162,7 +1164,7 @@ class Channel:
             if not _validate_audio_output(audio, f"Channel {self.cfg.id}"):
                 return
             if audio.size > 0:
-                power = np.mean(audio ** 2)
+                power = np.mean(audio**2)
                 power_db = 10.0 * np.log10(power + 1e-10)
                 self.signal_power_db = float(power_db)
             else:
@@ -1183,17 +1185,21 @@ class Channel:
             # Initialize P25 decoder for TSBK (control channel) parsing
             if self._p25_decoder is None:
                 self._p25_decoder = P25Decoder(sample_rate)
-                self._p25_decoder.on_voice_frame = lambda voice_data: self._handle_p25_voice(voice_data)
+                self._p25_decoder.on_voice_frame = lambda voice_data: self._handle_p25_voice(
+                    voice_data
+                )
                 # NOTE: on_grant is not wired here - trunking systems use their own
                 # VoiceRecorder pool for voice following (see TrunkingSystem)
                 logger.info(f"Channel {self.cfg.id}: P25 decoder initialized")
 
             # Initialize IMBE decoder for voice audio (if available)
             # Use a class-level flag to avoid repeated availability checks/warnings
-            if not hasattr(self, '_imbe_checked'):
+            if not hasattr(self, "_imbe_checked"):
                 self._imbe_checked = True
                 if IMBEDecoder.is_available():
-                    self._imbe_decoder = IMBEDecoder(output_rate=self.cfg.audio_rate, input_rate=sample_rate)
+                    self._imbe_decoder = IMBEDecoder(
+                        output_rate=self.cfg.audio_rate, input_rate=sample_rate
+                    )
                     self._imbe_loop = asyncio.get_running_loop()
                     asyncio.create_task(self._imbe_decoder.start())
                     logger.info(f"Channel {self.cfg.id}: IMBE decoder initialized (DSD-FME)")
@@ -1224,7 +1230,9 @@ class Channel:
                 # Log decoded frames and invoke callbacks
                 for frame in frames:
                     if frame.tgid is not None:
-                        logger.debug(f"Channel {self.cfg.id}: P25 frame type={frame.frame_type.value} TGID={frame.tgid}")
+                        logger.debug(
+                            f"Channel {self.cfg.id}: P25 frame type={frame.frame_type.value} TGID={frame.tgid}"
+                        )
                     elif frame.tsbk_data:
                         logger.debug(f"Channel {self.cfg.id}: P25 TSBK: {frame.tsbk_data}")
                         # Invoke TSBK callback for trunking integration
@@ -1232,7 +1240,9 @@ class Channel:
                             try:
                                 self.on_tsbk(frame.tsbk_data)
                             except Exception as cb_err:
-                                logger.error(f"Channel {self.cfg.id}: TSBK callback error: {cb_err}")
+                                logger.error(
+                                    f"Channel {self.cfg.id}: TSBK callback error: {cb_err}"
+                                )
             except Exception as e:
                 logger.error(f"Channel {self.cfg.id}: P25 decoding error: {e}")
 
@@ -1262,7 +1272,9 @@ class Channel:
             # Initialize decoder if needed
             if self._dmr_decoder is None:
                 self._dmr_decoder = DMRDecoder(sample_rate)
-                self._dmr_decoder.on_voice_frame = lambda slot, tgid, voice_data: self._handle_dmr_voice(slot, tgid, voice_data)
+                self._dmr_decoder.on_voice_frame = (
+                    lambda slot, tgid, voice_data: self._handle_dmr_voice(slot, tgid, voice_data)
+                )
                 self._dmr_decoder.on_csbk_message = lambda msg: self._handle_dmr_csbk(msg)
                 logger.info(f"Channel {self.cfg.id}: DMR decoder initialized")
 
@@ -1286,7 +1298,9 @@ class Channel:
 
                 # Log decoded frames
                 for dmr_frame in dmr_frames:
-                    logger.debug(f"Channel {self.cfg.id}: DMR frame type={dmr_frame.frame_type.value} slot={dmr_frame.slot.value} dst={dmr_frame.dst_id}")
+                    logger.debug(
+                        f"Channel {self.cfg.id}: DMR frame type={dmr_frame.frame_type.value} slot={dmr_frame.slot.value} dst={dmr_frame.dst_id}"
+                    )
 
                 # Note: Voice audio will be handled by the on_voice_frame callback
                 # Future: Add AMBE decoder to convert voice_data to PCM
@@ -1360,7 +1374,9 @@ class Channel:
                         if rds_result:
                             self.rds_data = rds_result
                             if rds_result.ps_name.strip():
-                                logger.debug(f"Channel {self.cfg.id}: RDS PS={rds_result.ps_name.strip()}")
+                                logger.debug(
+                                    f"Channel {self.cfg.id}: RDS PS={rds_result.ps_name.strip()}"
+                                )
                     except Exception as e:
                         logger.error(f"Channel {self.cfg.id}: RDS decoding error: {e}")
 
@@ -1374,7 +1390,9 @@ class Channel:
                     mpx_cutoff_hz=self.cfg.mpx_cutoff_hz,
                     enable_highpass=self.cfg.enable_fm_highpass,
                     highpass_hz=self.cfg.fm_highpass_hz,
-                    notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+                    notch_frequencies=self.cfg.notch_frequencies
+                    if self.cfg.notch_frequencies
+                    else None,
                     enable_noise_reduction=self.cfg.enable_noise_reduction,
                     noise_reduction_db=self.cfg.noise_reduction_db,
                 )
@@ -1389,7 +1407,9 @@ class Channel:
                     highpass_hz=self.cfg.fm_highpass_hz,
                     enable_lowpass=self.cfg.enable_fm_lowpass,
                     lowpass_hz=self.cfg.fm_lowpass_hz,
-                    notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+                    notch_frequencies=self.cfg.notch_frequencies
+                    if self.cfg.notch_frequencies
+                    else None,
                     enable_noise_reduction=self.cfg.enable_noise_reduction,
                     noise_reduction_db=self.cfg.noise_reduction_db,
                 )
@@ -1398,17 +1418,20 @@ class Channel:
                 if self.cfg.enable_pocsag and audio.size > 0:
                     if self._pocsag_decoder is None:
                         self._pocsag_decoder = POCSAGDecoder(
-                            sample_rate=self.cfg.audio_rate,
-                            baud_rate=self.cfg.pocsag_baud
+                            sample_rate=self.cfg.audio_rate, baud_rate=self.cfg.pocsag_baud
                         )
-                        logger.info(f"Channel {self.cfg.id}: POCSAG decoder initialized (baud={self.cfg.pocsag_baud})")
+                        logger.info(
+                            f"Channel {self.cfg.id}: POCSAG decoder initialized (baud={self.cfg.pocsag_baud})"
+                        )
                     try:
                         new_msgs = self._pocsag_decoder.process(audio)
                         for msg in new_msgs:
                             self._pocsag_messages.append(msg)
                             if len(self._pocsag_messages) > self._pocsag_max_messages:
                                 self._pocsag_messages.pop(0)
-                            logger.info(f"Channel {self.cfg.id}: POCSAG msg addr={msg.address} func={msg.function}: {msg.message[:50] if msg.message else '(empty)'}")
+                            logger.info(
+                                f"Channel {self.cfg.id}: POCSAG msg addr={msg.address} func={msg.function}: {msg.message[:50] if msg.message else '(empty)'}"
+                            )
                     except Exception as e:
                         logger.error(f"Channel {self.cfg.id}: POCSAG decoding error: {e}")
 
@@ -1416,7 +1439,7 @@ class Channel:
             if audio is not None and audio.size > 0:
                 if not _validate_audio_output(audio, f"Channel {self.cfg.id}"):
                     return None
-                power = np.mean(audio ** 2)
+                power = np.mean(audio**2)
                 power_db = 10.0 * np.log10(power + 1e-10)
                 self.signal_power_db = float(power_db)
                 self._update_audio_metrics(audio)
@@ -1440,13 +1463,15 @@ class Channel:
                 enable_lowpass=self.cfg.enable_am_lowpass,
                 lowpass_hz=self.cfg.am_lowpass_hz,
                 agc_target_db=self.cfg.agc_target_db,
-                notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+                notch_frequencies=self.cfg.notch_frequencies
+                if self.cfg.notch_frequencies
+                else None,
             )
 
             if audio is not None and audio.size > 0:
                 if not _validate_audio_output(audio, f"Channel {self.cfg.id}"):
                     return None
-                power = np.mean(audio ** 2)
+                power = np.mean(audio**2)
                 power_db = 10.0 * np.log10(power + 1e-10)
                 self.signal_power_db = float(power_db)
                 self._update_audio_metrics(audio)
@@ -1476,7 +1501,7 @@ class Channel:
             if audio is not None and audio.size > 0:
                 if not _validate_audio_output(audio, f"Channel {self.cfg.id}"):
                     return None
-                power = np.mean(audio ** 2)
+                power = np.mean(audio**2)
                 power_db = 10.0 * np.log10(power + 1e-10)
                 self.signal_power_db = float(power_db)
                 self._update_audio_metrics(audio)
@@ -1499,14 +1524,16 @@ class Channel:
                 bandpass_low=self.cfg.ssb_bandpass_low_hz,
                 bandpass_high=self.cfg.ssb_bandpass_high_hz,
                 agc_target_db=self.cfg.agc_target_db,
-                notch_frequencies=self.cfg.notch_frequencies if self.cfg.notch_frequencies else None,
+                notch_frequencies=self.cfg.notch_frequencies
+                if self.cfg.notch_frequencies
+                else None,
                 bfo_offset_hz=self.cfg.ssb_bfo_offset_hz,
             )
 
             if audio is not None and audio.size > 0:
                 if not _validate_audio_output(audio, f"Channel {self.cfg.id}"):
                     return None
-                power = np.mean(audio ** 2)
+                power = np.mean(audio**2)
                 power_db = 10.0 * np.log10(power + 1e-10)
                 self.signal_power_db = float(power_db)
                 self._update_audio_metrics(audio)
@@ -1521,7 +1548,9 @@ class Channel:
             # P25 digital voice - metrics only for now
             if self._p25_decoder is None:
                 self._p25_decoder = P25Decoder(sample_rate)
-                self._p25_decoder.on_voice_frame = lambda voice_data: self._handle_p25_voice(voice_data)
+                self._p25_decoder.on_voice_frame = lambda voice_data: self._handle_p25_voice(
+                    voice_data
+                )
                 # NOTE: on_grant is not wired - trunking uses VoiceRecorder pool
                 logger.info(f"Channel {self.cfg.id}: P25 decoder initialized")
 
@@ -1540,7 +1569,9 @@ class Channel:
                 frames = self._p25_decoder.process_iq(base)
                 for frame in frames:
                     if frame.tgid is not None:
-                        logger.debug(f"Channel {self.cfg.id}: P25 frame type={frame.frame_type.value} TGID={frame.tgid}")
+                        logger.debug(
+                            f"Channel {self.cfg.id}: P25 frame type={frame.frame_type.value} TGID={frame.tgid}"
+                        )
                     elif frame.tsbk_data:
                         logger.debug(f"Channel {self.cfg.id}: P25 TSBK: {frame.tsbk_data}")
                         # Invoke TSBK callback for trunking integration
@@ -1548,7 +1579,9 @@ class Channel:
                             try:
                                 self.on_tsbk(frame.tsbk_data)
                             except Exception as cb_err:
-                                logger.error(f"Channel {self.cfg.id}: TSBK callback error: {cb_err}")
+                                logger.error(
+                                    f"Channel {self.cfg.id}: TSBK callback error: {cb_err}"
+                                )
             except Exception as e:
                 logger.error(f"Channel {self.cfg.id}: P25 decoding error: {e}")
             return None  # P25 doesn't output audio yet
@@ -1557,7 +1590,9 @@ class Channel:
             # DMR digital voice - metrics only for now
             if self._dmr_decoder is None:
                 self._dmr_decoder = DMRDecoder(sample_rate)
-                self._dmr_decoder.on_voice_frame = lambda slot, tgid, voice_data: self._handle_dmr_voice(slot, tgid, voice_data)
+                self._dmr_decoder.on_voice_frame = (
+                    lambda slot, tgid, voice_data: self._handle_dmr_voice(slot, tgid, voice_data)
+                )
                 self._dmr_decoder.on_csbk_message = lambda msg: self._handle_dmr_csbk(msg)
                 logger.info(f"Channel {self.cfg.id}: DMR decoder initialized")
 
@@ -1575,7 +1610,9 @@ class Channel:
             try:
                 dmr_frames = self._dmr_decoder.process_iq(base)
                 for dmr_frame in dmr_frames:
-                    logger.debug(f"Channel {self.cfg.id}: DMR frame type={dmr_frame.frame_type.value} slot={dmr_frame.slot.value} dst={dmr_frame.dst_id}")
+                    logger.debug(
+                        f"Channel {self.cfg.id}: DMR frame type={dmr_frame.frame_type.value} slot={dmr_frame.slot.value} dst={dmr_frame.dst_id}"
+                    )
             except Exception as e:
                 logger.error(f"Channel {self.cfg.id}: DMR decoding error: {e}")
             return None  # DMR doesn't output audio yet
@@ -1619,7 +1656,9 @@ class Channel:
         - Use mbelib for voice synthesis
         - Broadcast audio to subscribers
         """
-        logger.debug(f"Channel {self.cfg.id}: DMR voice frame slot={slot} TGID={tgid} ({len(voice_data)} bytes)")
+        logger.debug(
+            f"Channel {self.cfg.id}: DMR voice frame slot={slot} TGID={tgid} ({len(voice_data)} bytes)"
+        )
         # TODO: Implement AMBE decoder
 
     def _handle_trunking_grant(
@@ -1657,14 +1696,14 @@ class Channel:
         if self._voice_channel_factory is None:
             logger.info(
                 f"Channel {self.cfg.id}: P25 voice grant - TGID {tgid} on "
-                f"{freq_hz/1e6:.4f} MHz (no voice following configured)"
+                f"{freq_hz / 1e6:.4f} MHz (no voice following configured)"
             )
             return
 
         # Create a new voice channel via factory
         logger.info(
             f"Channel {self.cfg.id}: Creating voice channel for TGID {tgid} on "
-            f"{freq_hz/1e6:.4f} MHz (source={source_id})"
+            f"{freq_hz / 1e6:.4f} MHz (source={source_id})"
         )
 
         try:
@@ -1678,13 +1717,10 @@ class Channel:
                     "last_grant_time": time.time(),
                 }
                 logger.info(
-                    f"Channel {self.cfg.id}: Voice channel {new_chan_id} created for "
-                    f"TGID {tgid}"
+                    f"Channel {self.cfg.id}: Voice channel {new_chan_id} created for TGID {tgid}"
                 )
         except Exception as e:
-            logger.error(
-                f"Channel {self.cfg.id}: Failed to create voice channel: {e}"
-            )
+            logger.error(f"Channel {self.cfg.id}: Failed to create voice channel: {e}")
 
     def cleanup_stale_voice_channels(
         self, delete_callback: Callable[[str], None] | None = None
@@ -1721,8 +1757,7 @@ class Channel:
                         delete_callback(chan_id)
                     except Exception as e:
                         logger.error(
-                            f"Channel {self.cfg.id}: Failed to delete voice "
-                            f"channel {chan_id}: {e}"
+                            f"Channel {self.cfg.id}: Failed to delete voice channel {chan_id}: {e}"
                         )
 
         return stale_ids
@@ -1815,7 +1850,9 @@ class Capture:
     _fft_power_list: list[float] | None = None  # Cached Python list (avoids repeated .tolist())
     _fft_freqs_list: list[float] | None = None  # Cached Python list (avoids repeated .tolist())
     _fft_counter: int = 0  # Frame counter for adaptive FFT throttling
-    _fft_window_cache: dict[int, NDArrayFloat] = field(default_factory=dict)  # Cached FFT windows by size (legacy)
+    _fft_window_cache: dict[int, NDArrayFloat] = field(
+        default_factory=dict
+    )  # Cached FFT windows by size (legacy)
     _fft_last_time: float = 0.0  # Last FFT timestamp for FPS calculation
     _fft_actual_fps: float = 0.0  # Actual measured FFT FPS
     _fft_backend: FFTBackend | None = None  # Pluggable FFT backend (scipy/fftw/mlx/cuda)
@@ -1828,10 +1865,10 @@ class Capture:
     _iq_overflow_current: bool = False  # True if current read had overflow (for callbacks)
     # Performance timing metrics
     _perf_loop_times: list[float] = field(default_factory=list)  # Recent loop times in ms
-    _perf_dsp_times: list[float] = field(default_factory=list)   # Recent DSP times in ms
-    _perf_fft_times: list[float] = field(default_factory=list)   # Recent FFT times in ms
+    _perf_dsp_times: list[float] = field(default_factory=list)  # Recent DSP times in ms
+    _perf_fft_times: list[float] = field(default_factory=list)  # Recent FFT times in ms
     _perf_max_samples: int = 100  # Keep last 100 samples for rolling average
-    _perf_loop_counter: int = 0   # Counter for periodic logging
+    _perf_loop_counter: int = 0  # Counter for periodic logging
     _dsp_inflight: int = 0
     _dsp_inflight_lock: threading.Lock = field(default_factory=threading.Lock)
     _dsp_drop_last_log: float = 0.0
@@ -1842,6 +1879,7 @@ class Capture:
 
     def get_perf_stats(self) -> dict[str, Any]:
         """Get performance statistics for this capture."""
+
         def _stats(times: list[float]) -> dict[str, Any]:
             if not times:
                 return {"mean_ms": 0.0, "max_ms": 0.0, "samples": 0}
@@ -1850,6 +1888,7 @@ class Capture:
                 "max_ms": round(max(times), 2),
                 "samples": len(times),
             }
+
         return {
             "loop": _stats(self._perf_loop_times),
             "dsp": _stats(self._perf_dsp_times),
@@ -1878,10 +1917,11 @@ class Capture:
             # For heavy multi-channel, the executor will queue work
             max_workers = 3
             self._dsp_executor = ThreadPoolExecutor(
-                max_workers=max_workers,
-                thread_name_prefix=f"DSP-{self.cfg.id}-"
+                max_workers=max_workers, thread_name_prefix=f"DSP-{self.cfg.id}-"
             )
-            logger.debug(f"Capture {self.cfg.id}: Created per-capture DSP executor with {max_workers} workers")
+            logger.debug(
+                f"Capture {self.cfg.id}: Created per-capture DSP executor with {max_workers} workers"
+            )
         return self._dsp_executor
 
     def _shutdown_dsp_executor(self) -> None:
@@ -1899,13 +1939,16 @@ class Capture:
         now = time.time()
         if now - self._iq_overflow_last_report >= 1.0 and self._iq_overflow_batch > 0:
             from .error_tracker import ErrorEvent, get_error_tracker
-            get_error_tracker().record(ErrorEvent(
-                type="iq_overflow",
-                capture_id=self.cfg.id,
-                channel_id=None,
-                timestamp=now,
-                count=self._iq_overflow_batch,
-            ))
+
+            get_error_tracker().record(
+                ErrorEvent(
+                    type="iq_overflow",
+                    capture_id=self.cfg.id,
+                    channel_id=None,
+                    timestamp=now,
+                    count=self._iq_overflow_batch,
+                )
+            )
             self._iq_overflow_batch = 0
             self._iq_overflow_last_report = now
 
@@ -1937,44 +1980,6 @@ class Capture:
     def remove_channel(self, chan_id: str) -> None:
         self._channels.pop(chan_id, None)
 
-    def _emit_state_change(self, action: str) -> None:
-        """Notify subscribers of a capture state transition."""
-        from .state_broadcaster import get_broadcaster
-
-        get_broadcaster().emit_capture_change(
-            action,
-            self.cfg.id,
-            {
-                "id": self.cfg.id,
-                "state": self.state,
-                "errorMessage": self.error_message,
-            },
-        )
-
-    def _emit_channel_metrics(self, ch: Channel, now: float) -> None:
-        if ch.state != "running":
-            return
-        if now - ch._last_metrics_emit < CHANNEL_METRICS_INTERVAL_S:
-            return
-        ch._last_metrics_emit = now
-
-        from .state_broadcaster import get_broadcaster
-
-        data = {
-            "id": ch.cfg.id,
-            "captureId": ch.cfg.capture_id,
-            "signalPowerDb": ch.signal_power_db,
-            "rssiDb": ch.rssi_db,
-            "snrDb": ch.snr_db,
-            "audioRmsDb": ch.audio_rms_db,
-            "audioPeakDb": ch.audio_peak_db,
-            "audioClippingCount": ch.audio_clipping_count,
-            "audioDropCount": ch._drop_count,
-            "rdsData": ch.rds_data.to_dict() if ch.rds_data is not None else None,
-        }
-
-        get_broadcaster().emit_channel_change("updated", ch.cfg.id, data)
-
     def _cancel_retry_timer(self) -> None:
         """Cancel any pending retry timer."""
         if self._retry_timer is not None:
@@ -1990,15 +1995,14 @@ class Capture:
         if self._retry_count > self._max_retries:
             print(
                 f"[ERROR] Capture {self.cfg.id} failed after {self._max_retries} retries, giving up",
-                flush=True
+                flush=True,
             )
             self.state = "failed"
-            self._emit_state_change("updated")
             return
 
         print(
             f"[RETRY] Capture {self.cfg.id} will retry in {self._retry_delay}s (attempt {self._retry_count}/{self._max_retries})",
-            flush=True
+            flush=True,
         )
         self._cancel_retry_timer()
         self._retry_timer = threading.Timer(self._retry_delay, self.start)
@@ -2020,13 +2024,11 @@ class Capture:
                     # Thread died unexpectedly
                     if self.state in ("running", "starting"):
                         print(
-                            f"[WARNING] Capture {self.cfg.id} thread died unexpectedly",
-                            flush=True
+                            f"[WARNING] Capture {self.cfg.id} thread died unexpectedly", flush=True
                         )
                         self.state = "failed"
                         if not self.error_message:
                             self.error_message = "Capture thread died unexpectedly"
-                        self._emit_state_change("updated")
                         if self._auto_restart_enabled:
                             self._schedule_restart()
                     continue
@@ -2045,12 +2047,14 @@ class Capture:
                     elapsed = now - self._startup_time
                     driver = "unknown"
                     if self.requested_device_id:
-                        driver = "sdrplay" if "sdrplay" in self.requested_device_id.lower() else "other"
+                        driver = (
+                            "sdrplay" if "sdrplay" in self.requested_device_id.lower() else "other"
+                        )
 
                     print(
                         f"[WARNING] Capture {self.cfg.id} startup timeout: "
                         f"stuck in 'starting' for {elapsed:.1f}s (driver: {driver})",
-                        flush=True
+                        flush=True,
                     )
 
                     # Set state to failed with descriptive error
@@ -2065,13 +2069,13 @@ class Capture:
                             )
                             # Invalidate caches so stale devices aren't shown
                             from .devices.soapy import invalidate_sdrplay_caches
+
                             invalidate_sdrplay_caches()
                         else:
                             self.error_message = (
                                 f"Startup timeout: device initialization hung for {elapsed:.0f}s. "
                                 "Check device connection and ensure no other application is using it."
                             )
-                    self._emit_state_change("updated")
                     self._startup_time = 0.0  # Reset to prevent repeated triggers
                     continue  # Skip IQ watchdog check
 
@@ -2085,13 +2089,15 @@ class Capture:
                     # Check if stream is ready yet (SDRplay proxy streams need startup time)
                     stream = self._stream
                     is_ready = False
-                    if stream is not None and hasattr(stream, 'is_ready'):
+                    if stream is not None and hasattr(stream, "is_ready"):
                         is_ready = stream.is_ready()
-                        logger.info(f"Capture {self.cfg.id}: IQ watchdog check - is_ready={is_ready}")
+                        logger.info(
+                            f"Capture {self.cfg.id}: IQ watchdog check - is_ready={is_ready}"
+                        )
 
                     # If stream is ready but IQ thread hasn't received samples, there may be
                     # a shared memory synchronization issue. Give more time and don't fail yet.
-                    if is_ready and not getattr(self, '_watchdog_ready_seen', False):
+                    if is_ready and not getattr(self, "_watchdog_ready_seen", False):
                         # First time seeing ready - give extra time
                         self._watchdog_ready_seen = True
                         logger.warning(
@@ -2101,7 +2107,7 @@ class Capture:
                         self._last_iq_time = now
                         continue
 
-                    if stream is not None and hasattr(stream, 'is_ready') and not is_ready:
+                    if stream is not None and hasattr(stream, "is_ready") and not is_ready:
                         # Stream not ready yet - defer watchdog, reset timer
                         logger.debug(
                             f"Capture {self.cfg.id}: IQ watchdog deferred - stream not ready yet"
@@ -2116,7 +2122,7 @@ class Capture:
                     print(
                         f"[WARNING] Capture {self.cfg.id} IQ watchdog triggered: "
                         f"no samples for {now - self._last_iq_time:.1f}s (driver: {driver})",
-                        flush=True
+                        flush=True,
                     )
                     logger.warning(
                         f"Capture {self.cfg.id} IQ watchdog: setting state to failed. "
@@ -2127,8 +2133,9 @@ class Capture:
                     # Just log the warning and set state to failed so user can see the issue.
                     # Manual restart of the service/WaveCap is more reliable.
                     self.state = "failed"
-                    self.error_message = f"No IQ samples received for {now - self._last_iq_time:.0f}s"
-                    self._emit_state_change("updated")
+                    self.error_message = (
+                        f"No IQ samples received for {now - self._last_iq_time:.0f}s"
+                    )
                     self._last_iq_time = now  # Reset to avoid log spam
                     self._stop_event.set()
                     if self._stream is not None:
@@ -2161,18 +2168,17 @@ class Capture:
 
         self.state = "starting"
         self.error_message = None
-        self._emit_state_change("updated")
         self._startup_time = time.time()  # Record startup time for watchdog
         self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run_thread, name=f"Capture-{self.cfg.id}", daemon=True)
+        self._thread = threading.Thread(
+            target=self._run_thread, name=f"Capture-{self.cfg.id}", daemon=True
+        )
         self._thread.start()
 
         # Start health monitor if not already running
         if self._health_monitor is None or not self._health_monitor.is_alive():
             self._health_monitor = threading.Thread(
-                target=self._health_monitor_thread,
-                name=f"HealthMon-{self.cfg.id}",
-                daemon=True
+                target=self._health_monitor_thread, name=f"HealthMon-{self.cfg.id}", daemon=True
             )
             self._health_monitor.start()
 
@@ -2183,7 +2189,6 @@ class Capture:
         self._cancel_retry_timer()
 
         self.state = "stopping"
-        self._emit_state_change("updated")
         self._stop_event.set()
 
         # Close stream early to unblock reads
@@ -2211,7 +2216,6 @@ class Capture:
         # for the lifetime of the Capture. We only close the stream.
         # The device will be closed when the Capture is deleted.
         self.state = "stopped"
-        self._emit_state_change("stopped")
 
         # Keep auto-restart disabled - manual restart is more reliable
         # self._auto_restart_enabled = True
@@ -2305,9 +2309,9 @@ class Capture:
         for ch_id, ch in list(self._channels.items()):
             if abs(ch.cfg.offset_hz) > max_offset:
                 print(
-                    f"[INFO] Removing channel {ch_id}: offset {ch.cfg.offset_hz/1e3:.0f} kHz "
-                    f"exceeds capture bandwidth ({max_offset/1e3:.0f} kHz)",
-                    flush=True
+                    f"[INFO] Removing channel {ch_id}: offset {ch.cfg.offset_hz / 1e3:.0f} kHz "
+                    f"exceeds capture bandwidth ({max_offset / 1e3:.0f} kHz)",
+                    flush=True,
                 )
                 ch.stop()
                 del self._channels[ch_id]
@@ -2334,7 +2338,9 @@ class Capture:
         loop = asyncio.get_running_loop()
         with self._fft_sinks_lock:
             self._fft_sinks.add((q, loop))
-        logger.info(f"FFT subscriber added for capture {self.cfg.id}, total subs: {len(self._fft_sinks)}")
+        logger.info(
+            f"FFT subscriber added for capture {self.cfg.id}, total subs: {len(self._fft_sinks)}"
+        )
         return q
 
     def unsubscribe_fft(self, q: asyncio.Queue[dict[str, Any]]) -> None:
@@ -2355,7 +2361,7 @@ class Capture:
         """
         if self._fft_backend is None or self._fft_backend.fft_size != fft_size:
             # Get accelerator preference from config if available
-            accelerator = getattr(self.cfg, 'fft_accelerator', 'auto')
+            accelerator = getattr(self.cfg, "fft_accelerator", "auto")
             self._fft_backend = get_fft_backend(accelerator=accelerator, fft_size=fft_size)
             logger.info(
                 f"Capture {self.cfg.id}: FFT backend initialized: {self._fft_backend.name} "
@@ -2363,7 +2369,9 @@ class Capture:
             )
         return self._fft_backend
 
-    def _calculate_fft(self, samples: NDArrayComplex, sample_rate: int, fft_size: int = 2048) -> None:
+    def _calculate_fft(
+        self, samples: NDArrayComplex, sample_rate: int, fft_size: int = 2048
+    ) -> None:
         """Calculate FFT for spectrum display using pluggable backend.
 
         Uses hardware-accelerated FFT when available:
@@ -2416,7 +2424,7 @@ class Capture:
         except RuntimeError:
             current_loop = None
 
-        for (q, loop) in fft_sinks:
+        for q, loop in fft_sinks:
             if current_loop is loop:
                 try:
                     q.put_nowait(payload)
@@ -2426,6 +2434,7 @@ class Capture:
                     with contextlib.suppress(asyncio.QueueFull):
                         q.put_nowait(payload)
             else:
+
                 def _try_put() -> None:
                     try:
                         q.put_nowait(payload)
@@ -2451,7 +2460,7 @@ class Capture:
             current_loop = asyncio.get_running_loop()
         except RuntimeError:
             current_loop = None
-        for (q, loop) in iq_sinks:
+        for q, loop in iq_sinks:
             if current_loop is loop:
                 try:
                     q.put_nowait(payload)
@@ -2461,6 +2470,7 @@ class Capture:
                     with contextlib.suppress(asyncio.QueueFull):
                         q.put_nowait(payload)
             else:
+
                 def _try_put() -> None:
                     try:
                         q.put_nowait(payload)
@@ -2532,9 +2542,11 @@ class Capture:
                 self.cfg.sample_rate,
                 ch.cfg,
             )
+
             def _done(_fut: Future[Any]) -> None:
                 with self._dsp_inflight_lock:
                     self._dsp_inflight = max(0, self._dsp_inflight - 1)
+
             future.add_done_callback(_done)
             futures[future] = ch
 
@@ -2543,6 +2555,7 @@ class Capture:
         # on N channels taking T ms each = N*T total blocking time
         # Waiting in parallel = max(T) blocking time
         from concurrent.futures import wait, FIRST_EXCEPTION
+
         done, not_done = wait(futures.keys(), timeout=0.5, return_when=FIRST_EXCEPTION)
 
         # Cancel any timed-out futures
@@ -2561,10 +2574,10 @@ class Capture:
                 audio, metrics = future.result(timeout=0)  # Already done, no wait
 
                 # Update channel metrics from parallel processing
-                if 'rssi_db' in metrics:
-                    ch.rssi_db = metrics['rssi_db']
-                if 'signal_power_db' in metrics:
-                    ch.signal_power_db = metrics['signal_power_db']
+                if "rssi_db" in metrics:
+                    ch.rssi_db = metrics["rssi_db"]
+                if "signal_power_db" in metrics:
+                    ch.signal_power_db = metrics["signal_power_db"]
 
                 # Apply stateful processing in capture thread (RDS, POCSAG, squelch)
                 audio = self._apply_stateful_processing(ch, audio, samples)
@@ -2621,7 +2634,11 @@ class Capture:
                 return None
 
             # Get frequency-shifted IQ for P25 decoding
-            base = freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate) if ch.cfg.offset_hz != 0.0 else iq
+            base = (
+                freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate)
+                if ch.cfg.offset_hz != 0.0
+                else iq
+            )
             if base.size > 0 and not validate_finite_array(base):
                 logger.warning(f"Channel {ch.cfg.id}: non-finite P25 baseband, dropping chunk")
                 return None
@@ -2629,7 +2646,7 @@ class Capture:
 
             if base.size > 0:
                 # Diagnostic: Log raw and frequency-shifted IQ magnitude
-                if not hasattr(ch, '_p25_diag_count'):
+                if not hasattr(ch, "_p25_diag_count"):
                     ch._p25_diag_count = 0
                 ch._p25_diag_count += 1
                 if ch._p25_diag_count <= 10 or ch._p25_diag_count % 100 == 0:
@@ -2638,8 +2655,8 @@ class Capture:
                     print(
                         f"[P25_IQ] Channel {ch.cfg.id} call #{ch._p25_diag_count}: "
                         f"raw_mean={np.mean(raw_mag):.4f}, raw_max={np.max(raw_mag):.4f}, "
-                        f"after_shift_mean={np.mean(base_mag):.4f}, offset={ch.cfg.offset_hz/1e3:.1f}kHz",
-                        flush=True
+                        f"after_shift_mean={np.mean(base_mag):.4f}, offset={ch.cfg.offset_hz / 1e3:.1f}kHz",
+                        flush=True,
                     )
 
                 # Decimate to P25 processing rate (~48 kHz) if needed
@@ -2655,7 +2672,9 @@ class Capture:
                     modulation = ch.p25_modulation if ch.p25_modulation else TrunkingMod.LSM
                     decoder_mod = DecoderMod(modulation.value)
                     ch._p25_decoder = P25Decoder(p25_rate, modulation=decoder_mod)
-                    ch._p25_decoder.on_voice_frame = lambda voice_data: ch._handle_p25_voice(voice_data)
+                    ch._p25_decoder.on_voice_frame = lambda voice_data: ch._handle_p25_voice(
+                        voice_data
+                    )
                     # NOTE: on_grant is not wired - trunking uses VoiceRecorder pool
                     logger.info(
                         f"Channel {ch.cfg.id}: P25 decoder initialized "
@@ -2665,18 +2684,24 @@ class Capture:
 
                 # Initialize IMBE voice decoder for P25 voice decoding via DSD-FME
                 if ch._imbe_decoder is None and IMBEDecoder.is_available():
-                    ch._imbe_decoder = IMBEDecoder(output_rate=ch.cfg.audio_rate, input_rate=p25_rate)
+                    ch._imbe_decoder = IMBEDecoder(
+                        output_rate=ch.cfg.audio_rate, input_rate=p25_rate
+                    )
                     ch._imbe_loop = self._main_loop
                     if self._main_loop is not None:
                         ch._imbe_decoder.start_in_loop(self._main_loop)
-                        logger.info(f"Channel {ch.cfg.id}: IMBE decoder initialized (input={p25_rate}Hz, output={ch.cfg.audio_rate}Hz)")
+                        logger.info(
+                            f"Channel {ch.cfg.id}: IMBE decoder initialized (input={p25_rate}Hz, output={ch.cfg.audio_rate}Hz)"
+                        )
 
                 # Process P25 frames for TSBK/trunking
                 try:
                     frames = ch._p25_decoder.process_iq(p25_iq)
                     for frame in frames:
                         if frame.tgid is not None:
-                            logger.debug(f"Channel {ch.cfg.id}: P25 frame type={frame.frame_type.value} TGID={frame.tgid}")
+                            logger.debug(
+                                f"Channel {ch.cfg.id}: P25 frame type={frame.frame_type.value} TGID={frame.tgid}"
+                            )
                         elif frame.tsbk_data:
                             logger.debug(f"Channel {ch.cfg.id}: P25 TSBK: {frame.tsbk_data}")
                             # Invoke TSBK callback for trunking integration
@@ -2684,10 +2709,15 @@ class Capture:
                                 try:
                                     ch.on_tsbk(frame.tsbk_data)
                                 except Exception as cb_err:
-                                    logger.error(f"Channel {ch.cfg.id}: TSBK callback error: {cb_err}")
+                                    logger.error(
+                                        f"Channel {ch.cfg.id}: TSBK callback error: {cb_err}"
+                                    )
                 except Exception as e:
                     import traceback
-                    logger.error(f"Channel {ch.cfg.id}: P25 decoding error: {e}\n{traceback.format_exc()}")
+
+                    logger.error(
+                        f"Channel {ch.cfg.id}: P25 decoding error: {e}\n{traceback.format_exc()}"
+                    )
 
                 # P25 IMBE voice decoding via DSD-FME discriminator approach
                 # Compute FM discriminator output (instantaneous frequency) and feed to DSD-FME
@@ -2704,7 +2734,9 @@ class Capture:
                         # Get any decoded audio available from previous frames
                         p25_decoded_audio = ch._imbe_decoder.get_audio_sync()
                         if p25_decoded_audio is not None and p25_decoded_audio.size > 0:
-                            if not _validate_audio_output(p25_decoded_audio, f"Channel {ch.cfg.id}"):
+                            if not _validate_audio_output(
+                                p25_decoded_audio, f"Channel {ch.cfg.id}"
+                            ):
                                 p25_decoded_audio = None
                             else:
                                 ch._update_audio_metrics(p25_decoded_audio)
@@ -2723,7 +2755,11 @@ class Capture:
                 logger.warning(f"Channel {ch.cfg.id}: non-finite IQ samples, dropping DMR chunk")
                 return None
             # Get frequency-shifted IQ for DMR decoding
-            base = freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate) if ch.cfg.offset_hz != 0.0 else iq
+            base = (
+                freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate)
+                if ch.cfg.offset_hz != 0.0
+                else iq
+            )
             if base.size > 0 and not validate_finite_array(base):
                 logger.warning(f"Channel {ch.cfg.id}: non-finite DMR baseband, dropping chunk")
                 return None
@@ -2732,29 +2768,41 @@ class Capture:
                 # Initialize DMR frame decoder
                 if ch._dmr_decoder is None:
                     ch._dmr_decoder = DMRDecoder(self.cfg.sample_rate)
-                    ch._dmr_decoder.on_voice_frame = lambda slot, tgid, voice_data: ch._handle_dmr_voice(slot, tgid, voice_data)
+                    ch._dmr_decoder.on_voice_frame = (
+                        lambda slot, tgid, voice_data: ch._handle_dmr_voice(slot, tgid, voice_data)
+                    )
                     ch._dmr_decoder.on_csbk_message = lambda msg: ch._handle_dmr_csbk(msg)
                     logger.info(f"Channel {ch.cfg.id}: DMR decoder initialized")
 
                 # Initialize DMR voice decoder for AMBE+2 voice decoding via DSD-FME
                 if ch._dmr_voice_decoder is None and DMRVoiceDecoder.is_available():
-                    ch._dmr_voice_decoder = DMRVoiceDecoder(output_rate=ch.cfg.audio_rate, input_rate=self.cfg.sample_rate)
+                    ch._dmr_voice_decoder = DMRVoiceDecoder(
+                        output_rate=ch.cfg.audio_rate, input_rate=self.cfg.sample_rate
+                    )
                     ch._dmr_voice_loop = self._main_loop
                     if self._main_loop is not None:
                         ch._dmr_voice_decoder.start_in_loop(self._main_loop)
-                        logger.info(f"Channel {ch.cfg.id}: DMR voice decoder initialized (input={self.cfg.sample_rate}Hz, output={ch.cfg.audio_rate}Hz)")
+                        logger.info(
+                            f"Channel {ch.cfg.id}: DMR voice decoder initialized (input={self.cfg.sample_rate}Hz, output={ch.cfg.audio_rate}Hz)"
+                        )
 
                 # Process DMR frames for trunking/CSBK
                 try:
                     dmr_frames = ch._dmr_decoder.process_iq(base)
                     for dmr_frame in dmr_frames:
-                        logger.debug(f"Channel {ch.cfg.id}: DMR frame type={dmr_frame.frame_type.value} slot={dmr_frame.slot.value} dst={dmr_frame.dst_id}")
+                        logger.debug(
+                            f"Channel {ch.cfg.id}: DMR frame type={dmr_frame.frame_type.value} slot={dmr_frame.slot.value} dst={dmr_frame.dst_id}"
+                        )
                 except Exception as e:
                     logger.error(f"Channel {ch.cfg.id}: DMR decoding error: {e}")
 
                 # DMR AMBE+2 voice decoding via DSD-FME discriminator approach
                 # Compute FM discriminator output (instantaneous frequency) and feed to DSD-FME
-                if ch._dmr_voice_decoder is not None and ch._dmr_voice_decoder.running and base.size > 0:
+                if (
+                    ch._dmr_voice_decoder is not None
+                    and ch._dmr_voice_decoder.running
+                    and base.size > 0
+                ):
                     try:
                         # Compute FM discriminator (same as DMR 4FSK demodulation)
                         dmr_iq_c64: NDArrayComplex = base.astype(np.complex64, copy=False)
@@ -2767,7 +2815,9 @@ class Capture:
                         # Get any decoded audio available from previous frames
                         dmr_decoded_audio = ch._dmr_voice_decoder.get_audio_sync()
                         if dmr_decoded_audio is not None and dmr_decoded_audio.size > 0:
-                            if not _validate_audio_output(dmr_decoded_audio, f"Channel {ch.cfg.id}"):
+                            if not _validate_audio_output(
+                                dmr_decoded_audio, f"Channel {ch.cfg.id}"
+                            ):
                                 dmr_decoded_audio = None
                             else:
                                 ch._update_audio_metrics(dmr_decoded_audio)
@@ -2781,8 +2831,10 @@ class Capture:
             # NXDN uses 4FSK modulation and AMBE+2 codec (similar to DMR)
             # Sample rate: 4800/9600 baud
             # TODO: Implement NXDNDecoder with AMBE+2 integration
-            if not getattr(ch, '_nxdn_warned', False):
-                logger.warning(f"Channel {ch.cfg.id}: NXDN mode not yet implemented - no audio output")
+            if not getattr(ch, "_nxdn_warned", False):
+                logger.warning(
+                    f"Channel {ch.cfg.id}: NXDN mode not yet implemented - no audio output"
+                )
                 ch._nxdn_warned = True
             return None
 
@@ -2791,8 +2843,10 @@ class Capture:
             # D-Star uses GMSK modulation and AMBE codec
             # Data rate: 4800 bps (voice + data)
             # TODO: Implement DStarDecoder with AMBE integration
-            if not getattr(ch, '_dstar_warned', False):
-                logger.warning(f"Channel {ch.cfg.id}: D-Star mode not yet implemented - no audio output")
+            if not getattr(ch, "_dstar_warned", False):
+                logger.warning(
+                    f"Channel {ch.cfg.id}: D-Star mode not yet implemented - no audio output"
+                )
                 ch._dstar_warned = True
             return None
 
@@ -2802,8 +2856,10 @@ class Capture:
             # Multiple codec modes: DN (digital narrow), VW (voice wide), FR (full rate)
             # Codecs: AMBE+2 (DN), IMBE (VW), or mixed
             # TODO: Implement YSFDecoder with AMBE+2/IMBE integration
-            if not getattr(ch, '_ysf_warned', False):
-                logger.warning(f"Channel {ch.cfg.id}: YSF (Fusion) mode not yet implemented - no audio output")
+            if not getattr(ch, "_ysf_warned", False):
+                logger.warning(
+                    f"Channel {ch.cfg.id}: YSF (Fusion) mode not yet implemented - no audio output"
+                )
                 ch._ysf_warned = True
             return None
 
@@ -2818,7 +2874,11 @@ class Capture:
                     logger.info(f"Channel {ch.cfg.id}: RDS decoder initialized")
 
                 # Get raw FM baseband for RDS (before MPX filter)
-                base = freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate) if ch.cfg.offset_hz != 0.0 else iq
+                base = (
+                    freq_shift(iq, ch.cfg.offset_hz, self.cfg.sample_rate)
+                    if ch.cfg.offset_hz != 0.0
+                    else iq
+                )
                 fm_baseband = quadrature_demod(base, self.cfg.sample_rate)
 
                 try:
@@ -2826,7 +2886,9 @@ class Capture:
                     if rds_result:
                         ch.rds_data = rds_result
                         if rds_result.ps_name.strip():
-                            logger.debug(f"Channel {ch.cfg.id}: RDS PS={rds_result.ps_name.strip()}")
+                            logger.debug(
+                                f"Channel {ch.cfg.id}: RDS PS={rds_result.ps_name.strip()}"
+                            )
                 except Exception as e:
                     logger.error(f"Channel {ch.cfg.id}: RDS decoding error: {e}")
 
@@ -2834,10 +2896,11 @@ class Capture:
         if ch.cfg.mode == "nbfm" and ch.cfg.enable_pocsag and audio.size > 0:
             if ch._pocsag_decoder is None:
                 ch._pocsag_decoder = POCSAGDecoder(
-                    sample_rate=ch.cfg.audio_rate,
-                    baud_rate=ch.cfg.pocsag_baud
+                    sample_rate=ch.cfg.audio_rate, baud_rate=ch.cfg.pocsag_baud
                 )
-                logger.info(f"Channel {ch.cfg.id}: POCSAG decoder initialized (baud={ch.cfg.pocsag_baud})")
+                logger.info(
+                    f"Channel {ch.cfg.id}: POCSAG decoder initialized (baud={ch.cfg.pocsag_baud})"
+                )
 
             try:
                 new_msgs = ch._pocsag_decoder.process(audio)
@@ -2845,21 +2908,11 @@ class Capture:
                     ch._pocsag_messages.append(msg)
                     if len(ch._pocsag_messages) > ch._pocsag_max_messages:
                         ch._pocsag_messages.pop(0)
-                    logger.info(f"Channel {ch.cfg.id}: POCSAG msg addr={msg.address} func={msg.function}: {msg.message[:50] if msg.message else '(empty)'}")
+                    logger.info(
+                        f"Channel {ch.cfg.id}: POCSAG msg addr={msg.address} func={msg.function}: {msg.message[:50] if msg.message else '(empty)'}"
+                    )
             except Exception as e:
                 logger.error(f"Channel {ch.cfg.id}: POCSAG decoding error: {e}")
-
-        # FLEX decoding (NBFM only, via multimon-ng)
-        if ch.cfg.mode == "nbfm" and ch.cfg.enable_flex and audio.size > 0:
-            if ch._flex_decoder is None:
-                ch._flex_decoder = FlexDecoder()
-                logger.info(f"Channel {ch.cfg.id}: FLEX decoder initialized (multimon-ng)")
-
-            ch._flex_decoder.feed(audio, ch.cfg.audio_rate)
-            for flex_msg in ch._flex_decoder.drain_messages():
-                ch._flex_messages.append(flex_msg)
-                if len(ch._flex_messages) > ch._flex_max_messages:
-                    ch._flex_messages.pop(0)
 
         # Apply squelch
         if ch.cfg.squelch_db is not None and audio.size > 0:
@@ -2876,7 +2929,7 @@ class Capture:
 
             # Use atomic configure_and_start for devices that support it (SDRplay)
             # This holds the global lock for the entire configure+start sequence
-            if hasattr(device, 'configure_and_start'):
+            if hasattr(device, "configure_and_start"):
                 stream = device.configure_and_start(
                     center_hz=self.cfg.center_hz,
                     sample_rate=self.cfg.sample_rate,
@@ -2916,7 +2969,6 @@ class Capture:
             self._stream = _configure_and_start()
             # Successfully started!
             self.state = "running"
-            self._emit_state_change("started")
             self._startup_time = 0.0  # Clear startup time - we're running now
             self._retry_count = 0  # Reset retry counter on success
             # Reset overflow counters on fresh start
@@ -2931,7 +2983,6 @@ class Capture:
             if isinstance(e, SDRplayServiceError):
                 self.error_message = str(e)
                 self.state = "failed"
-                self._emit_state_change("updated")
                 print(f"[ERROR] Capture {self.cfg.id} SDRplay service error: {e}", flush=True)
                 # Invalidate caches so stale devices aren't shown
                 invalidate_sdrplay_caches()
@@ -2943,7 +2994,6 @@ class Capture:
             if isinstance(e, SoapyTimeoutError):
                 self.error_message = str(e)
                 self.state = "failed"
-                self._emit_state_change("updated")
                 print(f"[ERROR] Capture {self.cfg.id} device timeout: {e}", flush=True)
                 # Invalidate caches to trigger fresh enumeration
                 if "sdrplay" in str(self.cfg.device_id or "").lower():
@@ -2958,18 +3008,21 @@ class Capture:
             print(f"[ERROR] Capture {self.cfg.id} failed to start: {e}", flush=True)
             # Report device retry event
             from .error_tracker import ErrorEvent, get_error_tracker
-            get_error_tracker().record(ErrorEvent(
-                type="device_retry",
-                capture_id=self.cfg.id,
-                channel_id=None,
-                timestamp=time.time(),
-                details={
-                    "attempt": self._retry_count + 1,
-                    "max_attempts": self._max_retries,
-                    "delay_seconds": self._retry_delay,
-                    "error": str(e),
-                },
-            ))
+
+            get_error_tracker().record(
+                ErrorEvent(
+                    type="device_retry",
+                    capture_id=self.cfg.id,
+                    channel_id=None,
+                    timestamp=time.time(),
+                    details={
+                        "attempt": self._retry_count + 1,
+                        "max_attempts": self._max_retries,
+                        "delay_seconds": self._retry_delay,
+                        "error": str(e),
+                    },
+                )
+            )
             self.release_device()
             self._schedule_restart()
             return
@@ -2982,12 +3035,15 @@ class Capture:
         # Initialize IQ watchdog timestamp
         self._last_iq_time = time.time()
         import time as time_module  # Explicit import for perf_counter
+
         _capture_loop_counter = 0
         stream = self._stream
         while not self._stop_event.is_set():
             _capture_loop_counter += 1
             if _capture_loop_counter <= 5 or _capture_loop_counter % 100000 == 0:
-                logger.debug(f"Capture {self.cfg.id}: loop iteration {_capture_loop_counter}, calling read()")
+                logger.debug(
+                    f"Capture {self.cfg.id}: loop iteration {_capture_loop_counter}, calling read()"
+                )
             loop_start = time_module.perf_counter()
             try:
                 samples, overflow = stream.read(chunk)
@@ -3002,7 +3058,6 @@ class Capture:
                 if not self._stop_event.is_set():
                     self.state = "failed"
                     self.error_message = f"Stream read failed: {e}"
-                    self._emit_state_change("updated")
                 break
             if samples.size == 0:
                 # Light backoff to avoid busy-spin
@@ -3013,13 +3068,15 @@ class Capture:
             self._last_iq_time = time.time()
 
             # Debug logging every 100 reads with data
-            if not hasattr(self, '_iq_debug_counter'):
+            if not hasattr(self, "_iq_debug_counter"):
                 self._iq_debug_counter = 0
             self._iq_debug_counter += 1
             # Verbose debug for first few iterations to trace where loop stops
             _verbose_debug = _capture_loop_counter <= 5 or self._iq_debug_counter % 10000 == 1
             if _verbose_debug:
-                logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} GOT DATA: {samples.size} IQ samples, chunk={chunk}")
+                logger.debug(
+                    f"Capture {self.cfg.id}: iter={_capture_loop_counter} GOT DATA: {samples.size} IQ samples, chunk={chunk}"
+                )
             # Broadcast IQ to subscribers (schedule on their loops)
             # Reuse asyncio to schedule coroutine execution in a thread-safe manner
             # by using the same logic inside _broadcast_iq (which uses call_soon_threadsafe)
@@ -3027,35 +3084,37 @@ class Capture:
             # Instead, inline the same logic here to avoid requiring a loop in this thread.
             #
             # Duplicate minimal logic of _broadcast_iq without awaiting.
+            payload = pack_iq16(samples)
             with self._iq_sinks_lock:
                 iq_sinks = list(self._iq_sinks)
-            if iq_sinks:
-                payload = pack_iq16(samples)
-                for (q, loop) in iq_sinks:
-                    # Use default args to capture loop variables (avoids closure issues)
-                    def _try_put(q: asyncio.Queue[bytes] = q, payload: bytes = payload) -> None:
-                        try:
-                            q.put_nowait(payload)
-                        except asyncio.QueueFull:
-                            with contextlib.suppress(asyncio.QueueEmpty):
-                                _ = q.get_nowait()
-                            with contextlib.suppress(asyncio.QueueFull):
-                                q.put_nowait(payload)
+            for q, loop in iq_sinks:
+                # Use default args to capture loop variables (avoids closure issues)
+                def _try_put(q: asyncio.Queue[bytes] = q, payload: bytes = payload) -> None:
                     try:
-                        loop.call_soon_threadsafe(_try_put)
-                    except Exception:
-                        with self._iq_sinks_lock, contextlib.suppress(Exception):
-                            self._iq_sinks.discard((q, loop))
+                        q.put_nowait(payload)
+                    except asyncio.QueueFull:
+                        with contextlib.suppress(asyncio.QueueEmpty):
+                            _ = q.get_nowait()
+                        with contextlib.suppress(asyncio.QueueFull):
+                            q.put_nowait(payload)
+
+                try:
+                    loop.call_soon_threadsafe(_try_put)
+                except Exception:
+                    with self._iq_sinks_lock, contextlib.suppress(Exception):
+                        self._iq_sinks.discard((q, loop))
             # Checkpoint A: After IQ broadcast
             if _verbose_debug:
-                logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint A - after IQ broadcast")
+                logger.debug(
+                    f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint A - after IQ broadcast"
+                )
             # Calculate server-side metrics for all running channels (no async needed)
             # OPTIMIZATION: Only compute metrics if channel has subscribers OR every 10th chunk
             # This reduces CPU load by ~90% when channels are idle (no audio listeners)
             chans = list(self._channels.values())
             for ch in chans:
                 if ch.state == "running":
-                    ch._metrics_counter = getattr(ch, '_metrics_counter', 0) + 1
+                    ch._metrics_counter = getattr(ch, "_metrics_counter", 0) + 1
                     # Compute metrics if: has audio subscribers, OR every 10th chunk for API polling
                     if ch._audio_sinks or ch._metrics_counter % 10 == 0:
                         # Update signal metrics synchronously (RSSI, SNR)
@@ -3064,7 +3123,9 @@ class Capture:
 
             # Checkpoint B: After channel metrics
             if _verbose_debug:
-                logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint B - after channel metrics ({len(chans)} channels)")
+                logger.debug(
+                    f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint B - after channel metrics ({len(chans)} channels)"
+                )
             # Calculate FFT for spectrum display and channel classifier
             # Always runs (for classifier), but rate adapts based on viewer count
             fft_time_ms = 0.0
@@ -3073,7 +3134,9 @@ class Capture:
 
             # Debug: log FFT processing periodically
             if self._fft_counter % 100 == 0 and fft_sinks:
-                logger.debug(f"FFT processing for {self.cfg.id}: {len(self._fft_sinks)} subscribers, counter={self._fft_counter}")
+                logger.debug(
+                    f"FFT processing for {self.cfg.id}: {len(self._fft_sinks)} subscribers, counter={self._fft_counter}"
+                )
 
             # Adaptive FFT FPS based on subscriber count
             # - No viewers: 1 FPS (minimal, just for classifier)
@@ -3121,7 +3184,11 @@ class Capture:
                 self._fft_last_time = now
 
                 # Broadcast FFT to subscribers (only if there are any)
-                if fft_sinks and self._fft_power_list is not None and self._fft_freqs_list is not None:
+                if (
+                    fft_sinks
+                    and self._fft_power_list is not None
+                    and self._fft_freqs_list is not None
+                ):
                     payload_fft = {
                         "power": self._fft_power_list,
                         "freqs": self._fft_freqs_list,
@@ -3130,9 +3197,12 @@ class Capture:
                         "fftSize": fft_size,
                         "actualFps": round(self._fft_actual_fps, 1),
                     }
-                    for (fft_q, fft_loop) in fft_sinks:
+                    for fft_q, fft_loop in fft_sinks:
                         # Use default args to capture loop variables (avoids closure issues)
-                        def _try_put_fft(q: asyncio.Queue[dict[str, Any]] = fft_q, payload: dict[str, Any] = payload_fft) -> None:
+                        def _try_put_fft(
+                            q: asyncio.Queue[dict[str, Any]] = fft_q,
+                            payload: dict[str, Any] = payload_fft,
+                        ) -> None:
                             try:
                                 q.put_nowait(payload)
                             except asyncio.QueueFull:
@@ -3140,6 +3210,7 @@ class Capture:
                                     _ = q.get_nowait()
                                 with contextlib.suppress(asyncio.QueueFull):
                                     q.put_nowait(payload)
+
                         try:
                             fft_loop.call_soon_threadsafe(_try_put_fft)
                         except Exception:
@@ -3149,7 +3220,9 @@ class Capture:
 
             # Checkpoint C: After FFT processing
             if _verbose_debug:
-                logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint C - after FFT ({len(self._fft_sinks)} sinks)")
+                logger.debug(
+                    f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint C - after FFT ({len(self._fft_sinks)} sinks)"
+                )
             # Dispatch to channels for audio processing
             # PARALLEL DSP: Use per-capture ThreadPoolExecutor for CPU isolation
             # Each capture gets its own DSP threads, preventing cross-capture starvation
@@ -3161,7 +3234,9 @@ class Capture:
 
                 # Process all channels in parallel (or sequentially for single channel)
                 dsp_start = time_module.perf_counter()
-                channel_results = self._process_channels_parallel(samples_for_channels, dsp_executor)
+                channel_results = self._process_channels_parallel(
+                    samples_for_channels, dsp_executor
+                )
                 dsp_time_ms = (time_module.perf_counter() - dsp_start) * 1000
                 self._record_perf_time(self._perf_dsp_times, dsp_time_ms)
 
@@ -3196,25 +3271,21 @@ class Capture:
                             asyncio.run_coroutine_threadsafe(coro, target_loop)
                         except Exception as e:
                             import sys
+
                             print(f"Error scheduling broadcast: {e}", file=sys.stderr, flush=True)
 
             # Checkpoint D: After DSP/channel processing
             if _verbose_debug:
-                logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint D - after DSP, dsp_time={dsp_time_ms:.1f}ms")
-
-            if chans:
-                metrics_now = time_module.time()
-                for ch in chans:
-                    self._emit_channel_metrics(ch, metrics_now)
+                logger.debug(
+                    f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint D - after DSP, dsp_time={dsp_time_ms:.1f}ms"
+                )
 
             # Voice channel cleanup: Run every ~1 second (20 iterations at 20 Hz)
             # This removes voice channels that haven't received grants recently
             if _capture_loop_counter % 20 == 0:
                 for ch in chans:
                     if ch.cfg.mode == "p25" and ch._voice_channel_factory is not None:
-                        stale = ch.cleanup_stale_voice_channels(
-                            ch._voice_channel_delete_callback
-                        )
+                        stale = ch.cleanup_stale_voice_channels(ch._voice_channel_delete_callback)
                         if stale:
                             logger.debug(
                                 f"Capture {self.cfg.id}: Cleaned up {len(stale)} "
@@ -3236,7 +3307,9 @@ class Capture:
                 )
             # Checkpoint E: End of loop iteration
             if _verbose_debug:
-                logger.debug(f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint E - loop iteration complete, loop_time={loop_time_ms:.1f}ms")
+                logger.debug(
+                    f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint E - loop iteration complete, loop_time={loop_time_ms:.1f}ms"
+                )
 
         # Ensure stream is closed when the capture thread exits
         if self._stream is not None:
@@ -3431,9 +3504,7 @@ class CaptureManager:
 
         # For P25 control channels, set up voice channel following
         if mode == "p25" and enable_voice_following:
-            ch._voice_channel_factory = self._create_voice_channel_factory(
-                cid, cap, chan_id
-            )
+            ch._voice_channel_factory = self._create_voice_channel_factory(cid, cap, chan_id)
             ch._voice_channel_delete_callback = self.delete_channel
 
         cap.create_channel(ch)
@@ -3457,9 +3528,7 @@ class CaptureManager:
             Factory function: (tgid, freq_hz, source_id) -> channel_id
         """
 
-        def factory(
-            tgid: int, freq_hz: float, source_id: int | None
-        ) -> str | None:
+        def factory(tgid: int, freq_hz: float, source_id: int | None) -> str | None:
             # Calculate offset from capture center frequency
             offset_hz = freq_hz - capture.cfg.center_hz
 
@@ -3467,9 +3536,9 @@ class CaptureManager:
             max_offset = capture.cfg.sample_rate / 2
             if abs(offset_hz) > max_offset:
                 logger.warning(
-                    f"Voice channel at {freq_hz/1e6:.4f} MHz is outside capture "
-                    f"bandwidth (center={capture.cfg.center_hz/1e6:.4f} MHz, "
-                    f"BW={capture.cfg.sample_rate/1e6:.2f} MHz)"
+                    f"Voice channel at {freq_hz / 1e6:.4f} MHz is outside capture "
+                    f"bandwidth (center={capture.cfg.center_hz / 1e6:.4f} MHz, "
+                    f"BW={capture.cfg.sample_rate / 1e6:.2f} MHz)"
                 )
                 return None
 
@@ -3501,7 +3570,6 @@ class CaptureManager:
         ch = self._channels.pop(chan_id, None)
         if ch is None:
             return
-        ch.stop()
 
         # If this is a voice channel, notify the parent control channel
         if ch._parent_control_channel_id:

@@ -5,6 +5,7 @@ implemented by SDRTrunk and the WaveCap TSBK decoder. They keep the field
 ordering consistent so encode→decode tests can validate round trips without
 reimplementing the trellis/interleaver layers.
 """
+
 from __future__ import annotations
 
 from wavecapsdr.decoders.tsbk_utils import bits_to_payload, write_field

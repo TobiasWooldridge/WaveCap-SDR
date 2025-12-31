@@ -2,6 +2,7 @@
 
 Encoders lazily spawn when clients subscribe and terminate when no subscribers remain.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -17,6 +18,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class EncoderConfig:
     """Configuration for an audio encoder."""
+
     format: str  # mp3, aac, opus, etc.
     bitrate: int = 128000  # bits per second
     sample_rate: int = 48000
@@ -148,9 +150,7 @@ class AudioEncoder(ABC):
         while self.running and self.process:
             try:
                 if self.process and self.process.stdout:
-                    data = await loop.run_in_executor(
-                        None, self.process.stdout.read, chunk_size
-                    )
+                    data = await loop.run_in_executor(None, self.process.stdout.read, chunk_size)
                     if not data:
                         break
                     try:
@@ -173,12 +173,18 @@ class MP3Encoder(AudioEncoder):
     def _get_ffmpeg_args(self) -> list[str]:
         return [
             "ffmpeg",
-            "-f", "s16le",  # Input format: signed 16-bit little-endian PCM
-            "-ar", str(self.config.sample_rate),
-            "-ac", str(self.config.channels),
-            "-i", "pipe:0",  # Read from stdin
-            "-f", "mp3",
-            "-b:a", str(self.config.bitrate),
+            "-f",
+            "s16le",  # Input format: signed 16-bit little-endian PCM
+            "-ar",
+            str(self.config.sample_rate),
+            "-ac",
+            str(self.config.channels),
+            "-i",
+            "pipe:0",  # Read from stdin
+            "-f",
+            "mp3",
+            "-b:a",
+            str(self.config.bitrate),
             "-",  # Write to stdout
         ]
 
@@ -189,12 +195,18 @@ class OpusEncoder(AudioEncoder):
     def _get_ffmpeg_args(self) -> list[str]:
         return [
             "ffmpeg",
-            "-f", "s16le",
-            "-ar", str(self.config.sample_rate),
-            "-ac", str(self.config.channels),
-            "-i", "pipe:0",
-            "-f", "opus",
-            "-b:a", str(self.config.bitrate),
+            "-f",
+            "s16le",
+            "-ar",
+            str(self.config.sample_rate),
+            "-ac",
+            str(self.config.channels),
+            "-i",
+            "pipe:0",
+            "-f",
+            "opus",
+            "-b:a",
+            str(self.config.bitrate),
             "-",
         ]
 
@@ -205,13 +217,20 @@ class AACEncoder(AudioEncoder):
     def _get_ffmpeg_args(self) -> list[str]:
         return [
             "ffmpeg",
-            "-f", "s16le",
-            "-ar", str(self.config.sample_rate),
-            "-ac", str(self.config.channels),
-            "-i", "pipe:0",
-            "-f", "adts",  # AAC ADTS format for streaming
-            "-c:a", "aac",
-            "-b:a", str(self.config.bitrate),
+            "-f",
+            "s16le",
+            "-ar",
+            str(self.config.sample_rate),
+            "-ac",
+            str(self.config.channels),
+            "-i",
+            "pipe:0",
+            "-f",
+            "adts",  # AAC ADTS format for streaming
+            "-c:a",
+            "aac",
+            "-b:a",
+            str(self.config.bitrate),
             "-",
         ]
 

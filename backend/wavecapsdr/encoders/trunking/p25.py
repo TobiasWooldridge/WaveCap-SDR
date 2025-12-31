@@ -20,9 +20,7 @@ def _samples_per_symbol(sample_rate: int, symbol_rate: int) -> int:
     if sample_rate <= 0:
         raise ValueError("sample_rate must be positive")
     if sample_rate % symbol_rate != 0:
-        raise ValueError(
-            f"sample_rate {sample_rate} is not divisible by symbol_rate {symbol_rate}"
-        )
+        raise ValueError(f"sample_rate {sample_rate} is not divisible by symbol_rate {symbol_rate}")
     return sample_rate // symbol_rate
 
 

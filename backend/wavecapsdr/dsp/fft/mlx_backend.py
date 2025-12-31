@@ -93,9 +93,7 @@ class MLXFFTBackend(FFTBackend):
 
         # Reconstruct complex array (MLX way)
         # MLX complex support is limited, use real FFT workaround or cast
-        windowed_np = (np.array(chunk_real) + 1j * np.array(chunk_imag)).astype(
-            np.complex64
-        )
+        windowed_np = (np.array(chunk_real) + 1j * np.array(chunk_imag)).astype(np.complex64)
 
         # MLX FFT (as of MLX 0.5+)
         windowed_mx = self._mx.array(windowed_np)
@@ -114,9 +112,7 @@ class MLXFFTBackend(FFTBackend):
         power_db = 20.0 * np.log10(magnitude_shifted + 1e-10)
 
         # Generate frequency array
-        freqs = np.fft.fftshift(
-            np.fft.fftfreq(self.fft_size, 1.0 / sample_rate)
-        ).astype(np.float32)
+        freqs = np.fft.fftshift(np.fft.fftfreq(self.fft_size, 1.0 / sample_rate)).astype(np.float32)
 
         return FFTResult(
             power_db=power_db.astype(np.float32),

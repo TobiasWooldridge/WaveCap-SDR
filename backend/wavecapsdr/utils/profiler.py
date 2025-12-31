@@ -151,14 +151,12 @@ class Profiler:
         # Calculate throughput
         if self._samples_processed > 0:
             throughput = self._samples_processed / elapsed_s
-            lines.append(f"  Throughput: {throughput/1e6:.2f} Msps ({self._samples_processed:,} samples)")
+            lines.append(
+                f"  Throughput: {throughput / 1e6:.2f} Msps ({self._samples_processed:,} samples)"
+            )
 
         # Sort operations by total time (descending)
-        sorted_ops = sorted(
-            self._stats.items(),
-            key=lambda x: x[1].total_ns,
-            reverse=True
-        )
+        sorted_ops = sorted(self._stats.items(), key=lambda x: x[1].total_ns, reverse=True)
 
         # Calculate total time for percentage
         total_time_ns = sum(s.total_ns for _, s in sorted_ops)
@@ -176,7 +174,7 @@ class Profiler:
             if avg_us >= 1000:
                 lines.append(
                     f"  {op}: {pct:5.1f}% | {stats.count:6d} calls | "
-                    f"avg={avg_us/1000:.2f}ms min={min_us/1000:.2f}ms max={max_us/1000:.2f}ms"
+                    f"avg={avg_us / 1000:.2f}ms min={min_us / 1000:.2f}ms max={max_us / 1000:.2f}ms"
                 )
             else:
                 lines.append(

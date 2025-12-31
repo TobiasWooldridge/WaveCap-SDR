@@ -93,6 +93,7 @@ class RecoveryConfig:
 @dataclass
 class RecipeChannel:
     """Definition of a channel to create from a recipe."""
+
     offset_hz: float
     name: str  # Display name like "Channel 16 - Emergency"
     mode: str = "wbfm"
@@ -107,6 +108,7 @@ class RecipeChannel:
 @dataclass
 class RecipeConfig:
     """A recipe/wizard template for creating captures."""
+
     name: str  # Display name
     description: str  # Help text
     category: str  # "Marine", "Aviation", "Broadcast", etc.
@@ -126,6 +128,7 @@ class RecipeConfig:
 @dataclass
 class PresetConfig:
     """A preset configuration for a capture."""
+
     center_hz: float
     sample_rate: int
     offsets: list[float] = field(default_factory=list)
@@ -149,6 +152,7 @@ class PresetConfig:
 @dataclass
 class CaptureStartConfig:
     """Configuration for a capture to auto-start."""
+
     preset: str  # Name of preset to use
     device_id: str | None = None  # If None, use any available device
 
@@ -238,6 +242,7 @@ def load_config(path_str: str) -> AppConfig:
         if api_key is None or api_key == "${WAVECAP_MCP_KEY}":
             # Check environment variable
             from os import environ
+
             api_key = environ.get("WAVECAP_MCP_KEY")
         mcp = MCPConfig(
             enabled=mcp_raw.get("enabled", False),
@@ -250,6 +255,7 @@ def load_config(path_str: str) -> AppConfig:
     rr_raw = raw.get("radioreference", {})
     if isinstance(rr_raw, dict):
         from os import environ
+
         username = rr_raw.get("username")
         if username in (None, "${WAVECAP_RR_USERNAME}"):
             username = environ.get("WAVECAP_RR_USERNAME")
@@ -527,9 +533,7 @@ def save_config(config: AppConfig, path_str: str) -> None:
         yaml.dump(existing_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
-def update_trunking_system_state(
-    path_str: str, system_id: str, auto_start: bool
-) -> None:
+def update_trunking_system_state(path_str: str, system_id: str, auto_start: bool) -> None:
     """Update a specific trunking system's auto_start state in the config file.
 
     This function reads the existing config, updates just the auto_start field

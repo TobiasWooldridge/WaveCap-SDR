@@ -61,10 +61,7 @@ class PolyphaseChannelizer:
         self._design_filter()
 
         # Sample history buffer for each arm (for filtering)
-        self.arm_history = np.zeros(
-            (self.channel_count, self.taps_per_channel),
-            dtype=np.complex64
-        )
+        self.arm_history = np.zeros((self.channel_count, self.taps_per_channel), dtype=np.complex64)
 
         # Block counter for 2x oversampling
         self.block_counter = 0
@@ -81,15 +78,15 @@ class PolyphaseChannelizer:
         proto = signal.firwin(
             filter_length,
             cutoff,
-            window=('kaiser', 8.0),
+            window=("kaiser", 8.0),
         ).astype(np.float64)
 
         # Split into polyphase arms
         # Arm k gets taps at indices k, k+M, k+2M, ...
         self.arms = np.zeros((self.channel_count, self.taps_per_channel), dtype=np.float64)
         for arm in range(self.channel_count):
-            arm_taps = proto[arm::self.channel_count]
-            self.arms[arm, :len(arm_taps)] = arm_taps
+            arm_taps = proto[arm :: self.channel_count]
+            self.arms[arm, : len(arm_taps)] = arm_taps
 
     def process(self, samples: NDArrayAny) -> list[NDArrayAny]:
         """Process complex IQ samples through the channelizer.
@@ -116,7 +113,7 @@ class PolyphaseChannelizer:
 
         for block_start in range(0, len(samples) - block_size + 1, block_size // 2):
             # Get input block
-            block = samples[block_start:block_start + block_size]
+            block = samples[block_start : block_start + block_size]
             if len(block) < block_size:
                 break
 
@@ -131,7 +128,7 @@ class PolyphaseChannelizer:
             # VECTORIZED: Compute all arm dot products in parallel using einsum
             # einsum 'ij,ij->i' computes sum over j of (arm_history[i,j] * arms[i,j])
             # This is equivalent to a per-row dot product
-            arm_outputs = np.einsum('ij,ij->i', self.arm_history, self.arms).astype(np.complex64)
+            arm_outputs = np.einsum("ij,ij->i", self.arm_history, self.arms).astype(np.complex64)
 
             # FFT to separate channels
             channel_outputs = np.fft.fft(arm_outputs).astype(np.complex64)

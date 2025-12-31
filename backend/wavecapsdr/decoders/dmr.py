@@ -17,12 +17,14 @@ from wavecapsdr.validation import validate_finite_array
 
 class DMRSlot(Enum):
     """DMR time slot"""
+
     SLOT1 = 1
     SLOT2 = 2
 
 
 class DMRFrameType(Enum):
     """DMR frame types"""
+
     VOICE = "Voice"
     DATA = "Data"
     CSBK = "Control Signaling Block"
@@ -32,6 +34,7 @@ class DMRFrameType(Enum):
 @dataclass
 class DMRFrame:
     """Decoded DMR frame"""
+
     frame_type: DMRFrameType
     slot: DMRSlot
     color_code: int  # 0-15
@@ -148,7 +151,7 @@ class DMRDecoder:
             slot=slot,
             color_code=color_code,
             src_id=src_id,
-            dst_id=dst_id
+            dst_id=dst_id,
         )
 
         return [frame]

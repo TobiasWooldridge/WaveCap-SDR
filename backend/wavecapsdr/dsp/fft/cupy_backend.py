@@ -67,9 +67,7 @@ class CuPyFFTBackend(FFTBackend):
         try:
             device = self._cp.cuda.Device()
             gpu_name = device.attributes.get("Name", "Unknown")
-            logger.info(
-                f"CuPy FFT backend initialized on {gpu_name} (fft_size={fft_size})"
-            )
+            logger.info(f"CuPy FFT backend initialized on {gpu_name} (fft_size={fft_size})")
         except Exception:
             logger.info(f"CuPy FFT backend initialized (fft_size={fft_size})")
 
@@ -113,9 +111,7 @@ class CuPyFFTBackend(FFTBackend):
         power_db = 20.0 * np.log10(magnitude_shifted + 1e-10)
 
         # Generate frequency array (CPU)
-        freqs = np.fft.fftshift(
-            np.fft.fftfreq(self.fft_size, 1.0 / sample_rate)
-        ).astype(np.float32)
+        freqs = np.fft.fftshift(np.fft.fftfreq(self.fft_size, 1.0 / sample_rate)).astype(np.float32)
 
         return FFTResult(
             power_db=power_db.astype(np.float32),

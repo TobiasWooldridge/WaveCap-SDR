@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 class CallEventType(Enum):
     """Type of call event."""
+
     GROUP_VOICE = "group_voice"
     UNIT_TO_UNIT = "unit_to_unit"
     TELEPHONE_INTERCONNECT = "telephone_interconnect"
@@ -41,9 +42,10 @@ class CallEventType(Enum):
 
 class CallEventState(Enum):
     """State of a call event."""
-    PENDING = "pending"    # Granted but not yet started on traffic channel
-    ACTIVE = "active"      # Active call on traffic channel
-    STALE = "stale"        # No recent updates (likely abandoned)
+
+    PENDING = "pending"  # Granted but not yet started on traffic channel
+    ACTIVE = "active"  # Active call on traffic channel
+    STALE = "stale"  # No recent updates (likely abandoned)
     COMPLETE = "complete"  # Call has ended
 
 
@@ -53,15 +55,14 @@ class P25CallEvent:
 
     Represents a complete call lifecycle from grant to termination.
     """
+
     event_type: CallEventType
     frequency_hz: float
     channel: int
     timeslot: int = 0  # 0 for Phase I, 1-2 for Phase II TDMA
 
     # Identifiers (built up during call)
-    identifiers: IdentifierCollection = field(
-        default_factory=lambda: IdentifierCollection()
-    )
+    identifiers: IdentifierCollection = field(default_factory=lambda: IdentifierCollection())
 
     # Timing
     time_start: float = 0.0
@@ -192,12 +193,13 @@ class P25EventTracker:
         An event becomes stale when no updates have been received
         within the threshold period.
         """
-        threshold = (self.DATA_STALE_THRESHOLD_MS
-                    if self.event.event_type == CallEventType.DATA_CALL
-                    else self.STALE_THRESHOLD_MS)
+        threshold = (
+            self.DATA_STALE_THRESHOLD_MS
+            if self.event.event_type == CallEventType.DATA_CALL
+            else self.STALE_THRESHOLD_MS
+        )
 
-        reference_time = (self.event.time_end if self.event.time_end > 0
-                         else self.event.time_start)
+        reference_time = self.event.time_end if self.event.time_end > 0 else self.event.time_start
 
         return (timestamp_ms - reference_time) > threshold
 
@@ -230,8 +232,7 @@ class P25EventTracker:
 
         if not self._started:
             self._started = True
-            logger.debug(f"Event tracker: traffic channel started for "
-                        f"TG={self.event.talkgroup_id}")
+            logger.debug(f"Event tracker: traffic channel started for TG={self.event.talkgroup_id}")
 
         self.event.update(timestamp_ms)
         self._last_update_ms = timestamp_ms
@@ -251,17 +252,18 @@ class P25EventTracker:
         self._complete = True
         self.event.end(timestamp_ms)
 
-        logger.debug(f"Event tracker: call complete for "
-                    f"TG={self.event.talkgroup_id}, "
-                    f"duration={self.event.duration_ms:.0f}ms")
+        logger.debug(
+            f"Event tracker: call complete for "
+            f"TG={self.event.talkgroup_id}, "
+            f"duration={self.event.duration_ms:.0f}ms"
+        )
         return True
 
     def update_identifiers(self, identifiers: IdentifierCollection) -> None:
         """Update event identifiers."""
         # Merge new identifiers
         mic = MutableIdentifierCollection(
-            self.event.identifiers.get_identifiers(),
-            identifiers.timeslot
+            self.event.identifiers.get_identifiers(), identifiers.timeslot
         )
         for ident in identifiers.get_identifiers():
             mic.update(ident)
@@ -277,9 +279,7 @@ class P25EventTracker:
         if current_tg is None:
             return False
 
-        return (current_tg == talkgroup_id and
-                not self.is_stale(timestamp_ms) and
-                not self._complete)
+        return current_tg == talkgroup_id and not self.is_stale(timestamp_ms) and not self._complete
 
     def is_different_talker(self, source_id: int) -> bool:
         """Check if source ID differs from current talker.
@@ -318,10 +318,16 @@ class P25EventTrackerManager:
         self.on_call_end: Callable[[P25CallEvent], None] | None = None
         self.on_talker_change: Callable[[P25CallEvent, int], None] | None = None
 
-    def process_voice_grant(self, frequency_hz: float, channel: int,
-                           talkgroup_id: int, source_id: int,
-                           encrypted: bool = False, emergency: bool = False,
-                           timeslot: int = 0) -> P25EventTracker | None:
+    def process_voice_grant(
+        self,
+        frequency_hz: float,
+        channel: int,
+        talkgroup_id: int,
+        source_id: int,
+        encrypted: bool = False,
+        emergency: bool = False,
+        timeslot: int = 0,
+    ) -> P25EventTracker | None:
         """Process a voice channel grant from control channel.
 
         Creates a new tracker or updates existing one.
@@ -358,11 +364,9 @@ class P25EventTrackerManager:
 
         # Create new event and tracker
         identifiers = MutableIdentifierCollection()
-        identifiers.update(Identifier(talkgroup_id, IdentifierRole.TO,
-                                      IdentifierForm.TALKGROUP))
+        identifiers.update(Identifier(talkgroup_id, IdentifierRole.TO, IdentifierForm.TALKGROUP))
         if source_id:
-            identifiers.update(Identifier(source_id, IdentifierRole.FROM,
-                                         IdentifierForm.RADIO))
+            identifiers.update(Identifier(source_id, IdentifierRole.FROM, IdentifierForm.RADIO))
 
         event = P25CallEvent(
             event_type=CallEventType.EMERGENCY if emergency else CallEventType.GROUP_VOICE,
@@ -384,13 +388,15 @@ class P25EventTrackerManager:
         if self.on_call_start:
             self.on_call_start(event)
 
-        logger.info(f"New voice grant: TG={talkgroup_id} SRC={source_id} "
-                   f"FREQ={frequency_hz/1e6:.4f} MHz")
+        logger.info(
+            f"New voice grant: TG={talkgroup_id} SRC={source_id} FREQ={frequency_hz / 1e6:.4f} MHz"
+        )
 
         return tracker
 
-    def process_traffic_update(self, frequency_hz: float,
-                              frame_count: int = 0) -> P25EventTracker | None:
+    def process_traffic_update(
+        self, frequency_hz: float, frame_count: int = 0
+    ) -> P25EventTracker | None:
         """Process update from traffic channel.
 
         Called when audio frames are received on a traffic channel.
@@ -427,10 +433,7 @@ class P25EventTrackerManager:
 
     def get_active_calls(self) -> list[P25CallEvent]:
         """Get all active (non-complete) calls."""
-        return [
-            t.event for t in self._trackers.values()
-            if not t.is_complete
-        ]
+        return [t.event for t in self._trackers.values() if not t.is_complete]
 
     def cleanup_stale(self) -> list[P25CallEvent]:
         """Clean up stale events.
@@ -453,13 +456,16 @@ class P25EventTrackerManager:
 
         return completed
 
-    def _is_duplicate_grant(self, talkgroup_id: int, frequency_hz: float,
-                           timestamp_ms: float) -> bool:
+    def _is_duplicate_grant(
+        self, talkgroup_id: int, frequency_hz: float, timestamp_ms: float
+    ) -> bool:
         """Check if this is a duplicate grant within the window."""
         for tgid, freq, ts in self._recent_grants:
-            if (tgid == talkgroup_id and
-                freq == frequency_hz and
-                (timestamp_ms - ts) < self.DUPLICATE_WINDOW_MS):
+            if (
+                tgid == talkgroup_id
+                and freq == frequency_hz
+                and (timestamp_ms - ts) < self.DUPLICATE_WINDOW_MS
+            ):
                 return True
         return False
 
@@ -467,15 +473,13 @@ class P25EventTrackerManager:
         """Remove old entries from recent grants."""
         cutoff = timestamp_ms - self.DUPLICATE_WINDOW_MS
         self._recent_grants = [
-            (tgid, freq, ts) for tgid, freq, ts in self._recent_grants
-            if ts > cutoff
+            (tgid, freq, ts) for tgid, freq, ts in self._recent_grants if ts > cutoff
         ]
 
     def _update_source(self, tracker: P25EventTracker, source_id: int) -> None:
         """Update source ID in tracker's identifiers."""
         mic = MutableIdentifierCollection(
-            tracker.event.identifiers.get_identifiers(),
-            tracker.event.identifiers.timeslot
+            tracker.event.identifiers.get_identifiers(), tracker.event.identifiers.timeslot
         )
         mic.update(Identifier(source_id, IdentifierRole.FROM, IdentifierForm.RADIO))
         tracker.event.identifiers = mic.to_immutable()
@@ -483,10 +487,8 @@ class P25EventTrackerManager:
     def get_stats(self) -> dict[str, Any]:
         """Get tracker statistics."""
         active = sum(1 for t in self._trackers.values() if not t.is_complete)
-        pending = sum(1 for t in self._trackers.values()
-                     if not t.is_started and not t.is_complete)
-        stale = sum(1 for t in self._trackers.values()
-                   if t.get_state() == CallEventState.STALE)
+        pending = sum(1 for t in self._trackers.values() if not t.is_started and not t.is_complete)
+        stale = sum(1 for t in self._trackers.values() if t.get_state() == CallEventState.STALE)
 
         return {
             "totalTrackers": len(self._trackers),

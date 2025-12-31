@@ -39,14 +39,14 @@ P25_PHASE2_SYNC_PATTERN_90_CW = 0x0104015155
 P25_PHASE2_SYNC_PATTERN_180 = 0xA8A2A80800
 
 # Sync pattern as dibit array (20 dibits)
-P25_PHASE2_SYNC_DIBITS = np.array([
-    (P25_PHASE2_SYNC_PATTERN >> (38 - i * 2)) & 0x3
-    for i in range(20)
-], dtype=np.uint8)
+P25_PHASE2_SYNC_DIBITS = np.array(
+    [(P25_PHASE2_SYNC_PATTERN >> (38 - i * 2)) & 0x3 for i in range(20)], dtype=np.uint8
+)
 
 
 class P25P2TimeslotType(IntEnum):
     """P25 Phase 2 timeslot types."""
+
     VOICE = 0
     SACCH = 1  # Slow Associated Control Channel
     FACCH = 2  # Fast Associated Control Channel
@@ -55,6 +55,7 @@ class P25P2TimeslotType(IntEnum):
 @dataclass
 class P25P2Timeslot:
     """Decoded P25 Phase 2 timeslot."""
+
     timeslot_number: int  # 0 or 1
     slot_type: P25P2TimeslotType
     dibits: NDArrayAny
@@ -66,6 +67,7 @@ class P25P2Timeslot:
 @dataclass
 class P25P2SuperFrameFragment:
     """A 720-dibit P25 Phase 2 SuperFrame fragment containing 4 timeslots."""
+
     dibits: NDArrayAny
     timestamp: int
     sync_bit_errors: int = 0
@@ -84,8 +86,8 @@ class P25P2SuperFrameFragment:
 
         # Each timeslot segment is 180 dibits: 20 ISCH + 160 timeslot
         start = index * 180
-        isch = self.dibits[start:start + 20]
-        timeslot = self.dibits[start + 20:start + 180]
+        isch = self.dibits[start : start + 20]
+        timeslot = self.dibits[start + 20 : start + 180]
         return isch, timeslot
 
 
@@ -146,7 +148,7 @@ class P25P2SyncPattern:
         best_phase = -1
 
         for phase, pattern in patterns:
-            errors = bin(value ^ pattern).count('1')
+            errors = bin(value ^ pattern).count("1")
             if errors < best_error:
                 best_error = errors
                 best_phase = phase
@@ -407,8 +409,7 @@ class P25P2SuperFrameDetector:
 
         # Extract fragment dibits
         dibits = self._fragment_buffer.get_buffer(
-            self.BUFFER_OVERSIZE + offset,
-            self.FRAGMENT_LENGTH
+            self.BUFFER_OVERSIZE + offset, self.FRAGMENT_LENGTH
         )
 
         fragment = P25P2SuperFrameFragment(

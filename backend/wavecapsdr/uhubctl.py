@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class USBDevice:
     """A USB device detected by uhubctl."""
+
     vendor_id: str
     product_id: str
     description: str
@@ -28,6 +29,7 @@ class USBDevice:
 @dataclass
 class USBPort:
     """A USB port on a hub."""
+
     port_number: int
     powered: bool
     connected: bool
@@ -37,6 +39,7 @@ class USBPort:
 @dataclass
 class USBHub:
     """A USB hub detected by uhubctl."""
+
     location: str
     vendor_id: str
     product_id: str
@@ -131,12 +134,14 @@ def _parse_uhubctl_output(output: str) -> list[USBHub]:
                     serial=serial,
                 )
 
-            current_hub.ports.append(USBPort(
-                port_number=port_num,
-                powered=is_powered,
-                connected=has_device,
-                device=device,
-            ))
+            current_hub.ports.append(
+                USBPort(
+                    port_number=port_num,
+                    powered=is_powered,
+                    connected=has_device,
+                    device=device,
+                )
+            )
 
     if current_hub:
         hubs.append(current_hub)
@@ -200,7 +205,17 @@ def power_cycle_port(hub_location: str, port_number: int, delay: float = 2.0) ->
     try:
         # Power cycle using uhubctl -a cycle
         result = subprocess.run(
-            ["uhubctl", "-l", hub_location, "-p", str(port_number), "-a", "cycle", "-d", str(delay)],
+            [
+                "uhubctl",
+                "-l",
+                hub_location,
+                "-p",
+                str(port_number),
+                "-a",
+                "cycle",
+                "-d",
+                str(delay),
+            ],
             capture_output=True,
             text=True,
             timeout=30,
@@ -305,7 +320,9 @@ def get_hub_status_dict() -> dict[str, Any]:
                             "productId": port.device.product_id,
                             "description": port.device.description,
                             "serial": port.device.serial,
-                        } if port.device else None,
+                        }
+                        if port.device
+                        else None,
                     }
                     for port in hub.ports
                 ],

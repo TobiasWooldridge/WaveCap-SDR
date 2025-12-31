@@ -34,6 +34,7 @@ def _normalize_dibits(values: Sequence[int] | DibitArray) -> DibitArray:
 @dataclass(frozen=True)
 class ControlChannelFrame:
     """Container for control-channel dibits before modulation."""
+
     dibits: DibitArray
     symbol_rate: int
 
@@ -47,6 +48,7 @@ class ControlChannelFrame:
 @dataclass(frozen=True)
 class TrafficChannelFrame:
     """Container for traffic-channel dibits before modulation."""
+
     dibits: DibitArray
     symbol_rate: int
 
@@ -60,6 +62,7 @@ class TrafficChannelFrame:
 @runtime_checkable
 class ControlChannelEncoder(Protocol):
     """Protocol for control-channel encoders."""
+
     protocol: TrunkingProtocol
     symbol_rate: int
 
@@ -71,6 +74,7 @@ class ControlChannelEncoder(Protocol):
 @runtime_checkable
 class TrafficChannelEncoder(Protocol):
     """Protocol for traffic-channel encoders."""
+
     protocol: TrunkingProtocol
     symbol_rate: int
 

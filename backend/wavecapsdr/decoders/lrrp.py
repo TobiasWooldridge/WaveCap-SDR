@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 class LRRPOpcode(IntEnum):
     """LRRP message opcodes."""
+
     IMMEDIATE_LOC_REQUEST = 0x01
     IMMEDIATE_LOC_RESPONSE = 0x02
     TRIGGERED_LOC_REQUEST = 0x03
@@ -32,6 +33,7 @@ class LRRPOpcode(IntEnum):
 
 class LocInfoType(IntEnum):
     """Location information element types."""
+
     LOC_2D = 0x22  # Latitude/longitude
     LOC_3D = 0x33  # Latitude/longitude/altitude
     VELOCITY = 0x42  # Speed and heading
@@ -61,6 +63,7 @@ class RadioLocation:
         timestamp: Unix timestamp when location was received
         source: Source of location data ("lrrp", "elc", "gps_tsbk")
     """
+
     unit_id: int
     latitude: float
     longitude: float
@@ -78,9 +81,9 @@ class RadioLocation:
     def is_valid(self) -> bool:
         """Check if coordinates are valid."""
         return (
-            -90 <= self.latitude <= 90 and
-            -180 <= self.longitude <= 180 and
-            not (self.latitude == 0.0 and self.longitude == 0.0)  # Null Island check
+            -90 <= self.latitude <= 90
+            and -180 <= self.longitude <= 180
+            and not (self.latitude == 0.0 and self.longitude == 0.0)  # Null Island check
         )
 
     def age_seconds(self) -> float:
@@ -219,12 +222,7 @@ def decode_elc_gps(lcf: int, data: bytes, unit_id: int) -> RadioLocation | None:
                 return None
             lat, lon = decode_lrrp_coordinates(data[:6])
 
-            return RadioLocation(
-                unit_id=unit_id,
-                latitude=lat,
-                longitude=lon,
-                source="elc"
-            )
+            return RadioLocation(unit_id=unit_id, latitude=lat, longitude=lon, source="elc")
 
         elif lcf == 0x0A:  # Extended GPS with altitude
             # Format: 6 bytes lat/lon + 2 bytes altitude
@@ -234,11 +232,7 @@ def decode_elc_gps(lcf: int, data: bytes, unit_id: int) -> RadioLocation | None:
             alt = decode_lrrp_altitude(data[6:8])
 
             return RadioLocation(
-                unit_id=unit_id,
-                latitude=lat,
-                longitude=lon,
-                altitude_m=alt,
-                source="elc"
+                unit_id=unit_id, latitude=lat, longitude=lon, altitude_m=alt, source="elc"
             )
 
         elif lcf == 0x0B:  # GPS with velocity
@@ -254,7 +248,7 @@ def decode_elc_gps(lcf: int, data: bytes, unit_id: int) -> RadioLocation | None:
                 longitude=lon,
                 speed_kmh=speed,
                 heading_deg=heading,
-                source="elc"
+                source="elc",
             )
 
     except Exception as e:
@@ -315,7 +309,7 @@ def decode_lrrp_packet(data: bytes, unit_id: int = 0) -> RadioLocation | None:
             if offset + ie_len > len(data):
                 break
 
-            ie_data = data[offset:offset + ie_len]
+            ie_data = data[offset : offset + ie_len]
             offset += ie_len
 
             if ie_type == LocInfoType.LOC_2D:
@@ -345,7 +339,7 @@ def decode_lrrp_packet(data: bytes, unit_id: int = 0) -> RadioLocation | None:
             speed_kmh=speed,
             heading_deg=heading,
             accuracy_m=accuracy,
-            source="lrrp"
+            source="lrrp",
         )
 
     except Exception as e:
@@ -395,14 +389,14 @@ class LocationCache:
     def get_fresh(self) -> list[RadioLocation]:
         """Get all fresh locations."""
         return [
-            loc for loc in self._locations.values()
-            if loc.age_seconds() <= self.max_age_seconds
+            loc for loc in self._locations.values() if loc.age_seconds() <= self.max_age_seconds
         ]
 
     def cleanup(self) -> int:
         """Remove stale locations. Returns count of removed entries."""
         stale_ids = [
-            uid for uid, loc in self._locations.items()
+            uid
+            for uid, loc in self._locations.items()
             if loc.age_seconds() > self.max_age_seconds * 2  # Double the max age before cleanup
         ]
         for uid in stale_ids:

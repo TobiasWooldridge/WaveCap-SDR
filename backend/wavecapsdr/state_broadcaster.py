@@ -3,6 +3,7 @@
 Provides a pub/sub mechanism for pushing state changes to WebSocket clients,
 reducing the need for polling.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class StateChange:
     """Represents a state change event."""
+
     type: str  # "capture" | "channel" | "scanner" | "device"
     action: str  # "created" | "updated" | "deleted" | "started" | "stopped"
     id: str  # Entity ID
@@ -113,12 +115,14 @@ class StateBroadcaster:
         data: dict[str, Any] | None = None,
     ) -> None:
         """Emit a capture state change."""
-        self.broadcast(StateChange(
-            type="capture",
-            action=action,
-            id=capture_id,
-            data=data,
-        ))
+        self.broadcast(
+            StateChange(
+                type="capture",
+                action=action,
+                id=capture_id,
+                data=data,
+            )
+        )
 
     def emit_channel_change(
         self,
@@ -127,12 +131,14 @@ class StateBroadcaster:
         data: dict[str, Any] | None = None,
     ) -> None:
         """Emit a channel state change."""
-        self.broadcast(StateChange(
-            type="channel",
-            action=action,
-            id=channel_id,
-            data=data,
-        ))
+        self.broadcast(
+            StateChange(
+                type="channel",
+                action=action,
+                id=channel_id,
+                data=data,
+            )
+        )
 
     def emit_scanner_change(
         self,
@@ -141,12 +147,14 @@ class StateBroadcaster:
         data: dict[str, Any] | None = None,
     ) -> None:
         """Emit a scanner state change."""
-        self.broadcast(StateChange(
-            type="scanner",
-            action=action,
-            id=scanner_id,
-            data=data,
-        ))
+        self.broadcast(
+            StateChange(
+                type="scanner",
+                action=action,
+                id=scanner_id,
+                data=data,
+            )
+        )
 
     def emit_device_change(
         self,
@@ -155,12 +163,14 @@ class StateBroadcaster:
         data: dict[str, Any] | None = None,
     ) -> None:
         """Emit a device state change."""
-        self.broadcast(StateChange(
-            type="device",
-            action=action,
-            id=device_id,
-            data=data,
-        ))
+        self.broadcast(
+            StateChange(
+                type="device",
+                action=action,
+                id=device_id,
+                data=data,
+            )
+        )
 
 
 def get_broadcaster() -> StateBroadcaster:

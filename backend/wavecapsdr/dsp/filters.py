@@ -16,7 +16,6 @@ Numba-accelerated FIR filters provide 3-5x speedup for streaming decimation.
 from __future__ import annotations
 
 import logging
-from threading import Lock
 from functools import lru_cache
 from typing import cast
 
@@ -28,6 +27,7 @@ logger = logging.getLogger(__name__)
 # Try to import numba for accelerated FIR filtering
 try:
     from numba import njit, prange
+
     NUMBA_AVAILABLE = True
 except ImportError:
     NUMBA_AVAILABLE = False
@@ -36,6 +36,7 @@ except ImportError:
 # Cache filter coefficients - these are expensive to compute
 # Key: (filter_type, cutoff_or_band, order, sample_rate)
 # Using lru_cache for thread-safe memoization
+
 
 @lru_cache(maxsize=128)
 def _get_butter_coeffs(
@@ -208,11 +209,7 @@ def bandpass_filter(
         normalized_high = high / nyquist
 
         # Validate cutoff frequencies
-        if (
-            normalized_low <= 0
-            or normalized_high >= 1.0
-            or normalized_low >= normalized_high
-        ):
+        if normalized_low <= 0 or normalized_high >= 1.0 or normalized_low >= normalized_high:
             return x.astype(np.float32, copy=False)
 
         # Use cached filter coefficients for performance
@@ -224,9 +221,7 @@ def bandpass_filter(
         return x.astype(np.float32, copy=False)
 
 
-def notch_filter(
-    x: NDArrayFloat, sample_rate: int, freq: float, q: float = 30.0
-) -> NDArrayFloat:
+def notch_filter(x: NDArrayFloat, sample_rate: int, freq: float, q: float = 30.0) -> NDArrayFloat:
     """Apply notch filter to remove a specific frequency tone.
 
     Used for:
@@ -337,7 +332,7 @@ def noise_blanker(
         except ImportError:
             # Fallback to convolution-based dilation
             kernel = np.ones(2 * blanking_width + 1, dtype=np.float32)
-            expanded_mask = np.convolve(impulse_mask.astype(np.float32), kernel, mode='same') > 0
+            expanded_mask = np.convolve(impulse_mask.astype(np.float32), kernel, mode="same") > 0
     else:
         expanded_mask = impulse_mask
 
@@ -406,7 +401,7 @@ def spectral_noise_reduction(
     n_frames = (len(x) - fft_size) // hop_size + 1
     padded_length = (n_frames - 1) * hop_size + fft_size
     if padded_length > len(x):
-        x = np.pad(x, (0, padded_length - len(x)), mode='constant')
+        x = np.pad(x, (0, padded_length - len(x)), mode="constant")
 
     # Compute STFT
     n_bins = fft_size // 2 + 1
@@ -414,7 +409,7 @@ def spectral_noise_reduction(
 
     for i in range(n_frames):
         start = i * hop_size
-        frame = x[start:start + fft_size] * window
+        frame = x[start : start + fft_size] * window
         stft[i] = np.fft.rfft(frame)
 
     # Get magnitude and phase
@@ -452,8 +447,8 @@ def spectral_noise_reduction(
     for i in range(n_frames):
         start = i * hop_size
         frame = np.fft.irfft(stft_clean[i], n=fft_size).astype(np.float32)
-        output[start:start + fft_size] += frame * window
-        window_sum[start:start + fft_size] += window ** 2
+        output[start : start + fft_size] += frame * window
+        window_sum[start : start + fft_size] += window**2
 
     # Normalize by window sum (avoid division by zero)
     window_sum = np.maximum(window_sum, 1e-10)
@@ -472,7 +467,6 @@ def spectral_noise_reduction(
 
 
 if NUMBA_AVAILABLE:
-    _NUMBA_PARALLEL_LOCK = Lock()
 
     @njit(cache=True, fastmath=True)
     def _fir_filter_complex_numba(
@@ -513,7 +507,7 @@ if NUMBA_AVAILABLE:
             y[i] = acc
 
         # Extract final state (last n_zi samples from state buffer)
-        new_zi = state[n_samples:n_samples + n_zi].copy()
+        new_zi = state[n_samples : n_samples + n_zi].copy()
 
         return y, new_zi
 
@@ -556,7 +550,7 @@ if NUMBA_AVAILABLE:
             y[i] = acc
 
         # Extract final state
-        new_zi = state[n_samples:n_samples + n_zi].copy()
+        new_zi = state[n_samples : n_samples + n_zi].copy()
 
         return y, new_zi
 
@@ -604,16 +598,14 @@ def fir_filter_complex(
     if NUMBA_AVAILABLE:
         # Use parallel version for large signals
         if use_parallel and len(x) > 10000:
-            # Workqueue threading layer is not threadsafe across Python threads.
-            # Guard parallel calls to avoid concurrent access crashes.
-            with _NUMBA_PARALLEL_LOCK:
-                y, new_zi = _fir_filter_complex_parallel(x_c128, taps_f64, zi_c128)
+            y, new_zi = _fir_filter_complex_parallel(x_c128, taps_f64, zi_c128)
         else:
             y, new_zi = _fir_filter_complex_numba(x_c128, taps_f64, zi_c128)
         return y.astype(np.complex64), new_zi
     else:
         # Fallback to scipy
         from scipy import signal as scipy_signal
+
         y, new_zi = scipy_signal.lfilter(taps_f64, 1.0, x_c128, zi=zi_c128)
         return y.astype(np.complex64), new_zi
 

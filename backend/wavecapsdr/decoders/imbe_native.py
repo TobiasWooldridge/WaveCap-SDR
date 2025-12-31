@@ -23,7 +23,13 @@ from wavecapsdr.typing import NDArrayFloat, NDArrayInt
 from scipy import signal
 
 from wavecapsdr.decoders.mbelib_neo import IMBEDecoderNeo, MbelibNeoError, is_available
-from wavecapsdr.decoders.p25_frames import DUID, FRAME_SYNC_DIBITS, decode_ldu1, decode_ldu2, decode_nid
+from wavecapsdr.decoders.p25_frames import (
+    DUID,
+    FRAME_SYNC_DIBITS,
+    decode_ldu1,
+    decode_ldu2,
+    decode_nid,
+)
 from wavecapsdr.decoders.nac_tracker import NACTracker
 from wavecapsdr.dsp.p25.c4fm import C4FMDemodulator
 
@@ -133,8 +139,7 @@ class IMBEDecoderNative:
 
         if not self.is_available():
             raise IMBENativeError(
-                "mbelib-neo not found. Install from: "
-                "https://github.com/arancormonk/mbelib-neo"
+                "mbelib-neo not found. Install from: https://github.com/arancormonk/mbelib-neo"
             )
 
         # Initialize C4FM demodulator at 48kHz (10 samples/symbol at 4800 baud)
@@ -284,7 +289,7 @@ class IMBEDecoderNative:
         dibits, soft_symbols = self._c4fm.demodulate_discriminator(disc_audio)
 
         # Diagnostic: log first few batches of dibits
-        if not hasattr(self, '_dibit_diag_count'):
+        if not hasattr(self, "_dibit_diag_count"):
             self._dibit_diag_count = 0
         self._dibit_diag_count += 1
         if self._dibit_diag_count <= 3:
@@ -334,7 +339,7 @@ class IMBEDecoderNative:
         threshold = sync_len - 8  # Allow up to 8 errors (16/24 = 67%)
 
         for i in range(len(dibits) - sync_len + 1):
-            window = dibits[i:i + sync_len]
+            window = dibits[i : i + sync_len]
             # Count matching dibits (normal polarity)
             score_normal = int(np.sum(window == FRAME_SYNC_DIBITS))
             # Check reversed polarity (XOR with 2)
@@ -353,7 +358,7 @@ class IMBEDecoderNative:
                 best_is_reversed = is_rev
 
         # Diagnostic: log best score periodically
-        if not hasattr(self, '_sync_search_count'):
+        if not hasattr(self, "_sync_search_count"):
             self._sync_search_count = 0
         self._sync_search_count += 1
         if self._sync_search_count <= 10 or self._sync_search_count % 50 == 0:
@@ -373,7 +378,7 @@ class IMBEDecoderNative:
             return  # Need at least 60 dibits (24 sync + 33 NID + buffer)
 
         # Diagnostic logging
-        if not hasattr(self, '_check_frame_count'):
+        if not hasattr(self, "_check_frame_count"):
             self._check_frame_count = 0
         self._check_frame_count += 1
         if self._check_frame_count <= 5 or self._check_frame_count % 100 == 0:
@@ -386,11 +391,11 @@ class IMBEDecoderNative:
         if self._pending_ldu_type is not None:
             if self._frame_position >= LDU_DIBITS:
                 # We have enough data to process the pending LDU
-                buffer_view = self._dibit_buffer[:self._frame_position]
+                buffer_view = self._dibit_buffer[: self._frame_position]
                 if self._pending_polarity:
                     buffer_view = buffer_view ^ 2
                 frame_dibits = buffer_view[:LDU_DIBITS]
-                is_ldu1 = (self._pending_ldu_type == 1)
+                is_ldu1 = self._pending_ldu_type == 1
                 self._process_ldu(frame_dibits, is_ldu1=is_ldu1)
                 self._consume_dibits(LDU_DIBITS)
                 self._pending_ldu_type = None
@@ -399,7 +404,7 @@ class IMBEDecoderNative:
             return
 
         # Search for frame sync in the buffer
-        buffer_view = self._dibit_buffer[:self._frame_position]
+        buffer_view = self._dibit_buffer[: self._frame_position]
         sync_pos, is_reversed = self._find_frame_sync(buffer_view)
 
         if sync_pos < 0:
@@ -418,7 +423,7 @@ class IMBEDecoderNative:
 
         # Extract NID (starts after 24-dibit sync)
         nid_start = sync_pos + 24
-        nid_dibits = buffer_view[nid_start:nid_start + 33]
+        nid_dibits = buffer_view[nid_start : nid_start + 33]
 
         nid = decode_nid(nid_dibits, skip_status_at_10=True, nac_tracker=self._nac_tracker)
         if nid is None:
@@ -432,16 +437,18 @@ class IMBEDecoderNative:
         garbage_nacs = {0x555, 0x55D, 0x55F, 0xAAA, 0xAAD, 0xAAF, 0x5AA, 0xA55}
         if nid.nac in garbage_nacs and nid.duid in (DUID.LDU1, DUID.LDU2):
             # Log and skip - this is likely wrong polarity detection
-            if not hasattr(self, '_garbage_nac_count'):
+            if not hasattr(self, "_garbage_nac_count"):
                 self._garbage_nac_count = 0
             self._garbage_nac_count += 1
             if self._garbage_nac_count <= 5:
-                logger.debug(f"IMBEDecoderNative: Skipping garbage NAC 0x{nid.nac:03x} for {nid.duid.name}")
+                logger.debug(
+                    f"IMBEDecoderNative: Skipping garbage NAC 0x{nid.nac:03x} for {nid.duid.name}"
+                )
             self._consume_dibits(sync_pos + 24)
             return
 
         # Diagnostic logging
-        if not hasattr(self, '_nid_found_count'):
+        if not hasattr(self, "_nid_found_count"):
             self._nid_found_count = 0
         self._nid_found_count += 1
         if self._nid_found_count <= 10 or self._nid_found_count % 100 == 0:
@@ -494,7 +501,7 @@ class IMBEDecoderNative:
         else:
             # Shift remaining dibits to start
             remaining = self._frame_position - count
-            self._dibit_buffer[:remaining] = self._dibit_buffer[count:self._frame_position]
+            self._dibit_buffer[:remaining] = self._dibit_buffer[count : self._frame_position]
             self._frame_position = remaining
 
     def _process_ldu(self, dibits: NDArrayInt, is_ldu1: bool) -> None:
@@ -571,7 +578,7 @@ class IMBEDecoderNative:
 
         # Pad to 184 bits (8 * 23)
         result = np.zeros(184, dtype=np.uint8)
-        result[:min(len(bits), 184)] = bits[:184] if len(bits) >= 184 else bits
+        result[: min(len(bits), 184)] = bits[:184] if len(bits) >= 184 else bits
 
         return result
 
@@ -582,8 +589,7 @@ def check_native_imbe_available() -> tuple[bool, str]:
         return True, "mbelib-neo is available for native IMBE decoding"
     else:
         return False, (
-            "mbelib-neo not found. Install from: "
-            "https://github.com/arancormonk/mbelib-neo"
+            "mbelib-neo not found. Install from: https://github.com/arancormonk/mbelib-neo"
         )
 
 
@@ -603,6 +609,7 @@ if __name__ == "__main__":
         decoder.decode(silence)
 
         import time
+
         time.sleep(0.5)
 
         print(f"Frames decoded: {decoder.frames_decoded}")

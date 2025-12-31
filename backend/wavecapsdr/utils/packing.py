@@ -27,14 +27,10 @@ class BitFieldSpec:
         max_for_width = (1 << self.width) - 1
         max_value = max_for_width if self.max_value is None else int(self.max_value)
         if max_value > max_for_width:
-            raise ValueError(
-                f"{self.name} max_value {max_value} exceeds width {self.width}"
-            )
+            raise ValueError(f"{self.name} max_value {max_value} exceeds width {self.width}")
         object.__setattr__(self, "max_value", max_value)
         if self.min_value < 0 or self.min_value > max_value:
-            raise ValueError(
-                f"{self.name} min_value {self.min_value} out of range 0-{max_value}"
-            )
+            raise ValueError(f"{self.name} min_value {self.min_value} out of range 0-{max_value}")
 
     def validate(self, value: int) -> int:
         try:
@@ -46,8 +42,7 @@ class BitFieldSpec:
             raise ValueError(f"{self.name} max_value not initialized")
         if int_value < self.min_value or int_value > int(max_value):
             raise ValueError(
-                f"{self.name} out of range {self.min_value}-{self.max_value} "
-                f"(got {int_value})"
+                f"{self.name} out of range {self.min_value}-{self.max_value} (got {int_value})"
             )
         return int_value
 
@@ -66,9 +61,7 @@ def bits_to_int(bits: BitBuffer, start: int, length: int) -> int:
     if length <= 0:
         raise ValueError("length must be positive")
     if start < 0 or start + length > len(bits):
-        raise ValueError(
-            f"cannot read {length} bits from offset {start} (len={len(bits)})"
-        )
+        raise ValueError(f"cannot read {length} bits from offset {start} (len={len(bits)})")
     value = 0
     for i in range(length):
         value = (value << 1) | (int(bits[start + i]) & 1)

@@ -44,19 +44,202 @@ TSBK_HEADER_FIELDS = (
 # From SDRTrunk P25P1Interleave.java DATA_DEINTERLEAVE array
 # For position i in deinterleaved output, read from DATA_DEINTERLEAVE[i] in input
 DATA_DEINTERLEAVE = [
-    0, 1, 2, 3, 16, 17, 18, 19, 32, 33, 34, 35, 48, 49, 50, 51,
-    64, 65, 66, 67, 80, 81, 82, 83, 96, 97, 98, 99, 112, 113, 114, 115,
-    128, 129, 130, 131, 144, 145, 146, 147, 160, 161, 162, 163, 176, 177, 178, 179,
-    192, 193, 194, 195,
-    4, 5, 6, 7, 20, 21, 22, 23, 36, 37, 38, 39, 52, 53, 54, 55,
-    68, 69, 70, 71, 84, 85, 86, 87, 100, 101, 102, 103, 116, 117, 118, 119,
-    132, 133, 134, 135, 148, 149, 150, 151, 164, 165, 166, 167, 180, 181, 182, 183,
-    8, 9, 10, 11, 24, 25, 26, 27, 40, 41, 42, 43, 56, 57, 58, 59,
-    72, 73, 74, 75, 88, 89, 90, 91, 104, 105, 106, 107, 120, 121, 122, 123,
-    136, 137, 138, 139, 152, 153, 154, 155, 168, 169, 170, 171, 184, 185, 186, 187,
-    12, 13, 14, 15, 28, 29, 30, 31, 44, 45, 46, 47, 60, 61, 62, 63,
-    76, 77, 78, 79, 92, 93, 94, 95, 108, 109, 110, 111, 124, 125, 126, 127,
-    140, 141, 142, 143, 156, 157, 158, 159, 172, 173, 174, 175, 188, 189, 190, 191,
+    0,
+    1,
+    2,
+    3,
+    16,
+    17,
+    18,
+    19,
+    32,
+    33,
+    34,
+    35,
+    48,
+    49,
+    50,
+    51,
+    64,
+    65,
+    66,
+    67,
+    80,
+    81,
+    82,
+    83,
+    96,
+    97,
+    98,
+    99,
+    112,
+    113,
+    114,
+    115,
+    128,
+    129,
+    130,
+    131,
+    144,
+    145,
+    146,
+    147,
+    160,
+    161,
+    162,
+    163,
+    176,
+    177,
+    178,
+    179,
+    192,
+    193,
+    194,
+    195,
+    4,
+    5,
+    6,
+    7,
+    20,
+    21,
+    22,
+    23,
+    36,
+    37,
+    38,
+    39,
+    52,
+    53,
+    54,
+    55,
+    68,
+    69,
+    70,
+    71,
+    84,
+    85,
+    86,
+    87,
+    100,
+    101,
+    102,
+    103,
+    116,
+    117,
+    118,
+    119,
+    132,
+    133,
+    134,
+    135,
+    148,
+    149,
+    150,
+    151,
+    164,
+    165,
+    166,
+    167,
+    180,
+    181,
+    182,
+    183,
+    8,
+    9,
+    10,
+    11,
+    24,
+    25,
+    26,
+    27,
+    40,
+    41,
+    42,
+    43,
+    56,
+    57,
+    58,
+    59,
+    72,
+    73,
+    74,
+    75,
+    88,
+    89,
+    90,
+    91,
+    104,
+    105,
+    106,
+    107,
+    120,
+    121,
+    122,
+    123,
+    136,
+    137,
+    138,
+    139,
+    152,
+    153,
+    154,
+    155,
+    168,
+    169,
+    170,
+    171,
+    184,
+    185,
+    186,
+    187,
+    12,
+    13,
+    14,
+    15,
+    28,
+    29,
+    30,
+    31,
+    44,
+    45,
+    46,
+    47,
+    60,
+    61,
+    62,
+    63,
+    76,
+    77,
+    78,
+    79,
+    92,
+    93,
+    94,
+    95,
+    108,
+    109,
+    110,
+    111,
+    124,
+    125,
+    126,
+    127,
+    140,
+    141,
+    142,
+    143,
+    156,
+    157,
+    158,
+    159,
+    172,
+    173,
+    174,
+    175,
+    188,
+    189,
+    190,
+    191,
 ]
 
 # Dibit-level deinterleave (98 dibits) derived from the bit-level mapping.
@@ -77,29 +260,115 @@ DATA_DEINTERLEAVE_DIBITS = np.array(
 # The last 16 entries (0x0001-0x8000) allow detecting single-bit errors in the CRC itself
 CCITT_80_CHECKSUMS = [
     # Data bits 0-79
-    0x1BCB, 0x8DE5, 0xC6F2, 0x6B69, 0xB5B4, 0x52CA, 0x2175, 0x90BA, 0x404D,
-    0xA026, 0x5803, 0xAC01, 0xD600, 0x6310, 0x3998, 0x14DC, 0x027E, 0x092F,
-    0x8497, 0xC24B, 0xE125, 0xF092, 0x7059, 0xB82C, 0x5406, 0x2213, 0x9109,
-    0xC884, 0x6C52, 0x3E39, 0x9F1C, 0x479E, 0x2BDF, 0x95EF, 0xCAF7, 0xE57B,
-    0xF2BD, 0xF95E, 0x74BF, 0xBA5F, 0xDD2F, 0xEE97, 0xF74B, 0xFBA5, 0xFDD2,
-    0x76F9, 0xBB7C, 0x55AE, 0x22C7, 0x9163, 0xC8B1, 0xE458, 0x7A3C, 0x350E,
-    0x1297, 0x894B, 0xC4A5, 0xE252, 0x7939, 0xBC9C, 0x565E, 0x233F, 0x919F,
-    0xC8CF, 0xE467, 0xF233, 0xF919, 0xFC8C, 0x7656, 0x333B, 0x999D, 0xCCCE,
-    0x6E77, 0xB73B, 0xDB9D, 0xEDCE, 0x7EF7, 0xBF7B, 0xDFBD, 0xEFDE,
+    0x1BCB,
+    0x8DE5,
+    0xC6F2,
+    0x6B69,
+    0xB5B4,
+    0x52CA,
+    0x2175,
+    0x90BA,
+    0x404D,
+    0xA026,
+    0x5803,
+    0xAC01,
+    0xD600,
+    0x6310,
+    0x3998,
+    0x14DC,
+    0x027E,
+    0x092F,
+    0x8497,
+    0xC24B,
+    0xE125,
+    0xF092,
+    0x7059,
+    0xB82C,
+    0x5406,
+    0x2213,
+    0x9109,
+    0xC884,
+    0x6C52,
+    0x3E39,
+    0x9F1C,
+    0x479E,
+    0x2BDF,
+    0x95EF,
+    0xCAF7,
+    0xE57B,
+    0xF2BD,
+    0xF95E,
+    0x74BF,
+    0xBA5F,
+    0xDD2F,
+    0xEE97,
+    0xF74B,
+    0xFBA5,
+    0xFDD2,
+    0x76F9,
+    0xBB7C,
+    0x55AE,
+    0x22C7,
+    0x9163,
+    0xC8B1,
+    0xE458,
+    0x7A3C,
+    0x350E,
+    0x1297,
+    0x894B,
+    0xC4A5,
+    0xE252,
+    0x7939,
+    0xBC9C,
+    0x565E,
+    0x233F,
+    0x919F,
+    0xC8CF,
+    0xE467,
+    0xF233,
+    0xF919,
+    0xFC8C,
+    0x7656,
+    0x333B,
+    0x999D,
+    0xCCCE,
+    0x6E77,
+    0xB73B,
+    0xDB9D,
+    0xEDCE,
+    0x7EF7,
+    0xBF7B,
+    0xDFBD,
+    0xEFDE,
     # CRC bits 80-95 (powers of 2 for detecting CRC bit errors)
-    0x0001, 0x0002, 0x0004, 0x0008, 0x0010, 0x0020, 0x0040, 0x0080,
-    0x0100, 0x0200, 0x0400, 0x0800, 0x1000, 0x2000, 0x4000, 0x8000,
+    0x0001,
+    0x0002,
+    0x0004,
+    0x0008,
+    0x0010,
+    0x0020,
+    0x0040,
+    0x0080,
+    0x0100,
+    0x0200,
+    0x0400,
+    0x0800,
+    0x1000,
+    0x2000,
+    0x4000,
+    0x8000,
 ]
 
 
 class DUID(IntEnum):
     """Data Unit ID values for P25 frames."""
-    HDU = 0x0    # Header Data Unit
-    TDU = 0x3    # Terminator Data Unit (no link control)
-    LDU1 = 0x5   # Logical Link Data Unit 1
-    TSDU = 0x7   # Trunking Signaling Data Unit
-    LDU2 = 0xA   # Logical Link Data Unit 2
-    PDU = 0xC    # Packet Data Unit
+
+    HDU = 0x0  # Header Data Unit
+    TDU = 0x3  # Terminator Data Unit (no link control)
+    LDU1 = 0x5  # Logical Link Data Unit 1
+    TSDU = 0x7  # Trunking Signaling Data Unit
+    LDU2 = 0xA  # Logical Link Data Unit 2
+    PDU = 0xC  # Packet Data Unit
     TDULC = 0xF  # Terminator Data Unit with Link Control
 
 
@@ -112,8 +381,9 @@ class DUID(IntEnum):
 # Dibits: 1 1 1 1 1 3 1 1 3 3 1 1 3 3 3 3 1 3 1 3 3 3 3 3
 # Hex value: 0x5575F5FF77FF (verified against SDRTrunk)
 FRAME_SYNC_PATTERN = 0x5575F5FF77FF
-FRAME_SYNC_DIBITS = np.array([1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1,
-                               3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3], dtype=np.uint8)
+FRAME_SYNC_DIBITS = np.array(
+    [1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1, 3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3], dtype=np.uint8
+)
 
 # Status symbols positions in frames (for de-interleaving)
 STATUS_SYMBOL_INTERVAL = 36  # Status symbol every 36 dibits (positions 36, 72, 108, ...)
@@ -129,6 +399,7 @@ class NID:
     - DUID: Data Unit ID (4 bits) - frame type
     - BCH parity (48 bits) - error correction
     """
+
     nac: int  # Network Access Code (12 bits)
     duid: DUID  # Data Unit ID (4 bits)
     errors: int = 0  # BCH correction count
@@ -145,6 +416,7 @@ class LinkControl:
     - Source ID
     - GPS data (for LCF 0x09, 0x0A, 0x0B)
     """
+
     lcf: int = 0  # Link Control Format
     mfid: int = 0  # Manufacturer ID (0 = standard)
     tgid: int = 0  # Talkgroup ID
@@ -169,6 +441,7 @@ class EncryptionSync:
     - KID: Key ID
     - MI: Message Indicator (IV)
     """
+
     algid: int = 0  # Algorithm ID (0x80 = unencrypted)
     kid: int = 0  # Key ID
     mi: bytes = field(default_factory=lambda: bytes(9))  # Message Indicator
@@ -184,6 +457,7 @@ class HDUFrame:
     - ALGID and KID
     - TGID
     """
+
     nid: NID
     mi: bytes  # Message Indicator (72 bits = 9 bytes)
     algid: int  # Algorithm ID
@@ -199,6 +473,7 @@ class LDUFrame:
     Contains 9 IMBE voice frames (20ms each = 180ms total)
     plus link control (LDU1) or encryption sync (LDU2).
     """
+
     nid: NID
     imbe_frames: list[bytes]  # 9 IMBE frames, 88 bits each
     link_control: LinkControl | None = None  # LDU1 only
@@ -209,6 +484,7 @@ class LDUFrame:
 @dataclass
 class TDUFrame:
     """Terminator Data Unit - marks end of transmission."""
+
     nid: NID
     link_control: LinkControl | None = None  # TDULC only
 
@@ -219,6 +495,7 @@ class TSDUFrame:
 
     Contains one or more TSBK (Trunking Signaling Block) messages.
     """
+
     nid: NID
     tsbk_blocks: list[TSBKBlock]
     errors: int = 0
@@ -236,6 +513,7 @@ class TSBKBlock:
     - Data (64 bits)
     - CRC (16 bits)
     """
+
     last_block: bool
     opcode: int
     mfid: int
@@ -410,13 +688,8 @@ def decode_nid(
     global _decode_nid_debug_count
     _decode_nid_debug_count += 1
     if _decode_nid_debug_count <= 10 or _decode_nid_debug_count % 100 == 0:
-        if logger.isEnabledFor(logging.DEBUG):
-            dibit_str = " ".join(str(d) for d in clean_dibits[:8])
-            logger.debug(
-                "decode_nid #%d: dibits[0:8]=%s",
-                _decode_nid_debug_count,
-                dibit_str,
-            )
+        dibit_str = " ".join(str(d) for d in clean_dibits[:8])
+        logger.info(f"decode_nid #{_decode_nid_debug_count}: dibits[0:8]={dibit_str}")
 
     # Convert dibits to bits for BCH decoder (32 dibits = 64 bits)
     bits = np.zeros(64, dtype=np.uint8)
@@ -485,15 +758,11 @@ def decode_nid(
     global _decode_nid_decode_count
     _decode_nid_decode_count += 1
     if _decode_nid_decode_count <= 10:
-        if logger.isEnabledFor(logging.DEBUG):
-            tracked_nac_str = f"0x{tracked_nac:03x}" if tracked_nac else "0x000"
-            logger.debug(
-                "decode_nid: NAC=0x%03x, DUID=0x%x, errors=%d, tracked_nac=%s",
-                nac,
-                duid_val,
-                errors,
-                tracked_nac_str,
-            )
+        tracked_nac_str = f"0x{tracked_nac:03x}" if tracked_nac else "0x000"
+        logger.info(
+            f"decode_nid: NAC=0x{nac:03x}, DUID=0x{duid_val:x}, "
+            f"errors={errors}, tracked_nac={tracked_nac_str}"
+        )
 
     return NID(nac=nac, duid=duid, errors=errors)
 
@@ -547,13 +816,7 @@ def decode_hdu(dibits: NDArrayAny) -> HDUFrame | None:
 
     logger.info(f"HDU: NAC={nid.nac:03X} ALGID={algid:02X} KID={kid:04X} TGID={tgid}")
 
-    return HDUFrame(
-        nid=nid,
-        mi=bytes(mi_bytes),
-        algid=algid,
-        kid=kid,
-        tgid=tgid
-    )
+    return HDUFrame(nid=nid, mi=bytes(mi_bytes), algid=algid, kid=kid, tgid=tgid)
 
 
 def decode_ldu1(dibits: NDArrayAny) -> LDUFrame | None:
@@ -582,11 +845,7 @@ def decode_ldu1(dibits: NDArrayAny) -> LDUFrame | None:
     # Extract Link Control (Hamming protected)
     lc = extract_link_control(dibits)
 
-    return LDUFrame(
-        nid=nid,
-        imbe_frames=imbe_frames,
-        link_control=lc
-    )
+    return LDUFrame(nid=nid, imbe_frames=imbe_frames, link_control=lc)
 
 
 def decode_ldu2(dibits: NDArrayAny) -> LDUFrame | None:
@@ -610,11 +869,7 @@ def decode_ldu2(dibits: NDArrayAny) -> LDUFrame | None:
     # Extract Encryption Sync
     es = extract_encryption_sync(dibits)
 
-    return LDUFrame(
-        nid=nid,
-        imbe_frames=imbe_frames,
-        encryption_sync=es
-    )
+    return LDUFrame(nid=nid, imbe_frames=imbe_frames, encryption_sync=es)
 
 
 def decode_tdu(dibits: NDArrayAny) -> TDUFrame | None:
@@ -693,12 +948,7 @@ def decode_tsdu(dibits: NDArrayAny, soft: NDArrayAny | None = None) -> TSDUFrame
     global _decode_tsdu_debug_count
     _decode_tsdu_debug_count += 1
     if _decode_tsdu_debug_count <= 10:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "decode_tsdu: nid_dibits[0:15]=%s, len=%d",
-                list(nid_dibits[:15]),
-                len(nid_dibits),
-            )
+        logger.info(f"decode_tsdu: nid_dibits[0:15]={list(nid_dibits[:15])}, len={len(nid_dibits)}")
 
     nid = decode_nid(nid_dibits, skip_status_at_10=True)
     if nid is None:
@@ -706,12 +956,7 @@ def decode_tsdu(dibits: NDArrayAny, soft: NDArrayAny | None = None) -> TSDUFrame
         return None
 
     if _decode_tsdu_debug_count <= 10:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "decode_tsdu: NID decoded: nac=0x%03x, duid=%s",
-                nid.nac,
-                nid.duid,
-            )
+        logger.info(f"decode_tsdu: NID decoded: nac=0x{nid.nac:03x}, duid={nid.duid}")
 
     # Extract TSBK data and remove status symbols
     # TSBK data starts at frame position 57 (after sync + NID)
@@ -734,10 +979,7 @@ def decode_tsdu(dibits: NDArrayAny, soft: NDArrayAny | None = None) -> TSDUFrame
     # Extract TSBK blocks from cleaned data
     tsbk_blocks = extract_tsbk_blocks(tsbk_clean, tsbk_soft_clean)
 
-    return TSDUFrame(
-        nid=nid,
-        tsbk_blocks=tsbk_blocks
-    )
+    return TSDUFrame(nid=nid, tsbk_blocks=tsbk_blocks)
 
 
 def extract_imbe_frames(dibits: NDArrayAny) -> list[bytes]:
@@ -759,7 +1001,7 @@ def extract_imbe_frames(dibits: NDArrayAny) -> list[bytes]:
     for i in range(9):
         start = i * frame_size
         if start + frame_size <= len(clean_dibits):
-            frame_dibits = clean_dibits[start:start + frame_size]
+            frame_dibits = clean_dibits[start : start + frame_size]
             # Convert dibits to bytes (11 bytes per frame)
             frame_bytes = bytearray(11)
             for j in range(min(44, len(frame_dibits))):
@@ -904,11 +1146,7 @@ def extract_encryption_sync(dibits: NDArrayAny) -> EncryptionSync:
     for i in range(9):
         mi[i] = bits_to_int(bits, es_offset + 24 + i * 8, 8)
 
-    return EncryptionSync(
-        algid=algid,
-        kid=kid,
-        mi=bytes(mi)
-    )
+    return EncryptionSync(algid=algid, kid=kid, mi=bytes(mi))
 
 
 def extract_tsbk_blocks(dibits: NDArrayAny, soft: NDArrayAny | None = None) -> list[TSBKBlock]:
@@ -946,8 +1184,7 @@ def extract_tsbk_blocks(dibits: NDArrayAny, soft: NDArrayAny | None = None) -> l
     TSBK_ENCODED_SIZE = 98  # dibits per TSBK
 
     # DEBUG: Log input size
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug("extract_tsbk_blocks: input dibits=%d", len(dibits))
+    logger.info(f"extract_tsbk_blocks: input dibits={len(dibits)}")
     if soft is not None and len(soft) != len(dibits):
         logger.warning(
             f"extract_tsbk_blocks: soft length mismatch (soft={len(soft)}, dibits={len(dibits)})"
@@ -958,63 +1195,60 @@ def extract_tsbk_blocks(dibits: NDArrayAny, soft: NDArrayAny | None = None) -> l
     for block_idx in range(3):  # Max 3 TSBKs per TSDU
         # Check if we have enough dibits for another TSBK
         if offset + TSBK_ENCODED_SIZE > len(dibits):
-            logger.debug(f"TSBK block {block_idx}: not enough dibits (have {len(dibits)-offset}, need {TSBK_ENCODED_SIZE})")
+            logger.debug(
+                f"TSBK block {block_idx}: not enough dibits (have {len(dibits) - offset}, need {TSBK_ENCODED_SIZE})"
+            )
             break
 
         # Extract 98 dibits for this TSBK
-        tsbk_dibits = dibits[offset:offset + TSBK_ENCODED_SIZE]
+        tsbk_dibits = dibits[offset : offset + TSBK_ENCODED_SIZE]
 
         # Convert 98 dibits to 196 bits for deinterleaving
         interleaved_bits = dibits_to_bits(tsbk_dibits)
 
         if len(interleaved_bits) < 196:
-            logger.warning(f"TSBK block {block_idx}: not enough bits ({len(interleaved_bits)} < 196)")
+            logger.warning(
+                f"TSBK block {block_idx}: not enough bits ({len(interleaved_bits)} < 196)"
+            )
             break
 
         # DEBUG: Log raw dibits and bits before deinterleave (first block only)
         global _extract_tsbk_blocks_debug_done
-        trellis_debug = (
-            block_idx == 0
-            and logger.isEnabledFor(logging.DEBUG)
-            and not _extract_tsbk_blocks_debug_done
-        )
         if block_idx == 0 and not _extract_tsbk_blocks_debug_done:
             _extract_tsbk_blocks_debug_done = True
-            dibit_hex = ''.join(f'{d:01x}' for d in tsbk_dibits[:24])
-            bit_str = ''.join(str(b) for b in interleaved_bits[:48])
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("TSBK DEBUG: raw dibits[0:24]=%s", dibit_hex)
-                logger.debug("TSBK DEBUG: interleaved bits[0:48]=%s", bit_str)
+            dibit_hex = "".join(f"{d:01x}" for d in tsbk_dibits[:24])
+            bit_str = "".join(str(b) for b in interleaved_bits[:48])
+            logger.info(f"TSBK DEBUG: raw dibits[0:24]={dibit_hex}")
+            logger.info(f"TSBK DEBUG: interleaved bits[0:48]={bit_str}")
 
         # Step 1: Deinterleave using P25 data pattern (196 bits)
         deinterleaved_bits = deinterleave_data(interleaved_bits)
 
         # DEBUG: Log after deinterleave
-        if trellis_debug:
-            bit_str = ''.join(str(b) for b in deinterleaved_bits[:48])
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("TSBK DEBUG: deinterleaved bits[0:48]=%s", bit_str)
+        if block_idx == 0:
+            bit_str = "".join(str(b) for b in deinterleaved_bits[:48])
+            logger.info(f"TSBK DEBUG: deinterleaved bits[0:48]={bit_str}")
 
         # Step 2: Trellis decode using 1/2 rate (per SDRTrunk)
         # Convert 196 bits back to 98 dibits for the trellis decoder
         trellis_dibits = np.zeros(98, dtype=np.uint8)
         for i in range(98):
-            trellis_dibits[i] = (int(deinterleaved_bits[i * 2]) << 1) | int(deinterleaved_bits[i * 2 + 1])
+            trellis_dibits[i] = (int(deinterleaved_bits[i * 2]) << 1) | int(
+                deinterleaved_bits[i * 2 + 1]
+            )
 
         # DEBUG: Log symbols going into trellis decoder
-        if trellis_debug:
-            dibit_hex = ''.join(f'{d:01x}' for d in trellis_dibits[:24])
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("TSBK DEBUG: trellis input dibits[0:24]=%s", dibit_hex)
+        if block_idx == 0:
+            dibit_hex = "".join(f"{d:01x}" for d in trellis_dibits[:24])
+            logger.info(f"TSBK DEBUG: trellis input dibits[0:24]={dibit_hex}")
 
         # Trellis 1/2 rate decode (98 dibits → ~49 dibits)
-        decoded_dibits, error_metric = trellis_decode(
-            trellis_dibits,
-            debug=trellis_debug,
-        )
+        decoded_dibits, error_metric = trellis_decode(trellis_dibits, debug=(block_idx == 0))
 
         if decoded_dibits is None or len(decoded_dibits) < 48:
-            logger.warning(f"TSBK block {block_idx}: trellis decode failed, got {len(decoded_dibits) if decoded_dibits is not None else 0} dibits")
+            logger.warning(
+                f"TSBK block {block_idx}: trellis decode failed, got {len(decoded_dibits) if decoded_dibits is not None else 0} dibits"
+            )
             break
 
         # Convert decoded dibits to bits (need 96 bits for TSBK)
@@ -1024,20 +1258,18 @@ def extract_tsbk_blocks(dibits: NDArrayAny, soft: NDArrayAny | None = None) -> l
             decoded_bits[i * 2 + 1] = d & 1
 
         if len(decoded_bits) < 96:
-            logger.warning(f"TSBK block {block_idx}: not enough decoded bits ({len(decoded_bits)} < 96)")
+            logger.warning(
+                f"TSBK block {block_idx}: not enough decoded bits ({len(decoded_bits)} < 96)"
+            )
             break
 
         # DEBUG: Log decoded output
-        if trellis_debug:
-            bit_str = ''.join(str(b) for b in decoded_bits[:48])
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "TSBK block 0: error_metric=%d, decoded_dibits=%d, decoded_bits=%d",
-                    error_metric,
-                    len(decoded_dibits),
-                    len(decoded_bits),
-                )
-                logger.debug("TSBK DEBUG: decoded bits[0:48]=%s", bit_str)
+        if block_idx == 0:
+            logger.info(
+                f"TSBK block 0: error_metric={error_metric}, decoded_dibits={len(decoded_dibits)}, decoded_bits={len(decoded_bits)}"
+            )
+            bit_str = "".join(str(b) for b in decoded_bits[:48])
+            logger.info(f"TSBK DEBUG: decoded bits[0:48]={bit_str}")
 
         # Step 3: Validate CRC-16 CCITT (first 80 bits + 16-bit CRC = 96 bits total)
         crc_valid, crc_errors = crc16_ccitt_p25(decoded_bits)
@@ -1054,25 +1286,20 @@ def extract_tsbk_blocks(dibits: NDArrayAny, soft: NDArrayAny | None = None) -> l
         for i in range(8):
             data[i] = bits_to_int(decoded_bits, 16 + i * 8, 8)
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "TSBK %d: LB=%s opcode=0x%02x mfid=0x%02x crc_valid=%s errors=%s error_metric=%d",
-                block_idx,
-                last_block,
-                opcode,
-                mfid,
-                crc_valid,
-                crc_errors,
-                error_metric,
-            )
+        logger.info(
+            f"TSBK {block_idx}: LB={last_block} opcode=0x{opcode:02x} "
+            f"mfid=0x{mfid:02x} crc_valid={crc_valid} errors={crc_errors} error_metric={error_metric}"
+        )
 
-        blocks.append(TSBKBlock(
-            last_block=last_block,
-            opcode=opcode,
-            mfid=mfid,
-            data=bytes(data),
-            crc_valid=crc_valid
-        ))
+        blocks.append(
+            TSBKBlock(
+                last_block=last_block,
+                opcode=opcode,
+                mfid=mfid,
+                data=bytes(data),
+                crc_valid=crc_valid,
+            )
+        )
 
         # Stop if this was the last block
         if last_block:

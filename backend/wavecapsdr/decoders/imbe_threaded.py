@@ -124,14 +124,10 @@ class IMBEDecoderThreaded:
 
         # Start I/O threads
         self._write_thread = threading.Thread(
-            target=self._write_loop,
-            name="imbe-writer",
-            daemon=True
+            target=self._write_loop, name="imbe-writer", daemon=True
         )
         self._read_thread = threading.Thread(
-            target=self._read_loop,
-            name="imbe-reader",
-            daemon=True
+            target=self._read_loop, name="imbe-reader", daemon=True
         )
 
         self._write_thread.start()
@@ -226,13 +222,17 @@ class IMBEDecoderThreaded:
         """Get DSD-FME command line arguments."""
         return [
             "dsd-fme",
-            "-i", "-",           # Read from stdin
-            "-o", "-",           # Write to stdout
-            "-f1",               # P25 Phase 1 only
-            "-N",                # No audio output to speaker
-            "-g", "0",           # No gain adjustment
-            "-u", "0",           # No upsampling (we handle it)
-            "-L",                # Low CPU mode
+            "-i",
+            "-",  # Read from stdin
+            "-o",
+            "-",  # Write to stdout
+            "-f1",  # P25 Phase 1 only
+            "-N",  # No audio output to speaker
+            "-g",
+            "0",  # No gain adjustment
+            "-u",
+            "0",  # No upsampling (we handle it)
+            "-L",  # Low CPU mode
         ]
 
     def _write_loop(self) -> None:
@@ -258,11 +258,11 @@ class IMBEDecoderThreaded:
 
                 if samples_to_add <= space_available:
                     # Fits in current batch
-                    batch_buffer[batch_pos:batch_pos + samples_to_add] = audio
+                    batch_buffer[batch_pos : batch_pos + samples_to_add] = audio
                     batch_pos += samples_to_add
                 else:
                     # Fill current batch and flush
-                    batch_buffer[batch_pos:batch_pos + space_available] = audio[:space_available]
+                    batch_buffer[batch_pos : batch_pos + space_available] = audio[:space_available]
                     self._flush_batch(batch_buffer)
                     batch_pos = 0
 
@@ -273,7 +273,7 @@ class IMBEDecoderThreaded:
                         remaining = remaining[batch_samples:]
 
                     if len(remaining) > 0:
-                        batch_buffer[:len(remaining)] = remaining
+                        batch_buffer[: len(remaining)] = remaining
                         batch_pos = len(remaining)
 
                 # Flush if batch is full

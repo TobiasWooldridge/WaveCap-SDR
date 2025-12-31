@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 import logging.handlers
 import inspect
@@ -24,7 +23,6 @@ from .device_namer import generate_capture_name, get_device_nickname
 from .mcp_server import router as mcp_router
 from .state import AppState
 from .trunking.api import router as trunking_router
-from .utils.log_sampling import LogSamplingFilter, LogSamplingRule
 
 # Work around slowapi using deprecated asyncio.iscoroutinefunction on Python 3.14+.
 slowapi_asyncio = cast(Any, getattr(slowapi_extension, "asyncio", None))
@@ -104,35 +102,25 @@ def setup_file_logging() -> None:
         backupCount=3,
     )
     file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(logging.Formatter(
-        '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    ))
+    file_handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+        )
+    )
 
     # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(file_handler)
 
     # Also add console handler for INFO and above
     console_handler = SafeStreamHandler()
     console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(logging.Formatter(
-        '[%(levelname)s] %(name)s: %(message)s'
-    ))
-
-    # Rate-limit noisy loggers to reduce file/console overhead in hot paths.
-    sampling_rules = (
-        LogSamplingRule(prefix="wavecapsdr.decoders.p25", max_per_interval=5, interval_s=1.0),
-        LogSamplingRule(prefix="wavecapsdr.decoders.p25_tsbk", max_per_interval=5, interval_s=1.0),
-        LogSamplingRule(prefix="wavecapsdr.trunking.control_channel", max_per_interval=5, interval_s=1.0),
-    )
-    file_handler.addFilter(LogSamplingFilter(sampling_rules, max_level=logging.INFO))
-    console_handler.addFilter(LogSamplingFilter(sampling_rules, max_level=logging.INFO))
-
-    root_logger.addHandler(file_handler)
+    console_handler.setFormatter(logging.Formatter("[%(levelname)s] %(name)s: %(message)s"))
     root_logger.addHandler(console_handler)
 
     logging.info("File logging initialized: %s", log_file)
+
 
 # Global DSP thread pool executor for CPU-intensive audio processing
 # This keeps DSP work off the main asyncio event loop to prevent HTTP starvation
@@ -148,6 +136,7 @@ def get_dsp_executor() -> ThreadPoolExecutor:
     global _dsp_executor
     if _dsp_executor is None:
         import os
+
         # Use 8 workers or CPU count + 2, whichever is smaller
         # This handles 3 SDRs with 4+ channels each efficiently
         max_workers = min(8, (os.cpu_count() or 4) + 2)
@@ -183,10 +172,6 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
         cleanup_orphan_sdrplay_workers()
 
         app_state: AppState = app.state.app_state
-
-        # Ensure state broadcaster can safely marshal updates from worker threads.
-        from .state_broadcaster import get_broadcaster
-        get_broadcaster().set_event_loop(asyncio.get_running_loop())
 
         # Start P25 trunking manager (already created in AppState.from_config)
         await app_state.trunking_manager.start()
@@ -250,7 +235,9 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
                 app_state.capture_presets[cap.cfg.id] = preset_name
 
                 device_info = cap_cfg.device_id or "any device"
-                print(f"Auto-started capture '{cap.cfg.id}' with preset '{preset_name}' on {device_info}")
+                print(
+                    f"Auto-started capture '{cap.cfg.id}' with preset '{preset_name}' on {device_info}"
+                )
                 created_any = True
             except Exception as e:
                 print(f"Failed to auto-start capture with preset '{preset_name}': {e}")
@@ -354,7 +341,9 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
     # Configure rate limiting
     limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
     app.state.limiter = limiter
-    rate_limit_handler = cast(Callable[[Request, Exception], Response], _rate_limit_exceeded_handler)
+    rate_limit_handler = cast(
+        Callable[[Request, Exception], Response], _rate_limit_exceeded_handler
+    )
     app.add_exception_handler(RateLimitExceeded, rate_limit_handler)
 
     app.state.app_state = AppState.from_config(config, config_path)

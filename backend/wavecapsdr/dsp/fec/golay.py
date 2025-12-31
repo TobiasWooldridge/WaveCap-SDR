@@ -30,20 +30,23 @@ logger = logging.getLogger(__name__)
 
 # Golay(24,12) generator matrix (lower triangular parity portion)
 # Each row is the parity bits for a single data bit
-GOLAY_GENERATOR = np.array([
-    [1, 1, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1],  # d0
-    [0, 1, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1],  # d1
-    [1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 0, 0],  # d2
-    [0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 0],  # d3
-    [0, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0],  # d4
-    [0, 0, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1],  # d5
-    [1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1],  # d6
-    [1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0],  # d7
-    [0, 1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1],  # d8
-    [1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0],  # d9
-    [0, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0],  # d10
-    [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0],  # d11
-], dtype=np.uint8)
+GOLAY_GENERATOR = np.array(
+    [
+        [1, 1, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1],  # d0
+        [0, 1, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1],  # d1
+        [1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 0, 0],  # d2
+        [0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 0],  # d3
+        [0, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0],  # d4
+        [0, 0, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1],  # d5
+        [1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1],  # d6
+        [1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0],  # d7
+        [0, 1, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1],  # d8
+        [1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0],  # d9
+        [0, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0],  # d10
+        [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 0],  # d11
+    ],
+    dtype=np.uint8,
+)
 
 # Parity check matrix H = [I_12 | P^T]
 # Used for syndrome calculation
@@ -208,16 +211,9 @@ def golay_decode(codeword: int) -> tuple[int, int]:
     for i in range(12):
         for j in range(i + 1, 12):
             for k in range(j + 1, 12):
-                test_syndrome = (
-                    syndrome
-                    ^ gen_syndromes[i]
-                    ^ gen_syndromes[j]
-                    ^ gen_syndromes[k]
-                )
+                test_syndrome = syndrome ^ gen_syndromes[i] ^ gen_syndromes[j] ^ gen_syndromes[k]
                 if test_syndrome == 0:
-                    corrected_data = (
-                        data ^ (1 << (11 - i)) ^ (1 << (11 - j)) ^ (1 << (11 - k))
-                    )
+                    corrected_data = data ^ (1 << (11 - i)) ^ (1 << (11 - j)) ^ (1 << (11 - k))
                     return corrected_data, 3
 
     # Uncorrectable error (more than 3 bit errors)
@@ -225,9 +221,7 @@ def golay_decode(codeword: int) -> tuple[int, int]:
     return -1, -1
 
 
-def golay_decode_soft(
-    codeword: int, soft_bits: NDArrayAny | None = None
-) -> tuple[int, int, float]:
+def golay_decode_soft(codeword: int, soft_bits: NDArrayAny | None = None) -> tuple[int, int, float]:
     """Decode Golay(24,12) with soft decision information.
 
     When soft bit reliabilities are available, uses them to improve

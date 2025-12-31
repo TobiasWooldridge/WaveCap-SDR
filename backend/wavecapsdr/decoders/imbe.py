@@ -252,13 +252,17 @@ class IMBEDecoder:
         """Get DSD-FME command line arguments."""
         return [
             "dsd-fme",
-            "-i", "-",           # Read from stdin
-            "-o", "-",           # Write to stdout
-            "-f1",               # P25 Phase 1 only
-            "-N",                # No audio output to speaker
-            "-g", "0",           # No gain adjustment
-            "-u", "0",           # No upsampling (we handle it)
-            "-L",                # Low CPU mode (skip some features)
+            "-i",
+            "-",  # Read from stdin
+            "-o",
+            "-",  # Write to stdout
+            "-f1",  # P25 Phase 1 only
+            "-N",  # No audio output to speaker
+            "-g",
+            "0",  # No gain adjustment
+            "-u",
+            "0",  # No upsampling (we handle it)
+            "-L",  # Low CPU mode (skip some features)
         ]
 
     async def _run_decoder(self) -> None:
@@ -304,9 +308,7 @@ class IMBEDecoder:
                     scaled = np.clip(audio * 18.0, -32767, 32767).astype(np.int16)
                     audio_bytes = scaled.tobytes()
 
-                    await loop.run_in_executor(
-                        None, self.process.stdin.write, audio_bytes
-                    )
+                    await loop.run_in_executor(None, self.process.stdin.write, audio_bytes)
                     await loop.run_in_executor(None, self.process.stdin.flush)
 
             except asyncio.TimeoutError:
@@ -327,9 +329,7 @@ class IMBEDecoder:
         while self.running and self.process:
             try:
                 if self.process and self.process.stdout:
-                    data = await loop.run_in_executor(
-                        None, self.process.stdout.read, chunk_bytes
-                    )
+                    data = await loop.run_in_executor(None, self.process.stdout.read, chunk_bytes)
                     if not data:
                         break
 

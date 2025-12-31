@@ -70,6 +70,7 @@ def _acquire_sdrplay_lock(cooldown: float = 1.0) -> None:
     global _sdrplay_last_operation_time
 
     import threading
+
     thread_id = threading.current_thread().name
     print(f"[LOCK] Thread {thread_id} attempting to acquire SDRplay global lock...", flush=True)
 
@@ -91,6 +92,7 @@ def _release_sdrplay_lock() -> None:
     """Release global SDRplay lock and update timestamp."""
     global _sdrplay_last_operation_time
     import threading
+
     thread_id = threading.current_thread().name
     _sdrplay_last_operation_time = time.time()
     _sdrplay_global_lock.release()
@@ -133,15 +135,9 @@ class SDRplayProxyStream(StreamHandle):
         if header is None:
             return False
         write_idx, _, sample_count, _, _, flags, _ = header
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "is_ready() check: write_idx=%s, sample_count=%s, flags=%s, shm=%s, stream_id=%s",
-                write_idx,
-                sample_count,
-                flags,
-                self.shm.name,
-                id(self),
-            )
+        logger.info(
+            f"is_ready() check: write_idx={write_idx}, sample_count={sample_count}, flags={flags}, shm={self.shm.name}, stream_id={id(self)}"
+        )
         if flags & FLAG_DATA_READY:
             self._data_ready = True
             return True
@@ -159,29 +155,28 @@ class SDRplayProxyStream(StreamHandle):
         self._debug_counter += 1
 
         # CRITICAL DEBUG: Log at start to confirm read() is being called
-        if self._debug_counter <= 30 and logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "SDRplayProxyStream.read() ENTRY: counter=%s",
-                self._debug_counter,
-            )
+        if self._debug_counter <= 30:
+            logger.info(f"SDRplayProxyStream.read() ENTRY: counter={self._debug_counter}")
 
         if self._closed:
             if self._debug_counter <= 10 or self._debug_counter % 1000 == 0:
-                logger.warning(f"SDRplayProxyStream.read()[{self._debug_counter}]: stream is closed")
+                logger.warning(
+                    f"SDRplayProxyStream.read()[{self._debug_counter}]: stream is closed"
+                )
             return np.empty(0, dtype=np.complex64), False
 
         # Read header to get current write position
         header = _read_header(self.shm)
         if header is None:
             # Shared memory buffer not available - log only periodically
-            self._buf_none_count = getattr(self, '_buf_none_count', 0) + 1
+            self._buf_none_count = getattr(self, "_buf_none_count", 0) + 1
             if self._buf_none_count <= 5 or self._buf_none_count % 5000 == 0:
                 logger.warning(
                     f"SDRplayProxyStream.read()[{self._debug_counter}]: "
                     f"shared memory buffer unavailable (count={self._buf_none_count})"
                 )
             return np.empty(0, dtype=np.complex64), False
-        buf = getattr(self.shm, "buf", None)
+        buf = self.shm.buf
         if buf is None:
             self._buf_none_count = getattr(self, "_buf_none_count", 0) + 1
             if self._buf_none_count <= 5 or self._buf_none_count % 5000 == 0:
@@ -206,48 +201,47 @@ class SDRplayProxyStream(StreamHandle):
         available = write_idx - self._last_read_idx
         if available <= 0:
             # No new samples yet - track consecutive empty reads
-            self._empty_reads = getattr(self, '_empty_reads', 0) + 1
+            self._empty_reads = getattr(self, "_empty_reads", 0) + 1
 
             # Workaround for macOS SharedMemory coherency issue:
             # Re-attach to the shared memory to force a fresh view when:
             # 1. Early startup: worker reports ready but we see stale header
             # 2. After initial data: coherency broke, need to recover quickly
-            now = time.time()
+            import time as time_mod
+
+            now = time_mod.time()
             time_since_data = now - self._last_data_time if self._last_data_time > 0 else 0
 
             # Be AGGRESSIVE with re-attach after we've received data before:
             # - If we had data, re-attach every 0.3 seconds while empty (not every 2s)
             # - If startup, re-attach after 30 empty reads (~0.6s)
-            last_reattach = getattr(self, '_last_reattach_time', 0)
-            time_since_reattach = now - last_reattach if last_reattach > 0 else float('inf')
+            last_reattach = getattr(self, "_last_reattach_time", 0)
+            time_since_reattach = now - last_reattach if last_reattach > 0 else float("inf")
 
             should_reattach = (
                 # Throttle: don't re-attach more than once per 0.2 seconds
-                time_since_reattach > 0.2 and (
+                time_since_reattach > 0.2
+                and (
                     # Case 1: Early startup - worker reports ready but we see stale header
-                    (self._empty_reads >= 30 and (flags & FLAG_DATA_READY)) or
+                    (self._empty_reads >= 30 and (flags & FLAG_DATA_READY))
+                    or
                     # Case 2: After initial data - coherency broke, re-attach quickly
                     (self._last_data_time > 0 and time_since_data > 0.3 and self._empty_reads >= 5)
                 )
             )
             # Debug: log every 50 empty reads to understand why re-attach isn't triggering
             if self._empty_reads % 50 == 0:
-                case1 = (self._empty_reads >= 30 and (flags & FLAG_DATA_READY))
-                case2 = (self._last_data_time > 0 and time_since_data > 0.3 and self._empty_reads >= 5)
+                case1 = self._empty_reads >= 30 and (flags & FLAG_DATA_READY)
+                case2 = (
+                    self._last_data_time > 0 and time_since_data > 0.3 and self._empty_reads >= 5
+                )
                 throttle_ok = time_since_reattach > 0.2
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "SDRplayProxyStream: DEBUG empty=%s, throttle_ok=%s, case1=%s, case2=%s, "
-                        "should_reattach=%s, flags=%s",
-                        self._empty_reads,
-                        throttle_ok,
-                        case1,
-                        case2,
-                        should_reattach,
-                        flags,
-                    )
+                logger.info(
+                    f"SDRplayProxyStream: DEBUG empty={self._empty_reads}, throttle_ok={throttle_ok}, "
+                    f"case1={case1}, case2={case2}, should_reattach={should_reattach}, flags={flags}"
+                )
             if should_reattach:
-                reattach_count = getattr(self, '_reattach_count', 0)
+                reattach_count = getattr(self, "_reattach_count", 0)
                 # Allow many more reattach attempts for ongoing operation (100 vs 5 during startup)
                 max_reattach = 100 if self._last_data_time > 0 else 5
                 if reattach_count < max_reattach:
@@ -264,22 +258,27 @@ class SDRplayProxyStream(StreamHandle):
                         # Re-attach to same shared memory
                         self.shm = SharedMemory(name=shm_name)
                         old_shm.close()
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug("SDRplayProxyStream: Re-attached to %s", shm_name)
+                        logger.info(f"SDRplayProxyStream: Re-attached to {shm_name}")
                         # DON'T reset empty_reads here - we only reset when we get data
                         # Try reading again with fresh attachment
                         header = _read_header(self.shm)
                         if header is None:
                             return np.empty(0, dtype=np.complex64), False
-                        write_idx, _, sample_count, overflow_count, sample_rate, flags, _timestamp = header
+                        (
+                            write_idx,
+                            _,
+                            sample_count,
+                            overflow_count,
+                            sample_rate,
+                            flags,
+                            _timestamp,
+                        ) = header
                         self._buf_none_count = 0
                         available = write_idx - self._last_read_idx
                         if available > 0:
-                            if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(
-                                    "SDRplayProxyStream: Re-attach successful! Now have %s samples available",
-                                    available,
-                                )
+                            logger.info(
+                                f"SDRplayProxyStream: Re-attach successful! Now have {available} samples available"
+                            )
                             self._empty_reads = 0  # Reset only on success
                             # Continue to process samples below
                         else:
@@ -301,7 +300,9 @@ class SDRplayProxyStream(StreamHandle):
             # Reset empty read counter when we get samples
             self._empty_reads = 0
             self._reattach_count = 0  # Reset reattach counter on success
-            self._last_data_time = time.time()
+            import time as time_mod
+
+            self._last_data_time = time_mod.time()
 
         # Detect ring buffer overrun: if available > BUFFER_SAMPLES, the writer
         # has wrapped around and overwritten data before we could read it.
@@ -327,30 +328,31 @@ class SDRplayProxyStream(StreamHandle):
 
         # Calculate read position in ring buffer
         buffer_start = HEADER_SIZE
-        read_pos = self._last_read_idx % BUFFER_SAMPLES
-        samples_to_end = BUFFER_SAMPLES - read_pos
-        buf_view = buf
+        read_offset = (self._last_read_idx % BUFFER_SAMPLES) * 8  # 8 bytes per complex64
 
-        # Read samples from ring buffer with a single copy
-        if to_read <= samples_to_end:
-            start = buffer_start + (read_pos * 8)
-            end = start + (to_read * 8)
-            samples = np.frombuffer(buf_view[start:end], dtype=np.complex64).copy()
+        # Read samples from ring buffer
+        bytes_to_read = to_read * 8
+        bytes_to_end = (BUFFER_SAMPLES * 8) - read_offset
+
+        if bytes_to_read <= bytes_to_end:
+            # Single read (no wrap)
+            samples_bytes = bytes(
+                buf[buffer_start + read_offset : buffer_start + read_offset + bytes_to_read]
+            )
         else:
-            samples = np.empty(to_read, dtype=np.complex64)
-            part1_count = samples_to_end
-            start = buffer_start + (read_pos * 8)
-            end = buffer_start + (BUFFER_SAMPLES * 8)
-            samples[:part1_count] = np.frombuffer(buf_view[start:end], dtype=np.complex64)
-            part2_count = to_read - part1_count
-            end2 = buffer_start + (part2_count * 8)
-            samples[part1_count:] = np.frombuffer(buf_view[buffer_start:end2], dtype=np.complex64)
+            # Split read (wrap around)
+            part1 = bytes(buf[buffer_start + read_offset : buffer_start + BUFFER_SAMPLES * 8])
+            part2 = bytes(buf[buffer_start : buffer_start + bytes_to_read - bytes_to_end])
+            samples_bytes = part1 + part2
+
+        # Convert to numpy array (copy to make writeable)
+        samples = np.frombuffer(samples_bytes, dtype=np.complex64).copy()
 
         # Update read position
         self._last_read_idx += to_read
 
         # [DIAG-STAGE1] Ring buffer statistics for pipeline diagnosis
-        if not hasattr(self, '_diag_read_counter'):
+        if not hasattr(self, "_diag_read_counter"):
             self._diag_read_counter = 0
             self._diag_total_samples = 0
             self._diag_overflow_count = 0
@@ -362,19 +364,14 @@ class SDRplayProxyStream(StreamHandle):
 
         # Log every 100 reads
         if self._diag_read_counter % 100 == 0:
-            if logger.isEnabledFor(logging.DEBUG):
-                iq_power = float(np.mean(np.abs(samples)**2)) if len(samples) > 0 else 0.0
-                iq_peak = float(np.max(np.abs(samples))) if len(samples) > 0 else 0.0
-                logger.debug(
-                    "[DIAG-STAGE1] reads=%s, available=%s, returned=%s, overflow_total=%s, "
-                    "iq_power=%.6f, iq_peak=%.4f",
-                    self._diag_read_counter,
-                    available,
-                    len(samples),
-                    self._diag_overflow_count,
-                    iq_power,
-                    iq_peak,
-                )
+            iq_power = float(np.mean(np.abs(samples) ** 2)) if len(samples) > 0 else 0.0
+            iq_peak = float(np.max(np.abs(samples))) if len(samples) > 0 else 0.0
+            logger.info(
+                f"[DIAG-STAGE1] reads={self._diag_read_counter}, "
+                f"available={available}, returned={len(samples)}, "
+                f"overflow_total={self._diag_overflow_count}, "
+                f"iq_power={iq_power:.6f}, iq_peak={iq_peak:.4f}"
+            )
 
         # Log successful reads for debugging (very infrequently)
         if self._debug_counter <= 5 or self._debug_counter % 100000 == 0:
@@ -410,7 +407,9 @@ class SDRplayProxyDevice(Device):
 
     info: DeviceInfo
     device_args: str
-    operation_cooldown: float = 1.0  # Minimum seconds between operations (SDRplay API needs time to stabilize)
+    operation_cooldown: float = (
+        1.0  # Minimum seconds between operations (SDRplay API needs time to stabilize)
+    )
     # Reduced from 2.0s to 1.0s for faster multi-device startup (~3s vs ~6s for 3 devices)
     _worker_process: Process | None = None
     _shm: SharedMemory | None = None
@@ -470,7 +469,12 @@ class SDRplayProxyDevice(Device):
             # Launch worker process
             self._worker_process = Process(
                 target=sdrplay_worker_main,
-                args=(self.device_args, self._shm.name, self._worker_cmd_pipe, self._worker_status_pipe),
+                args=(
+                    self.device_args,
+                    self._shm.name,
+                    self._worker_cmd_pipe,
+                    self._worker_status_pipe,
+                ),
                 daemon=True,
             )
             self._worker_process.start()
@@ -486,7 +490,7 @@ class SDRplayProxyDevice(Device):
                         logger.info("Worker ready")
                         break
                     elif msg.get("type") == "error":
-                        error_msg = msg.get('message', 'Unknown error')
+                        error_msg = msg.get("message", "Unknown error")
                         logger.error(f"Worker startup error: {error_msg}")
                         raise RuntimeError(f"Worker startup error: {error_msg}")
                 # Check if worker died
@@ -494,7 +498,9 @@ class SDRplayProxyDevice(Device):
                     exit_code = self._worker_process.exitcode
                     logger.error(f"Worker process died during startup, exit_code={exit_code}")
                     self._cleanup_worker()
-                    raise RuntimeError(f"Worker process died during startup (exit_code={exit_code})")
+                    raise RuntimeError(
+                        f"Worker process died during startup (exit_code={exit_code})"
+                    )
             else:
                 logger.error(f"Worker failed to start within {timeout}s timeout")
                 self._cleanup_worker()
@@ -510,10 +516,12 @@ class SDRplayProxyDevice(Device):
                     msg = self._status_pipe.recv()
                     self._handle_worker_message(msg)
                     if msg.get("type") == "opened":
-                        logger.info(f"Device opened: driver={msg.get('driver')}, hardware={msg.get('hardware')}")
+                        logger.info(
+                            f"Device opened: driver={msg.get('driver')}, hardware={msg.get('hardware')}"
+                        )
                         break
                     elif msg.get("type") == "open_error":
-                        error_msg = msg.get('message', 'Unknown error')
+                        error_msg = msg.get("message", "Unknown error")
                         logger.error(f"Failed to open device: {error_msg}")
                         self._cleanup_worker()
                         raise RuntimeError(f"Failed to open device: {error_msg}")
@@ -522,7 +530,9 @@ class SDRplayProxyDevice(Device):
                     exit_code = self._worker_process.exitcode
                     logger.error(f"Worker process died while opening device, exit_code={exit_code}")
                     self._cleanup_worker()
-                    raise RuntimeError(f"Worker process died while opening device (exit_code={exit_code})")
+                    raise RuntimeError(
+                        f"Worker process died while opening device (exit_code={exit_code})"
+                    )
             else:
                 logger.error(f"Device open timed out after {timeout}s")
                 self._cleanup_worker()
@@ -594,7 +604,9 @@ class SDRplayProxyDevice(Device):
         # Acquire global lock for SDRplay operations
         _acquire_sdrplay_lock(self.operation_cooldown)
         try:
-            logger.info(f"Configuring device: center={center_hz/1e6:.3f}MHz, rate={sample_rate/1e6:.3f}MHz, antenna={antenna}")
+            logger.info(
+                f"Configuring device: center={center_hz / 1e6:.3f}MHz, rate={sample_rate / 1e6:.3f}MHz, antenna={antenna}"
+            )
             self._ensure_worker(already_have_lock=True)  # We already hold the lock
 
             self._antenna = antenna
@@ -604,20 +616,22 @@ class SDRplayProxyDevice(Device):
                 raise RuntimeError("Worker not initialized")
 
             # Send configure command
-            self._cmd_pipe.send({
-                "type": "configure",
-                "center_hz": center_hz,
-                "sample_rate": sample_rate,
-                "gain": gain,
-                "bandwidth": bandwidth,
-                "ppm": ppm,
-                "antenna": antenna,
-                "device_settings": device_settings or {},
-                "element_gains": element_gains or {},
-                "agc_enabled": agc_enabled,
-                "dc_offset_auto": dc_offset_auto,
-                "iq_balance_auto": iq_balance_auto,
-            })
+            self._cmd_pipe.send(
+                {
+                    "type": "configure",
+                    "center_hz": center_hz,
+                    "sample_rate": sample_rate,
+                    "gain": gain,
+                    "bandwidth": bandwidth,
+                    "ppm": ppm,
+                    "antenna": antenna,
+                    "device_settings": device_settings or {},
+                    "element_gains": element_gains or {},
+                    "agc_enabled": agc_enabled,
+                    "dc_offset_auto": dc_offset_auto,
+                    "iq_balance_auto": iq_balance_auto,
+                }
+            )
 
             # Wait for confirmation
             timeout = 10.0
@@ -631,14 +645,16 @@ class SDRplayProxyDevice(Device):
                         logger.info("Device configured successfully")
                         return
                     elif msg.get("type") == "configure_error":
-                        error_msg = msg.get('message', 'Unknown error')
+                        error_msg = msg.get("message", "Unknown error")
                         logger.error(f"Configure failed: {error_msg}")
                         raise RuntimeError(f"Configure failed: {error_msg}")
                 # Check if worker died
                 if self._worker_process and not self._worker_process.is_alive():
                     exit_code = self._worker_process.exitcode
                     logger.error(f"Worker process died during configure, exit_code={exit_code}")
-                    raise RuntimeError(f"Worker process died during configure (exit_code={exit_code})")
+                    raise RuntimeError(
+                        f"Worker process died during configure (exit_code={exit_code})"
+                    )
 
             logger.error("Configure timed out")
             raise TimeoutError("Configure timed out")
@@ -690,14 +706,16 @@ class SDRplayProxyDevice(Device):
                             status_pipe=self._status_pipe,
                         )
                     elif msg.get("type") == "start_error":
-                        error_msg = msg.get('message', 'Unknown error')
+                        error_msg = msg.get("message", "Unknown error")
                         logger.error(f"Start stream failed: {error_msg}")
                         raise RuntimeError(f"Start stream failed: {error_msg}")
                 # Check if worker died
                 if self._worker_process and not self._worker_process.is_alive():
                     exit_code = self._worker_process.exitcode
                     logger.error(f"Worker process died during start_stream, exit_code={exit_code}")
-                    raise RuntimeError(f"Worker process died during start_stream (exit_code={exit_code})")
+                    raise RuntimeError(
+                        f"Worker process died during start_stream (exit_code={exit_code})"
+                    )
 
             logger.error("Start stream timed out")
             raise TimeoutError("Start stream timed out")
@@ -732,7 +750,9 @@ class SDRplayProxyDevice(Device):
         # Acquire global lock for entire configure+start sequence
         _acquire_sdrplay_lock(self.operation_cooldown)
         try:
-            logger.info(f"Atomic configure+start: center={center_hz/1e6:.3f}MHz, rate={sample_rate/1e6:.3f}MHz")
+            logger.info(
+                f"Atomic configure+start: center={center_hz / 1e6:.3f}MHz, rate={sample_rate / 1e6:.3f}MHz"
+            )
 
             # Configure (without releasing lock)
             self._ensure_worker(already_have_lock=True)
@@ -742,20 +762,22 @@ class SDRplayProxyDevice(Device):
             if self._cmd_pipe is None or self._status_pipe is None:
                 raise RuntimeError("Worker not initialized")
 
-            self._cmd_pipe.send({
-                "type": "configure",
-                "center_hz": center_hz,
-                "sample_rate": sample_rate,
-                "gain": gain,
-                "bandwidth": bandwidth,
-                "ppm": ppm,
-                "antenna": antenna,
-                "device_settings": device_settings or {},
-                "element_gains": element_gains or {},
-                "agc_enabled": agc_enabled,
-                "dc_offset_auto": dc_offset_auto,
-                "iq_balance_auto": iq_balance_auto,
-            })
+            self._cmd_pipe.send(
+                {
+                    "type": "configure",
+                    "center_hz": center_hz,
+                    "sample_rate": sample_rate,
+                    "gain": gain,
+                    "bandwidth": bandwidth,
+                    "ppm": ppm,
+                    "antenna": antenna,
+                    "device_settings": device_settings or {},
+                    "element_gains": element_gains or {},
+                    "agc_enabled": agc_enabled,
+                    "dc_offset_auto": dc_offset_auto,
+                    "iq_balance_auto": iq_balance_auto,
+                }
+            )
 
             # Wait for configure confirmation
             timeout = 10.0
@@ -769,10 +791,12 @@ class SDRplayProxyDevice(Device):
                         logger.info("Device configured, starting stream...")
                         break
                     elif msg.get("type") == "configure_error":
-                        error_msg = msg.get('message', 'Unknown error')
+                        error_msg = msg.get("message", "Unknown error")
                         raise RuntimeError(f"Configure failed: {error_msg}")
                 if self._worker_process and not self._worker_process.is_alive():
-                    raise RuntimeError(f"Worker died during configure (exit_code={self._worker_process.exitcode})")
+                    raise RuntimeError(
+                        f"Worker died during configure (exit_code={self._worker_process.exitcode})"
+                    )
             else:
                 raise TimeoutError("Configure timed out")
 

@@ -56,7 +56,7 @@ def rms_normalize(x: NDArrayFloat, target_rms: float = 0.18, min_rms: float = 1e
     if x.size == 0:
         return x
 
-    rms = float(np.sqrt(np.mean(x ** 2)))
+    rms = float(np.sqrt(np.mean(x**2)))
     if rms > min_rms:
         return x * (target_rms / rms)
     return x
@@ -140,7 +140,7 @@ def _get_lpf_coeffs(
     if normalized_cutoff >= 1.0:
         return None
 
-    b, a = signal.butter(order, normalized_cutoff, btype='low')
+    b, a = signal.butter(order, normalized_cutoff, btype="low")
     return b, a
 
 

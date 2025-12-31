@@ -4,6 +4,7 @@ Field bit positions in TSBK specs are defined relative to the full 80-bit
 message (including the 16-bit opcode/mfid header). These helpers operate on
 the 64-bit data payload starting at bit 16.
 """
+
 from __future__ import annotations
 
 from typing import Iterable

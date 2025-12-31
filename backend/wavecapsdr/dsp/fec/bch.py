@@ -24,14 +24,18 @@ from wavecapsdr.typing import NDArrayAny
 
 F = TypeVar("F", bound=Callable[..., Any])
 
+
 def _fallback_jit(*args: Any, **kwargs: Any) -> Callable[[F], F]:
     def decorator(func: F) -> F:
         return func
+
     return decorator
+
 
 # Try to import numba for JIT compilation
 try:
     from numba import jit as _numba_jit
+
     NUMBA_AVAILABLE = True
 except ImportError:
     _numba_jit = cast(Callable[..., Any], _fallback_jit)
@@ -342,7 +346,7 @@ class BCH_63_16_23:
             Syndrome array (2*T syndromes)
         """
         return _compute_syndromes_jit(
-            msg[:self.N].astype(np.int32),
+            msg[: self.N].astype(np.int32),
             self.a_pow_tab,
             self.T,
             self.N,
@@ -357,7 +361,7 @@ class BCH_63_16_23:
         3. Using numpy reduce for XOR accumulation
         """
         # Find non-zero bit positions (only these contribute to syndromes)
-        nonzero_positions = np.nonzero(msg[:self.N])[0]
+        nonzero_positions = np.nonzero(msg[: self.N])[0]
 
         if len(nonzero_positions) == 0:
             # No set bits = no syndromes
@@ -494,7 +498,7 @@ class BCH_63_16_23:
         Evaluates the polynomial at all field elements simultaneously.
         """
         # Get non-zero coefficient indices and their log values
-        nonzero_mask = poly[:degree + 1] != 0
+        nonzero_mask = poly[: degree + 1] != 0
         nonzero_indices = np.where(nonzero_mask)[0]
 
         if len(nonzero_indices) == 0:
@@ -582,7 +586,7 @@ class BCH_63_16_23:
             return 0, self.MESSAGE_NOT_CORRECTED
 
         # Compute syndromes
-        syndromes = self._compute_syndromes(codeword[:self.N])
+        syndromes = self._compute_syndromes(codeword[: self.N])
 
         # Check if all syndromes are zero (no errors)
         if np.all(syndromes == 0):
@@ -620,7 +624,7 @@ class BCH_63_16_23:
                 corrected[pos] ^= 1
 
         # Verify correction by recomputing syndromes
-        verify_syndromes = self._compute_syndromes(corrected[:self.N])
+        verify_syndromes = self._compute_syndromes(corrected[: self.N])
         if not np.all(verify_syndromes == 0):
             logger.debug("BCH decode: correction verification failed")
             return 0, self.MESSAGE_NOT_CORRECTED

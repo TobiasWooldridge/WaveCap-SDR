@@ -45,10 +45,13 @@ class HarnessReport:
     channel_reports: list[dict[str, Any]]
 
     def to_json(self) -> str:
-        return json.dumps({
-            "captureId": self.capture_id,
-            "channels": self.channel_reports,
-        }, indent=2)
+        return json.dumps(
+            {
+                "captureId": self.capture_id,
+                "channels": self.channel_reports,
+            },
+            indent=2,
+        )
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -69,7 +72,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="When using Soapy driver, enumerate all devices and run the preset on each.",
     )
-    p.add_argument("--config", default=None, help="Path to YAML config (for presets). Defaults to repo config.")
+    p.add_argument(
+        "--config", default=None, help="Path to YAML config (for presets). Defaults to repo config."
+    )
     p.add_argument("--preset", default="kexp", help="Preset name (e.g., kexp, marine, tone)")
     p.add_argument("--center-hz", type=float, default=None)
     p.add_argument("--sample-rate", type=int, default=None)
@@ -79,7 +84,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--gain", type=float, default=None, help="Optional receiver gain in dB")
     p.add_argument("--bandwidth", type=float, default=None, help="Optional RF bandwidth in Hz")
     p.add_argument("--out", default="harness_out", help="Output directory for WAV dumps")
-    p.add_argument("--auto-gain", action="store_true", help="Auto-select gain per device based on audio level")
+    p.add_argument(
+        "--auto-gain", action="store_true", help="Auto-select gain per device based on audio level"
+    )
     p.add_argument("--probe-seconds", type=float, default=2.0, help="Seconds for auto-gain probe")
     return p.parse_args(argv)
 
@@ -87,7 +94,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def build_config_for_server(args: argparse.Namespace) -> AppConfig:
     cfg = AppConfig(
         server=ServerConfig(bind_address=args.host, port=args.port),
-        stream=StreamConfig(default_transport="ws", default_format="iq16", default_audio_rate=args.audio_rate),
+        stream=StreamConfig(
+            default_transport="ws", default_format="iq16", default_audio_rate=args.audio_rate
+        ),
         limits=LimitsConfig(),
         # Do not pin a specific device at the app level; we pass deviceId per capture.
         device=DeviceConfig(driver=args.driver, device_args=None),
@@ -132,7 +141,9 @@ async def ensure_server_running(args: argparse.Namespace) -> asyncio.AbstractSer
         return None
     cfg = build_config_for_server(args)
     app = create_app(cfg)
-    config = uvicorn.Config(app, host=cfg.server.bind_address, port=cfg.server.port, log_level="info")
+    config = uvicorn.Config(
+        app, host=cfg.server.bind_address, port=cfg.server.port, log_level="info"
+    )
     server = uvicorn.Server(config)
 
     loop = asyncio.get_running_loop()
@@ -142,7 +153,9 @@ async def ensure_server_running(args: argparse.Namespace) -> asyncio.AbstractSer
     return None
 
 
-async def http_post_json(client: httpx.AsyncClient, path: str, body: dict[str, Any], token: str | None) -> dict[str, Any]:
+async def http_post_json(
+    client: httpx.AsyncClient, path: str, body: dict[str, Any], token: str | None
+) -> dict[str, Any]:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     r = await client.post(path, json=body, headers=headers)
     r.raise_for_status()
@@ -221,7 +234,11 @@ async def run_harness(args: argparse.Namespace) -> int:
                     "deviceId": dev_args,
                     "centerHz": center,
                     "sampleRate": sr,
-                    **({"gain": device_best_gain.get(dev_args)} if args.auto_gain else ({} if args.gain is None else {"gain": args.gain})),
+                    **(
+                        {"gain": device_best_gain.get(dev_args)}
+                        if args.auto_gain
+                        else ({} if args.gain is None else {"gain": args.gain})
+                    ),
                     **({"bandwidth": args.bandwidth} if args.bandwidth is not None else {}),
                 },
                 args.token,
@@ -288,7 +305,11 @@ async def run_harness(args: argparse.Namespace) -> int:
                 await http_post_json(client, f"/captures/{cid}/stop", {}, args.token)
 
     # Backwards compatibility: if multiple captures were used, show the first id; include all channels
-    print(HarnessReport(capture_id=capture_ids[0] if capture_ids else "c0", channel_reports=reports).to_json())
+    print(
+        HarnessReport(
+            capture_id=capture_ids[0] if capture_ids else "c0", channel_reports=reports
+        ).to_json()
+    )
     # Fail (non-zero) if any channel did not pass heuristic
     return 0 if all(r.get("ok") for r in reports) else 2
 

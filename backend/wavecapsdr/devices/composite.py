@@ -4,6 +4,7 @@ This driver wraps a primary driver (e.g., SoapyDriver) and optionally includes
 fake/test devices for development purposes. The fake device is automatically
 hidden when real devices are available, unless explicitly enabled via config.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterable
