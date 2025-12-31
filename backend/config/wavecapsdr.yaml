@@ -630,7 +630,7 @@ trunking:
           bandwidth_khz: 12.5
           tx_offset_mhz: -10.0
       device_id: driver=sdrplay,serial=240309F070
-      gain: 25.0
+      gain: 22.0
       agc_enabled: false
       sample_rate: 5500000
       id: sa_grn_2
