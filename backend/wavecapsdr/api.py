@@ -3012,12 +3012,12 @@ def update_scanner(
     return _to_scanner_model(sid, scanner)
 
 
-@router.delete("/scanners/{sid}", status_code=204)
+@router.delete("/scanners/{sid}", status_code=204, response_class=Response)
 def delete_scanner(
     sid: str,
     _: None = Depends(auth_check),
     state: AppState = Depends(get_state),
-) -> None:
+) -> Response:
     """Delete a scanner."""
     scanner = state.scanners.get(sid)
     if scanner is None:
@@ -3028,6 +3028,7 @@ def delete_scanner(
 
     # Remove from state
     del state.scanners[sid]
+    return Response(status_code=204)
 
 
 @router.post("/scanners/{sid}/start", response_model=ScannerModel)
