@@ -100,6 +100,8 @@ class RecipeChannel:
     # POCSAG decoding settings (NBFM only)
     enable_pocsag: bool = False
     pocsag_baud: int = 1200
+    # FLEX decoding settings (NBFM only)
+    enable_flex: bool = False
 
 
 @dataclass
@@ -465,6 +467,12 @@ def save_config(config: AppConfig, path_str: str) -> None:
                 "mode": ch.mode,
                 "squelch_db": ch.squelch_db,
             }
+            if ch.enable_pocsag:
+                ch_dict["enable_pocsag"] = True
+            if ch.pocsag_baud != 1200:
+                ch_dict["pocsag_baud"] = ch.pocsag_baud
+            if ch.enable_flex:
+                ch_dict["enable_flex"] = True
             channels_data.append(ch_dict)
 
         recipe_dict = {

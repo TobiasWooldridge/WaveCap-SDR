@@ -46,7 +46,7 @@ export function ModeTabBar({
       icon: <Binary size={14} />,
       enabled: hasDigital,
       tooltip: hasDigital
-        ? "Digital mode decoders (POCSAG, DMR, etc.)"
+        ? "Digital mode decoders (POCSAG, FLEX, etc.)"
         : "Digital decoders not yet available",
     },
     {

@@ -15,6 +15,7 @@ interface ChannelSettingsProps {
 export function ChannelSettings({ channel, capture }: ChannelSettingsProps) {
   const [showDsp, setShowDsp] = useState(false);
   const [showAgc, setShowAgc] = useState(false);
+  const [showPager, setShowPager] = useState(false);
   const [newNotchFreq, setNewNotchFreq] = useState("");
 
   const updateChannel = useUpdateChannel(capture.id);
@@ -23,7 +24,7 @@ export function ChannelSettings({ channel, capture }: ChannelSettingsProps) {
   const updateSetting = (request: UpdateChannelRequest) => {
     updateChannel.mutate(
       { channelId: channel.id, request },
-      { onError: (error: Error) => toast.error(error.message) }
+      { onError: (error: Error) => toast.error(error.message) },
     );
   };
 
@@ -53,7 +54,9 @@ export function ChannelSettings({ channel, capture }: ChannelSettingsProps) {
 
   const handleRemoveNotch = (freq: number) => {
     const currentNotches = channel.notchFrequencies || [];
-    updateSetting({ notchFrequencies: currentNotches.filter((f) => f !== freq) });
+    updateSetting({
+      notchFrequencies: currentNotches.filter((f) => f !== freq),
+    });
     toast.success(`Removed notch at ${freq} Hz`);
   };
 
@@ -66,7 +69,9 @@ export function ChannelSettings({ channel, capture }: ChannelSettingsProps) {
           <select
             className="form-select form-select-sm"
             value={channel.mode}
-            onChange={(e) => updateSetting({ mode: e.target.value as Channel["mode"] })}
+            onChange={(e) =>
+              updateSetting({ mode: e.target.value as Channel["mode"] })
+            }
           >
             <option value="wbfm">WBFM</option>
             <option value="nbfm">NBFM</option>
@@ -85,7 +90,9 @@ export function ChannelSettings({ channel, capture }: ChannelSettingsProps) {
             <select
               className="form-select form-select-sm"
               value={channel.ssbMode || "usb"}
-              onChange={(e) => updateSetting({ ssbMode: e.target.value as "usb" | "lsb" })}
+              onChange={(e) =>
+                updateSetting({ ssbMode: e.target.value as "usb" | "lsb" })
+              }
             >
               <option value="usb">USB (Upper Sideband)</option>
               <option value="lsb">LSB (Lower Sideband)</option>
@@ -112,7 +119,9 @@ export function ChannelSettings({ channel, capture }: ChannelSettingsProps) {
           <select
             className="form-select form-select-sm"
             value={channel.audioRate}
-            onChange={(e) => updateSetting({ audioRate: parseInt(e.target.value) })}
+            onChange={(e) =>
+              updateSetting({ audioRate: parseInt(e.target.value) })
+            }
           >
             <option value={8000}>8 kHz</option>
             <option value={16000}>16 kHz</option>
@@ -146,9 +155,14 @@ export function ChannelSettings({ channel, capture }: ChannelSettingsProps) {
                   type="checkbox"
                   id="enableDeemphasis"
                   checked={channel.enableDeemphasis ?? true}
-                  onChange={(e) => updateSetting({ enableDeemphasis: e.target.checked })}
+                  onChange={(e) =>
+                    updateSetting({ enableDeemphasis: e.target.checked })
+                  }
                 />
-                <label className="form-check-label small" htmlFor="enableDeemphasis">
+                <label
+                  className="form-check-label small"
+                  htmlFor="enableDeemphasis"
+                >
                   FM De-emphasis
                 </label>
               </div>
@@ -158,9 +172,14 @@ export function ChannelSettings({ channel, capture }: ChannelSettingsProps) {
                   type="checkbox"
                   id="enableMpxFilter"
                   checked={channel.enableMpxFilter ?? false}
-                  onChange={(e) => updateSetting({ enableMpxFilter: e.target.checked })}
+                  onChange={(e) =>
+                    updateSetting({ enableMpxFilter: e.target.checked })
+                  }
                 />
-                <label className="form-check-label small" htmlFor="enableMpxFilter">
+                <label
+                  className="form-check-label small"
+                  htmlFor="enableMpxFilter"
+                >
                   MPX Filter (15kHz stereo cutoff)
                 </label>
               </div>
@@ -262,6 +281,66 @@ export function ChannelSettings({ channel, capture }: ChannelSettingsProps) {
           )}
         </CollapsibleSection>
 
+        {/* Pager Decoding */}
+        {channel.mode === "nbfm" && (
+          <CollapsibleSection
+            title="Pager Decoding"
+            isOpen={showPager}
+            onToggle={() => setShowPager(!showPager)}
+          >
+            <div className="form-check">
+              <input
+                className="form-check-input"
+                type="checkbox"
+                id="enablePocsag"
+                checked={channel.enablePocsag ?? false}
+                onChange={(e) =>
+                  updateSetting({ enablePocsag: e.target.checked })
+                }
+              />
+              <label className="form-check-label small" htmlFor="enablePocsag">
+                Enable POCSAG
+              </label>
+            </div>
+
+            {channel.enablePocsag && (
+              <Flex direction="column" gap={1} className="mt-2">
+                <label className="form-label small mb-0">POCSAG Baud</label>
+                <select
+                  className="form-select form-select-sm"
+                  value={channel.pocsagBaud ?? 1200}
+                  onChange={(e) =>
+                    updateSetting({ pocsagBaud: parseInt(e.target.value) })
+                  }
+                >
+                  <option value={512}>512</option>
+                  <option value={1200}>1200</option>
+                  <option value={2400}>2400</option>
+                </select>
+              </Flex>
+            )}
+
+            <div className="form-check mt-2">
+              <input
+                className="form-check-input"
+                type="checkbox"
+                id="enableFlex"
+                checked={channel.enableFlex ?? false}
+                onChange={(e) =>
+                  updateSetting({ enableFlex: e.target.checked })
+                }
+              />
+              <label className="form-check-label small" htmlFor="enableFlex">
+                Enable FLEX (multimon-ng)
+              </label>
+            </div>
+            <div className="small text-muted mt-1">
+              FLEX decoding uses multimon-ng and targets 22.05 kHz audio
+              (resampled automatically).
+            </div>
+          </CollapsibleSection>
+        )}
+
         {/* Notch Filters */}
         <CollapsibleSection
           title={`Notch Filters (${channel.notchFrequencies?.length ?? 0})`}
@@ -278,12 +357,20 @@ export function ChannelSettings({ channel, capture }: ChannelSettingsProps) {
                 onChange={(e) => setNewNotchFreq(e.target.value)}
                 style={{ width: "100px" }}
               />
-              <button className="btn btn-sm btn-primary" onClick={handleAddNotch}>
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={handleAddNotch}
+              >
                 Add
               </button>
             </Flex>
             {(channel.notchFrequencies || []).map((freq) => (
-              <Flex key={freq} justify="between" align="center" className="small">
+              <Flex
+                key={freq}
+                justify="between"
+                align="center"
+                className="small"
+              >
                 <span>{freq} Hz</span>
                 <button
                   className="btn btn-sm btn-outline-danger p-0 px-1"
@@ -307,7 +394,12 @@ interface CollapsibleSectionProps {
   children: React.ReactNode;
 }
 
-function CollapsibleSection({ title, isOpen, onToggle, children }: CollapsibleSectionProps) {
+function CollapsibleSection({
+  title,
+  isOpen,
+  onToggle,
+  children,
+}: CollapsibleSectionProps) {
   return (
     <div className="border rounded">
       <div

@@ -23,6 +23,12 @@ export function DigitalPanel({ captureId, captureName }: DigitalPanelProps) {
   const timeSinceLastMessage = lastMessageTime
     ? Math.floor(Date.now() / 1000 - lastMessageTime)
     : null;
+  const pocsagCount = channels.filter((ch) =>
+    ch.protocols.includes("pocsag"),
+  ).length;
+  const flexCount = channels.filter((ch) =>
+    ch.protocols.includes("flex"),
+  ).length;
 
   return (
     <div className="d-flex flex-column h-100 p-3">
@@ -30,7 +36,7 @@ export function DigitalPanel({ captureId, captureName }: DigitalPanelProps) {
       <div className="d-flex justify-content-between align-items-center mb-3">
         <div className="d-flex align-items-center gap-2">
           <Radio size={20} className="text-primary" />
-          <h5 className="mb-0">POCSAG Pager Messages</h5>
+          <h5 className="mb-0">Pager Messages</h5>
           {captureName && (
             <span className="badge bg-body-secondary text-body-secondary">
               {captureName}
@@ -41,14 +47,20 @@ export function DigitalPanel({ captureId, captureName }: DigitalPanelProps) {
         {/* Connection status */}
         <div className="d-flex align-items-center gap-3">
           {channels.length > 0 ? (
-            <span className="d-flex align-items-center gap-1 text-success small">
-              <Wifi size={14} />
-              {channels.length} channel{channels.length !== 1 ? "s" : ""} active
+            <span className="d-flex align-items-center gap-2 text-success small">
+              <span className="d-flex align-items-center gap-1">
+                <Wifi size={14} />
+                {channels.length} channel{channels.length !== 1 ? "s" : ""}{" "}
+                active
+              </span>
+              <span className="text-body-secondary">
+                {pocsagCount} POCSAG / {flexCount} FLEX
+              </span>
             </span>
           ) : (
             <span className="d-flex align-items-center gap-1 text-body-secondary small">
               <WifiOff size={14} />
-              No POCSAG channels
+              No pager channels
             </span>
           )}
 
@@ -70,11 +82,12 @@ export function DigitalPanel({ captureId, captureName }: DigitalPanelProps) {
       {!isLoading && channels.length === 0 && (
         <div className="flex-grow-1 d-flex flex-column justify-content-center align-items-center text-body-secondary">
           <Radio size={48} className="mb-3 opacity-50" />
-          <h6>No POCSAG Channels Configured</h6>
+          <h6>No Pager Channels Configured</h6>
           <p className="text-center small mb-0" style={{ maxWidth: "400px" }}>
             To receive pager messages, create an NBFM channel and enable POCSAG
-            decoding in the channel settings. Common paging frequencies include
-            148.0625 MHz (SA-GRN) and 929 MHz band.
+            or FLEX decoding in the channel settings. FLEX decoding uses
+            multimon-ng and works best around 22.05 kHz audio. Common paging
+            frequencies include 148.0625 MHz (SA-GRN) and the 929 MHz band.
           </p>
         </div>
       )}
@@ -92,11 +105,7 @@ export function DigitalPanel({ captureId, captureName }: DigitalPanelProps) {
           <div className="flex-grow-1" style={{ minHeight: 0 }}>
             <POCSAGMessageLog
               messages={messages}
-              channels={channels.map((ch) => ({
-                id: ch.id,
-                name: ch.name,
-                autoName: ch.autoName,
-              }))}
+              channels={channels}
               maxHeight={600}
             />
           </div>

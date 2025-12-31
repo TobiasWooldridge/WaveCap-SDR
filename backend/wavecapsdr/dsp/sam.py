@@ -228,6 +228,7 @@ def sam_demod(
 
     # 3. Sideband selection
     sideband = sideband.lower()
+    audio: NDArrayFloat
     if sideband == "usb":
         # Upper sideband: I + Q (after Hilbert transform approximation)
         # For proper USB, we'd use a Hilbert transform, but I+Q works reasonably

@@ -50,6 +50,7 @@ from .models import (
     ExtendedMetricsModel,
     MetricsHistoryModel,
     MetricsHistoryPoint,
+    FlexMessageModel,
     POCSAGMessageModel,
     RDSDataModel,
     RecipeChannelModel,
@@ -566,6 +567,9 @@ def _to_channel_model(ch: Any) -> ChannelModel:
         enableNoiseReduction=ch.cfg.enable_noise_reduction,
         noiseReductionDb=ch.cfg.noise_reduction_db,
         rdsData=_to_rds_data_model(ch.rds_data),
+        enablePocsag=ch.cfg.enable_pocsag,
+        pocsagBaud=ch.cfg.pocsag_baud,
+        enableFlex=ch.cfg.enable_flex,
     )
 
 
@@ -1176,6 +1180,7 @@ def list_recipes(
                 squelchDb=ch.squelch_db,
                 enablePocsag=ch.enable_pocsag,
                 pocsagBaud=ch.pocsag_baud,
+                enableFlex=ch.enable_flex,
             )
             for ch in recipe_cfg.channels
         ]
@@ -1817,6 +1822,14 @@ def create_channel(
     if req.notchFrequencies is not None:
         ch.cfg.notch_frequencies = req.notchFrequencies
 
+    # Pager decoding settings
+    if req.enablePocsag is not None:
+        ch.cfg.enable_pocsag = req.enablePocsag
+    if req.pocsagBaud is not None:
+        ch.cfg.pocsag_baud = req.pocsagBaud
+    if req.enableFlex is not None:
+        ch.cfg.enable_flex = req.enableFlex
+
     # Apply SSB settings if provided
     if req.ssbMode is not None:
         ch.cfg.ssb_mode = req.ssbMode
@@ -1935,6 +1948,9 @@ def get_channel(
         enableNoiseReduction=ch.cfg.enable_noise_reduction,
         noiseReductionDb=ch.cfg.noise_reduction_db,
         rdsData=_to_rds_data_model(ch.rds_data),
+        enablePocsag=ch.cfg.enable_pocsag,
+        pocsagBaud=ch.cfg.pocsag_baud,
+        enableFlex=ch.cfg.enable_flex,
     )
 
 
@@ -2014,6 +2030,22 @@ def update_channel(
         ch.cfg.enable_noise_reduction = req.enableNoiseReduction
     if req.noiseReductionDb is not None:
         ch.cfg.noise_reduction_db = req.noiseReductionDb
+
+    # Pager decoding settings
+    if req.enablePocsag is not None:
+        ch.cfg.enable_pocsag = req.enablePocsag
+        if not req.enablePocsag:
+            ch._pocsag_decoder = None
+            ch._pocsag_messages.clear()
+    if req.pocsagBaud is not None:
+        ch.cfg.pocsag_baud = req.pocsagBaud
+        ch._pocsag_decoder = None
+    if req.enableFlex is not None:
+        ch.cfg.enable_flex = req.enableFlex
+        if not req.enableFlex and ch._flex_decoder is not None:
+            ch._flex_decoder.stop()
+            ch._flex_decoder = None
+            ch._flex_messages.clear()
 
     # Regenerate auto_name if offset changed
     if req.offsetHz is not None:
@@ -2252,6 +2284,37 @@ def get_channel_pocsag_messages(
             timestamp=msg["timestamp"],
             baudRate=msg["baudRate"],
             alias=pocsag_aliases.get(msg["address"]),
+        )
+        for msg in messages
+    ]
+
+
+@router.get("/channels/{chan_id}/decode/flex", response_model=list[FlexMessageModel])
+def get_channel_flex_messages(
+    chan_id: str,
+    limit: int = 50,
+    since: float | None = None,
+    _: None = Depends(auth_check),
+    state: AppState = Depends(get_state),
+) -> list[FlexMessageModel]:
+    """Get decoded FLEX pager messages from an NBFM channel."""
+    ch = state.captures.get_channel(chan_id)
+    if ch is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    messages = ch.get_flex_messages(limit=limit, since_timestamp=since)
+    return [
+        FlexMessageModel(
+            capcode=msg["capcode"],
+            messageType=msg["messageType"],
+            message=msg["message"],
+            timestamp=msg["timestamp"],
+            baudRate=msg.get("baudRate"),
+            levels=msg.get("levels"),
+            phase=msg.get("phase"),
+            cycleNumber=msg.get("cycleNumber"),
+            frameNumber=msg.get("frameNumber"),
+            alias=None,
         )
         for msg in messages
     ]

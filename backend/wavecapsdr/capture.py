@@ -40,6 +40,7 @@ from .dsp.am import am_demod, ssb_demod
 # Disabled: automatic recovery tends to cause thrashing
 # from .sdrplay_recovery import attempt_recovery
 from .dsp.fm import nbfm_demod, quadrature_demod, wbfm_demod
+from .dsp.flex import FlexDecoder, FlexMessage
 from .dsp.pocsag import POCSAGDecoder, POCSAGMessage
 from .dsp.rds import RDSData, RDSDecoder
 from .dsp.sam import sam_demod_simple
@@ -498,6 +499,8 @@ class ChannelConfig:
     # POCSAG decoding (NBFM only)
     enable_pocsag: bool = False  # Disabled by default
     pocsag_baud: int = 1200  # 512, 1200, or 2400
+    # FLEX decoding (NBFM only, via multimon-ng)
+    enable_flex: bool = False  # Disabled by default
 
 
 @dataclass
@@ -538,6 +541,10 @@ class Channel:
     _pocsag_decoder: POCSAGDecoder | None = None
     _pocsag_messages: list[POCSAGMessage] = field(default_factory=list)
     _pocsag_max_messages: int = 100  # Ring buffer size
+    # FLEX decoder for NBFM pager feeds (lazily initialized, via multimon-ng)
+    _flex_decoder: FlexDecoder | None = None
+    _flex_messages: list[FlexMessage] = field(default_factory=list)
+    _flex_max_messages: int = 100  # Ring buffer size
     # TSBK callback for trunking integration (called when P25 TSBK is decoded)
     on_tsbk: Callable[[dict[str, Any]], None] | None = None
     # Raw IQ callback for trunking/scanning (called with wideband IQ before P25 processing)
@@ -610,6 +617,12 @@ class Channel:
             _schedule_stop(self._dmr_voice_decoder.stop(), self._dmr_voice_loop)
             self._dmr_voice_loop = None
 
+        # Clean up FLEX decoder process if running
+        if self._flex_decoder is not None:
+            with contextlib.suppress(Exception):
+                self._flex_decoder.stop()
+            self._flex_decoder = None
+
     def get_pocsag_messages(self, limit: int = 50, since_timestamp: float | None = None) -> list[dict[str, Any]]:
         """Get recent POCSAG messages.
 
@@ -621,6 +634,21 @@ class Channel:
             List of message dictionaries (most recent first)
         """
         msgs = self._pocsag_messages
+        if since_timestamp is not None:
+            msgs = [m for m in msgs if m.timestamp > since_timestamp]
+        return [m.to_dict() for m in reversed(msgs[-limit:])]
+
+    def get_flex_messages(self, limit: int = 50, since_timestamp: float | None = None) -> list[dict[str, Any]]:
+        """Get recent FLEX messages.
+
+        Args:
+            limit: Maximum number of messages to return
+            since_timestamp: Only return messages after this timestamp (for polling)
+
+        Returns:
+            List of message dictionaries (most recent first)
+        """
+        msgs = self._flex_messages
         if since_timestamp is not None:
             msgs = [m for m in msgs if m.timestamp > since_timestamp]
         return [m.to_dict() for m in reversed(msgs[-limit:])]
@@ -2774,6 +2802,18 @@ class Capture:
             except Exception as e:
                 logger.error(f"Channel {ch.cfg.id}: POCSAG decoding error: {e}")
 
+        # FLEX decoding (NBFM only, via multimon-ng)
+        if ch.cfg.mode == "nbfm" and ch.cfg.enable_flex and audio.size > 0:
+            if ch._flex_decoder is None:
+                ch._flex_decoder = FlexDecoder()
+                logger.info(f"Channel {ch.cfg.id}: FLEX decoder initialized (multimon-ng)")
+
+            ch._flex_decoder.feed(audio, ch.cfg.audio_rate)
+            for flex_msg in ch._flex_decoder.drain_messages():
+                ch._flex_messages.append(flex_msg)
+                if len(ch._flex_messages) > ch._flex_max_messages:
+                    ch._flex_messages.pop(0)
+
         # Apply squelch
         if ch.cfg.squelch_db is not None and audio.size > 0:
             if ch.rssi_db is not None and ch.rssi_db < ch.cfg.squelch_db:
@@ -3404,6 +3444,7 @@ class CaptureManager:
         ch = self._channels.pop(chan_id, None)
         if ch is None:
             return
+        ch.stop()
 
         # If this is a voice channel, notify the parent control channel
         if ch._parent_control_channel_id:

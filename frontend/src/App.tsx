@@ -63,10 +63,10 @@ function AppContent() {
   const deleteCapture = useDeleteCapture();
   const deleteTrunkingSystem = useDeleteTrunkingSystem();
 
-  // Check if any channels have POCSAG decoding enabled
+  // Check if any channels have pager decoding enabled
   const hasDigitalForDevice = useMemo(() => {
     if (!channels || channels.length === 0) return false;
-    return channels.some((ch) => ch.enablePocsag);
+    return channels.some((ch) => ch.enablePocsag || ch.enableFlex);
   }, [channels]);
   const { stopAll } = useAudio();
 
@@ -160,7 +160,7 @@ function AppContent() {
           <TrunkingPanel systemId={trunkingSystemForDevice.id} />
         </div>
       ) : viewMode === "digital" && selectedCapture ? (
-        /* Digital Mode - POCSAG pager messages */
+        /* Digital Mode - Pager messages */
         <div className="flex-grow-1">
           <DigitalPanel
             captureId={selectedCapture.id}

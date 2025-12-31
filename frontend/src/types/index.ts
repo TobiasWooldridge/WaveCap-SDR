@@ -133,6 +133,8 @@ export interface Channel {
   // POCSAG decoding settings (NBFM only)
   enablePocsag?: boolean;
   pocsagBaud?: number;
+  // FLEX decoding settings (NBFM only)
+  enableFlex?: boolean;
 }
 
 // RDS (Radio Data System) data for FM broadcast
@@ -156,6 +158,19 @@ export interface POCSAGMessage {
   timestamp: number; // Unix timestamp
   baudRate: number; // 512, 1200, or 2400
   alias?: string | null; // Human-readable name from config (e.g., "CFS Dispatch")
+}
+
+export interface FlexMessage {
+  capcode: number;
+  messageType: "alpha" | "numeric" | "tone" | "unknown";
+  message: string;
+  timestamp: number;
+  baudRate?: number | null;
+  levels?: number | null;
+  phase?: string | null;
+  cycleNumber?: number | null;
+  frameNumber?: number | null;
+  alias?: string | null;
 }
 
 export interface UpdateCaptureRequest {
@@ -205,6 +220,9 @@ export interface CreateChannelRequest {
   squelchDb?: number | null;
   name?: string | null;
   notchFrequencies?: number[];
+  enablePocsag?: boolean;
+  pocsagBaud?: number;
+  enableFlex?: boolean;
 }
 
 export interface UpdateChannelRequest {
@@ -251,6 +269,11 @@ export interface UpdateChannelRequest {
   // Spectral noise reduction
   enableNoiseReduction?: boolean;
   noiseReductionDb?: number;
+
+  // Pager decoding (NBFM only)
+  enablePocsag?: boolean;
+  pocsagBaud?: number;
+  enableFlex?: boolean;
 }
 
 export interface RecipeChannel {
@@ -261,6 +284,8 @@ export interface RecipeChannel {
   // POCSAG decoding settings (NBFM only)
   enablePocsag?: boolean;
   pocsagBaud?: number;
+  // FLEX decoding settings (NBFM only)
+  enableFlex?: boolean;
 }
 
 export interface Recipe {

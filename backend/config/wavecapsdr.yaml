@@ -195,18 +195,22 @@ recipes:
       name: 929.5125 MHz
       mode: nbfm
       squelch_db: -70
+      enable_flex: true
     - offset_hz: 0
       name: 929.6000 MHz
       mode: nbfm
       squelch_db: -70
+      enable_flex: true
     - offset_hz: 12500
       name: 929.6125 MHz
       mode: nbfm
       squelch_db: -70
+      enable_flex: true
     - offset_hz: 25000
       name: 929.6250 MHz
       mode: nbfm
       squelch_db: -70
+      enable_flex: true
     allow_frequency_input: false
     gain: 40
     bandwidth: 200000

@@ -82,6 +82,10 @@ Base path: `/api/v1`
   - Stops demod pipeline and finalizes audio recording.
 - DELETE `/channels/{chanId}`
   - Removes the channel.
+- GET `/channels/{chanId}/decode/pocsag?limit=&since=`
+  - Returns decoded POCSAG pager messages (most recent first).
+- GET `/channels/{chanId}/decode/flex?limit=&since=`
+  - Returns decoded FLEX pager messages (most recent first).
 
 ### Scanner (frequency scanning)
 - POST `/scanners`
@@ -263,6 +267,10 @@ Noise reduction:
 - `enableNoiseReduction`, `noiseReductionDb` (spectral noise suppression, 3-30 dB)
 - `notchFrequencies[]` (up to 10 frequencies for interference rejection)
 
+Pager decoding (NBFM only):
+- `enablePocsag`, `pocsagBaud` (512, 1200, 2400)
+- `enableFlex` (requires `multimon-ng`; audio resampled to 22050 Hz)
+
 ### Scanner
 ```
 { id, captureId, state, currentFrequency, currentIndex, scanList[], mode,
@@ -378,9 +386,10 @@ Configuration via environment variables:
 10. ✅ **AM/SSB modes**: Synchronous AM (SAM) with PLL, USB/LSB with BFO.
 11. ✅ **RDS decoder**: Station name (PS), radio text (RT), PTY, TA/TP flags.
 12. ✅ **POCSAG decoder**: Pager message decoding for numeric and alphanumeric formats.
-13. ✅ **P25 trunking**: Phase 1/2 control channel decoding, voice channel tracking, TSBK parsing.
-14. ✅ **Trunking API**: Complete REST/WebSocket API for P25 systems, talkgroups, and call tracking.
-15. ✅ **IMBE/AMBE vocoders**: Vocoder integration for digital voice playback (external codec support).
+13. ✅ **FLEX decoder**: Pager message decoding via multimon-ng (FLEX protocol).
+14. ✅ **P25 trunking**: Phase 1/2 control channel decoding, voice channel tracking, TSBK parsing.
+15. ✅ **Trunking API**: Complete REST/WebSocket API for P25 systems, talkgroups, and call tracking.
+16. ✅ **IMBE/AMBE vocoders**: Vocoder integration for digital voice playback (external codec support).
 
 ### In Progress
 16. **Digital voice modes**: NXDN, D-Star, YSF demodulation (stubs exist, full implementation pending).
@@ -411,7 +420,7 @@ Configuration via environment variables:
 | Mode | Status | Description |
 |------|--------|-------------|
 | `wbfm` | ✅ Complete | Wideband FM (broadcast) with deemphasis, 150 kHz deviation, RDS support |
-| `nbfm` | ✅ Complete | Narrowband FM (VHF/UHF comms) with 5 kHz deviation, POCSAG paging |
+| `nbfm` | ✅ Complete | Narrowband FM (VHF/UHF comms) with 5 kHz deviation, POCSAG/FLEX paging |
 | `am` | ✅ Complete | Envelope detection with configurable bandwidth and AGC |
 | `sam` | ✅ Complete | Synchronous AM with carrier PLL for improved audio quality |
 | `ssb` | ✅ Complete | USB/LSB with bandpass filter, BFO offset, and AGC |

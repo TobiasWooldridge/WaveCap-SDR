@@ -1,12 +1,16 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Copy, Pause, Play, Search, Filter } from "lucide-react";
-import type { AggregatedPOCSAGMessage } from "../../hooks/useDigitalMessages";
+import type {
+  AggregatedPagerMessage,
+  PagerChannelSummary,
+  PagerProtocol,
+} from "../../hooks/useDigitalMessages";
 import { copyToClipboard } from "../../utils/clipboard";
 import { useToast } from "../../hooks/useToast";
 
 interface POCSAGMessageLogProps {
-  messages: AggregatedPOCSAGMessage[];
-  channels: { id: string; name: string | null; autoName: string | null }[];
+  messages: AggregatedPagerMessage[];
+  channels: PagerChannelSummary[];
   maxHeight?: number;
 }
 
@@ -46,6 +50,10 @@ function getMessageTypeBadge(messageType: string): {
       return { label: "ALT", className: "bg-warning text-dark" };
     case "alpha_2":
       return { label: "TX2", className: "bg-info" };
+    case "tone":
+      return { label: "TON", className: "bg-secondary" };
+    case "unknown":
+      return { label: "UNK", className: "bg-secondary" };
     default:
       return {
         label: messageType.toUpperCase().slice(0, 3),
@@ -63,6 +71,9 @@ export function POCSAGMessageLog({
   const [searchText, setSearchText] = useState("");
   const [addressFilter, setAddressFilter] = useState("");
   const [channelFilter, setChannelFilter] = useState<string>("all");
+  const [protocolFilter, setProtocolFilter] = useState<PagerProtocol | "all">(
+    "all",
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
 
@@ -83,6 +94,11 @@ export function POCSAGMessageLog({
   // Filter messages
   const filteredMessages = useMemo(() => {
     return messages.filter((msg) => {
+      // Protocol filter
+      if (protocolFilter !== "all" && msg.protocol !== protocolFilter) {
+        return false;
+      }
+
       // Channel filter
       if (channelFilter !== "all" && msg.channelId !== channelFilter) {
         return false;
@@ -105,10 +121,11 @@ export function POCSAGMessageLog({
 
       return true;
     });
-  }, [messages, channelFilter, addressFilter, searchText]);
+  }, [messages, protocolFilter, channelFilter, addressFilter, searchText]);
 
-  const handleCopyMessage = async (msg: AggregatedPOCSAGMessage) => {
-    const text = `[${formatFullTimestamp(msg.timestamp)}] ${msg.address}: ${msg.message}`;
+  const handleCopyMessage = async (msg: AggregatedPagerMessage) => {
+    const protocolLabel = msg.protocol === "pocsag" ? "POCSAG" : "FLEX";
+    const text = `[${formatFullTimestamp(msg.timestamp)}] ${protocolLabel} ${msg.address}: ${msg.message}`;
     const success = await copyToClipboard(text);
     if (success) {
       toast.success("Message copied to clipboard");
@@ -123,9 +140,25 @@ export function POCSAGMessageLog({
     <div className="d-flex flex-column h-100" style={{ minHeight: 0 }}>
       {/* Controls */}
       <div className="d-flex gap-2 align-items-center mb-2 flex-wrap">
-        {/* Channel filter */}
+        {/* Protocol filter */}
         <div className="d-flex align-items-center gap-1">
           <Filter size={12} className="text-body-secondary" />
+          <select
+            className="form-select form-select-sm"
+            style={{ width: "auto", fontSize: "0.75rem" }}
+            value={protocolFilter}
+            onChange={(e) =>
+              setProtocolFilter(e.target.value as PagerProtocol | "all")
+            }
+          >
+            <option value="all">All Protocols</option>
+            <option value="pocsag">POCSAG</option>
+            <option value="flex">FLEX</option>
+          </select>
+        </div>
+
+        {/* Channel filter */}
+        <div className="d-flex align-items-center gap-1">
           <select
             className="form-select form-select-sm"
             style={{ width: "auto", fontSize: "0.75rem" }}
@@ -136,6 +169,12 @@ export function POCSAGMessageLog({
             {channels.map((ch) => (
               <option key={ch.id} value={ch.id}>
                 {ch.name || ch.autoName || ch.id.slice(0, 8)}
+                {ch.protocols.length > 1 ? " (POC/FLEX)" : ""}
+                {ch.protocols.length === 1 && ch.protocols[0] === "pocsag"
+                  ? " (POC)"
+                  : ch.protocols.length === 1
+                    ? " (FLEX)"
+                    : ""}
               </option>
             ))}
           </select>
@@ -204,7 +243,7 @@ export function POCSAGMessageLog({
         {filteredMessages.length === 0 ? (
           <div className="text-center text-body-secondary py-4">
             {messages.length === 0
-              ? "No POCSAG messages received yet"
+              ? "No pager messages received yet"
               : "No messages match the current filters"}
           </div>
         ) : (
@@ -212,6 +251,7 @@ export function POCSAGMessageLog({
             <thead className="sticky-top bg-body-tertiary">
               <tr>
                 <th style={{ width: "70px" }}>Time</th>
+                <th style={{ width: "60px" }}>Proto</th>
                 <th style={{ width: "100px" }}>Channel</th>
                 <th style={{ width: "90px" }}>Address</th>
                 <th style={{ width: "40px" }}>Type</th>
@@ -229,6 +269,18 @@ export function POCSAGMessageLog({
                       title={formatFullTimestamp(msg.timestamp)}
                     >
                       {formatTime(msg.timestamp)}
+                    </td>
+                    <td>
+                      <span
+                        className={`badge ${
+                          msg.protocol === "pocsag"
+                            ? "bg-dark"
+                            : "bg-info text-dark"
+                        }`}
+                        style={{ fontSize: "0.6rem" }}
+                      >
+                        {msg.protocol === "pocsag" ? "POC" : "FLEX"}
+                      </span>
                     </td>
                     <td className="text-truncate" style={{ maxWidth: "100px" }}>
                       <span

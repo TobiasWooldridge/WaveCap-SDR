@@ -204,6 +204,11 @@ class CreateChannelRequest(BaseModel):
     enableNoiseReduction: bool | None = None
     noiseReductionDb: float | None = Field(None, ge=3, le=30)  # 3-30 dB reduction
 
+    # Pager decoding (NBFM only)
+    enablePocsag: bool | None = None
+    pocsagBaud: int | None = Field(None, ge=512, le=2400)
+    enableFlex: bool | None = None
+
     @field_validator('name')
     @classmethod
     def sanitize_name(cls, v: str | None) -> str | None:
@@ -276,6 +281,11 @@ class UpdateChannelRequest(BaseModel):
     # Spectral noise reduction (hiss/static suppression)
     enableNoiseReduction: bool | None = None
     noiseReductionDb: float | None = Field(None, ge=3, le=30)  # 3-30 dB reduction
+
+    # Pager decoding (NBFM only)
+    enablePocsag: bool | None = None
+    pocsagBaud: int | None = Field(None, ge=512, le=2400)
+    enableFlex: bool | None = None
 
     @field_validator('name')
     @classmethod
@@ -360,6 +370,11 @@ class ChannelModel(BaseModel):
     enableNoiseReduction: bool
     noiseReductionDb: float
 
+    # Pager decoding (NBFM only)
+    enablePocsag: bool = False
+    pocsagBaud: int = 1200
+    enableFlex: bool = False
+
     # RDS data (WBFM only)
     rdsData: RDSDataModel | None = None
 
@@ -372,6 +387,8 @@ class RecipeChannelModel(BaseModel):
     # POCSAG decoding settings (NBFM only)
     enablePocsag: bool = False
     pocsagBaud: int = 1200
+    # FLEX decoding settings (NBFM only)
+    enableFlex: bool = False
 
 
 class RecipeModel(BaseModel):
@@ -469,6 +486,20 @@ class POCSAGMessageModel(BaseModel):
     timestamp: float  # Unix timestamp
     baudRate: int = 1200  # 512, 1200, or 2400
     alias: str | None = None  # Human-readable name from config (e.g., "CFS Dispatch")
+
+
+class FlexMessageModel(BaseModel):
+    """A decoded FLEX pager message."""
+    capcode: int
+    messageType: str  # "alpha", "numeric", "tone", or "unknown"
+    message: str
+    timestamp: float
+    baudRate: int | None = None
+    levels: int | None = None
+    phase: str | None = None
+    cycleNumber: int | None = None
+    frameNumber: int | None = None
+    alias: str | None = None
 
 
 # Signal monitoring models

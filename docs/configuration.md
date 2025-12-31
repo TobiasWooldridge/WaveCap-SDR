@@ -58,6 +58,7 @@ Recipes
   - `channels[].squelch_db` (float, default `-60`): Squelch level in dB.
   - `channels[].enable_pocsag` (bool, default `false`): Enable POCSAG pager decoding (NBFM only).
   - `channels[].pocsag_baud` (int, default `1200`): POCSAG baud rate (512, 1200, 2400).
+  - `channels[].enable_flex` (bool, default `false`): Enable FLEX pager decoding (NBFM only, requires `multimon-ng` on PATH; audio is resampled to 22.05 kHz).
 - `recipes.<name>.allow_frequency_input` (bool, default `false`): Allow user to customize frequency.
 - `recipes.<name>.frequency_label` (string, optional): Label for frequency input field.
 
