@@ -68,9 +68,13 @@ export function TrunkingPanel({
       type: "start",
       talkgroupId: call.talkgroupId,
       talkgroupName: call.talkgroupName,
+      talkgroupCategory: call.talkgroupCategory,
+      talkgroupAlphaTag: call.talkgroupAlphaTag,
+      channelId: call.channelId,
       sourceId: call.sourceId,
       frequencyHz: call.frequencyHz,
       encrypted: call.encrypted,
+      sourceLocation: call.sourceLocation,
     };
     setCallEvents((prev) => [...prev.slice(-MAX_EVENTS + 1), event]);
     // Update last seen time for this talkgroup
@@ -87,10 +91,14 @@ export function TrunkingPanel({
       type: "end",
       talkgroupId: call.talkgroupId,
       talkgroupName: call.talkgroupName,
+      talkgroupCategory: call.talkgroupCategory,
+      talkgroupAlphaTag: call.talkgroupAlphaTag,
+      channelId: call.channelId,
       sourceId: call.sourceId,
       frequencyHz: call.frequencyHz,
       durationSeconds: call.durationSeconds,
       encrypted: call.encrypted,
+      sourceLocation: call.sourceLocation,
     };
     setCallEvents((prev) => [...prev.slice(-MAX_EVENTS + 1), event]);
     // Update last seen time for this talkgroup
@@ -142,9 +150,13 @@ export function TrunkingPanel({
           type: "start",
           talkgroupId: call.talkgroupId,
           talkgroupName: call.talkgroupName,
+          talkgroupCategory: call.talkgroupCategory,
+          talkgroupAlphaTag: call.talkgroupAlphaTag,
+          channelId: call.channelId,
           sourceId: call.sourceId,
           frequencyHz: call.frequencyHz,
           encrypted: call.encrypted,
+          sourceLocation: call.sourceLocation,
         });
         // Add end event
         events.push({
@@ -153,10 +165,14 @@ export function TrunkingPanel({
           type: "end",
           talkgroupId: call.talkgroupId,
           talkgroupName: call.talkgroupName,
+          talkgroupCategory: call.talkgroupCategory,
+          talkgroupAlphaTag: call.talkgroupAlphaTag,
+          channelId: call.channelId,
           sourceId: call.sourceId,
           frequencyHz: call.frequencyHz,
           durationSeconds: call.durationSeconds,
           encrypted: call.encrypted,
+          sourceLocation: call.sourceLocation,
         });
       }
       // Sort by timestamp and keep last MAX_EVENTS

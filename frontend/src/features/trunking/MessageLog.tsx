@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { MessageSquare, Search, Filter, Copy, Download, X } from "lucide-react";
+import {
+  MessageSquare,
+  Search,
+  Filter,
+  Copy,
+  Download,
+  X,
+  ChevronRight,
+  ChevronDown,
+} from "lucide-react";
 
 export interface P25Message {
   timestamp: number;
@@ -7,6 +16,7 @@ export interface P25Message {
   opcodeName: string;
   nac: number | null;
   summary: string;
+  raw?: Record<string, unknown> | null;
 }
 
 interface MessageLogProps {
@@ -15,18 +25,50 @@ interface MessageLogProps {
 }
 
 // Filter categories matching opcode patterns
-type FilterCategory = "all" | "grants" | "status" | "registration" | "identifiers" | "other";
+type FilterCategory =
+  | "all"
+  | "grants"
+  | "status"
+  | "registration"
+  | "identifiers"
+  | "other";
 
-const FILTER_OPTIONS: { value: FilterCategory; label: string; match: (name: string) => boolean }[] = [
+const FILTER_OPTIONS: {
+  value: FilterCategory;
+  label: string;
+  match: (name: string) => boolean;
+}[] = [
   { value: "all", label: "All", match: () => true },
   { value: "grants", label: "Grants", match: (n) => n.includes("GRANT") },
-  { value: "status", label: "Status", match: (n) => n.includes("STS") || n.includes("BCAST") },
-  { value: "registration", label: "Registration", match: (n) => n.includes("REG") || n.includes("AFF") },
-  { value: "identifiers", label: "Identifiers", match: (n) => n.includes("IDEN") },
-  { value: "other", label: "Other", match: (n) => {
-    return !n.includes("GRANT") && !n.includes("STS") && !n.includes("BCAST") &&
-           !n.includes("REG") && !n.includes("AFF") && !n.includes("IDEN");
-  }},
+  {
+    value: "status",
+    label: "Status",
+    match: (n) => n.includes("STS") || n.includes("BCAST"),
+  },
+  {
+    value: "registration",
+    label: "Registration",
+    match: (n) => n.includes("REG") || n.includes("AFF"),
+  },
+  {
+    value: "identifiers",
+    label: "Identifiers",
+    match: (n) => n.includes("IDEN"),
+  },
+  {
+    value: "other",
+    label: "Other",
+    match: (n) => {
+      return (
+        !n.includes("GRANT") &&
+        !n.includes("STS") &&
+        !n.includes("BCAST") &&
+        !n.includes("REG") &&
+        !n.includes("AFF") &&
+        !n.includes("IDEN")
+      );
+    },
+  },
 ];
 
 function formatTime(timestamp: number): string {
@@ -53,8 +95,10 @@ function getOpcodeColor(opcodeName: string | undefined): string {
   if (!opcodeName) return "text-body-secondary";
   if (opcodeName.includes("GRANT")) return "text-success";
   if (opcodeName.includes("IDEN")) return "text-info";
-  if (opcodeName.includes("STS") || opcodeName.includes("BCAST")) return "text-warning";
-  if (opcodeName.includes("REG") || opcodeName.includes("AFF")) return "text-primary";
+  if (opcodeName.includes("STS") || opcodeName.includes("BCAST"))
+    return "text-warning";
+  if (opcodeName.includes("REG") || opcodeName.includes("AFF"))
+    return "text-primary";
   return "text-body-secondary";
 }
 
@@ -62,14 +106,17 @@ function getOpcodeBadgeClass(opcodeName: string | undefined): string {
   if (!opcodeName) return "bg-secondary";
   if (opcodeName.includes("GRANT")) return "bg-success";
   if (opcodeName.includes("IDEN")) return "bg-info";
-  if (opcodeName.includes("STS") || opcodeName.includes("BCAST")) return "bg-warning text-dark";
-  if (opcodeName.includes("REG") || opcodeName.includes("AFF")) return "bg-primary";
+  if (opcodeName.includes("STS") || opcodeName.includes("BCAST"))
+    return "bg-warning text-dark";
+  if (opcodeName.includes("REG") || opcodeName.includes("AFF"))
+    return "bg-primary";
   return "bg-secondary";
 }
 
 export function MessageLog({ messages, maxHeight = 400 }: MessageLogProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   // Filter and search state
   const [filter, setFilter] = useState<FilterCategory>("all");
@@ -78,8 +125,8 @@ export function MessageLog({ messages, maxHeight = 400 }: MessageLogProps) {
 
   // Filter messages
   const filteredMessages = useMemo(() => {
-    const filterOption = FILTER_OPTIONS.find(f => f.value === filter);
-    return messages.filter(msg => {
+    const filterOption = FILTER_OPTIONS.find((f) => f.value === filter);
+    return messages.filter((msg) => {
       // Apply category filter
       if (filter !== "all" && filterOption) {
         if (!filterOption.match(msg.opcodeName || "")) return false;
@@ -87,8 +134,12 @@ export function MessageLog({ messages, maxHeight = 400 }: MessageLogProps) {
       // Apply text search
       if (search) {
         const searchLower = search.toLowerCase();
-        const matchesOpcode = (msg.opcodeName || "").toLowerCase().includes(searchLower);
-        const matchesSummary = (msg.summary || "").toLowerCase().includes(searchLower);
+        const matchesOpcode = (msg.opcodeName || "")
+          .toLowerCase()
+          .includes(searchLower);
+        const matchesSummary = (msg.summary || "")
+          .toLowerCase()
+          .includes(searchLower);
         if (!matchesOpcode && !matchesSummary) return false;
       }
       return true;
@@ -113,7 +164,10 @@ export function MessageLog({ messages, maxHeight = 400 }: MessageLogProps) {
   // Copy to clipboard
   const handleCopy = useCallback(() => {
     const text = filteredMessages
-      .map(msg => `${formatFullTimestamp(msg.timestamp)}\t${msg.opcodeName || ""}\t${msg.summary || ""}`)
+      .map(
+        (msg) =>
+          `${formatFullTimestamp(msg.timestamp)}\t${msg.opcodeName || ""}\t${msg.summary || ""}`,
+      )
       .join("\n");
     navigator.clipboard.writeText(text);
   }, [filteredMessages]);
@@ -121,7 +175,7 @@ export function MessageLog({ messages, maxHeight = 400 }: MessageLogProps) {
   // Export to CSV
   const handleExport = useCallback(() => {
     const headers = "timestamp,opcode,opcodeName,nac,summary";
-    const rows = filteredMessages.map(msg => {
+    const rows = filteredMessages.map((msg) => {
       const ts = formatFullTimestamp(msg.timestamp);
       const opcode = msg.opcode?.toString(16).toUpperCase() || "";
       const opcodeName = msg.opcodeName || "";
@@ -156,7 +210,9 @@ export function MessageLog({ messages, maxHeight = 400 }: MessageLogProps) {
       >
         <MessageSquare size={24} className="mb-2 opacity-50" />
         <div>Waiting for decoded messages...</div>
-        <div className="small mt-1">Messages will appear when the control channel is locked</div>
+        <div className="small mt-1">
+          Messages will appear when the control channel is locked
+        </div>
       </div>
     );
   }
@@ -164,7 +220,10 @@ export function MessageLog({ messages, maxHeight = 400 }: MessageLogProps) {
   return (
     <div className="d-flex flex-column" style={{ maxHeight: maxHeight + 40 }}>
       {/* Toolbar */}
-      <div className="d-flex align-items-center gap-2 mb-2 flex-wrap" style={{ fontSize: "0.75rem" }}>
+      <div
+        className="d-flex align-items-center gap-2 mb-2 flex-wrap"
+        style={{ fontSize: "0.75rem" }}
+      >
         {/* Filter toggle */}
         <button
           className={`btn btn-sm ${showFilters ? "btn-primary" : "btn-outline-secondary"}`}
@@ -176,7 +235,10 @@ export function MessageLog({ messages, maxHeight = 400 }: MessageLogProps) {
         </button>
 
         {/* Search input */}
-        <div className="input-group input-group-sm" style={{ maxWidth: "200px" }}>
+        <div
+          className="input-group input-group-sm"
+          style={{ maxWidth: "200px" }}
+        >
           <span className="input-group-text" style={{ padding: "2px 6px" }}>
             <Search size={12} />
           </span>
@@ -238,7 +300,7 @@ export function MessageLog({ messages, maxHeight = 400 }: MessageLogProps) {
       {/* Filter chips */}
       {showFilters && (
         <div className="d-flex gap-1 mb-2 flex-wrap">
-          {FILTER_OPTIONS.map(opt => (
+          {FILTER_OPTIONS.map((opt) => (
             <button
               key={opt.value}
               className={`btn btn-sm ${filter === opt.value ? "btn-primary" : "btn-outline-secondary"}`}
@@ -264,38 +326,72 @@ export function MessageLog({ messages, maxHeight = 400 }: MessageLogProps) {
           </div>
         ) : (
           <div className="d-flex flex-column">
-            {filteredMessages.map((msg, idx) => (
-              <div
-                key={`${msg.timestamp}-${idx}`}
-                className="d-flex align-items-start gap-2 px-2 py-1 border-bottom"
-              >
-                {/* Timestamp with milliseconds */}
-                <span className="text-body-secondary" style={{ minWidth: "85px" }}>
-                  {formatTime(msg.timestamp)}
-                  <span className="opacity-75">.{formatMillis(msg.timestamp)}</span>
-                </span>
+            {filteredMessages.map((msg, idx) => {
+              const rowKey = `${msg.timestamp}-${idx}`;
+              const isExpanded = expandedKey === rowKey;
+              return (
+                <div key={rowKey} className="border-bottom">
+                  <div className="d-flex align-items-start gap-2 px-2 py-1">
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-secondary"
+                      onClick={() => setExpandedKey(isExpanded ? null : rowKey)}
+                      title="Toggle metadata"
+                      style={{ padding: "0 4px", lineHeight: "1.1" }}
+                    >
+                      {isExpanded ? (
+                        <ChevronDown size={12} />
+                      ) : (
+                        <ChevronRight size={12} />
+                      )}
+                    </button>
+                    {/* Timestamp with milliseconds */}
+                    <span
+                      className="text-body-secondary"
+                      style={{ minWidth: "85px" }}
+                    >
+                      {formatTime(msg.timestamp)}
+                      <span className="opacity-75">
+                        .{formatMillis(msg.timestamp)}
+                      </span>
+                    </span>
 
-                {/* NAC if available */}
-                {msg.nac !== null && (
-                  <span className="text-info" style={{ minWidth: "45px" }}>
-                    NAC:{msg.nac.toString(16).toUpperCase().padStart(3, "0")}
-                  </span>
-                )}
+                    {/* NAC if available */}
+                    {msg.nac !== null && (
+                      <span className="text-info" style={{ minWidth: "45px" }}>
+                        NAC:
+                        {msg.nac.toString(16).toUpperCase().padStart(3, "0")}
+                      </span>
+                    )}
 
-                {/* Opcode badge */}
-                <span
-                  className={`badge ${getOpcodeBadgeClass(msg.opcodeName)}`}
-                  style={{ fontSize: "0.6rem", minWidth: "100px" }}
-                >
-                  {msg.opcodeName || "UNKNOWN"}
-                </span>
+                    {/* Opcode badge */}
+                    <span
+                      className={`badge ${getOpcodeBadgeClass(msg.opcodeName)}`}
+                      style={{ fontSize: "0.6rem", minWidth: "100px" }}
+                    >
+                      {msg.opcodeName || "UNKNOWN"}
+                    </span>
 
-                {/* Summary - wraps if needed */}
-                <span className={`flex-grow-1 ${getOpcodeColor(msg.opcodeName)}`}>
-                  {msg.summary}
-                </span>
-              </div>
-            ))}
+                    {/* Summary - wraps if needed */}
+                    <span
+                      className={`flex-grow-1 ${getOpcodeColor(msg.opcodeName)}`}
+                    >
+                      {msg.summary}
+                    </span>
+                  </div>
+                  {isExpanded && (
+                    <pre
+                      className="bg-body-secondary m-0 px-2 py-2"
+                      style={{ fontSize: "0.65rem", whiteSpace: "pre-wrap" }}
+                    >
+                      {msg.raw
+                        ? JSON.stringify(msg.raw, null, 2)
+                        : "No raw metadata available"}
+                    </pre>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

@@ -216,8 +216,13 @@ class ActiveCall:
     state: CallState
     start_time: float
     last_activity_time: float
+    talkgroup_alpha_tag: str = ""
+    talkgroup_priority: int | None = None
+    talkgroup_record: bool | None = None
+    talkgroup_monitor: bool | None = None
     encrypted: bool = False
     recorder_id: str | None = None
+    source_location: RadioLocation | None = None
 
     # Audio stats
     audio_frames: int = 0
@@ -230,6 +235,10 @@ class ActiveCall:
             "talkgroupId": self.talkgroup_id,
             "talkgroupName": self.talkgroup_name,
             "talkgroupCategory": self.talkgroup_category,
+            "talkgroupAlphaTag": self.talkgroup_alpha_tag,
+            "talkgroupPriority": self.talkgroup_priority,
+            "talkgroupRecord": self.talkgroup_record,
+            "talkgroupMonitor": self.talkgroup_monitor,
             "sourceId": self.source_id,
             "frequencyHz": self.frequency_hz,
             "channelId": self.channel_id,
@@ -240,6 +249,7 @@ class ActiveCall:
             "audioFrames": self.audio_frames,
             "durationSeconds": self.duration_seconds,
             "recorderId": self.recorder_id,
+            "sourceLocation": self.source_location.to_dict() if self.source_location else None,
         }
 
 
@@ -2040,6 +2050,9 @@ class TrunkingSystem:
                 # Update source_id if we got a non-zero value
                 if source_id != 0:
                     call.source_id = source_id
+                    location = self.get_radio_location(source_id)
+                    if location:
+                        call.source_location = location
 
                 # Check if frequency changed (call continuing on different channel)
                 if abs(call.frequency_hz - freq_hz) > 1000:
@@ -2065,11 +2078,20 @@ class TrunkingSystem:
         # Start new call
         tg_name = tg_config.name if tg_config else f"TG {tgid}"
         tg_category = tg_config.category if tg_config else ""
+        tg_alpha = tg_config.alpha_tag if tg_config else ""
+        tg_priority = tg_config.priority if tg_config else None
+        tg_record = tg_config.record if tg_config else None
+        tg_monitor = tg_config.monitor if tg_config else None
+        call_location = self.get_radio_location(source_id) if source_id else None
         call = ActiveCall(
             id=str(uuid.uuid4())[:8],
             talkgroup_id=tgid,
             talkgroup_name=tg_name,
             talkgroup_category=tg_category,
+            talkgroup_alpha_tag=tg_alpha,
+            talkgroup_priority=tg_priority,
+            talkgroup_record=tg_record,
+            talkgroup_monitor=tg_monitor,
             source_id=source_id,
             frequency_hz=freq_hz,
             channel_id=channel_id,
@@ -2077,6 +2099,7 @@ class TrunkingSystem:
             start_time=time.time(),
             last_activity_time=time.time(),
             encrypted=encrypted,
+            source_location=call_location,
         )
 
         # Try to assign a voice recorder
@@ -3034,6 +3057,15 @@ class TrunkingSystem:
                         f"Attached location to voice channel: "
                         f"unit={location.unit_id} recorder={recorder.id}"
                     )
+                if recorder.call_id:
+                    call = self._active_calls.get(recorder.call_id)
+                    if call:
+                        call.source_location = location
+
+        # Also update any active calls that match the unit ID even if no recorder is active
+        for call in self._active_calls.values():
+            if call.source_id == location.unit_id:
+                call.source_location = location
 
     def get_radio_location(self, unit_id: int) -> RadioLocation | None:
         """Get cached location for a radio unit.

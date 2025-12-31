@@ -369,6 +369,7 @@ class TrunkingManager:
                     "opcodeName": msg.get("opcode_name", ""),
                     "nac": msg.get("nac"),
                     "summary": msg.get("summary", ""),
+                    "raw": msg.get("raw"),
                 })
             for call in system.get_call_history(limit=50):
                 call["systemId"] = system.cfg.id
@@ -482,6 +483,7 @@ class TrunkingManager:
                 "opcodeName": message.get("opcode_name", ""),
                 "nac": message.get("nac"),
                 "summary": message.get("summary", ""),
+                "raw": message.get("raw"),
             },
         })
 

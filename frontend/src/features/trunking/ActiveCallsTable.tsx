@@ -7,6 +7,7 @@ import {
   Link,
   Copy,
   CheckCircle,
+  Info,
 } from "lucide-react";
 import type { ActiveCall } from "../../types/trunking";
 import { TRUNKING_VOICE_STREAM_FORMATS } from "../../components/StreamLinks";
@@ -24,6 +25,28 @@ function formatDuration(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+function formatLocation(location: ActiveCall["sourceLocation"]): string {
+  if (!location) return "No location";
+  const lat = location.latitude.toFixed(6);
+  const lon = location.longitude.toFixed(6);
+  const parts = [`${lat}, ${lon}`];
+  if (location.altitude !== null && location.altitude !== undefined) {
+    parts.push(`alt ${location.altitude.toFixed(1)}m`);
+  }
+  if (location.speed !== null && location.speed !== undefined) {
+    parts.push(`spd ${location.speed.toFixed(1)} km/h`);
+  }
+  if (location.heading !== null && location.heading !== undefined) {
+    parts.push(`hdg ${location.heading.toFixed(0)}°`);
+  }
+  if (location.accuracy !== null && location.accuracy !== undefined) {
+    parts.push(`±${location.accuracy.toFixed(1)}m`);
+  }
+  const age = location.ageSeconds.toFixed(1);
+  parts.push(`${age}s ago`);
+  return parts.join(" • ");
 }
 
 /**
@@ -207,7 +230,9 @@ export function ActiveCallsTable({
                       {call.talkgroupName}
                     </div>
                     <div className="d-flex align-items-center gap-2">
-                      <small className="text-muted">TG {call.talkgroupId}</small>
+                      <small className="text-muted">
+                        TG {call.talkgroupId}
+                      </small>
                       {call.encrypted && (
                         <span
                           className="badge bg-danger"
@@ -235,13 +260,28 @@ export function ActiveCallsTable({
                     )}
                   </td>
                   <td className="text-end font-monospace">
-                    <FrequencyDisplay frequencyHz={call.frequencyHz} decimals={4}  unit="MHz"/>
+                    <FrequencyDisplay
+                      frequencyHz={call.frequencyHz}
+                      decimals={4}
+                      unit="MHz"
+                    />
                   </td>
                   <td className="text-end font-monospace">
                     {formatDuration(getCallDuration(call))}
                   </td>
                   <td className="text-center">
                     <div className="btn-group btn-group-sm">
+                      <button
+                        className={`btn ${
+                          expandedCallId === call.id
+                            ? "btn-secondary"
+                            : "btn-outline-secondary"
+                        }`}
+                        onClick={() => toggleExpanded(call.id)}
+                        title="Call metadata"
+                      >
+                        <Info size={14} />
+                      </button>
                       {onPlayAudio &&
                         !call.encrypted &&
                         call.state === "recording" &&
@@ -278,36 +318,100 @@ export function ActiveCallsTable({
                     </div>
                   </td>
                 </tr>
-                {expandedCallId === call.id && onCopyUrl && (
+                {expandedCallId === call.id && (
                   <tr key={`${call.id}-urls`} className="bg-body-secondary">
                     <td colSpan={7}>
-                      <div className="d-flex gap-2 py-1 px-2">
-                        <small className="text-muted me-2">Stream URLs:</small>
-                        {TRUNKING_VOICE_STREAM_FORMATS.map((format) => {
-                          const isCopied =
-                            copiedFormat === `${call.id}-${format.key}`;
-                          return (
-                            <button
-                              key={format.key}
-                              className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1"
-                              onClick={() =>
-                                handleCopyStreamUrl(call, format.key)
-                              }
-                            >
-                              {isCopied ? (
-                                <CheckCircle
-                                  size={12}
-                                  className="text-success"
-                                />
-                              ) : (
-                                <Copy size={12} />
-                              )}
-                              <span style={{ fontSize: "11px" }}>
-                                {format.label}
+                      <div className="d-flex flex-column gap-2 py-2 px-2">
+                        <div>
+                          <small className="text-muted me-2">Metadata:</small>
+                          <div className="d-flex flex-wrap gap-2 mt-1">
+                            <span className="badge bg-dark">
+                              Channel: 0x
+                              {call.channelId.toString(16).toUpperCase()}
+                            </span>
+                            {call.talkgroupAlphaTag && (
+                              <span className="badge bg-secondary">
+                                Alpha: {call.talkgroupAlphaTag}
                               </span>
-                            </button>
-                          );
-                        })}
+                            )}
+                            {call.talkgroupPriority !== null &&
+                              call.talkgroupPriority !== undefined && (
+                                <span className="badge bg-secondary">
+                                  Priority: {call.talkgroupPriority}
+                                </span>
+                              )}
+                            {call.talkgroupRecord !== null &&
+                              call.talkgroupRecord !== undefined && (
+                                <span className="badge bg-secondary">
+                                  Record: {call.talkgroupRecord ? "yes" : "no"}
+                                </span>
+                              )}
+                            {call.talkgroupMonitor !== null &&
+                              call.talkgroupMonitor !== undefined && (
+                                <span className="badge bg-secondary">
+                                  Monitor:{" "}
+                                  {call.talkgroupMonitor ? "yes" : "no"}
+                                </span>
+                              )}
+                            <span className="badge bg-secondary">
+                              Last activity:{" "}
+                              {Math.max(
+                                0,
+                                Date.now() / 1000 - call.lastActivityTime,
+                              ).toFixed(1)}
+                              s
+                            </span>
+                          </div>
+                          <div
+                            className="text-muted mt-2"
+                            style={{ fontSize: "0.75rem" }}
+                          >
+                            Location: {formatLocation(call.sourceLocation)}
+                          </div>
+                          <pre
+                            className="bg-body-tertiary rounded p-2 mt-2 mb-0"
+                            style={{
+                              fontSize: "0.65rem",
+                              whiteSpace: "pre-wrap",
+                            }}
+                          >
+                            {JSON.stringify(call, null, 2)}
+                          </pre>
+                        </div>
+                        {onCopyUrl &&
+                          call.state === "recording" &&
+                          call.recorderId && (
+                            <div className="d-flex gap-2">
+                              <small className="text-muted me-2">
+                                Stream URLs:
+                              </small>
+                              {TRUNKING_VOICE_STREAM_FORMATS.map((format) => {
+                                const isCopied =
+                                  copiedFormat === `${call.id}-${format.key}`;
+                                return (
+                                  <button
+                                    key={format.key}
+                                    className="btn btn-sm btn-outline-secondary d-flex align-items-center gap-1"
+                                    onClick={() =>
+                                      handleCopyStreamUrl(call, format.key)
+                                    }
+                                  >
+                                    {isCopied ? (
+                                      <CheckCircle
+                                        size={12}
+                                        className="text-success"
+                                      />
+                                    ) : (
+                                      <Copy size={12} />
+                                    )}
+                                    <span style={{ fontSize: "11px" }}>
+                                      {format.label}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
                       </div>
                     </td>
                   </tr>

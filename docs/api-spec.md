@@ -133,13 +133,15 @@ Base path: `/api/v1`
 - POST `/trunking/systems/{id}/talkgroups`
   - Import/add talkgroups.
 - GET `/trunking/systems/{id}/calls/active`
-  - List active calls for this system.
+  - List active calls for this system (includes talkgroup metadata and `sourceLocation` GPS when available).
 - GET `/trunking/calls`
-  - List all active calls across all systems.
+  - List all active calls across all systems (includes talkgroup metadata and `sourceLocation` GPS when available).
 - GET `/trunking/vocoders`
   - Check IMBE/AMBE vocoder availability.
 - GET `/trunking/systems/{id}/locations`
   - Get GPS locations from LRRP messages.
+- GET `/trunking/systems/{id}/messages`
+  - Get decoded control-channel messages (includes `raw` metadata payloads).
 - GET `/trunking/systems/{id}/voice-streams`
   - List active voice streams for playback.
 - GET `/trunking/recipes`
@@ -185,6 +187,8 @@ flowchart TD
   - Encoder subprocesses (ffmpeg) use the channel’s configured `audioRate` and default to 128 kbps CBR. Bitrate selection will be exposed via config later; until then, consumers should not assume VBR support.
 - WS `/stream/trunking/{systemId}`
   - Real-time trunking events (grants, denials, registrations) for a specific system.
+  - `message` events include `raw` decoded metadata payloads.
+  - `call_*` events include talkgroup metadata and `sourceLocation` GPS when available.
 - WS `/stream/trunking`
   - Trunking events for all systems.
 - GET `/stream/trunking/{systemId}/voice/{streamId}.pcm`
@@ -220,6 +224,19 @@ States: `created`, `starting`, `running`, `stopping`, `stopped`, `failed`
   signalPowerDb?, rssiDb?, snrDb?, ...dspConfig }
 ```
 States: `created`, `running`, `stopped`
+
+### Trunking Call
+```
+{ id, talkgroupId, talkgroupName, talkgroupCategory, talkgroupAlphaTag?, talkgroupPriority?,
+  talkgroupRecord?, talkgroupMonitor?, sourceId?, frequencyHz, channelId, state, startTime,
+  lastActivityTime, encrypted, audioFrames, durationSeconds, recorderId?, sourceLocation? }
+```
+`sourceLocation` uses `{ unitId, latitude, longitude, altitude?, speed?, heading?, accuracy?, timestamp, ageSeconds, source }`.
+
+### Trunking Message
+```
+{ timestamp, opcode, opcodeName, nac?, summary, raw? }
+```
 
 ### Channel DSP Configuration
 FM filters:

@@ -127,6 +127,11 @@ class ActiveCallResponse(BaseModel):
     id: str
     talkgroupId: int
     talkgroupName: str
+    talkgroupCategory: str
+    talkgroupAlphaTag: str | None = None
+    talkgroupPriority: int | None = None
+    talkgroupRecord: bool | None = None
+    talkgroupMonitor: bool | None = None
     sourceId: int | None
     frequencyHz: float
     channelId: int
@@ -137,6 +142,7 @@ class ActiveCallResponse(BaseModel):
     audioFrames: int
     durationSeconds: float
     recorderId: str | None = None
+    sourceLocation: LocationResponse | None = None
 
 
 class TalkgroupResponse(BaseModel):
@@ -459,6 +465,11 @@ async def get_system_active_calls(request: Request, system_id: str) -> list[Acti
             id=c.id,
             talkgroupId=c.talkgroup_id,
             talkgroupName=c.talkgroup_name,
+            talkgroupCategory=c.talkgroup_category,
+            talkgroupAlphaTag=c.talkgroup_alpha_tag or None,
+            talkgroupPriority=c.talkgroup_priority,
+            talkgroupRecord=c.talkgroup_record,
+            talkgroupMonitor=c.talkgroup_monitor,
             sourceId=c.source_id,
             frequencyHz=c.frequency_hz,
             channelId=c.channel_id,
@@ -469,6 +480,18 @@ async def get_system_active_calls(request: Request, system_id: str) -> list[Acti
             audioFrames=c.audio_frames,
             durationSeconds=c.duration_seconds,
             recorderId=c.recorder_id,
+            sourceLocation=LocationResponse(
+                unitId=c.source_location.unit_id,
+                latitude=c.source_location.latitude,
+                longitude=c.source_location.longitude,
+                altitude=c.source_location.altitude_m,
+                speed=c.source_location.speed_kmh,
+                heading=c.source_location.heading_deg,
+                accuracy=c.source_location.accuracy_m,
+                timestamp=c.source_location.timestamp,
+                ageSeconds=c.source_location.age_seconds(),
+                source=c.source_location.source,
+            ) if c.source_location else None,
         )
         for c in calls
     ]
@@ -485,6 +508,11 @@ async def get_all_active_calls(request: Request) -> list[ActiveCallResponse]:
             id=c.id,
             talkgroupId=c.talkgroup_id,
             talkgroupName=c.talkgroup_name,
+            talkgroupCategory=c.talkgroup_category,
+            talkgroupAlphaTag=c.talkgroup_alpha_tag or None,
+            talkgroupPriority=c.talkgroup_priority,
+            talkgroupRecord=c.talkgroup_record,
+            talkgroupMonitor=c.talkgroup_monitor,
             sourceId=c.source_id,
             frequencyHz=c.frequency_hz,
             channelId=c.channel_id,
@@ -495,6 +523,18 @@ async def get_all_active_calls(request: Request) -> list[ActiveCallResponse]:
             audioFrames=c.audio_frames,
             durationSeconds=c.duration_seconds,
             recorderId=c.recorder_id,
+            sourceLocation=LocationResponse(
+                unitId=c.source_location.unit_id,
+                latitude=c.source_location.latitude,
+                longitude=c.source_location.longitude,
+                altitude=c.source_location.altitude_m,
+                speed=c.source_location.speed_kmh,
+                heading=c.source_location.heading_deg,
+                accuracy=c.source_location.accuracy_m,
+                timestamp=c.source_location.timestamp,
+                ageSeconds=c.source_location.age_seconds(),
+                source=c.source_location.source,
+            ) if c.source_location else None,
         )
         for c in calls
     ]
@@ -550,6 +590,7 @@ class MessageResponse(BaseModel):
     opcodeName: str
     nac: int | None = None
     summary: str
+    raw: dict[str, Any] | None = None
 
 
 @router.get("/systems/{system_id}/messages", response_model=list[MessageResponse])
@@ -588,6 +629,7 @@ async def get_messages(
             opcodeName=msg.get("opcode_name", ""),
             nac=msg.get("nac"),
             summary=msg.get("summary", ""),
+            raw=msg.get("raw"),
         )
         for msg in messages
     ]

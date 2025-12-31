@@ -89,6 +89,10 @@ export interface ActiveCall {
   talkgroupId: number;
   talkgroupName: string;
   talkgroupCategory: string;
+  talkgroupAlphaTag?: string | null;
+  talkgroupPriority?: number | null;
+  talkgroupRecord?: boolean | null;
+  talkgroupMonitor?: boolean | null;
   sourceId: number | null;
   frequencyHz: number;
   channelId: number;
@@ -99,6 +103,7 @@ export interface ActiveCall {
   audioFrames: number;
   durationSeconds: number;
   recorderId: string | null;
+  sourceLocation?: RadioLocation | null;
 }
 
 export interface VocoderStatus {
@@ -173,6 +178,7 @@ export interface P25Message {
   opcodeName: string;
   nac: number | null;
   summary: string;
+  raw?: Record<string, unknown> | null;
 }
 
 export type TrunkingEventType =

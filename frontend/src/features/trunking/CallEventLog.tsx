@@ -8,9 +8,12 @@ import {
   Copy,
   Download,
   X,
+  ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 import { FrequencyDisplay } from "../../components/primitives/FrequencyDisplay.react";
 import { formatFrequencyMHz } from "../../utils/frequency";
+import type { RadioLocation } from "../../types/trunking";
 
 export interface CallEvent {
   id: string;
@@ -18,10 +21,14 @@ export interface CallEvent {
   type: "start" | "end" | "update";
   talkgroupId: number;
   talkgroupName: string;
+  talkgroupCategory?: string;
+  talkgroupAlphaTag?: string | null;
+  channelId?: number;
   sourceId: number | null;
   frequencyHz: number;
   durationSeconds?: number;
   encrypted?: boolean;
+  sourceLocation?: RadioLocation | null;
 }
 
 interface CallEventLogProps {
@@ -87,6 +94,7 @@ function getEventIcon(type: string, encrypted?: boolean) {
 export function CallEventLog({ events, maxHeight = 400 }: CallEventLogProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   // Filter state
   const [eventTypeFilter, setEventTypeFilter] =
@@ -314,115 +322,172 @@ export function CallEventLog({ events, maxHeight = 400 }: CallEventLogProps) {
           </div>
         ) : (
           <div className="d-flex flex-column">
-            {filteredEvents.map((event) => (
-              <div
-                key={`${event.id}-${event.type}-${event.timestamp}`}
-                className="d-flex align-items-start gap-2 px-2 py-1 border-bottom"
-              >
-                {/* Time with milliseconds */}
-                <span
-                  className="text-body-secondary"
-                  style={{ minWidth: "85px" }}
-                >
-                  {formatTime(event.timestamp)}
-                  <span className="opacity-75">
-                    .{formatMillis(event.timestamp)}
-                  </span>
-                </span>
-
-                {/* Icon */}
-                <span style={{ width: "16px" }}>
-                  {getEventIcon(event.type, event.encrypted)}
-                </span>
-
-                {/* Event type badge */}
-                <span
-                  className={`badge ${
-                    event.type === "start"
-                      ? "bg-success"
-                      : event.type === "end"
-                        ? "bg-secondary"
-                        : "bg-info"
-                  }`}
-                  style={{ width: "42px", fontSize: "0.6rem" }}
-                >
-                  {event.type === "start"
-                    ? "START"
-                    : event.type === "end"
-                      ? "END"
-                      : "UPDATE"}
-                </span>
-
-                {/* Talkgroup name + ID */}
-                <span
-                  className="d-flex align-items-center gap-1"
-                  style={{ minWidth: "160px", flex: "1 1 auto" }}
-                >
-                  <span
-                    className="fw-semibold"
-                    style={{ wordBreak: "break-word" }}
-                    title={event.talkgroupName}
-                  >
-                    {event.talkgroupName || `TG ${event.talkgroupId}`}
-                  </span>
-                  {event.talkgroupName && (
-                    <span
-                      className="badge bg-secondary"
-                      style={{ fontSize: "0.55rem" }}
+            {filteredEvents.map((event) => {
+              const rowKey = `${event.id}-${event.type}-${event.timestamp}`;
+              const isExpanded = expandedKey === rowKey;
+              const locationSummary = event.sourceLocation
+                ? `${event.sourceLocation.latitude.toFixed(6)}, ${event.sourceLocation.longitude.toFixed(6)}`
+                : "No location";
+              return (
+                <div key={rowKey} className="border-bottom">
+                  <div className="d-flex align-items-start gap-2 px-2 py-1">
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-secondary"
+                      onClick={() => setExpandedKey(isExpanded ? null : rowKey)}
+                      title="Toggle metadata"
+                      style={{ padding: "0 4px", lineHeight: "1.1" }}
                     >
-                      {event.talkgroupId}
-                    </span>
-                  )}
-                </span>
-
-                {/* Source ID */}
-                <span style={{ width: "55px" }}>
-                  {event.sourceId !== null ? (
+                      {isExpanded ? (
+                        <ChevronDown size={12} />
+                      ) : (
+                        <ChevronRight size={12} />
+                      )}
+                    </button>
+                    {/* Time with milliseconds */}
                     <span
-                      className="badge bg-secondary"
-                      style={{ fontSize: "0.6rem" }}
-                      title="Radio Unit ID"
+                      className="text-body-secondary"
+                      style={{ minWidth: "85px" }}
                     >
-                      RU {event.sourceId}
-                    </span>
-                  ) : (
-                    <span className="text-body-tertiary">---</span>
-                  )}
-                </span>
-
-                {/* Frequency */}
-                <span
-                  className="text-body-secondary"
-                  style={{ minWidth: "60px" }}
-                  title="Voice Channel Frequency"
-                >
-                  <FrequencyDisplay frequencyHz={event.frequencyHz} decimals={4}  unit="MHz"/>
-                </span>
-
-                {/* Duration (for end events) */}
-                <span style={{ width: "50px" }}>
-                  {event.type === "end" &&
-                    event.durationSeconds !== undefined && (
-                      <span className="text-info fw-semibold">
-                        {formatDuration(event.durationSeconds)}
+                      {formatTime(event.timestamp)}
+                      <span className="opacity-75">
+                        .{formatMillis(event.timestamp)}
                       </span>
-                    )}
-                </span>
-
-                {/* Encrypted indicator */}
-                <span style={{ width: "20px" }}>
-                  {event.encrypted && (
-                    <span
-                      className="badge bg-danger"
-                      style={{ fontSize: "0.55rem" }}
-                      title="Encrypted call"
-                    >
-                      <Lock size={8} />
                     </span>
+
+                    {/* Icon */}
+                    <span style={{ width: "16px" }}>
+                      {getEventIcon(event.type, event.encrypted)}
+                    </span>
+
+                    {/* Event type badge */}
+                    <span
+                      className={`badge ${
+                        event.type === "start"
+                          ? "bg-success"
+                          : event.type === "end"
+                            ? "bg-secondary"
+                            : "bg-info"
+                      }`}
+                      style={{ width: "42px", fontSize: "0.6rem" }}
+                    >
+                      {event.type === "start"
+                        ? "START"
+                        : event.type === "end"
+                          ? "END"
+                          : "UPDATE"}
+                    </span>
+
+                    {/* Talkgroup name + ID */}
+                    <span
+                      className="d-flex align-items-center gap-1"
+                      style={{ minWidth: "160px", flex: "1 1 auto" }}
+                    >
+                      <span
+                        className="fw-semibold"
+                        style={{ wordBreak: "break-word" }}
+                        title={event.talkgroupName}
+                      >
+                        {event.talkgroupName || `TG ${event.talkgroupId}`}
+                      </span>
+                      {event.talkgroupName && (
+                        <span
+                          className="badge bg-secondary"
+                          style={{ fontSize: "0.55rem" }}
+                        >
+                          {event.talkgroupId}
+                        </span>
+                      )}
+                    </span>
+
+                    {/* Source ID */}
+                    <span style={{ width: "55px" }}>
+                      {event.sourceId !== null ? (
+                        <span
+                          className="badge bg-secondary"
+                          style={{ fontSize: "0.6rem" }}
+                          title="Radio Unit ID"
+                        >
+                          RU {event.sourceId}
+                        </span>
+                      ) : (
+                        <span className="text-body-tertiary">---</span>
+                      )}
+                    </span>
+
+                    {/* Frequency */}
+                    <span
+                      className="text-body-secondary"
+                      style={{ minWidth: "60px" }}
+                      title="Voice Channel Frequency"
+                    >
+                      <FrequencyDisplay
+                        frequencyHz={event.frequencyHz}
+                        decimals={4}
+                        unit="MHz"
+                      />
+                    </span>
+
+                    {/* Duration (for end events) */}
+                    <span style={{ width: "50px" }}>
+                      {event.type === "end" &&
+                        event.durationSeconds !== undefined && (
+                          <span className="text-info fw-semibold">
+                            {formatDuration(event.durationSeconds)}
+                          </span>
+                        )}
+                    </span>
+
+                    {/* Encrypted indicator */}
+                    <span style={{ width: "20px" }}>
+                      {event.encrypted && (
+                        <span
+                          className="badge bg-danger"
+                          style={{ fontSize: "0.55rem" }}
+                          title="Encrypted call"
+                        >
+                          <Lock size={8} />
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  {isExpanded && (
+                    <div
+                      className="bg-body-secondary px-2 py-2"
+                      style={{ fontSize: "0.7rem" }}
+                    >
+                      <div className="d-flex flex-wrap gap-2">
+                        {event.talkgroupCategory && (
+                          <span className="badge bg-secondary">
+                            Category: {event.talkgroupCategory}
+                          </span>
+                        )}
+                        {event.talkgroupAlphaTag && (
+                          <span className="badge bg-secondary">
+                            Alpha: {event.talkgroupAlphaTag}
+                          </span>
+                        )}
+                        {event.channelId !== undefined && (
+                          <span className="badge bg-secondary">
+                            Channel: 0x
+                            {event.channelId.toString(16).toUpperCase()}
+                          </span>
+                        )}
+                        <span className="badge bg-secondary">
+                          Location: {locationSummary}
+                        </span>
+                      </div>
+                      <pre
+                        className="bg-body-tertiary rounded p-2 mt-2 mb-0"
+                        style={{ fontSize: "0.65rem", whiteSpace: "pre-wrap" }}
+                      >
+                        {JSON.stringify(event, null, 2)}
+                      </pre>
+                    </div>
                   )}
-                </span>
-              </div>
-            ))}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

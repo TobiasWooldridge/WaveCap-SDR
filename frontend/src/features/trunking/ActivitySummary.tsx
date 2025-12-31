@@ -1,6 +1,10 @@
 import { useMemo, useCallback } from "react";
 import { Copy } from "lucide-react";
-import type { TrunkingSystem, ActiveCall, P25Message } from "../../types/trunking";
+import type {
+  TrunkingSystem,
+  ActiveCall,
+  P25Message,
+} from "../../types/trunking";
 import { formatFrequencyWithUnit } from "../../utils/frequency";
 
 interface ActivitySummaryProps {
@@ -9,7 +13,10 @@ interface ActivitySummaryProps {
   messages: P25Message[];
 }
 
-function formatHex(value: number | null | undefined, digits: number = 3): string {
+function formatHex(
+  value: number | null | undefined,
+  digits: number = 3,
+): string {
   if (value === null || value === undefined) return "(pending)";
   return `0x${value.toString(16).toUpperCase().padStart(digits, "0")}`;
 }
@@ -18,16 +25,24 @@ function formatNumber(value: number): string {
   return value.toLocaleString();
 }
 
-export function ActivitySummary({ system, activeCalls, messages }: ActivitySummaryProps) {
+export function ActivitySummary({
+  system,
+  activeCalls,
+  messages,
+}: ActivitySummaryProps) {
   // Build the summary text
   const summaryText = useMemo(() => {
     const lines: string[] = [];
 
     // Header
     lines.push(`=== ${system.name} ===`);
-    lines.push(`Protocol: ${system.protocol === "p25_phase1" ? "P25 Phase I" : "P25 Phase II"}`);
+    lines.push(
+      `Protocol: ${system.protocol === "p25_phase1" ? "P25 Phase I" : "P25 Phase II"}`,
+    );
     lines.push(`State: ${formatState(system.state)}`);
-    lines.push(`Control Channel: ${formatControlState(system.controlChannelState)}`);
+    lines.push(
+      `Control Channel: ${formatControlState(system.controlChannelState)}`,
+    );
     lines.push("");
 
     // Network section
@@ -38,21 +53,36 @@ export function ActivitySummary({ system, activeCalls, messages }: ActivitySumma
 
     // Site section
     lines.push("SITE");
-    lines.push(`  RFSS: ${system.rfssId !== null ? system.rfssId : "(pending)"}`);
-    lines.push(`  Site ID: ${system.siteId !== null ? system.siteId : "(pending)"}`);
+    lines.push(
+      `  RFSS: ${system.rfssId !== null ? system.rfssId : "(pending)"}`,
+    );
+    lines.push(
+      `  Site ID: ${system.siteId !== null ? system.siteId : "(pending)"}`,
+    );
     if (system.controlChannelFreqHz) {
-      lines.push(`  Control Channel: ${formatFrequencyWithUnit(system.controlChannelFreqHz, 4)}`);
+      lines.push(
+        `  Control Channel: ${formatFrequencyWithUnit(system.controlChannelFreqHz, 4)}`,
+      );
     }
     lines.push("");
 
     // Control channels
-    lines.push(`CONTROL CHANNELS (${system.controlChannels.length} configured)`);
+    lines.push(
+      `CONTROL CHANNELS (${system.controlChannels.length} configured)`,
+    );
     for (const cc of system.controlChannels) {
-      const marker = cc.isCurrent ? " [CURRENT]" : cc.isLocked ? " [LOCKED]" : "";
-      const snr = cc.snrDb !== null ? `SNR: ${cc.snrDb.toFixed(1)} dB` : "SNR: ---";
+      const marker = cc.isCurrent
+        ? " [CURRENT]"
+        : cc.isLocked
+          ? " [LOCKED]"
+          : "";
+      const snr =
+        cc.snrDb !== null ? `SNR: ${cc.snrDb.toFixed(1)} dB` : "SNR: ---";
       const sync = cc.syncDetected ? " SYNC" : "";
       const enabled = cc.enabled ? "" : " (disabled)";
-      lines.push(`  ${formatFrequencyWithUnit(cc.frequencyHz, 4)} - ${snr}${sync}${marker}${enabled}`);
+      lines.push(
+        `  ${formatFrequencyWithUnit(cc.frequencyHz, 4)} - ${snr}${sync}${marker}${enabled}`,
+      );
     }
     lines.push("");
 
@@ -62,7 +92,9 @@ export function ActivitySummary({ system, activeCalls, messages }: ActivitySumma
     lines.push(`  Grants: ${formatNumber(system.stats.grant_count)}`);
     lines.push(`  Total Calls: ${formatNumber(system.stats.calls_total)}`);
     lines.push(`  Decode Rate: ${system.decodeRate.toFixed(1)} fps`);
-    lines.push(`  Recorders: ${system.stats.recorders_active} active / ${system.stats.recorders_idle} idle`);
+    lines.push(
+      `  Recorders: ${system.stats.recorders_active} active / ${system.stats.recorders_idle} idle`,
+    );
     lines.push("");
 
     // Active calls
@@ -73,7 +105,12 @@ export function ActivitySummary({ system, activeCalls, messages }: ActivitySumma
       for (const call of activeCalls) {
         const enc = call.encrypted ? " [ENC]" : "";
         const source = call.sourceId ? ` RU:${call.sourceId}` : "";
-        lines.push(`  TG ${call.talkgroupId} (${call.talkgroupName}) @ ${formatFrequencyWithUnit(call.frequencyHz, 4)}${source}${enc}`);
+        const loc = call.sourceLocation
+          ? ` @${call.sourceLocation.latitude.toFixed(5)},${call.sourceLocation.longitude.toFixed(5)}`
+          : "";
+        lines.push(
+          `  TG ${call.talkgroupId} (${call.talkgroupName}) @ ${formatFrequencyWithUnit(call.frequencyHz, 4)}${source}${enc}${loc}`,
+        );
       }
     }
     lines.push("");
@@ -88,7 +125,9 @@ export function ActivitySummary({ system, activeCalls, messages }: ActivitySumma
     if (Object.keys(msgCounts).length === 0) {
       lines.push("  (none)");
     } else {
-      for (const [type, count] of Object.entries(msgCounts).sort((a, b) => b[1] - a[1])) {
+      for (const [type, count] of Object.entries(msgCounts).sort(
+        (a, b) => b[1] - a[1],
+      )) {
         lines.push(`  ${type}: ${count}`);
       }
     }
@@ -104,7 +143,10 @@ export function ActivitySummary({ system, activeCalls, messages }: ActivitySumma
   return (
     <div className="d-flex flex-column">
       {/* Toolbar */}
-      <div className="d-flex align-items-center gap-2 mb-2" style={{ fontSize: "0.75rem" }}>
+      <div
+        className="d-flex align-items-center gap-2 mb-2"
+        style={{ fontSize: "0.75rem" }}
+      >
         <span className="text-muted">System activity summary</span>
         <div className="ms-auto d-flex gap-1">
           <button
@@ -131,31 +173,45 @@ export function ActivitySummary({ system, activeCalls, messages }: ActivitySumma
 
 function formatState(state: string): string {
   switch (state) {
-    case "stopped": return "Stopped";
-    case "starting": return "Starting";
-    case "searching": return "Searching for control channel";
-    case "syncing": return "Syncing";
-    case "running": return "Running";
-    case "failed": return "Failed";
-    default: return state;
+    case "stopped":
+      return "Stopped";
+    case "starting":
+      return "Starting";
+    case "searching":
+      return "Searching for control channel";
+    case "syncing":
+      return "Syncing";
+    case "running":
+      return "Running";
+    case "failed":
+      return "Failed";
+    default:
+      return state;
   }
 }
 
 function formatControlState(state: string): string {
   switch (state) {
-    case "unlocked": return "Unlocked (searching)";
-    case "searching": return "Searching";
-    case "locked": return "Locked (receiving)";
-    case "lost": return "Lost (recovering)";
-    default: return state;
+    case "unlocked":
+      return "Unlocked (searching)";
+    case "searching":
+      return "Searching";
+    case "locked":
+      return "Locked (receiving)";
+    case "lost":
+      return "Lost (recovering)";
+    default:
+      return state;
   }
 }
 
 function getMessageCategory(opcodeName: string): string {
   if (!opcodeName) return "Unknown";
   if (opcodeName.includes("GRANT")) return "Grants";
-  if (opcodeName.includes("STS") || opcodeName.includes("BCAST")) return "Status";
-  if (opcodeName.includes("REG") || opcodeName.includes("AFF")) return "Registration";
+  if (opcodeName.includes("STS") || opcodeName.includes("BCAST"))
+    return "Status";
+  if (opcodeName.includes("REG") || opcodeName.includes("AFF"))
+    return "Registration";
   if (opcodeName.includes("IDEN")) return "Identifiers";
   return "Other";
 }
