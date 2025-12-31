@@ -241,9 +241,13 @@ class P25P1MessageAssembler:
         self.duid = duid
         self._bits: list[int] = []
         self._target_length = duid.get_message_length()
+        self._force_completed = False
 
     def receive(self, dibit: int) -> None:
         """Add a dibit (2 bits) to the message."""
+        if dibit < 0 or dibit > 3:
+            raise AssertionError(f"Invalid dibit {dibit} for DUID {self.duid.name}")
+
         if len(self._bits) < self._target_length:
             self._bits.append((dibit >> 1) & 1)
             if len(self._bits) < self._target_length:
@@ -271,6 +275,10 @@ class P25P1MessageAssembler:
         self.duid = duid
         self._target_length = duid.get_message_length()
 
+    def was_force_completed(self) -> bool:
+        """Return True when the message was force-completed after a resync."""
+        return self._force_completed
+
     def force_completion(
         self,
         previous_duid: P25P1DataUnitID,
@@ -282,6 +290,7 @@ class P25P1MessageAssembler:
         Returns number of dropped bits.
         """
         current_size = len(self._bits)
+        self._force_completed = True
 
         # Try to infer DUID from context if we have a placeholder
         if self.duid == P25P1DataUnitID.PLACE_HOLDER:
@@ -640,6 +649,48 @@ class P25P1MessageFramer:
         self._dibit_counter = 57
         self._status_symbol_counter = 21  # SDRTrunk value
 
+    def _assert_message_length(
+        self,
+        bits: np.ndarray,
+        duid: P25P1DataUnitID,
+        allow_truncated: bool = False
+    ) -> None:
+        """Validate message length to fast-fail on malformed frames."""
+        if duid == P25P1DataUnitID.PLACE_HOLDER:
+            raise AssertionError("Cannot dispatch placeholder message")
+
+        message_length = int(bits.size)
+        expected_length = duid.get_message_length()
+
+        if allow_truncated and message_length < expected_length:
+            return
+
+        if duid in (
+            P25P1DataUnitID.TRUNKING_SIGNALING_BLOCK_1,
+            P25P1DataUnitID.TRUNKING_SIGNALING_BLOCK_2,
+            P25P1DataUnitID.TRUNKING_SIGNALING_BLOCK_3,
+            P25P1DataUnitID.PACKET_DATA_UNIT,
+            P25P1DataUnitID.PACKET_DATA_UNIT_BLOCK_1,
+            P25P1DataUnitID.PACKET_DATA_UNIT_BLOCK_2,
+            P25P1DataUnitID.PACKET_DATA_UNIT_BLOCK_3,
+            P25P1DataUnitID.PACKET_DATA_UNIT_BLOCK_4,
+            P25P1DataUnitID.PACKET_DATA_UNIT_BLOCK_5,
+        ):
+            if message_length < expected_length:
+                raise AssertionError(
+                    f"P25 {duid.name} length {message_length} below minimum {expected_length}"
+                )
+            if message_length % 196 != 0:
+                raise AssertionError(
+                    f"P25 {duid.name} length {message_length} is not aligned to 196-bit blocks"
+                )
+            return
+
+        if message_length != expected_length:
+            raise AssertionError(
+                f"P25 {duid.name} length {message_length} did not match expected {expected_length}"
+            )
+
     def _dispatch_message(self) -> None:
         """Dispatch assembled message to listener."""
         if self._message_assembler is None:
@@ -652,6 +703,7 @@ class P25P1MessageFramer:
             return
 
         duid = self._message_assembler.duid
+        allow_truncated = self._message_assembler.was_force_completed()
 
         # Handle different message types
         if duid in (
@@ -659,7 +711,7 @@ class P25P1MessageFramer:
             P25P1DataUnitID.TRUNKING_SIGNALING_BLOCK_2,
             P25P1DataUnitID.TRUNKING_SIGNALING_BLOCK_3,
         ):
-            self._dispatch_tsbk()
+            self._dispatch_tsbk(allow_truncated=allow_truncated)
         elif duid in (
             P25P1DataUnitID.PACKET_DATA_UNIT,
             P25P1DataUnitID.PACKET_DATA_UNIT_BLOCK_1,
@@ -668,35 +720,43 @@ class P25P1MessageFramer:
             P25P1DataUnitID.PACKET_DATA_UNIT_BLOCK_4,
             P25P1DataUnitID.PACKET_DATA_UNIT_BLOCK_5,
         ):
-            self._dispatch_pdu()
+            self._dispatch_pdu(allow_truncated=allow_truncated)
         elif duid == P25P1DataUnitID.PLACE_HOLDER:
             self._message_assembler = None
         else:
-            self._dispatch_other()
+            self._dispatch_other(allow_truncated=allow_truncated)
 
-    def _dispatch_other(self) -> None:
+    def _dispatch_other(self, allow_truncated: bool = False) -> None:
         """Dispatch non-TSBK/PDU message."""
         if self._message_assembler is None:
             return
+
+        bits = self._message_assembler.get_message_bits()
+        self._assert_message_length(
+            bits,
+            self._message_assembler.duid,
+            allow_truncated=allow_truncated
+        )
 
         message = P25P1Message(
             duid=self._message_assembler.duid,
             nac=self._message_assembler.nac,
             timestamp=self._get_timestamp(),
-            bits=self._message_assembler.get_message_bits(),
+            bits=bits,
             corrected_bit_count=self._detected_sync_bit_errors,
         )
 
         self._broadcast(message)
         self._message_assembler = None
 
-    def _dispatch_tsbk(self) -> None:
+    def _dispatch_tsbk(self, allow_truncated: bool = False) -> None:
         """Dispatch TSBK message with multi-block handling."""
         if self._message_assembler is None:
             return
 
         duid = self._message_assembler.duid
         bits = self._message_assembler.get_message_bits()
+        self._assert_message_length(bits, duid, allow_truncated=allow_truncated)
 
         if duid == P25P1DataUnitID.TRUNKING_SIGNALING_BLOCK_1:
             # First TSBK block
@@ -714,7 +774,7 @@ class P25P1MessageFramer:
                 # Check for continuation
                 if len(bits) >= 392:
                     self._message_assembler.set_duid(P25P1DataUnitID.TRUNKING_SIGNALING_BLOCK_2)
-                    self._dispatch_tsbk()
+                    self._dispatch_tsbk(allow_truncated=allow_truncated)
                 else:
                     # Check last block flag (would need trellis decode to check)
                     # For now, prepare for potential continuation
@@ -734,7 +794,7 @@ class P25P1MessageFramer:
 
                 if len(bits) >= 588:
                     self._message_assembler.set_duid(P25P1DataUnitID.TRUNKING_SIGNALING_BLOCK_3)
-                    self._dispatch_tsbk()
+                    self._dispatch_tsbk(allow_truncated=allow_truncated)
                 else:
                     self._message_assembler.reconfigure(P25P1DataUnitID.TRUNKING_SIGNALING_BLOCK_3)
 
@@ -751,17 +811,24 @@ class P25P1MessageFramer:
                 self._broadcast(message)
             self._message_assembler = None
 
-    def _dispatch_pdu(self) -> None:
+    def _dispatch_pdu(self, allow_truncated: bool = False) -> None:
         """Dispatch PDU message with multi-block handling."""
         # Similar structure to TSBK but for PDU blocks
         if self._message_assembler is None:
             return
 
+        bits = self._message_assembler.get_message_bits()
+        self._assert_message_length(
+            bits,
+            self._message_assembler.duid,
+            allow_truncated=allow_truncated
+        )
+
         message = P25P1Message(
             duid=self._message_assembler.duid,
             nac=self._message_assembler.nac,
             timestamp=self._get_timestamp(),
-            bits=self._message_assembler.get_message_bits(),
+            bits=bits,
             corrected_bit_count=self._detected_sync_bit_errors,
         )
         self._broadcast(message)

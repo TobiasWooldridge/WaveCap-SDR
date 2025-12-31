@@ -427,6 +427,7 @@ P25 trunking specifics:
 - Status symbols are stripped every 36 dibits (positions 36, 72, 108, ...).
 - LDU voice frames are parsed using a 864-dibit window; NID decoding skips the status symbol at dibit 10.
 - IDEN_UP channel identifiers are cached per system and can be preseeded via `channel_identifiers` in trunking config to resolve voice frequencies during weak CRC periods.
+- When sync is detected mid-frame, the framer force-completes and dispatches truncated payloads without length assertions; dropped-bit counts are logged.
 
 ## Open Questions
 - Preferred on‑disk container for IQ (raw vs. WAV container with metadata)?
