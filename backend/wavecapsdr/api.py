@@ -4,6 +4,8 @@ import asyncio
 import contextlib
 import logging
 import time
+from dataclasses import fields
+from pathlib import Path
 from collections.abc import AsyncGenerator
 from typing import Any, Literal, cast
 
@@ -21,7 +23,13 @@ from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
-from .config import AppConfig, default_config_path, load_config, save_config
+from .config import (
+    AppConfig,
+    CONFIG_FILENAME,
+    LOCAL_CONFIG_FILENAME,
+    load_config,
+    save_config,
+)
 from .device_namer import (
     generate_capture_name,
     get_device_nickname,
@@ -678,13 +686,39 @@ async def _start_captures_from_config(app_state: AppState, config: AppConfig) ->
 @router.post("/config/reload")
 async def reload_config(
     request: Request,
-    req: ReloadConfigRequest,
+    req: ReloadConfigRequest | None = None,
     _: None = Depends(auth_check),
 ) -> dict[str, Any]:
     """Hot-reload the YAML configuration file with minimal disruption."""
     state: AppState | None = getattr(request.app.state, "app_state", None)
-    cfg_path = req.configPath or (state.config_path if state and state.config_path else default_config_path())
+    cfg_path: str | None = None
+    if req is not None and req.configPath:
+        cfg_path = req.configPath
+    elif state and state.config_path:
+        cfg_path = state.config_path
+    if not cfg_path:
+        raise HTTPException(status_code=400, detail="No config path configured")
+
+    path = Path(cfg_path)
+    if path.is_dir():
+        candidates = [path / CONFIG_FILENAME, path / LOCAL_CONFIG_FILENAME]
+    elif path.name == LOCAL_CONFIG_FILENAME:
+        candidates = [path.with_name(CONFIG_FILENAME), path]
+    elif path.name == CONFIG_FILENAME:
+        candidates = [path, path.with_name(LOCAL_CONFIG_FILENAME)]
+    else:
+        candidates = [path]
+
+    if not any(candidate.exists() for candidate in candidates):
+        raise HTTPException(status_code=404, detail="Config file not found")
+
     new_config = load_config(cfg_path)
+    updated: list[str] = []
+    if state is not None:
+        for field in fields(AppConfig):
+            name = field.name
+            if getattr(state.config, name) != getattr(new_config, name):
+                updated.append(name)
 
     # Gracefully stop existing managers/captures
     if state is not None:
@@ -702,7 +736,8 @@ async def reload_config(
     await new_state.trunking_manager.start()
 
     started_captures: list[str] = []
-    if req.startCaptures:
+    start_captures = req.startCaptures if req is not None else True
+    if start_captures:
         started_captures = await _start_captures_from_config(new_state, new_config)
 
     systems = [sys.to_dict() for sys in new_state.trunking_manager.list_systems()]
@@ -711,6 +746,7 @@ async def reload_config(
         "configPath": cfg_path,
         "capturesStarted": started_captures,
         "systems": systems,
+        "updated": updated,
         "note": "RF-level changes applied without restarting the process",
     }
 

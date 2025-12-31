@@ -328,6 +328,12 @@ Configuration via environment variables:
 - `DEVICE_ARGS`: specific device selection (optional, e.g., `"driver=rtlsdr,serial=00000001"`)
 - `CONFIG`: path to YAML configuration file (optional)
 
+### Config Reload
+- POST `/api/v1/config/reload`
+- Optional JSON body: `configPath` (string), `startCaptures` (bool, default true).
+- Response includes: `status`, `configPath`, `updated` (list of config sections changed), `capturesStarted`, `systems`, `note`.
+- Errors: `400` when no config path configured; `404` when config file(s) not found.
+
 ## Configuration
 - Files: `config/wavecapsdr.yaml` with optional overrides in `config/wavecapsdr.local.yaml` (gitignored), plus environment variables. Document all options in `docs/configuration.md`.
 - Examples:
