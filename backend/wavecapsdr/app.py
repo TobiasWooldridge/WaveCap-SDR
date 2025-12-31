@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import inspect
 from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -12,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
+import slowapi.extension as slowapi_extension
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
@@ -21,6 +23,9 @@ from .device_namer import generate_capture_name, get_device_nickname
 from .mcp_server import router as mcp_router
 from .state import AppState
 from .trunking.api import router as trunking_router
+
+# Work around slowapi using deprecated asyncio.iscoroutinefunction on Python 3.14+.
+slowapi_extension.asyncio.iscoroutinefunction = inspect.iscoroutinefunction
 
 
 class SafeStreamHandler(logging.StreamHandler[TextIO]):
