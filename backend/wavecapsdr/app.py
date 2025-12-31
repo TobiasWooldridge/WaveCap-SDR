@@ -6,7 +6,7 @@ import inspect
 from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import AsyncIterator, Callable, TextIO, cast
+from typing import Any, AsyncIterator, Callable, TextIO, cast
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,7 +25,9 @@ from .state import AppState
 from .trunking.api import router as trunking_router
 
 # Work around slowapi using deprecated asyncio.iscoroutinefunction on Python 3.14+.
-slowapi_extension.asyncio.iscoroutinefunction = inspect.iscoroutinefunction
+slowapi_asyncio = cast(Any, getattr(slowapi_extension, "asyncio", None))
+if slowapi_asyncio is not None:
+    slowapi_asyncio.iscoroutinefunction = inspect.iscoroutinefunction
 
 
 class SafeStreamHandler(logging.StreamHandler[TextIO]):
