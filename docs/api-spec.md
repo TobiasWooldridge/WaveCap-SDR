@@ -319,6 +319,7 @@ Configuration via environment variables:
   - `recording.rootDir` and filename pattern.
   - `limits.maxConcurrentCaptures`, `limits.maxChannelsPerCapture`, `limits.maxSampleRate`.
 - RadioReference integration (optional): enable under `radioreference.*` and `trunking.systems.<id>.talkgroups_rr` to import talkgroups.
+- Helper script: `PYTHONPATH=. python backend/scripts/radioreference_sync.py --system <system_id>` writes a talkgroup cache from RadioReference.
 - Each successful save creates/refreshes a sibling `wavecapsdr.local.yaml.bak` (or `wavecapsdr.yaml.bak` if no local file is used) so operators can recover if a UI action overwrote capture configs unexpectedly.
 
 ## Security

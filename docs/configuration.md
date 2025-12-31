@@ -97,6 +97,11 @@ RadioReference
 - `radioreference.timeout_seconds` (float, default `10.0`): Request timeout.
 - Store credentials in `config/wavecapsdr.local.yaml` or environment variables; avoid committing them.
 
+RadioReference Sync Script
+- Use the helper script to fetch fresh talkgroups and write a YAML cache file:
+  - `PYTHONPATH=. python backend/scripts/radioreference_sync.py --system sa_grn_2`
+  - Optional overrides: `--config`, `--rr-system-id`, `--output`, `--no-refresh`
+
 Captures (auto-start on boot)
 - `captures[]` (array): List of captures to auto-start on server launch.
   - `preset` (string): Name of preset to use.
