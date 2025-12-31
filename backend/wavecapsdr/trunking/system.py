@@ -53,7 +53,12 @@ if TYPE_CHECKING:
 import contextlib
 
 from wavecapsdr.capture import freq_shift
-from wavecapsdr.dsp.filters import fir_filter_complex, NUMBA_AVAILABLE
+from wavecapsdr.dsp.filters import (
+    NUMBA_AVAILABLE,
+    fir_decimate,
+    fir_filter_complex,
+    warmup_numba_filters,
+)
 from wavecapsdr.utils.profiler import get_profiler
 
 logger = logging.getLogger(__name__)
@@ -1104,6 +1109,9 @@ class TrunkingSystem:
             self._set_state(TrunkingSystemState.FAILED)
             return
 
+        # Pre-JIT numba FIR helpers to avoid first-chunk latency that can cause overruns
+        warmup_numba_filters()
+
         control_freqs = self.cfg.control_channel_frequencies
         invalid_freqs = [freq for freq in control_freqs if freq <= 0]
         if invalid_freqs:
@@ -1673,39 +1681,36 @@ class TrunkingSystem:
                     # Initialize stage1_zi with first sample to prevent transient
                     if filter_state["stage1_zi"] is None:
                         filter_state["stage1_zi"] = stage1_zi_template * centered_iq[0]
-                    # Use Numba-accelerated filter (or scipy fallback)
-                    filtered1, filter_state["stage1_zi"] = fir_filter_complex(
-                        centered_iq, stage1_taps, zi=filter_state["stage1_zi"]
+                    # Use Numba-accelerated filter + decimate in one pass
+                    decimated1, filter_state["stage1_zi"] = fir_decimate(
+                        centered_iq, stage1_taps, stage1_factor, zi=filter_state["stage1_zi"]
                     )
-                    decimated1 = filtered1[::stage1_factor]
 
-                # Stage 2: Decimate by 4 (200 kHz → 50 kHz)
-                with _iq_profiler.measure("decim_stage2"):
-                    # Initialize stage2_zi with first sample to prevent transient
-                    if filter_state["stage2_zi"] is None:
-                        filter_state["stage2_zi"] = stage2_zi_template * decimated1[0]
-                    # Use Numba-accelerated filter (or scipy fallback)
-                    filtered2, filter_state["stage2_zi"] = fir_filter_complex(
-                        decimated1, stage2_taps, zi=filter_state["stage2_zi"]
-                    )
-                    decimated2 = filtered2[::stage2_factor]
-
-                # No Stage 3 - stay at 50 kHz (tested: 90.7% CRC pass rate)
-                decimated_iq = decimated2
+                decimated_iq = decimated1
+                if decimated1.size > 0:
+                    # Stage 2: Decimate by 4 (200 kHz → 50 kHz)
+                    with _iq_profiler.measure("decim_stage2"):
+                        # Initialize stage2_zi with first sample to prevent transient
+                        if filter_state["stage2_zi"] is None:
+                            filter_state["stage2_zi"] = stage2_zi_template * decimated1[0]
+                        # Use Numba-accelerated filter + decimate in one pass
+                        decimated2, filter_state["stage2_zi"] = fir_decimate(
+                            decimated1, stage2_taps, stage2_factor, zi=filter_state["stage2_zi"]
+                        )
+                    # No Stage 3 - stay at 50 kHz (tested: 90.7% CRC pass rate)
+                    decimated_iq = decimated2
 
                 # [DIAG-DECIM] Decimation diagnostics
                 if iq_debug_state["calls"] % 100 == 0:
                     power_in = float(np.mean(np.abs(centered_iq)**2))
-                    power_filt1 = float(np.mean(np.abs(filtered1)**2))  # After filter, before decim
                     power_stage1 = float(np.mean(np.abs(decimated1)**2))
-                    power_filt2 = float(np.mean(np.abs(filtered2)**2))  # After filter, before decim
                     power_out = float(np.mean(np.abs(decimated_iq)**2))
                     # Use scientific notation to see actual values - show filter vs decim power loss
                     logger.info(
-                        f"[DIAG-DECIM] Stage1: in={power_in:.2e}, filtered={power_filt1:.2e}, decim={power_stage1:.2e}"
+                        f"[DIAG-DECIM] Stage1: in={power_in:.2e}, decim={power_stage1:.2e}"
                     )
                     logger.info(
-                        f"[DIAG-DECIM] Stage2: in={power_stage1:.2e}, filtered={power_filt2:.2e}, out={power_out:.2e}"
+                        f"[DIAG-DECIM] Stage2: in={power_stage1:.2e}, out={power_out:.2e}"
                     )
             else:
                 decimated_iq = centered_iq

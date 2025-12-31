@@ -648,9 +648,13 @@ def fir_decimate(
 
 
 # Warm up Numba JIT on import (optional, reduces first-call latency)
-def _warmup_numba_filters() -> None:
-    """Pre-compile Numba functions to reduce first-call latency."""
-    if not NUMBA_AVAILABLE:
+_NUMBA_WARMED_UP = False
+
+
+def warmup_numba_filters() -> None:
+    """Pre-compile Numba FIR helpers to reduce first-call latency."""
+    global _NUMBA_WARMED_UP
+    if _NUMBA_WARMED_UP or not NUMBA_AVAILABLE:
         return
     try:
         # Small test arrays
@@ -659,6 +663,7 @@ def _warmup_numba_filters() -> None:
         zi = np.zeros(9, dtype=np.complex128)
         _fir_filter_complex_numba(x, taps, zi)
         _fir_filter_complex_parallel(x, taps, zi)
+        _NUMBA_WARMED_UP = True
         logger.debug("Numba FIR filters pre-compiled")
     except Exception as e:
         logger.warning(f"Numba warmup failed: {e}")
