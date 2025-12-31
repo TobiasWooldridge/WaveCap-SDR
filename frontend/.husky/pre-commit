@@ -11,6 +11,26 @@ echo "Running pre-commit checks..."
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 # ============================================
+# Binary guard for CODEX_CLOUD
+# ============================================
+
+if [ "${CODEX_CLOUD:-0}" = "1" ]; then
+    echo ""
+    echo "=== Binary Guard (CODEX_CLOUD enabled) ==="
+
+    # Block committing common binary asset types that cannot be sent from CODEX_CLOUD
+    BANNED_EXTENSIONS="png|jpe?g|gif|bmp|tiff?|ico|icns|webp|svg|pdf|zip|tar|gz|tgz|bz2|xz|7z|rar|mp3|mp4|mov|avi|flac|wav|ogg|webm|exe|dll|so|dylib|bin|img|iso"
+    BLOCKED_FILES="$(git diff --cached --name-only --diff-filter=AM | grep -Ei "\\.(${BANNED_EXTENSIONS})$" || true)"
+
+    if [ -n "$BLOCKED_FILES" ]; then
+        echo "Commit blocked: CODEX_CLOUD=1 cannot send pull requests containing binary assets."
+        echo "Remove these files from the commit or unset CODEX_CLOUD to proceed:"
+        echo "$BLOCKED_FILES"
+        exit 1
+    fi
+fi
+
+# ============================================
 # Frontend checks
 # ============================================
 
