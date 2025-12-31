@@ -102,7 +102,23 @@ export function useSelectedRadio() {
   const deviceTabs: DeviceTab[] = useMemo(() => {
     const deviceMap = new Map<string, DeviceTab>();
 
-    // First pass: add devices from captures
+    // Helper to prioritize captures when multiple exist on the same device.
+    const capturePriority = (capture: Capture | null) => {
+      if (!capture) return -1;
+      switch (capture.state) {
+        case "running":
+          return 3;
+        case "starting":
+          return 2;
+        case "failed":
+        case "error":
+          return 1;
+        default:
+          return 0; // stopped or unknown
+      }
+    };
+
+    // First pass: add devices from captures (dedupe by stable device ID).
     if (captures) {
       for (const capture of captures) {
         const stableDeviceId = getStableDeviceId(capture.deviceId);
@@ -123,11 +139,16 @@ export function useSelectedRadio() {
             frequencyHz: capture.centerHz,
           });
         } else {
-          // Device already exists, add/update capture
+          // Device already exists, prefer the higher-priority capture to avoid
+          // tabs flipping between stopped/disabled captures and running ones.
           const existing = deviceMap.get(stableDeviceId)!;
-          existing.capture = capture;
-          existing.hasRadio = true;
-          existing.frequencyHz = capture.centerHz;
+          const existingPriority = capturePriority(existing.capture ?? null);
+          const newPriority = capturePriority(capture);
+          if (newPriority >= existingPriority) {
+            existing.capture = capture;
+            existing.hasRadio = true;
+            existing.frequencyHz = capture.centerHz;
+          }
         }
       }
     }
