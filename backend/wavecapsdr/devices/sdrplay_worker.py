@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from multiprocessing.connection import Connection
 from multiprocessing.shared_memory import SharedMemory
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -382,6 +382,148 @@ class SDRplayWorker:
             self.status_pipe.send({"type": "open_error", "message": str(e)})
             raise
 
+    def _readback_settings(
+        self,
+        *,
+        expected_sample_rate: int | None,
+        expected_center_hz: float | None,
+        expected_gain: float | None,
+        expected_bandwidth: float | None,
+        expected_ppm: float | None,
+        expected_antenna: str | None,
+        expected_device_settings: dict[str, Any] | None,
+        expected_element_gains: dict[str, float] | None,
+    ) -> None:
+        """Query the device after configuration to confirm applied settings."""
+        if self.sdr is None:
+            return
+
+        import SoapySDR
+        sdr = self.sdr
+        assert sdr is not None
+
+        def _safe_get(getter: Callable[[], Any]) -> Any | None:
+            with contextlib.suppress(Exception):
+                return getter()
+            return None
+
+        def _check_numeric(
+            label: str,
+            expected: float | int | None,
+            getter: Callable[[], float | int],
+            tolerance: float,
+            unit: str,
+            precision: int = 2,
+        ) -> tuple[str, str | None]:
+            actual = _safe_get(lambda: float(getter()))
+            if actual is None:
+                return "", None
+            actual_text = f"{actual:.{precision}f}{unit}" if isinstance(actual, float) else f"{actual}{unit}"
+            mismatch: str | None = None
+            if expected is not None and abs(float(actual) - float(expected)) > tolerance:
+                mismatch = f"{label} expected {expected}{unit}, got {actual_text}"
+            return f"{label}={actual_text}", mismatch
+
+        readback_parts: list[str] = []
+        mismatches: list[str] = []
+
+        text, mismatch = _check_numeric(
+            "sample_rate",
+            expected_sample_rate,
+            lambda: sdr.getSampleRate(SoapySDR.SOAPY_SDR_RX, 0),
+            tolerance=1.0,
+            unit="Hz",
+            precision=0,
+        )
+        if text:
+            readback_parts.append(text)
+        if mismatch:
+            mismatches.append(mismatch)
+
+        text, mismatch = _check_numeric(
+            "center_hz",
+            expected_center_hz,
+            lambda: sdr.getFrequency(SoapySDR.SOAPY_SDR_RX, 0),
+            tolerance=1.0,
+            unit="Hz",
+            precision=1,
+        )
+        if text:
+            readback_parts.append(text)
+        if mismatch:
+            mismatches.append(mismatch)
+
+        text, mismatch = _check_numeric(
+            "gain",
+            expected_gain,
+            lambda: sdr.getGain(SoapySDR.SOAPY_SDR_RX, 0),
+            tolerance=0.25,
+            unit="dB",
+        )
+        if text:
+            readback_parts.append(text)
+        if mismatch:
+            mismatches.append(mismatch)
+
+        text, mismatch = _check_numeric(
+            "bandwidth",
+            expected_bandwidth,
+            lambda: sdr.getBandwidth(SoapySDR.SOAPY_SDR_RX, 0),
+            tolerance=1.0,
+            unit="Hz",
+            precision=0,
+        )
+        if text:
+            readback_parts.append(text)
+        if mismatch:
+            mismatches.append(mismatch)
+
+        text, mismatch = _check_numeric(
+            "ppm",
+            expected_ppm,
+            lambda: sdr.getFrequencyCorrection(SoapySDR.SOAPY_SDR_RX, 0),
+            tolerance=0.05,
+            unit="ppm",
+        )
+        if text:
+            readback_parts.append(text)
+        if mismatch:
+            mismatches.append(mismatch)
+
+        actual_antenna = _safe_get(lambda: str(sdr.getAntenna(SoapySDR.SOAPY_SDR_RX, 0)))
+        if actual_antenna is not None:
+            readback_parts.append(f"antenna={actual_antenna}")
+            if expected_antenna is not None and actual_antenna != expected_antenna:
+                mismatches.append(f"antenna expected {expected_antenna}, got {actual_antenna}")
+
+        for key, expected_value in (expected_device_settings or {}).items():
+            actual_value = _safe_get(lambda: sdr.readSetting(key))
+            if actual_value is None:
+                continue
+            actual_text = str(actual_value)
+            readback_parts.append(f"setting[{key}]={actual_text}")
+            if str(expected_value) != actual_text:
+                mismatches.append(f"setting {key} expected {expected_value}, got {actual_text}")
+
+        for element, expected_gain in (expected_element_gains or {}).items():
+            actual_element_gain = _safe_get(lambda: float(sdr.getGain(SoapySDR.SOAPY_SDR_RX, 0, element)))
+            if actual_element_gain is None:
+                continue
+            readback_parts.append(f"gain[{element}]={actual_element_gain:.2f}dB")
+            if abs(actual_element_gain - expected_gain) > 0.25:
+                mismatches.append(
+                    f"{element} gain expected {expected_gain}dB, got {actual_element_gain:.2f}dB"
+                )
+
+        if readback_parts:
+            if logger:
+                logger.info("Readback: %s", ", ".join(readback_parts))
+        if mismatches:
+            warning_msg = f"Setting mismatches detected: {'; '.join(mismatches)}"
+            if logger:
+                logger.warning(warning_msg)
+            _log_to_pipe(self.status_pipe, "warning", warning_msg)
+
     def _configure(self, cmd: dict[str, Any]) -> None:
         """Configure the device."""
         if self.sdr is None:
@@ -535,6 +677,16 @@ class SDRplayWorker:
 
             self.sample_rate = sample_rate
             self.center_hz = center_hz
+            self._readback_settings(
+                expected_sample_rate=sample_rate,
+                expected_center_hz=center_hz,
+                expected_gain=gain,
+                expected_bandwidth=bandwidth,
+                expected_ppm=ppm,
+                expected_antenna=antenna,
+                expected_device_settings=device_settings,
+                expected_element_gains=element_gains,
+            )
 
             # Update header with sample rate
             if self.shm is None:

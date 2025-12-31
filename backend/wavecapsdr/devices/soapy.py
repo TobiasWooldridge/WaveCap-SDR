@@ -527,6 +527,155 @@ class _SoapyDevice(Device):
                 self._antenna = antenna
 
         _do_configure()
+        self._verify_settings_applied(
+            center_hz=center_hz,
+            sample_rate=sample_rate,
+            gain=gain,
+            bandwidth=bandwidth,
+            ppm=ppm,
+            antenna=antenna,
+            device_settings=device_settings,
+            element_gains=element_gains,
+        )
+
+    def _verify_settings_applied(
+        self,
+        *,
+        center_hz: float | None,
+        sample_rate: int | None,
+        gain: float | None,
+        bandwidth: float | None,
+        ppm: float | None,
+        antenna: str | None,
+        device_settings: dict[str, Any] | None,
+        element_gains: dict[str, float] | None,
+    ) -> None:
+        """Read back SDR settings to confirm they were applied."""
+        import SoapySDR
+
+        def _safe_get(getter: Callable[[], Any]) -> Any | None:
+            with contextlib.suppress(Exception):
+                return getter()
+            return None
+
+        def _check_numeric(
+            label: str,
+            expected: float | int | None,
+            actual: float | int | None,
+            tolerance: float = 0.0,
+            unit: str = "",
+            precision: int = 2,
+        ) -> tuple[str, str | None]:
+            if actual is None:
+                return "", None
+            actual_text = f"{actual:.{precision}f}{unit}" if isinstance(actual, float) else f"{actual}{unit}"
+            mismatch: str | None = None
+            if expected is not None and abs(float(actual) - float(expected)) > tolerance:
+                mismatch = f"{label} expected {expected}{unit}, got {actual_text}"
+            return f"{label}={actual_text}", mismatch
+
+        readback_parts: list[str] = []
+        mismatches: list[str] = []
+
+        actual_sample_rate = _safe_get(lambda: float(self.sdr.getSampleRate(SoapySDR.SOAPY_SDR_RX, 0)))
+        text, mismatch = _check_numeric(
+            "sample_rate",
+            sample_rate,
+            actual_sample_rate,
+            tolerance=1.0,
+            unit="Hz",
+            precision=0,
+        )
+        if text:
+            readback_parts.append(text)
+        if mismatch:
+            mismatches.append(mismatch)
+
+        actual_center = _safe_get(lambda: float(self.sdr.getFrequency(SoapySDR.SOAPY_SDR_RX, 0)))
+        text, mismatch = _check_numeric(
+            "center_hz",
+            center_hz,
+            actual_center,
+            tolerance=1.0,
+            unit="Hz",
+            precision=1,
+        )
+        if text:
+            readback_parts.append(text)
+        if mismatch:
+            mismatches.append(mismatch)
+
+        actual_gain = _safe_get(lambda: float(self.sdr.getGain(SoapySDR.SOAPY_SDR_RX, 0)))
+        text, mismatch = _check_numeric(
+            "gain",
+            gain,
+            actual_gain,
+            tolerance=0.25,
+            unit="dB",
+            precision=2,
+        )
+        if text:
+            readback_parts.append(text)
+        if mismatch:
+            mismatches.append(mismatch)
+
+        actual_bandwidth = _safe_get(lambda: float(self.sdr.getBandwidth(SoapySDR.SOAPY_SDR_RX, 0)))
+        text, mismatch = _check_numeric(
+            "bandwidth",
+            bandwidth,
+            actual_bandwidth,
+            tolerance=1.0,
+            unit="Hz",
+            precision=0,
+        )
+        if text:
+            readback_parts.append(text)
+        if mismatch:
+            mismatches.append(mismatch)
+
+        actual_ppm = _safe_get(lambda: float(self.sdr.getFrequencyCorrection(SoapySDR.SOAPY_SDR_RX, 0)))
+        text, mismatch = _check_numeric(
+            "ppm",
+            ppm,
+            actual_ppm,
+            tolerance=0.05,
+            unit="ppm",
+            precision=2,
+        )
+        if text:
+            readback_parts.append(text)
+        if mismatch:
+            mismatches.append(mismatch)
+
+        actual_antenna = _safe_get(lambda: str(self.sdr.getAntenna(SoapySDR.SOAPY_SDR_RX, 0)))
+        if actual_antenna is not None:
+            readback_parts.append(f"antenna={actual_antenna}")
+            if antenna is not None and actual_antenna != antenna:
+                mismatches.append(f"antenna expected {antenna}, got {actual_antenna}")
+
+        for key, expected_value in (device_settings or {}).items():
+            actual_value = _safe_get(lambda: self.sdr.readSetting(key))
+            if actual_value is None:
+                continue
+            actual_text = str(actual_value)
+            readback_parts.append(f"setting[{key}]={actual_text}")
+            if str(expected_value) != actual_text:
+                mismatches.append(f"setting {key} expected {expected_value}, got {actual_text}")
+
+        for element, expected_gain in (element_gains or {}).items():
+            actual_element_gain = _safe_get(lambda: float(self.sdr.getGain(SoapySDR.SOAPY_SDR_RX, 0, element)))
+            if actual_element_gain is None:
+                continue
+            readback_parts.append(f"gain[{element}]={actual_element_gain:.2f}dB")
+            if abs(actual_element_gain - expected_gain) > 0.25:
+                mismatches.append(
+                    f"{element} gain expected {expected_gain}dB, got {actual_element_gain:.2f}dB"
+                )
+
+        if readback_parts:
+            print(f"[SOAPY] Readback: {', '.join(readback_parts)}", flush=True)
+        if mismatches:
+            print(f"[SOAPY] WARNING: Setting mismatches detected: {'; '.join(mismatches)}", flush=True)
 
     def start_stream(self) -> StreamHandle:
         """Start stream with timeout protection."""
@@ -767,6 +916,16 @@ class _SoapyDevice(Device):
                     self.sdr.setFrequencyCorrection(SoapySDR.SOAPY_SDR_RX, 0, ppm)
 
         _do_reconfigure()
+        self._verify_settings_applied(
+            center_hz=center_hz,
+            sample_rate=None,
+            gain=gain,
+            bandwidth=bandwidth,
+            ppm=ppm,
+            antenna=None,
+            device_settings=None,
+            element_gains=None,
+        )
 
     def close(self) -> None:
         """Close device with timeout protection and cooldown for SDRplay."""
