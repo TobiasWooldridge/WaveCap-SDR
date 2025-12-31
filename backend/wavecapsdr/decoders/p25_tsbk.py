@@ -27,6 +27,7 @@ from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
+from wavecapsdr.decoders.tsbk_utils import payload_to_bits, read_field
 from wavecapsdr.validation import (
     BASE_FREQ_MAX_MHZ,
     BASE_FREQ_MIN_MHZ,
@@ -245,6 +246,8 @@ class TSBKParser:
                 self._parse_grp_v_ch_grant_updt_exp(data, result)
             elif opcode == TSBKOpcode.UU_V_CH_GRANT:
                 self._parse_uu_v_ch_grant(data, result)
+            elif opcode == TSBKOpcode.UU_ANS_REQ:
+                self._parse_unit_service_request(data, result)
             elif opcode == TSBKOpcode.RFSS_STS_BCAST:
                 self._parse_rfss_sts_bcast(data, result)
             elif opcode == TSBKOpcode.NET_STS_BCAST:
@@ -259,6 +262,14 @@ class TSBKParser:
                 self._parse_sys_srv_bcast(data, result)
             elif opcode == TSBKOpcode.GRP_AFF_RSP:
                 self._parse_grp_aff_rsp(data, result)
+            elif opcode == TSBKOpcode.STATUS_UPDT:
+                self._parse_status_update(data, result, msg_type="STATUS_UPDATE")
+            elif opcode == TSBKOpcode.STATUS_QUERY:
+                self._parse_status_update(data, result, msg_type="STATUS_UPDATE_REQUEST")
+            elif opcode == TSBKOpcode.UNIT_REG_RSP:
+                self._parse_unit_reg_rsp(data, result)
+            elif opcode == TSBKOpcode.UNIT_DEREG_ACK:
+                self._parse_unit_dereg_ack(data, result)
             elif opcode == TSBKOpcode.DENY_RSP:
                 self._parse_deny_rsp(data, result)
             elif opcode == TSBKOpcode.IDEN_UP:
@@ -417,6 +428,38 @@ class TSBKParser:
                     TX_OFFSET_MAX_MHZ,
                     "tx_offset_mhz",
                 )
+            return
+
+        if msg_type == "GROUP_AFFILIATION_RESPONSE":
+            self._require_int_range(result.get("tgid"), 1, TGID_MAX, "tgid")
+            self._require_int_range(result.get("announcement_group"), 1, TGID_MAX, "announcement_group")
+            self._require_int_range(result.get("target_id"), UNIT_ID_MIN, UNIT_ID_MAX, "target_id")
+            return
+
+        if msg_type in ("STATUS_UPDATE", "STATUS_UPDATE_REQUEST"):
+            self._require_int_range(result.get("unit_status"), 0, 0xFF, "unit_status")
+            self._require_int_range(result.get("user_status"), 0, 0xFF, "user_status")
+            self._require_int_range(result.get("target_id"), UNIT_ID_MIN, UNIT_ID_MAX, "target_id")
+            self._require_int_range(result.get("source_id"), UNIT_ID_MIN, UNIT_ID_MAX, "source_id")
+            return
+
+        if msg_type == "UNIT_REGISTRATION_RESPONSE":
+            self._require_int_range(result.get("response"), 0, 3, "response")
+            self._require_int_range(result.get("system_id"), 0, SYSTEM_ID_MAX, "system_id")
+            self._require_int_range(result.get("source_id"), UNIT_ID_MIN, UNIT_ID_MAX, "source_id")
+            self._require_int_range(result.get("registered_address"), UNIT_ID_MIN, UNIT_ID_MAX, "registered_address")
+            return
+
+        if msg_type == "UNIT_DEREGISTRATION_ACK":
+            self._require_int_range(result.get("wacn"), 0, WACN_MAX, "wacn")
+            self._require_int_range(result.get("system_id"), 0, SYSTEM_ID_MAX, "system_id")
+            self._require_int_range(result.get("target_id"), UNIT_ID_MIN, UNIT_ID_MAX, "target_id")
+            return
+
+        if msg_type == "UNIT_SERVICE_REQUEST":
+            self._require_int_range(result.get("service_options"), 0, 0xFF, "service_options")
+            self._require_int_range(result.get("target_id"), UNIT_ID_MIN, UNIT_ID_MAX, "target_id")
+            self._require_int_range(result.get("source_id"), UNIT_ID_MIN, UNIT_ID_MAX, "source_id")
             return
 
     def _parse_grp_v_ch_grant(self, data: bytes, result: dict[str, Any]) -> None:
@@ -1019,18 +1062,57 @@ class TSBKParser:
     def _parse_grp_aff_rsp(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Group Affiliation Response."""
         result['type'] = 'GROUP_AFFILIATION_RESPONSE'
+        bits = payload_to_bits(data)
 
-        # Response code
-        result['response'] = data[0]
-        result['success'] = (data[0] & 0x03) == 0
+        result['global'] = bool(read_field(bits, 0, 1))
+        response_code = read_field(bits, 6, 2)
+        result['response'] = response_code
+        result['success'] = response_code == 0
 
-        tgid = (data[1] << 8) | data[2]
-        announcement_group = (data[3] << 8) | data[4]
-        target = (data[5] << 8) | data[6]
+        announcement_group = read_field(bits, 8, 16)
+        tgid = read_field(bits, 24, 16)
+        target = read_field(bits, 40, 24)
 
         result['tgid'] = tgid
         result['announcement_group'] = announcement_group
         result['target_id'] = target
+        result['source_id'] = target
+
+    def _parse_status_update(self, data: bytes, result: dict[str, Any], msg_type: str) -> None:
+        """Parse Status Update (OSP) or Status Update Request (ISP)."""
+        bits = payload_to_bits(data)
+        result['type'] = msg_type
+        result['unit_status'] = read_field(bits, 0, 8)
+        result['user_status'] = read_field(bits, 8, 8)
+        result['target_id'] = read_field(bits, 16, 24)
+        result['source_id'] = read_field(bits, 40, 24)
+
+    def _parse_unit_reg_rsp(self, data: bytes, result: dict[str, Any]) -> None:
+        """Parse Unit Registration Response."""
+        bits = payload_to_bits(data)
+        response = read_field(bits, 2, 2)
+        system_id = read_field(bits, 4, 12)
+        source_id = read_field(bits, 16, 24)
+        registered_address = read_field(bits, 40, 24)
+
+        result['type'] = 'UNIT_REGISTRATION_RESPONSE'
+        result['response'] = response
+        result['success'] = response == 0
+        result['system_id'] = system_id
+        result['source_id'] = source_id
+        result['registered_address'] = registered_address
+
+    def _parse_unit_dereg_ack(self, data: bytes, result: dict[str, Any]) -> None:
+        """Parse Unit De-registration Acknowledge."""
+        bits = payload_to_bits(data)
+        wacn = read_field(bits, 8, 20)
+        system_id = read_field(bits, 28, 12)
+        target_id = read_field(bits, 40, 24)
+
+        result['type'] = 'UNIT_DEREGISTRATION_ACK'
+        result['wacn'] = wacn
+        result['system_id'] = system_id
+        result['target_id'] = target_id
 
     def _parse_deny_rsp(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Deny Response."""
@@ -1058,3 +1140,11 @@ class TSBKParser:
         result['target_address'] = target
 
         logger.info(f"Deny: {result['reason_text']} for target {target}")
+
+    def _parse_unit_service_request(self, data: bytes, result: dict[str, Any]) -> None:
+        """Parse Unit-to-Unit Voice Service Request (opcode 0x05)."""
+        bits = payload_to_bits(data)
+        result['type'] = 'UNIT_SERVICE_REQUEST'
+        result['service_options'] = read_field(bits, 0, 8)
+        result['target_id'] = read_field(bits, 16, 24)
+        result['source_id'] = read_field(bits, 40, 24)
