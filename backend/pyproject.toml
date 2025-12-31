@@ -7,7 +7,7 @@ readme = "../README.md"
 packages = [{ include = "wavecapsdr", from = "." }]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.15"
+python = ">=3.9,<3.13"
 fastapi = "^0.115.0"
 uvicorn = { version = "^0.30.0", extras = ["standard"] }
 psutil = "^5.9.0"
@@ -115,3 +115,7 @@ markers = [
     "perf: performance-sensitive checks (opt-in via RUN_PERF_TESTS)",
 ]
 addopts = "-v --tb=short -k 'not trio'"
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"

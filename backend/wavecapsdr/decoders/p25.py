@@ -19,6 +19,7 @@ from enum import Enum
 from typing import Any, Callable, cast
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex, NDArrayFloat, NDArrayInt
 from scipy.signal import resample_poly
 
 from wavecapsdr.decoders.p25_tsbk import TSBKParser
@@ -51,12 +52,12 @@ class _C4FMDemodulatorWrapper:
     def __init__(self, sample_rate: int) -> None:
         self._demod = _WorkingC4FMDemodulator(sample_rate=sample_rate)
 
-    def demodulate(self, iq: np.ndarray) -> np.ndarray:
+    def demodulate(self, iq: NDArrayComplex) -> NDArrayInt:
         """Demodulate IQ to dibits only (legacy API)."""
         dibits, _ = self._demod.demodulate(iq)
         return dibits
 
-    def demodulate_soft(self, iq: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def demodulate_soft(self, iq: NDArrayComplex) -> tuple[NDArrayInt, NDArrayFloat]:
         """Demodulate IQ to both dibits and soft symbols.
 
         Returns:
@@ -84,7 +85,7 @@ class DibitRingBuffer:
         self._tail = 0  # Read position
         self._size = 0  # Current number of elements
 
-    def append(self, dibits: np.ndarray) -> None:
+    def append(self, dibits: NDArrayInt) -> None:
         """Append dibits to the buffer, discarding oldest if full."""
         n = len(dibits)
         if n == 0:
@@ -127,7 +128,7 @@ class DibitRingBuffer:
             self._tail = (self._tail + n) % self._capacity
             self._size -= n
 
-    def get_contiguous(self, max_len: int | None = None) -> np.ndarray:
+    def get_contiguous(self, max_len: int | None = None) -> NDArrayInt:
         """
         Get buffer contents as a contiguous array.
 
@@ -283,7 +284,7 @@ class CQPSKDemodulator:
         self._symbol_mags: list[float] = []
         self._symbol_phases: list[float] = []
 
-    def _generate_mmse_taps(self) -> np.ndarray:
+    def _generate_mmse_taps(self) -> NDArrayFloat:
         """
         Generate MMSE interpolation table for 8-tap sinc interpolation.
 
@@ -364,7 +365,7 @@ class CQPSKDemodulator:
         # Interpolate at the most recent sample position
         return self._mmse_interpolate_at_offset(0, mu)
 
-    def _design_baseband_filter(self, num_taps: int = 63) -> np.ndarray:
+    def _design_baseband_filter(self, num_taps: int = 63) -> NDArrayFloat:
         """
         Design baseband low-pass filter for LSM/CQPSK.
 
@@ -379,7 +380,7 @@ class CQPSKDemodulator:
         taps = scipy_signal.firwin(num_taps, normalized_cutoff, window='hamming')
         return np.asarray(taps, dtype=np.float32)
 
-    def _design_rrc_filter(self, alpha: float = 0.2, num_taps: int = 65) -> np.ndarray:
+    def _design_rrc_filter(self, alpha: float = 0.2, num_taps: int = 65) -> NDArrayFloat:
         """Design Root-Raised Cosine filter for P25."""
         sps = round(self.samples_per_symbol)
         t = np.arange(-(num_taps-1)//2, (num_taps-1)//2 + 1) / sps
@@ -403,7 +404,7 @@ class CQPSKDemodulator:
         h = h / np.sum(h)
         return h.astype(np.float32)
 
-    def demodulate(self, iq: np.ndarray) -> np.ndarray:
+    def demodulate(self, iq: NDArrayComplex) -> NDArrayInt:
         """
         Demodulate CQPSK signal to dibits using differential phase detection.
 
@@ -424,7 +425,7 @@ class CQPSKDemodulator:
             else:
                 return np.array([], dtype=np.uint8)
 
-        x: np.ndarray = iq.astype(np.complex64, copy=False)
+        x: NDArrayComplex = iq.astype(np.complex64, copy=False)
 
         # AGC: normalize IQ magnitude
         magnitudes = np.abs(x)
@@ -474,7 +475,7 @@ class CQPSKDemodulator:
 
         return symbols
 
-    def _cqpsk_timing_recovery(self, samples: np.ndarray) -> np.ndarray:
+    def _cqpsk_timing_recovery(self, samples: NDArrayComplex) -> NDArrayInt:
         """
         CQPSK timing recovery with MMSE interpolation and differential phase detection.
 
@@ -772,7 +773,7 @@ class C4FMDemodulator:
         self._symbol_count = 0
         self._diag_interval = 50000  # Reduced logging frequency
 
-    def _generate_mmse_taps(self) -> np.ndarray:
+    def _generate_mmse_taps(self) -> NDArrayFloat:
         """
         Generate full MMSE interpolation table.
 
@@ -805,7 +806,7 @@ class C4FMDemodulator:
 
         return taps
 
-    def _design_baseband_filter(self, num_taps: int = 63) -> np.ndarray:
+    def _design_baseband_filter(self, num_taps: int = 63) -> NDArrayFloat:
         """
         Design baseband low-pass filter for C4FM.
 
@@ -825,7 +826,7 @@ class C4FMDemodulator:
         taps = scipy_signal.firwin(num_taps, normalized_cutoff, window='hamming')
         return np.asarray(taps, dtype=np.float32)
 
-    def _design_rrc_filter(self, alpha: float = 0.2, num_taps: int = 65) -> np.ndarray:
+    def _design_rrc_filter(self, alpha: float = 0.2, num_taps: int = 65) -> NDArrayFloat:
         """Design Root-Raised Cosine filter for P25 C4FM."""
         sps = round(self.samples_per_symbol)
         t = np.arange(-(num_taps-1)//2, (num_taps-1)//2 + 1) / sps
@@ -850,7 +851,7 @@ class C4FMDemodulator:
         h = h / np.sum(h)
         return h.astype(np.float32)
 
-    def demodulate(self, iq: np.ndarray) -> np.ndarray:
+    def demodulate(self, iq: NDArrayComplex) -> NDArrayInt:
         """
         Demodulate C4FM signal to dibits (2-bit symbols).
 
@@ -872,11 +873,11 @@ class C4FMDemodulator:
                 return np.array([], dtype=np.uint8)
 
         # FM discriminator (quadrature demodulation)
-        x: np.ndarray = iq.astype(np.complex64, copy=False)
+        x: NDArrayComplex = iq.astype(np.complex64, copy=False)
         prod = x[1:] * np.conj(x[:-1])
         # Scale to ±3 symbol range for ±1800 Hz deviation
         # Using deviation_hz (600) as base: ±1800/600 = ±3, ±600/600 = ±1
-        inst_freq = cast(np.ndarray, np.angle(prod)) * self.sample_rate / (2 * np.pi * self.deviation_hz)
+        inst_freq = cast(NDArrayFloat, np.angle(prod)) * self.sample_rate / (2 * np.pi * self.deviation_hz)
 
         if len(inst_freq) < len(self._rrc_taps):
             return np.array([], dtype=np.uint8)
@@ -941,7 +942,7 @@ class C4FMDemodulator:
 
         return result
 
-    def _mmse_timing_recovery(self, samples: np.ndarray) -> np.ndarray:
+    def _mmse_timing_recovery(self, samples: NDArrayFloat) -> NDArrayInt:
         """
         Symbol timing recovery using MMSE interpolation (OP25-style).
 
@@ -1143,7 +1144,7 @@ class DiscriminatorDemodulator:
         self._symbol_values: list[float] = []
         self._diag_interval = 50000  # Reduced logging frequency
 
-    def _generate_mmse_taps(self) -> np.ndarray:
+    def _generate_mmse_taps(self) -> NDArrayFloat:
         """Generate MMSE interpolation filter coefficients."""
         taps = np.zeros((self.MMSE_NSTEPS + 1, self.MMSE_NTAPS), dtype=np.float32)
 
@@ -1165,7 +1166,7 @@ class DiscriminatorDemodulator:
 
         return taps
 
-    def _design_baseband_filter(self) -> np.ndarray:
+    def _design_baseband_filter(self) -> NDArrayFloat:
         """Design baseband low-pass filter."""
         from scipy.signal import firwin
         ntaps = 65
@@ -1173,7 +1174,7 @@ class DiscriminatorDemodulator:
         cutoff = min(cutoff, 0.99)
         return np.asarray(firwin(ntaps, cutoff, window='hamming'), dtype=np.float32)
 
-    def demodulate(self, audio: np.ndarray) -> np.ndarray:
+    def demodulate(self, audio: NDArrayFloat) -> NDArrayInt:
         """
         Demodulate discriminator audio to dibits.
 
@@ -1224,7 +1225,7 @@ class DiscriminatorDemodulator:
 
         return result
 
-    def _mmse_timing_recovery(self, samples: np.ndarray) -> np.ndarray:
+    def _mmse_timing_recovery(self, samples: NDArrayFloat) -> NDArrayInt:
         """Symbol timing recovery using MMSE interpolation."""
         symbols = []
 
@@ -1337,7 +1338,7 @@ class P25TrellisDecoder:
     def __init__(self) -> None:
         self._decoder = TrellisDecoder()
 
-    def decode(self, dibits: np.ndarray) -> tuple[np.ndarray | None, int]:
+    def decode(self, dibits: NDArrayInt) -> tuple[NDArrayInt | None, int]:
         """
         Decode trellis-encoded dibits using Viterbi algorithm.
 
@@ -1360,7 +1361,7 @@ class P25TrellisDecoder:
             if len(decoded) > 48:
                 decoded = decoded[:48]
 
-            return decoded, int(error_metric)
+            return cast(NDArrayInt, decoded), int(error_metric)
         except Exception as e:
             logger.debug(f"Trellis decode error: {e}")
             return None, -1
@@ -1440,7 +1441,7 @@ class P25FrameSync:
         # NAC tracking for BCH decode assistance
         self._tracked_nac: int | None = None
 
-    def _decode_nid_with_bch(self, nid_dibits: np.ndarray) -> tuple[int, int, int]:
+    def _decode_nid_with_bch(self, nid_dibits: NDArrayInt) -> tuple[int, int, int]:
         """
         Decode NID (Network ID) using BCH(63,16,23) error correction.
 
@@ -1487,7 +1488,7 @@ class P25FrameSync:
 
         return nac, duid, errors
 
-    def _soft_correlation(self, dibits: np.ndarray, check_reversed: bool = False) -> tuple[float, bool]:
+    def _soft_correlation(self, dibits: NDArrayInt, check_reversed: bool = False) -> tuple[float, bool]:
         """
         Compute soft correlation score between dibits and sync pattern.
 
@@ -1529,7 +1530,7 @@ class P25FrameSync:
 
         return normal_score, False
 
-    def find_sync(self, dibits: np.ndarray) -> tuple[int | None, P25FrameType | None, int, int]:
+    def find_sync(self, dibits: NDArrayInt) -> tuple[int | None, P25FrameType | None, int, int]:
         """
         Search for P25 frame sync pattern in dibit stream.
 
@@ -1794,7 +1795,7 @@ class P25Decoder:
         """Callback from Phase 2 decoder when a timeslot is received."""
         self._phase2_timeslots.append(timeslot)
 
-    def process_iq(self, iq: np.ndarray) -> list[P25Frame]:
+    def process_iq(self, iq: NDArrayComplex) -> list[P25Frame]:
         """
         Process IQ samples and decode P25 frames.
 
@@ -1832,7 +1833,7 @@ class P25Decoder:
         # Legacy batch processing
         return self._process_iq_batch(iq)
 
-    def _process_iq_streaming(self, iq: np.ndarray) -> list[P25Frame]:
+    def _process_iq_streaming(self, iq: NDArrayComplex) -> list[P25Frame]:
         """Process IQ using SDRTrunk-compatible streaming framer."""
         # Clear message buffer
         self._framed_messages.clear()
@@ -1934,7 +1935,7 @@ class P25Decoder:
 
         return frame
 
-    def _decode_tsbk_from_bits(self, bits: np.ndarray) -> dict[str, Any] | None:
+    def _decode_tsbk_from_bits(self, bits: NDArrayInt) -> dict[str, Any] | None:
         """Decode TSBK message from raw bits."""
         if len(bits) < 196:
             return None
@@ -1948,18 +1949,18 @@ class P25Decoder:
         # Use existing TSBK parser
         return self._decode_tsdu_dibits(dibits)
 
-    def _decode_ldu1_from_bits(self, bits: np.ndarray) -> dict[str, Any] | None:
+    def _decode_ldu1_from_bits(self, bits: NDArrayInt) -> dict[str, Any] | None:
         """Decode LDU1 link control from bits."""
         # LDU1 contains Link Control in specific positions
         # For now, return minimal info
         return {'type': 'LDU1'}
 
-    def _decode_ldu2_from_bits(self, bits: np.ndarray) -> dict[str, Any] | None:
+    def _decode_ldu2_from_bits(self, bits: NDArrayInt) -> dict[str, Any] | None:
         """Decode LDU2 encryption info from bits."""
         # LDU2 contains Encryption Sync Parameters
         return {'type': 'LDU2'}
 
-    def _decode_tsdu_dibits(self, dibits: np.ndarray) -> dict[str, Any] | None:
+    def _decode_tsdu_dibits(self, dibits: NDArrayInt) -> dict[str, Any] | None:
         """Decode TSDU from dibits using existing _decode_tsdu logic.
 
         This is a wrapper for the streaming framer that takes clean dibits
@@ -1986,7 +1987,7 @@ class P25Decoder:
 
         return None
 
-    def _parse_tsbk_bits(self, decoded_bits: np.ndarray) -> dict[str, Any] | None:
+    def _parse_tsbk_bits(self, decoded_bits: NDArrayInt) -> dict[str, Any] | None:
         """Parse TSBK message from trellis-decoded bits."""
         if len(decoded_bits) < 96:
             return None
@@ -2027,7 +2028,7 @@ class P25Decoder:
             'raw_data': data_bytes.hex(),
         }
 
-    def _process_iq_phase2(self, iq: np.ndarray) -> list[P25Frame]:
+    def _process_iq_phase2(self, iq: NDArrayComplex) -> list[P25Frame]:
         """Process IQ using Phase 2 TDMA decoder.
 
         Phase 2 uses SuperFrame fragments (720 dibits) with 4 timeslots.
@@ -2080,7 +2081,7 @@ class P25Decoder:
 
         return frames
 
-    def _process_iq_batch(self, iq: np.ndarray) -> list[P25Frame]:
+    def _process_iq_batch(self, iq: NDArrayComplex) -> list[P25Frame]:
         """Legacy batch processing (pre-streaming framer)."""
         # Demodulate to dibits
         new_dibits = self.demodulator.demodulate(iq)
@@ -2218,7 +2219,7 @@ class P25Decoder:
         return frames
 
     def process_discriminator(
-        self, audio: np.ndarray, sample_rate: int = 48000
+        self, audio: NDArrayFloat, sample_rate: int = 48000
     ) -> list[P25Frame]:
         """
         Process FM discriminator audio and decode P25 frames.
@@ -2347,7 +2348,7 @@ class P25Decoder:
 
         return frames
 
-    def _decode_hdu(self, dibits: np.ndarray) -> P25Frame | None:
+    def _decode_hdu(self, dibits: NDArrayInt) -> P25Frame | None:
         """Decode Header Data Unit"""
         # HDU contains:
         # - NAC (12 bits)
@@ -2387,7 +2388,7 @@ class P25Decoder:
             kid=kid
         )
 
-    def _decode_ldu1(self, dibits: np.ndarray) -> P25Frame | None:
+    def _decode_ldu1(self, dibits: NDArrayInt) -> P25Frame | None:
         """Decode Logical Link Data Unit 1 (voice frame)"""
         if len(dibits) < 900:  # LDU1 is ~1800 bits
             return None
@@ -2427,7 +2428,7 @@ class P25Decoder:
             source=link_control.source_id if link_control.source_id else None,
         )
 
-    def _decode_ldu2(self, dibits: np.ndarray) -> P25Frame | None:
+    def _decode_ldu2(self, dibits: NDArrayInt) -> P25Frame | None:
         """Decode Logical Link Data Unit 2 (voice frame)"""
         if len(dibits) < 900:
             return None
@@ -2445,7 +2446,7 @@ class P25Decoder:
             voice_data=voice_data
         )
 
-    def _decode_tdu(self, dibits: np.ndarray) -> P25Frame | None:
+    def _decode_tdu(self, dibits: NDArrayInt) -> P25Frame | None:
         """Decode Terminator Data Unit (end of transmission)"""
         logger.info("TDU: End of transmission")
         return P25Frame(frame_type=P25FrameType.TDU, nac=0, duid=3)
@@ -2472,7 +2473,7 @@ class P25Decoder:
         30, 31, 38, 39, 46, 47, 54, 55, 62, 63, 70, 71, 78, 79, 86, 87, 94, 95
     ], dtype=np.int16)
 
-    def _deinterleave_data(self, dibits: np.ndarray) -> np.ndarray:
+    def _deinterleave_data(self, dibits: NDArrayInt) -> NDArrayInt:
         """
         Deinterleave P25 data block (TSBK).
 
@@ -2485,7 +2486,7 @@ class P25Decoder:
         # Apply deinterleave pattern using advanced indexing (gather)
         return dibits[self.DATA_DEINTERLEAVE].astype(np.uint8)
 
-    def _interleave_data(self, dibits: np.ndarray) -> np.ndarray:
+    def _interleave_data(self, dibits: NDArrayInt) -> NDArrayInt:
         """
         Interleave P25 data block (reverse of deinterleave).
         Used for testing if data is already deinterleaved.
@@ -2501,10 +2502,10 @@ class P25Decoder:
     # In 0-indexed frame positions: 35, 71, 107, ...
     # For TSDU data starting at frame position 57, first status is at 71 (relative position 14)
     # These arrays contain indices to KEEP (non-status positions) for up to 120 raw dibits
-    _STATUS_KEEP_INDICES: dict[tuple[int, int], np.ndarray] = {}
+    _STATUS_KEEP_INDICES: dict[tuple[int, int], NDArrayInt] = {}
 
     @classmethod
-    def _get_status_keep_indices(cls, initial_counter: int, max_len: int = 120) -> np.ndarray:
+    def _get_status_keep_indices(cls, initial_counter: int, max_len: int = 120) -> NDArrayInt:
         """Get pre-computed indices of non-status dibits for given initial counter."""
         cache_key = (initial_counter, max_len)
         if cache_key not in cls._STATUS_KEEP_INDICES:
@@ -2524,7 +2525,7 @@ class P25Decoder:
     # Track if we've logged status stripping info (once per session)
     _status_strip_logged = False
 
-    def _strip_status_symbols(self, dibits: np.ndarray, initial_counter: int = 21) -> np.ndarray:
+    def _strip_status_symbols(self, dibits: NDArrayInt, initial_counter: int = 21) -> NDArrayInt:
         """
         Strip P25 status symbols from raw dibit stream.
 
@@ -2572,7 +2573,7 @@ class P25Decoder:
 
         return np.asarray(dibits[valid_indices], dtype=np.uint8)
 
-    def _decode_tsdu(self, dibits: np.ndarray) -> P25Frame | None:
+    def _decode_tsdu(self, dibits: NDArrayInt) -> P25Frame | None:
         """
         Decode Trunking Signaling Data Unit (TSBK messages).
 
@@ -2756,7 +2757,7 @@ class P25Decoder:
             tsbk_data=tsbk_data
         )
 
-    def _decode_tsbk_opcode(self, opcode: int, dibits: np.ndarray) -> dict[str, Any]:
+    def _decode_tsbk_opcode(self, opcode: int, dibits: NDArrayInt) -> dict[str, Any]:
         """Decode TSBK opcode and extract trunking information.
 
         Uses correct P25 TIA-102.AABB opcode values matching SDRTrunk.
@@ -2885,7 +2886,7 @@ class P25Decoder:
 
         return data
 
-    def _extract_imbe_frames(self, dibits: np.ndarray) -> bytes | None:
+    def _extract_imbe_frames(self, dibits: NDArrayInt) -> bytes | None:
         """Extract IMBE voice frames from LDU"""
         # IMBE codec: 88 bits per 20ms frame, 9 frames per LDU
         # This is simplified - real decoder needs to extract and de-interleave

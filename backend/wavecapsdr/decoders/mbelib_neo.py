@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import cast
 
 import numpy as np
+from wavecapsdr.typing import NDArrayAny
 
 logger = logging.getLogger(__name__)
 
@@ -287,7 +288,7 @@ class IMBEDecoderNeo:
     _prev_mp_enhanced: MbeParms | None = field(default=None, repr=False)
 
     # Buffers (pre-allocated for performance)
-    _audio_buf: np.ndarray | None = field(default=None, repr=False)
+    _audio_buf: NDArrayAny | None = field(default=None, repr=False)
     _audio_buf_ptr: ctypes._Pointer[c_float] | None = field(default=None, repr=False)
     _imbe_frame: ctypes.Array[ctypes.Array[c_char]] | None = field(default=None, repr=False)
     _imbe_data: ctypes.Array[c_char] | None = field(default=None, repr=False)
@@ -385,7 +386,7 @@ class IMBEDecoderNeo:
             f"errored={self.frames_errored}, total_errors={self.total_errors})"
         )
 
-    def decode_frame(self, imbe_bits: np.ndarray | bytes) -> np.ndarray | None:
+    def decode_frame(self, imbe_bits: NDArrayAny | bytes) -> NDArrayAny | None:
         """Decode a single IMBE 7200x4400 frame to PCM audio.
 
         Args:
@@ -484,7 +485,7 @@ class IMBEDecoderNeo:
 
         return audio
 
-    def _prepare_imbe_frame(self, imbe_bits: np.ndarray | bytes) -> np.ndarray:
+    def _prepare_imbe_frame(self, imbe_bits: NDArrayAny | bytes) -> NDArrayAny:
         """Convert various input formats to flat bit array."""
         if isinstance(imbe_bits, bytes):
             # Unpack bytes to bits
@@ -511,7 +512,7 @@ class IMBEDecoderNeo:
             f"Expected (8, 23), (144,), (184,), or 18 bytes."
         )
 
-    def decode_silence(self) -> np.ndarray:
+    def decode_silence(self) -> NDArrayAny:
         """Generate a frame of silence."""
         if not self.running or self._lib is None or self._audio_buf is None or self._audio_buf_ptr is None:
             return np.zeros(int(SAMPLES_PER_FRAME * self._resample_ratio), dtype=np.float32)

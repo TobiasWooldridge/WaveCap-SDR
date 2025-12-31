@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex, NDArrayFloat, NDArrayInt
 
 logger = logging.getLogger(__name__)
 
@@ -360,7 +361,7 @@ def cmd_capture_iq(args: argparse.Namespace) -> int:
     return 0
 
 
-def estimate_freq_offset(iq: np.ndarray, sample_rate: int) -> float:
+def estimate_freq_offset(iq: NDArrayComplex, sample_rate: int) -> float:
     """Estimate frequency offset by finding signal peak in spectrum."""
     from scipy import signal as sig
 
@@ -383,7 +384,7 @@ def estimate_freq_offset(iq: np.ndarray, sample_rate: int) -> float:
     return float(offset)
 
 
-def apply_freq_correction(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray:
+def apply_freq_correction(iq: NDArrayComplex, offset_hz: float, sample_rate: int) -> NDArrayComplex:
     """Apply frequency correction by mixing with complex exponential."""
     t = np.arange(len(iq)) / sample_rate
     correction = np.exp(-1j * 2 * np.pi * offset_hz * t)
@@ -714,7 +715,7 @@ def cmd_decode_iq(args: argparse.Namespace) -> int:
     return 0
 
 
-def demod_c4fm(iq: np.ndarray, sample_rate: int, symbol_rate: int = 4800) -> tuple[np.ndarray, np.ndarray]:
+def demod_c4fm(iq: NDArrayComplex, sample_rate: int, symbol_rate: int = 4800) -> tuple[NDArrayInt, NDArrayFloat]:
     """C4FM demodulation using proper SDRTrunk-style demodulator."""
     from wavecapsdr.dsp.p25.c4fm import C4FMDemodulator
 
@@ -733,7 +734,7 @@ def demod_c4fm(iq: np.ndarray, sample_rate: int, symbol_rate: int = 4800) -> tup
     return dibits, soft_symbols
 
 
-def demod_cqpsk(iq: np.ndarray, sample_rate: int, symbol_rate: int = 4800) -> tuple[np.ndarray, np.ndarray]:
+def demod_cqpsk(iq: NDArrayComplex, sample_rate: int, symbol_rate: int = 4800) -> tuple[NDArrayInt, NDArrayFloat]:
     """CQPSK/LSM demodulation (π/4-DQPSK)."""
     from scipy.signal import firwin, lfilter
 
@@ -780,7 +781,7 @@ def demod_cqpsk(iq: np.ndarray, sample_rate: int, symbol_rate: int = 4800) -> tu
 P25_SYNC_DIBITS = np.array([1,1,1,1,1,3,1,1,3,3,1,1,3,3,3,3,1,3,1,3,3,3,3,3], dtype=np.uint8)
 
 
-def find_p25_syncs(dibits: np.ndarray, min_match: int = 18) -> list[tuple[int, int]]:
+def find_p25_syncs(dibits: NDArrayInt, min_match: int = 18) -> list[tuple[int, int]]:
     """Find P25 sync patterns in dibit stream."""
     sync_len = len(P25_SYNC_DIBITS)
     matches = []
@@ -794,7 +795,7 @@ def find_p25_syncs(dibits: np.ndarray, min_match: int = 18) -> list[tuple[int, i
     return matches
 
 
-def decode_tsbks(dibits: np.ndarray, syncs: list[tuple[int, int]]) -> None:
+def decode_tsbks(dibits: NDArrayInt, syncs: list[tuple[int, int]]) -> None:
     """Attempt to decode TSBK messages after sync patterns."""
     # NID is 64 bits (32 dibits) after sync
     # TSBK is after NID

@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex, NDArrayFloat
 
 
 @dataclass
@@ -22,8 +23,8 @@ class FFTResult:
         bin_hz: Hz per bin
     """
 
-    power_db: np.ndarray
-    freqs: np.ndarray
+    power_db: NDArrayFloat
+    freqs: NDArrayFloat
     bin_hz: float
 
 
@@ -48,17 +49,17 @@ class FFTBackend(ABC):
             fft_size: FFT size in samples (power of 2 recommended)
         """
         self.fft_size = fft_size
-        self._window: np.ndarray | None = None
+        self._window: NDArrayFloat | None = None
 
     @property
-    def window(self) -> np.ndarray:
+    def window(self) -> NDArrayFloat:
         """Get cached Hanning window."""
         if self._window is None or len(self._window) != self.fft_size:
             self._window = np.hanning(self.fft_size).astype(np.float32)
         return self._window
 
     @abstractmethod
-    def execute(self, iq: np.ndarray, sample_rate: int) -> FFTResult:
+    def execute(self, iq: NDArrayComplex, sample_rate: int) -> FFTResult:
         """Compute FFT and return power spectrum in dB.
 
         Args:

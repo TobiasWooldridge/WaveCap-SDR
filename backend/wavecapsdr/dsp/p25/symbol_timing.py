@@ -17,6 +17,7 @@ import logging
 from dataclasses import dataclass
 
 import numpy as np
+from wavecapsdr.typing import NDArrayAny
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +157,7 @@ class GardnerTED:
 
         return float(c0 + mu * (c1 + mu * (c2 + mu * c3)))
 
-    def process_block(self, samples: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def process_block(self, samples: NDArrayAny) -> tuple[NDArrayAny, NDArrayAny]:
         """Process a block of samples.
 
         Args:
@@ -327,8 +328,8 @@ class MuellerMullerTED:
         return complex(self.QPSK_CONSTELLATION[np.argmin(distances)])
 
     def process_block(
-        self, samples: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        self, samples: NDArrayAny
+    ) -> tuple[NDArrayAny, NDArrayAny, NDArrayAny]:
         """Process a block of complex samples.
 
         Args:

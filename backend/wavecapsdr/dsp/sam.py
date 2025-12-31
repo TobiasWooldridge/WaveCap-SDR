@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import cast
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex, NDArrayFloat
 
 from .agc import apply_agc, soft_clip
 from .filters import highpass_filter, lowpass_filter, noise_blanker, notch_filter
@@ -67,7 +68,7 @@ class CarrierRecoveryPLL:
         self.loop_bandwidth = bandwidth_hz
         self._compute_coefficients()
 
-    def process(self, iq: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
+    def process(self, iq: NDArrayComplex) -> tuple[NDArrayFloat, NDArrayFloat, float]:
         """Process IQ samples and recover carrier phase.
 
         Args:
@@ -132,7 +133,7 @@ class CarrierRecoveryPLL:
 
 
 def sam_demod(
-    iq: np.ndarray,
+    iq: NDArrayComplex,
     sample_rate: int,
     audio_rate: int = 48_000,
     sideband: str = "dsb",
@@ -148,7 +149,7 @@ def sam_demod(
     agc_target_db: float = -20.0,
     notch_frequencies: list[float] | None = None,
     pll_state: CarrierRecoveryPLL | None = None,
-) -> tuple[np.ndarray, float, CarrierRecoveryPLL | None]:
+) -> tuple[NDArrayFloat, float, CarrierRecoveryPLL | None]:
     """Demodulate AM using Synchronous AM (SAM) with carrier recovery PLL.
 
     SAM provides superior performance over envelope detection by:
@@ -205,7 +206,7 @@ def sam_demod(
     """
     if iq.size == 0:
         return (
-            cast(np.ndarray, np.empty(0, dtype=np.float32)),
+            cast(NDArrayFloat, np.empty(0, dtype=np.float32)),
             0.0,
             pll_state
         )
@@ -277,7 +278,7 @@ def sam_demod(
 
 
 def sam_demod_simple(
-    iq: np.ndarray,
+    iq: NDArrayComplex,
     sample_rate: int,
     audio_rate: int = 48_000,
     sideband: str = "dsb",
@@ -288,7 +289,7 @@ def sam_demod_simple(
     enable_lowpass: bool = True,
     lowpass_hz: float = 5000.0,
     agc_target_db: float = -20.0,
-) -> np.ndarray:
+) -> NDArrayFloat:
     """Simplified SAM demodulator returning only audio (stateless).
 
     Wrapper around sam_demod for simple use cases where PLL state

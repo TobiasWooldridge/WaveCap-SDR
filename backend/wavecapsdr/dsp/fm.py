@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import cast
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex, NDArrayFloat
 
 from .filters import (
     highpass_filter,
@@ -22,7 +23,7 @@ _SOFT_CLIP_NORM = np.float32(1.0 / np.tanh(1.5))  # Normalization factor
 _SOFT_CLIP_HEADROOM = np.float32(0.95)  # Leave 5% headroom to avoid hitting ±1.0
 
 
-def soft_clip(x: np.ndarray) -> np.ndarray:
+def soft_clip(x: NDArrayFloat) -> NDArrayFloat:
     """Apply soft clipping using tanh function.
 
     Unlike hard clipping (np.clip), soft clipping gradually saturates
@@ -35,10 +36,10 @@ def soft_clip(x: np.ndarray) -> np.ndarray:
     Returns:
         Soft-clipped signal in range [-0.95, 0.95]
     """
-    return cast(np.ndarray, np.tanh(x * _SOFT_CLIP_K) * _SOFT_CLIP_NORM * _SOFT_CLIP_HEADROOM)
+    return cast(NDArrayFloat, np.tanh(x * _SOFT_CLIP_K) * _SOFT_CLIP_NORM * _SOFT_CLIP_HEADROOM)
 
 
-def rms_normalize(x: np.ndarray, target_rms: float = 0.18, min_rms: float = 1e-4) -> np.ndarray:
+def rms_normalize(x: NDArrayFloat, target_rms: float = 0.18, min_rms: float = 1e-4) -> NDArrayFloat:
     """Normalize signal based on RMS level instead of peak.
 
     RMS normalization provides more consistent perceived loudness
@@ -57,11 +58,11 @@ def rms_normalize(x: np.ndarray, target_rms: float = 0.18, min_rms: float = 1e-4
 
     rms = float(np.sqrt(np.mean(x ** 2)))
     if rms > min_rms:
-        return cast(np.ndarray, x * (target_rms / rms))
+        return x * (target_rms / rms)
     return x
 
 
-def quadrature_demod(iq: np.ndarray, sample_rate: int) -> np.ndarray:
+def quadrature_demod(iq: NDArrayComplex, sample_rate: int) -> NDArrayFloat:
     """Quadrature FM demodulation.
 
     Converts complex IQ samples to instantaneous frequency deviations.
@@ -77,10 +78,10 @@ def quadrature_demod(iq: np.ndarray, sample_rate: int) -> np.ndarray:
         Demodulated FM audio (instantaneous frequency / max_deviation)
     """
     if iq.size == 0:
-        return cast(np.ndarray, np.empty(0, dtype=np.float32))
+        return cast(NDArrayFloat, np.empty(0, dtype=np.float32))
 
     # y[n] = angle(x[n] * conj(x[n-1]))
-    x: np.ndarray = iq.astype(np.complex64, copy=False)
+    x: NDArrayComplex = iq.astype(np.complex64, copy=False)
 
     # Compute product with conjugate of previous sample
     prod = x[1:] * np.conj(x[:-1])
@@ -91,14 +92,14 @@ def quadrature_demod(iq: np.ndarray, sample_rate: int) -> np.ndarray:
 
     # Extract phase and scale in one step
     scale = np.float32(sample_rate / (2.0 * np.pi * 75000.0))
-    out[1:] = cast(np.ndarray, np.angle(prod) * scale)
+    out[1:] = cast(NDArrayFloat, np.angle(prod) * scale)
 
-    return cast(np.ndarray, out)
+    return cast(NDArrayFloat, out)
 
 
 # Cache for deemphasis filter coefficients
 @lru_cache(maxsize=32)
-def _get_deemphasis_coeffs(sample_rate: int, tau_us: int) -> tuple[np.ndarray, np.ndarray]:
+def _get_deemphasis_coeffs(sample_rate: int, tau_us: int) -> tuple[NDArrayFloat, NDArrayFloat]:
     """Get cached deemphasis filter coefficients."""
     tau = tau_us * 1e-6  # Convert from microseconds
     alpha = 1.0 / (1.0 + (1.0 / (2.0 * np.pi * tau * sample_rate)))
@@ -107,7 +108,7 @@ def _get_deemphasis_coeffs(sample_rate: int, tau_us: int) -> tuple[np.ndarray, n
     return b, a
 
 
-def deemphasis_filter(x: np.ndarray, sample_rate: int, tau: float = 75e-6) -> np.ndarray:
+def deemphasis_filter(x: NDArrayFloat, sample_rate: int, tau: float = 75e-6) -> NDArrayFloat:
     """Apply deemphasis filter to FM audio.
 
     Performance: Uses cached filter coefficients.
@@ -119,7 +120,7 @@ def deemphasis_filter(x: np.ndarray, sample_rate: int, tau: float = 75e-6) -> np
         tau_us = int(tau * 1e6)
         b, a = _get_deemphasis_coeffs(sample_rate, tau_us)
 
-        y: np.ndarray = cast(np.ndarray, signal.lfilter(b, a, x)).astype(np.float32)
+        y: NDArrayFloat = cast(NDArrayFloat, signal.lfilter(b, a, x)).astype(np.float32)
         return y
     except ImportError:
         return x.astype(np.float32, copy=False)
@@ -129,7 +130,7 @@ def deemphasis_filter(x: np.ndarray, sample_rate: int, tau: float = 75e-6) -> np
 @lru_cache(maxsize=32)
 def _get_lpf_coeffs(
     sample_rate: int, cutoff: int, order: int = 5
-) -> tuple[np.ndarray, np.ndarray] | None:
+) -> tuple[NDArrayFloat, NDArrayFloat] | None:
     """Get cached lowpass filter coefficients for MPX filtering."""
     from scipy import signal
 
@@ -143,7 +144,7 @@ def _get_lpf_coeffs(
     return b, a
 
 
-def lpf_audio(x: np.ndarray, sample_rate: int, cutoff: float = 15_000) -> np.ndarray:
+def lpf_audio(x: NDArrayFloat, sample_rate: int, cutoff: float = 15_000) -> NDArrayFloat:
     """Low-pass filter to remove FM stereo pilot tone and subcarriers.
 
     Removes 19 kHz pilot tone, 38 kHz stereo subcarrier, and 57 kHz RDS.
@@ -174,13 +175,13 @@ def lpf_audio(x: np.ndarray, sample_rate: int, cutoff: float = 15_000) -> np.nda
             return x.astype(np.float32, copy=False)
 
         b, a = coeffs
-        y: np.ndarray = cast(np.ndarray, signal.lfilter(b, a, x)).astype(np.float32)
+        y: NDArrayFloat = cast(NDArrayFloat, signal.lfilter(b, a, x)).astype(np.float32)
         return y
     except ImportError:
         return x.astype(np.float32, copy=False)
 
 
-def resample_poly(x: np.ndarray, in_rate: int, out_rate: int) -> np.ndarray:
+def resample_poly(x: NDArrayFloat, in_rate: int, out_rate: int) -> NDArrayFloat:
     """Resample using polyphase filtering (3-5x faster than linear interpolation).
 
     Uses scipy.signal.resample_poly which performs polyphase resampling with
@@ -209,7 +210,7 @@ def resample_poly(x: np.ndarray, in_rate: int, out_rate: int) -> np.ndarray:
 
         # resample_poly handles anti-aliasing automatically
         y = scipy_resample_poly(x.astype(np.float64), up, down)
-        return cast(np.ndarray, y).astype(np.float32)
+        return cast(NDArrayFloat, y).astype(np.float32)
     except ImportError:
         # Fallback to linear interpolation if scipy not available
         t_in = np.arange(x.shape[0], dtype=np.float64) / float(in_rate)
@@ -217,7 +218,7 @@ def resample_poly(x: np.ndarray, in_rate: int, out_rate: int) -> np.ndarray:
         n_out = max(1, round(duration * out_rate))
         t_out = np.arange(n_out, dtype=np.float64) / float(out_rate)
         y = np.interp(t_out, t_in, x.astype(np.float64))
-        return cast(np.ndarray, y).astype(np.float32)
+        return cast(NDArrayFloat, y).astype(np.float32)
 
 
 # Keep alias for backwards compatibility
@@ -225,7 +226,7 @@ resample_linear = resample_poly
 
 
 def wbfm_demod(
-    iq: np.ndarray,
+    iq: NDArrayComplex,
     sample_rate: int,
     audio_rate: int = 48_000,
     enable_deemphasis: bool = True,
@@ -239,7 +240,7 @@ def wbfm_demod(
     notch_frequencies: list[float] | None = None,
     enable_noise_reduction: bool = False,
     noise_reduction_db: float = 12.0,
-) -> np.ndarray:
+) -> NDArrayFloat:
     """Demodulate wideband FM (broadcast radio).
 
     Args:
@@ -314,7 +315,7 @@ def wbfm_demod(
 
 
 def nbfm_demod(
-    iq: np.ndarray,
+    iq: NDArrayComplex,
     sample_rate: int,
     audio_rate: int = 48_000,
     enable_deemphasis: bool = False,
@@ -328,7 +329,7 @@ def nbfm_demod(
     notch_frequencies: list[float] | None = None,
     enable_noise_reduction: bool = False,
     noise_reduction_db: float = 12.0,
-) -> np.ndarray:
+) -> NDArrayFloat:
     """Demodulate narrowband FM (voice communications, public safety, amateur radio).
 
     Args:
@@ -403,4 +404,3 @@ def nbfm_demod(
     # Soft clip to prevent harsh distortion on peaks
     audio = soft_clip(audio)
     return audio
-

@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex
 
 # Module-level logger (configured per-process)
 logger: logging.Logger | None = None
@@ -893,7 +894,7 @@ class SDRplayWorker:
         num_samples = ret
 
         # Create numpy array view of the IQ buffer (after header)
-        iq_buffer = np.ndarray(
+        iq_buffer: NDArrayComplex = np.ndarray(
             shape=(BUFFER_SAMPLES,),
             dtype=np.complex64,
             buffer=self.shm.buf,

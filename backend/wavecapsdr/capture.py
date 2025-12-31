@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any, Callable, TypeVar, cast
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex, NDArrayFloat
 
 from .dsp.fft import FFTBackend
 from .dsp.fft import available_backends as available_fft_backends
@@ -98,7 +99,7 @@ def with_retry(max_attempts: int = 3, backoff_factor: float = 2.0) -> Callable[[
     return decorator
 
 
-def pack_iq16(samples: np.ndarray) -> bytes:
+def pack_iq16(samples: NDArrayComplex) -> bytes:
     """Pack complex IQ samples as interleaved 16-bit integers.
 
     Performance: Uses numpy view for zero-copy interleaving.
@@ -106,7 +107,7 @@ def pack_iq16(samples: np.ndarray) -> bytes:
     if samples.size == 0:
         return b""
     # View complex64 as pairs of float32 (already interleaved I,Q,I,Q,...)
-    x: np.ndarray = samples.astype(np.complex64, copy=False)
+    x: NDArrayComplex = samples.astype(np.complex64, copy=False)
     # Use view to get interleaved float32 without copying
     interleaved_f32 = x.view(np.float32)
     # Clip and scale in one operation, then convert to int16
@@ -115,7 +116,7 @@ def pack_iq16(samples: np.ndarray) -> bytes:
     return result
 
 
-def pack_pcm16(samples: np.ndarray) -> bytes:
+def pack_pcm16(samples: NDArrayFloat) -> bytes:
     """Pack audio samples as 16-bit PCM.
 
     Performance: Avoids intermediate array allocation.
@@ -123,27 +124,27 @@ def pack_pcm16(samples: np.ndarray) -> bytes:
     if samples.size == 0:
         return b""
     # Use contiguous array for efficient conversion
-    x: np.ndarray = np.ascontiguousarray(samples, dtype=np.float32)
+    x: NDArrayFloat = np.ascontiguousarray(samples, dtype=np.float32)
     np.clip(x, -1.0, 1.0, out=x)
     x *= 32767.0
     result: bytes = x.astype(np.int16).tobytes()
     return result
 
 
-def pack_f32(samples: np.ndarray) -> bytes:
+def pack_f32(samples: NDArrayFloat) -> bytes:
     """Pack samples as 32-bit float (little-endian).
 
     Performance: Uses in-place clip when possible.
     """
     if samples.size == 0:
         return b""
-    x: np.ndarray = np.ascontiguousarray(samples, dtype=np.float32)
+    x: NDArrayFloat = np.ascontiguousarray(samples, dtype=np.float32)
     np.clip(x, -1.0, 1.0, out=x)
     result: bytes = x.tobytes()
     return result
 
 
-def _validate_audio_output(audio: np.ndarray, context: str) -> bool:
+def _validate_audio_output(audio: NDArrayFloat, context: str) -> bool:
     ok, reason = validate_audio_samples(audio)
     if not ok:
         now = time.time()
@@ -164,18 +165,18 @@ def _validate_audio_output(audio: np.ndarray, context: str) -> bool:
 
 # Cache for frequency shift exponentials using LRU cache (proper eviction)
 @functools.lru_cache(maxsize=64)
-def _get_freq_shift_exp(size: int, offset_hz: int, sample_rate: int) -> np.ndarray:
+def _get_freq_shift_exp(size: int, offset_hz: int, sample_rate: int) -> NDArrayComplex:
     """Get cached complex exponential for frequency shifting.
 
     Uses LRU cache for proper eviction semantics (vs manual dict with arbitrary removal).
     Note: offset_hz is int (rounded from float) to ensure consistent cache keys.
     """
     n = np.arange(size, dtype=np.float32)
-    result: np.ndarray = np.exp(-1j * 2.0 * np.pi * (offset_hz / float(sample_rate)) * n).astype(np.complex64)
+    result: NDArrayComplex = np.exp(-1j * 2.0 * np.pi * (offset_hz / float(sample_rate)) * n).astype(np.complex64)
     return result
 
 
-def freq_shift(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray:
+def freq_shift(iq: NDArrayComplex, offset_hz: float, sample_rate: int) -> NDArrayComplex:
     """Frequency shift IQ samples by mixing with complex exponential.
 
     Performance: Caches the complex exponential using LRU cache for repeated
@@ -187,7 +188,7 @@ def freq_shift(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray
     # Round offset_hz to int for consistent cache keys (prevents unbounded cache growth
     # from floating-point variations like 1000.0 vs 1000.0000001)
     ph = _get_freq_shift_exp(iq.shape[0], round(offset_hz), sample_rate)
-    result: np.ndarray = (iq.astype(np.complex64, copy=False) * ph).astype(np.complex64)
+    result: NDArrayComplex = (iq.astype(np.complex64, copy=False) * ph).astype(np.complex64)
     return result
 
 
@@ -198,7 +199,7 @@ P25_TARGET_SAMPLE_RATE = 19200  # 4 samples per symbol (matches SDRTrunk)
 P25_CHANNEL_BANDWIDTH = 12500  # P25 uses 12.5 kHz channel bandwidth
 
 
-def decimate_iq_for_p25(iq: np.ndarray, sample_rate: int) -> tuple[np.ndarray, int]:
+def decimate_iq_for_p25(iq: NDArrayComplex, sample_rate: int) -> tuple[NDArrayComplex, int]:
     """Decimate complex IQ samples for P25 processing.
 
     P25 uses 12.5 kHz channel bandwidth with 4800 baud C4FM.
@@ -294,10 +295,10 @@ def decimate_iq_for_p25(iq: np.ndarray, sample_rate: int) -> tuple[np.ndarray, i
 
 
 def _process_channel_dsp_stateless(
-    samples: np.ndarray,
+    samples: NDArrayComplex,
     sample_rate: int,
     cfg: ChannelConfig,
-) -> tuple[np.ndarray | None, dict[str, Any]]:
+) -> tuple[NDArrayFloat | None, dict[str, Any]]:
     """Stateless DSP processing for a single channel.
 
     Thread-safe: operates only on input arrays and immutable config.
@@ -331,7 +332,7 @@ def _process_channel_dsp_stateless(
         power = np.mean(magnitudes ** 2)
         metrics['rssi_db'] = float(10.0 * np.log10(power + 1e-10))
 
-    audio: np.ndarray | None = None
+    audio: NDArrayFloat | None = None
 
     # Mode-specific demodulation (stateless operations only)
     if cfg.mode == "wbfm":
@@ -540,9 +541,9 @@ class Channel:
     # TSBK callback for trunking integration (called when P25 TSBK is decoded)
     on_tsbk: Callable[[dict[str, Any]], None] | None = None
     # Raw IQ callback for trunking/scanning (called with wideband IQ before P25 processing)
-    # Signature: (iq: np.ndarray, sample_rate: int, overflow: bool) -> None
+    # Signature: (iq: NDArrayComplex, sample_rate: int, overflow: bool) -> None
     # overflow=True indicates ring buffer overrun - caller should reset filter/demod state
-    on_raw_iq: Callable[[np.ndarray, int, bool], None] | None = None
+    on_raw_iq: Callable[[NDArrayComplex, int, bool], None] | None = None
     # Voice channel factory for automatic voice following (called on P25 grants)
     # Signature: (tgid: int, freq_hz: float, source_id: Optional[int]) -> Optional[str]
     # Returns: channel_id of created voice channel, or None if not created
@@ -624,7 +625,7 @@ class Channel:
             msgs = [m for m in msgs if m.timestamp > since_timestamp]
         return [m.to_dict() for m in reversed(msgs[-limit:])]
 
-    def _update_audio_metrics(self, audio: np.ndarray) -> None:
+    def _update_audio_metrics(self, audio: NDArrayFloat) -> None:
         """Calculate and update audio output level metrics.
 
         Args:
@@ -738,7 +739,7 @@ class Channel:
             "drops_since_last_log": self._drop_count,
         }
 
-    def update_signal_metrics(self, iq: np.ndarray, sample_rate: int) -> None:
+    def update_signal_metrics(self, iq: NDArrayComplex, sample_rate: int) -> None:
         """Calculate signal metrics from IQ samples (server-side, no audio needed).
 
         Optimized to:
@@ -863,7 +864,7 @@ class Channel:
         except Exception as e:
             logger.error(f"Error reading {format} encoder output: {e}")
 
-    async def _broadcast(self, audio: np.ndarray) -> None:
+    async def _broadcast(self, audio: NDArrayFloat) -> None:
         """Broadcast audio to all subscribers, converting to their requested format."""
         if not self._audio_sinks:
             return
@@ -927,7 +928,7 @@ class Channel:
                     with contextlib.suppress(Exception):
                         self._audio_sinks.discard((q, loop, fmt))
 
-    async def process_iq_chunk(self, iq: np.ndarray, sample_rate: int) -> None:
+    async def process_iq_chunk(self, iq: NDArrayComplex, sample_rate: int) -> None:
         if self.state != "running":
             return
         if iq.size == 0:
@@ -1210,7 +1211,7 @@ class Channel:
                 try:
                     # Compute FM discriminator output (instantaneous frequency)
                     # This is the same computation used in C4FM demodulation
-                    iq_c64: np.ndarray = base.astype(np.complex64, copy=False)
+                    iq_c64: NDArrayComplex = base.astype(np.complex64, copy=False)
                     prod = iq_c64[1:] * np.conj(iq_c64[:-1])
                     discriminator = np.angle(prod) * sample_rate / (2 * np.pi)
 
@@ -1289,7 +1290,7 @@ class Channel:
             # Unknown mode: ignore
             return
 
-    def process_iq_chunk_sync(self, iq: np.ndarray, sample_rate: int) -> np.ndarray | None:
+    def process_iq_chunk_sync(self, iq: NDArrayComplex, sample_rate: int) -> NDArrayFloat | None:
         """Synchronous DSP processing - returns audio/IQ data for broadcast.
 
         This method performs all CPU-intensive DSP work (demodulation, filtering, etc.)
@@ -1297,7 +1298,7 @@ class Channel:
         should be done separately on the event loop to avoid blocking HTTP requests.
 
         Returns:
-            Processed audio data (np.ndarray) or None if channel not running/no output.
+            Processed audio data (NDArrayFloat) or None if channel not running/no output.
         """
         if self.state != "running":
             return None
@@ -1307,7 +1308,7 @@ class Channel:
             logger.warning(f"Channel {self.cfg.id}: non-finite IQ samples, dropping chunk")
             return None
 
-        audio: np.ndarray | None = None
+        audio: NDArrayFloat | None = None
 
         if self.cfg.mode in ("wbfm", "nbfm"):
             # FM demodulation (wide or narrow band)
@@ -1779,12 +1780,12 @@ class Capture:
     _startup_timeout: float = 45.0  # Max time allowed in "starting" state (fallback)
     _startup_watchdog_enabled: bool = True
     # FFT data (server-side spectrum analyzer)
-    _fft_power: np.ndarray | None = None  # Power spectrum in dB
-    _fft_freqs: np.ndarray | None = None  # Frequency bins in Hz
+    _fft_power: NDArrayFloat | None = None  # Power spectrum in dB
+    _fft_freqs: NDArrayFloat | None = None  # Frequency bins in Hz
     _fft_power_list: list[float] | None = None  # Cached Python list (avoids repeated .tolist())
     _fft_freqs_list: list[float] | None = None  # Cached Python list (avoids repeated .tolist())
     _fft_counter: int = 0  # Frame counter for adaptive FFT throttling
-    _fft_window_cache: dict[int, np.ndarray] = field(default_factory=dict)  # Cached FFT windows by size (legacy)
+    _fft_window_cache: dict[int, NDArrayFloat] = field(default_factory=dict)  # Cached FFT windows by size (legacy)
     _fft_last_time: float = 0.0  # Last FFT timestamp for FPS calculation
     _fft_actual_fps: float = 0.0  # Actual measured FFT FPS
     _fft_backend: FFTBackend | None = None  # Pluggable FFT backend (scipy/fftw/mlx/cuda)
@@ -2287,7 +2288,7 @@ class Capture:
             )
         return self._fft_backend
 
-    def _calculate_fft(self, samples: np.ndarray, sample_rate: int, fft_size: int = 2048) -> None:
+    def _calculate_fft(self, samples: NDArrayComplex, sample_rate: int, fft_size: int = 2048) -> None:
         """Calculate FFT for spectrum display using pluggable backend.
 
         Uses hardware-accelerated FFT when available:
@@ -2402,9 +2403,9 @@ class Capture:
 
     def _process_channels_parallel(
         self,
-        samples: np.ndarray,
+        samples: NDArrayComplex,
         executor: ThreadPoolExecutor,
-    ) -> list[tuple[Channel, np.ndarray | None]]:
+    ) -> list[tuple[Channel, NDArrayFloat | None]]:
         """Process all running channels using ThreadPoolExecutor.
 
         NumPy/SciPy release the GIL during heavy computation, enabling true
@@ -2444,7 +2445,7 @@ class Capture:
                 self._dsp_drop_last_log = now
             return []
 
-        futures: dict[Future[tuple[np.ndarray | None, dict[str, Any]]], Channel] = {}
+        futures: dict[Future[tuple[NDArrayFloat | None, dict[str, Any]]], Channel] = {}
         for ch in channels:
             with self._dsp_inflight_lock:
                 if self._dsp_inflight >= max_inflight:
@@ -2476,7 +2477,7 @@ class Capture:
             future.cancel()
 
         # Collect results and apply stateful processing
-        results: list[tuple[Channel, np.ndarray | None]] = []
+        results: list[tuple[Channel, NDArrayFloat | None]] = []
         for future, ch in futures.items():
             if future in not_done:
                 results.append((ch, None))
@@ -2508,9 +2509,9 @@ class Capture:
     def _apply_stateful_processing(
         self,
         ch: Channel,
-        audio: np.ndarray | None,
-        iq: np.ndarray,
-    ) -> np.ndarray | None:
+        audio: NDArrayFloat | None,
+        iq: NDArrayComplex,
+    ) -> NDArrayFloat | None:
         """Apply stateful processing that must run in capture thread.
 
         Handles: RDS, POCSAG, P25, DMR, squelch. These require state that cannot be
@@ -2549,7 +2550,7 @@ class Capture:
             if base.size > 0 and not validate_finite_array(base):
                 logger.warning(f"Channel {ch.cfg.id}: non-finite P25 baseband, dropping chunk")
                 return None
-            p25_decoded_audio: np.ndarray | None = None
+            p25_decoded_audio: NDArrayFloat | None = None
 
             if base.size > 0:
                 # Diagnostic: Log raw and frequency-shifted IQ magnitude
@@ -2618,7 +2619,7 @@ class Capture:
                 if ch._imbe_decoder is not None and ch._imbe_decoder.running and p25_iq.size > 0:
                     try:
                         # Compute FM discriminator (same as C4FM demodulation)
-                        p25_iq_c64: np.ndarray = p25_iq.astype(np.complex64, copy=False)
+                        p25_iq_c64: NDArrayComplex = p25_iq.astype(np.complex64, copy=False)
                         prod = p25_iq_c64[1:] * np.conj(p25_iq_c64[:-1])
                         discriminator = np.angle(prod) * p25_rate / (2 * np.pi)
 
@@ -2639,7 +2640,7 @@ class Capture:
 
         # DMR decoding (requires stateful decoder, processes IQ not audio)
         if ch.cfg.mode == "dmr":
-            dmr_decoded_audio: np.ndarray | None = None
+            dmr_decoded_audio: NDArrayFloat | None = None
 
             if iq.size == 0:
                 return None
@@ -2681,7 +2682,7 @@ class Capture:
                 if ch._dmr_voice_decoder is not None and ch._dmr_voice_decoder.running and base.size > 0:
                     try:
                         # Compute FM discriminator (same as DMR 4FSK demodulation)
-                        dmr_iq_c64: np.ndarray = base.astype(np.complex64, copy=False)
+                        dmr_iq_c64: NDArrayComplex = base.astype(np.complex64, copy=False)
                         prod = dmr_iq_c64[1:] * np.conj(dmr_iq_c64[:-1])
                         discriminator = np.angle(prod) * self.cfg.sample_rate / (2 * np.pi)
 

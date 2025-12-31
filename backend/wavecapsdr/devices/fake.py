@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex
 
 from .base import Device, DeviceDriver, DeviceInfo, StreamHandle
 
@@ -15,7 +16,7 @@ class _FakeStream(StreamHandle):
     freq: float
     running: bool = True
 
-    def read(self, num_samples: int) -> tuple[np.ndarray, bool]:
+    def read(self, num_samples: int) -> tuple[NDArrayComplex, bool]:
         if not self.running:
             return np.empty(0, dtype=np.complex64), False
         t = np.arange(num_samples, dtype=np.float32) / float(self.sample_rate)

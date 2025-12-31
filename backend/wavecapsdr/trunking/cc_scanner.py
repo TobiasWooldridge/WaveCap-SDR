@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex, NDArrayFloat, NDArrayInt
 
 if TYPE_CHECKING:
     pass
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 # Design once for typical 6 MHz -> 48 kHz decimation (125:1)
 # Using Kaiser window with beta=6.0 for 60 dB stopband attenuation
 # Cutoff at 0.8 / 125 = 0.0064 (normalized)
-_SCANNER_DECIM_FILTER_TAPS: np.ndarray | None = None
+_SCANNER_DECIM_FILTER_TAPS: NDArrayFloat | None = None
 _SCANNER_DECIM_FACTOR: int = 0
 
 
@@ -88,13 +89,13 @@ class ControlChannelScanner:
     _last_scan_time: float = 0.0
     _measurements: dict[float, ChannelMeasurement] = field(default_factory=dict)
     _current_channel_hz: float | None = None
-    _iq_buffer: list[np.ndarray] = field(default_factory=list)
+    _iq_buffer: list[NDArrayComplex] = field(default_factory=list)
     _buffer_samples: int = 0
     _measurement_in_progress: bool = False
     _measurement_complete: asyncio.Event = field(default_factory=asyncio.Event)
 
     # P25 sync pattern for detection (48 bits as 24 dibits)
-    _sync_pattern: np.ndarray | None = None
+    _sync_pattern: NDArrayInt | None = None
 
     def __post_init__(self) -> None:
         """Initialize the scanner."""
@@ -122,7 +123,7 @@ class ControlChannelScanner:
         max_offset = self.sample_rate / 2 - self.channel_bandwidth
         return offset <= max_offset
 
-    def scan_all(self, iq: np.ndarray) -> dict[float, ChannelMeasurement]:
+    def scan_all(self, iq: NDArrayComplex) -> dict[float, ChannelMeasurement]:
         """Scan all control channels and return measurements.
 
         This performs a quick scan of all configured control channel
@@ -162,7 +163,7 @@ class ControlChannelScanner:
 
         return measurements
 
-    def _measure_channel(self, iq: np.ndarray, freq_hz: float) -> ChannelMeasurement:
+    def _measure_channel(self, iq: NDArrayComplex, freq_hz: float) -> ChannelMeasurement:
         """Measure signal strength at a specific frequency.
 
         Uses adjacent-channel noise measurement for accurate SNR estimation.
@@ -267,7 +268,7 @@ class ControlChannelScanner:
             sample_count=len(decimated_iq),
         )
 
-    def _detect_sync_pattern(self, iq: np.ndarray) -> bool:
+    def _detect_sync_pattern(self, iq: NDArrayComplex) -> bool:
         """Detect P25 frame sync pattern in IQ samples.
 
         Uses C4FM FM demodulation with SOFT CORRELATION to detect the 24-dibit

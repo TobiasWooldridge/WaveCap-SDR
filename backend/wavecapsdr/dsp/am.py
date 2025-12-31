@@ -13,13 +13,14 @@ from __future__ import annotations
 from typing import cast
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex, NDArrayFloat
 
 from .agc import apply_agc, soft_clip
 from .filters import bandpass_filter, highpass_filter, lowpass_filter, noise_blanker, notch_filter
 from .fm import resample_poly
 
 
-def freq_shift(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray:
+def freq_shift(iq: NDArrayComplex, offset_hz: float, sample_rate: int) -> NDArrayComplex:
     """Shift signal in frequency domain (mix with complex exponential).
 
     Args:
@@ -38,11 +39,11 @@ def freq_shift(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray
     shift = np.exp(2j * np.pi * offset_hz * t).astype(np.complex64)
 
     # Multiply to shift frequency
-    return cast(np.ndarray, (iq * shift).astype(np.complex64))
+    return cast(NDArrayComplex, (iq * shift).astype(np.complex64))
 
 
 def am_demod(
-    iq: np.ndarray,
+    iq: NDArrayComplex,
     sample_rate: int,
     audio_rate: int = 48_000,
     enable_agc: bool = True,
@@ -54,7 +55,7 @@ def am_demod(
     noise_blanker_threshold_db: float = 10.0,
     agc_target_db: float = -20.0,
     notch_frequencies: list[float] | None = None,
-) -> np.ndarray:
+) -> NDArrayFloat:
     """Demodulate AM (Amplitude Modulation) signal.
 
     AM demodulation uses envelope detection: the signal amplitude
@@ -92,7 +93,7 @@ def am_demod(
         - Broadcast AM: lowpass_hz=5000, enable_agc=True
     """
     if iq.size == 0:
-        return cast(np.ndarray, np.empty(0, dtype=np.float32))
+        return cast(NDArrayFloat, np.empty(0, dtype=np.float32))
 
     # 1. Envelope detection: Take magnitude of complex IQ signal
     # This extracts the amplitude modulation
@@ -141,7 +142,7 @@ def am_demod(
 
 
 def ssb_demod(
-    iq: np.ndarray,
+    iq: NDArrayComplex,
     sample_rate: int,
     audio_rate: int = 48_000,
     mode: str = "usb",
@@ -154,7 +155,7 @@ def ssb_demod(
     agc_target_db: float = -20.0,
     notch_frequencies: list[float] | None = None,
     bfo_offset_hz: float = 1500.0,
-) -> np.ndarray:
+) -> NDArrayFloat:
     """Demodulate SSB (Single Sideband) signal.
 
     SSB transmits only one sideband (USB or LSB) to save bandwidth.
@@ -197,7 +198,7 @@ def ssb_demod(
         - Marine SSB: bandpass 300-2500 Hz, bfo_offset_hz=1400, enable_agc=True
     """
     if iq.size == 0:
-        return cast(np.ndarray, np.empty(0, dtype=np.float32))
+        return cast(NDArrayFloat, np.empty(0, dtype=np.float32))
 
     # 1. Frequency shift to center the audio in baseband
     # USB: shift up by +bfo_offset

@@ -22,6 +22,7 @@ from enum import Enum
 from typing import Any, Callable
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex, NDArrayFloat, NDArrayInt
 
 # Use demodulators from decoders/p25.py
 from wavecapsdr.decoders.p25 import CQPSKDemodulator as P25CQPSKDemodulator
@@ -170,7 +171,7 @@ class ControlChannelMonitor:
         # P25C4FMDemodulator doesn't have a reset method; it maintains
         # minimal state that resets naturally with new IQ blocks
 
-    def process_iq(self, iq: np.ndarray) -> list[dict[str, Any]]:
+    def process_iq(self, iq: NDArrayComplex) -> list[dict[str, Any]]:
         """Process IQ samples and extract TSBK messages.
 
         Args:
@@ -196,7 +197,7 @@ class ControlChannelMonitor:
             logger.debug(f"ControlChannelMonitor.process_iq: ENTRY call #{self._process_iq_calls}, iq.size={iq.size}")
 
         # Demodulate to dibits using C4FM (control channels always use C4FM)
-        soft: np.ndarray | None = None
+        soft: NDArrayFloat | None = None
         if self._demod:
             if _verbose:
                 logger.debug("ControlChannelMonitor.process_iq: calling demodulate")
@@ -234,7 +235,7 @@ class ControlChannelMonitor:
         _cc_profiler.report()
         return results
 
-    def _process_dibits(self, dibits: np.ndarray, soft: np.ndarray | None) -> list[dict[str, Any]]:
+    def _process_dibits(self, dibits: NDArrayInt, soft: NDArrayFloat | None) -> list[dict[str, Any]]:
         """Process demodulated dibits and extract TSBK messages.
 
         Args:
@@ -615,7 +616,7 @@ class ControlChannelMonitor:
 
         return -1
 
-    def _verify_sync(self, dibits: np.ndarray) -> bool:
+    def _verify_sync(self, dibits: NDArrayInt) -> bool:
         """Verify that dibits match sync pattern using soft correlation.
 
         Args:
@@ -628,7 +629,7 @@ class ControlChannelMonitor:
         # Use same threshold as search for consistency
         return score >= self.SOFT_SYNC_THRESHOLD
 
-    def _get_sync_dibits(self) -> np.ndarray:
+    def _get_sync_dibits(self) -> NDArrayInt:
         """Get P25 frame sync pattern as dibits.
 
         P25 uses the SAME 48-bit sync pattern for ALL frame types (HDU, TSDU, LDU, etc).

@@ -16,8 +16,10 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import cast
 
 import numpy as np
+from wavecapsdr.typing import NDArrayFloat, NDArrayInt
 from scipy import signal
 
 from wavecapsdr.decoders.mbelib_neo import IMBEDecoderNeo, MbelibNeoError, is_available
@@ -76,20 +78,20 @@ class IMBEDecoderNative:
 
     # Threading
     _process_thread: threading.Thread | None = field(default=None, repr=False)
-    _input_queue: queue.Queue[np.ndarray | None] = field(
+    _input_queue: queue.Queue[NDArrayFloat | None] = field(
         default_factory=lambda: queue.Queue(maxsize=256),
         repr=False,
     )
-    _output_queue: queue.Queue[np.ndarray] = field(
+    _output_queue: queue.Queue[NDArrayFloat] = field(
         default_factory=lambda: queue.Queue(maxsize=128),
         repr=False,
     )
 
     # Callback for output audio
-    on_audio: Callable[[np.ndarray], None] | None = field(default=None, repr=False)
+    on_audio: Callable[[NDArrayFloat], None] | None = field(default=None, repr=False)
 
     # P25 frame state
-    _dibit_buffer: np.ndarray | None = field(default=None, repr=False)
+    _dibit_buffer: NDArrayInt | None = field(default=None, repr=False)
     _sync_state: str = "searching"  # searching, synced
     _frame_position: int = 0
     _nac_tracker: NACTracker | None = field(default=None, repr=False)
@@ -202,7 +204,7 @@ class IMBEDecoderNative:
             f"bytes_processed={self.bytes_processed})"
         )
 
-    def decode(self, discriminator_audio: np.ndarray) -> None:
+    def decode(self, discriminator_audio: NDArrayFloat) -> None:
         """Queue discriminator audio for decoding (thread-safe)."""
         if not self.running:
             return
@@ -218,14 +220,14 @@ class IMBEDecoderNative:
             except (queue.Empty, queue.Full):
                 pass
 
-    def get_audio(self) -> np.ndarray | None:
+    def get_audio(self) -> NDArrayFloat | None:
         """Get decoded audio if available (non-blocking)."""
         try:
             return self._output_queue.get_nowait()
         except queue.Empty:
             return None
 
-    def get_audio_blocking(self, timeout: float = 0.5) -> np.ndarray | None:
+    def get_audio_blocking(self, timeout: float = 0.5) -> NDArrayFloat | None:
         """Get decoded audio, waiting up to timeout seconds."""
         try:
             return self._output_queue.get(timeout=timeout)
@@ -265,7 +267,7 @@ class IMBEDecoderNative:
 
         logger.debug("IMBEDecoderNative process thread exiting")
 
-    def _process_audio(self, disc_audio: np.ndarray) -> None:
+    def _process_audio(self, disc_audio: NDArrayFloat) -> None:
         """Process discriminator audio through the pipeline."""
         if self._c4fm is None or self._mbelib is None:
             return
@@ -298,7 +300,7 @@ class IMBEDecoderNative:
         # Process dibits through P25 frame parser
         self._process_dibits(dibits)
 
-    def _process_dibits(self, dibits: np.ndarray) -> None:
+    def _process_dibits(self, dibits: NDArrayInt) -> None:
         """Process dibits through P25 frame detection and IMBE extraction."""
         if self._dibit_buffer is None:
             return
@@ -316,7 +318,7 @@ class IMBEDecoderNative:
         # Check for frames when we have enough dibits
         self._check_for_frame()
 
-    def _find_frame_sync(self, dibits: np.ndarray) -> tuple[int, bool]:
+    def _find_frame_sync(self, dibits: NDArrayInt) -> tuple[int, bool]:
         """Find frame sync pattern in dibits.
 
         Returns (position, is_reversed) tuple, or (-1, False) if not found.
@@ -495,7 +497,7 @@ class IMBEDecoderNative:
             self._dibit_buffer[:remaining] = self._dibit_buffer[count:self._frame_position]
             self._frame_position = remaining
 
-    def _process_ldu(self, dibits: np.ndarray, is_ldu1: bool) -> None:
+    def _process_ldu(self, dibits: NDArrayInt, is_ldu1: bool) -> None:
         """Process an LDU frame and extract IMBE voice."""
         if self._mbelib is None:
             return
@@ -529,28 +531,29 @@ class IMBEDecoderNative:
                 audio = self._mbelib.decode_frame(imbe_bits)
                 if audio is not None and len(audio) > 0:
                     self.frames_decoded += 1
+                    audio_f32 = cast(NDArrayFloat, audio)
 
                     # Callback
                     if self.on_audio:
                         try:
-                            self.on_audio(audio)
+                            self.on_audio(audio_f32)
                         except Exception as e:
                             logger.error(f"on_audio callback error: {e}")
 
                     # Queue for output
                     try:
-                        self._output_queue.put_nowait(audio)
+                        self._output_queue.put_nowait(audio_f32)
                     except queue.Full:
                         try:
                             self._output_queue.get_nowait()
-                            self._output_queue.put_nowait(audio)
+                            self._output_queue.put_nowait(audio_f32)
                         except queue.Empty:
                             pass
 
             except Exception as e:
                 logger.debug(f"IMBE decode error: {e}")
 
-    def _expand_imbe_frame(self, imbe_bytes: bytes) -> np.ndarray:
+    def _expand_imbe_frame(self, imbe_bytes: bytes) -> NDArrayInt:
         """Expand 88-bit IMBE frame to 184-bit format for mbelib.
 
         mbelib expects char imbe_fr[8][23] which is 184 bits.

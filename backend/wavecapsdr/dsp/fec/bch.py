@@ -20,6 +20,7 @@ import logging
 from typing import Any, Callable, TypeVar, cast
 
 import numpy as np
+from wavecapsdr.typing import NDArrayAny
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -45,12 +46,12 @@ logger = logging.getLogger(__name__)
 # This is the main performance bottleneck in BCH decode
 @jit(nopython=True, cache=True)
 def _berlekamp_massey_jit(
-    syndromes: np.ndarray,
-    a_pow_tab: np.ndarray,
-    a_log_tab: np.ndarray,
+    syndromes: NDArrayAny,
+    a_pow_tab: NDArrayAny,
+    a_log_tab: NDArrayAny,
     T: int,
     N: int,
-) -> tuple[np.ndarray, int]:
+) -> tuple[NDArrayAny, int]:
     """JIT-compiled Berlekamp-Massey algorithm.
 
     Finds the error locator polynomial from syndromes.
@@ -124,12 +125,12 @@ def _berlekamp_massey_jit(
 # JIT-compiled Chien search for finding polynomial roots
 @jit(nopython=True, cache=True)
 def _chien_search_jit(
-    poly: np.ndarray,
+    poly: NDArrayAny,
     degree: int,
-    a_pow_tab: np.ndarray,
-    a_log_tab: np.ndarray,
+    a_pow_tab: NDArrayAny,
+    a_log_tab: NDArrayAny,
     N: int,
-) -> np.ndarray:
+) -> NDArrayAny:
     """JIT-compiled Chien search for finding polynomial roots.
 
     Evaluates the polynomial at all field elements to find roots.
@@ -188,11 +189,11 @@ def _chien_search_jit(
 # JIT-compiled syndrome computation
 @jit(nopython=True, cache=True)
 def _compute_syndromes_jit(
-    msg: np.ndarray,
-    a_pow_tab: np.ndarray,
+    msg: NDArrayAny,
+    a_pow_tab: NDArrayAny,
     T: int,
     N: int,
-) -> np.ndarray:
+) -> NDArrayAny:
     """JIT-compiled syndrome computation.
 
     Args:
@@ -320,7 +321,7 @@ class BCH_63_16_23:
             return 0
         return int(self.a_pow_tab[(self.a_log_tab[a] + self.a_log_tab[b]) % self.N])
 
-    def _gf_mul_vec(self, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    def _gf_mul_vec(self, a: NDArrayAny, b: NDArrayAny) -> NDArrayAny:
         """Vectorized GF multiply for arrays."""
         result = np.zeros_like(a)
         nonzero_mask = (a != 0) & (b != 0)
@@ -329,7 +330,7 @@ class BCH_63_16_23:
             result[nonzero_mask] = self.a_pow_tab[log_sum]
         return result
 
-    def _compute_syndromes(self, msg: np.ndarray) -> np.ndarray:
+    def _compute_syndromes(self, msg: NDArrayAny) -> NDArrayAny:
         """Compute syndromes for error detection.
 
         OPTIMIZED: Uses JIT-compiled function for ~10x speedup.
@@ -347,7 +348,7 @@ class BCH_63_16_23:
             self.N,
         )
 
-    def _compute_syndromes_vectorized(self, msg: np.ndarray) -> np.ndarray:
+    def _compute_syndromes_vectorized(self, msg: NDArrayAny) -> NDArrayAny:
         """Vectorized syndrome computation using precomputed power matrix.
 
         This is ~10x faster than the scalar version by:
@@ -380,7 +381,7 @@ class BCH_63_16_23:
 
         return np.asarray(syndromes, dtype=np.int32)
 
-    def _find_error_locator_poly(self, syndromes: np.ndarray) -> tuple[np.ndarray, int]:
+    def _find_error_locator_poly(self, syndromes: NDArrayAny) -> tuple[NDArrayAny, int]:
         """Find error locator polynomial using Berlekamp-Massey algorithm.
 
         OPTIMIZED: Uses JIT-compiled function for ~20x speedup.
@@ -399,7 +400,7 @@ class BCH_63_16_23:
             self.N,
         )
 
-    def _berlekamp_massey_optimized(self, syndromes: np.ndarray) -> tuple[np.ndarray, int]:
+    def _berlekamp_massey_optimized(self, syndromes: NDArrayAny) -> tuple[NDArrayAny, int]:
         """Optimized Berlekamp-Massey with minimal Python/numpy overhead.
 
         Uses direct array operations and avoids numpy.any() which has
@@ -467,7 +468,7 @@ class BCH_63_16_23:
             return 0
         return int(self.a_pow_tab[(self.N - self.a_log_tab[x]) % self.N])
 
-    def _find_roots_chien_search(self, poly: np.ndarray, degree: int) -> np.ndarray:
+    def _find_roots_chien_search(self, poly: NDArrayAny, degree: int) -> NDArrayAny:
         """Find roots of error locator polynomial using Chien search.
 
         OPTIMIZED: Uses JIT-compiled function for ~10x speedup.
@@ -487,7 +488,7 @@ class BCH_63_16_23:
             self.N,
         )
 
-    def _find_roots_chien_search_vectorized(self, poly: np.ndarray, degree: int) -> np.ndarray:
+    def _find_roots_chien_search_vectorized(self, poly: NDArrayAny, degree: int) -> NDArrayAny:
         """Vectorized Chien search using numpy.
 
         Evaluates the polynomial at all field elements simultaneously.
@@ -525,7 +526,7 @@ class BCH_63_16_23:
 
         return error_positions.astype(np.int32)
 
-    def decode(self, codeword: np.ndarray, tracked_nac: int | None = None) -> tuple[int, int]:
+    def decode(self, codeword: NDArrayAny, tracked_nac: int | None = None) -> tuple[int, int]:
         """Decode BCH codeword with error correction.
 
         This implements a two-pass decoding strategy:
@@ -567,7 +568,7 @@ class BCH_63_16_23:
 
         return data, errors
 
-    def _decode_internal(self, codeword: np.ndarray) -> tuple[int, int]:
+    def _decode_internal(self, codeword: NDArrayAny) -> tuple[int, int]:
         """Internal decode implementation.
 
         Args:
@@ -636,7 +637,7 @@ class BCH_63_16_23:
 _bch_decoder: BCH_63_16_23 | None = None
 
 
-def bch_decode(codeword: np.ndarray, tracked_nac: int | None = None) -> tuple[int, int]:
+def bch_decode(codeword: NDArrayAny, tracked_nac: int | None = None) -> tuple[int, int]:
     """Decode P25 NID using BCH(63,16,23) error correction.
 
     Args:

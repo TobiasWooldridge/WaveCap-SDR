@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex
 
 from .base import Device, DeviceDriver, DeviceInfo, StreamHandle
 
@@ -23,7 +24,7 @@ def _import_pyrtlsdr() -> type[Any]:
 class _RtlStream(StreamHandle):
     sdr: Any  # RtlSdr dynamically imported
 
-    def read(self, num_samples: int) -> tuple[np.ndarray, bool]:
+    def read(self, num_samples: int) -> tuple[NDArrayComplex, bool]:
         data = self.sdr.read_samples(num_samples)
         # pyrtlsdr returns np.complex64
         return data.astype(np.complex64, copy=False), False

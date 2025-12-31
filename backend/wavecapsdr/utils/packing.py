@@ -1,4 +1,5 @@
 from __future__ import annotations
+from wavecapsdr.typing import NDArrayAny
 
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Sequence, TYPE_CHECKING, TypeAlias
@@ -6,7 +7,7 @@ from typing import Iterable, Mapping, Sequence, TYPE_CHECKING, TypeAlias
 if TYPE_CHECKING:
     import numpy as np
 
-    BitBuffer: TypeAlias = Sequence[int] | bytes | bytearray | np.ndarray
+    BitBuffer: TypeAlias = Sequence[int] | bytes | bytearray | NDArrayAny
 else:
     BitBuffer = Sequence[int] | bytes | bytearray
 

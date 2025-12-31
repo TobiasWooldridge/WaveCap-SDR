@@ -13,6 +13,7 @@ import logging
 from typing import Any
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex
 
 from .base import FFTBackend, FFTResult
 
@@ -64,7 +65,7 @@ class MLXFFTBackend(FFTBackend):
 
         logger.info(f"MLX FFT backend initialized (fft_size={fft_size})")
 
-    def execute(self, iq: np.ndarray, sample_rate: int) -> FFTResult:
+    def execute(self, iq: NDArrayComplex, sample_rate: int) -> FFTResult:
         """Compute FFT using MLX on Metal GPU.
 
         Args:

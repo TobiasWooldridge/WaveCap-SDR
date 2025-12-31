@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, TypeVar, cast
 
 import numpy as np
+from wavecapsdr.typing import NDArrayAny, NDArrayComplex, NDArrayFloat, NDArrayInt
 from scipy import signal
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -91,7 +92,7 @@ def design_baseband_lpf(
     passband_hz: float = 5200.0,  # SDRTrunk P25P1DecoderC4FM.getBasebandFilter()
     stopband_hz: float = 6500.0,  # SDRTrunk: tighter stopband for better rejection
     num_taps: int = 63,
-) -> np.ndarray:
+) -> NDArrayAny:
     """Design baseband low-pass filter for P25 C4FM.
 
     This filter removes out-of-band noise before FM demodulation.
@@ -130,7 +131,7 @@ def design_rrc_filter(
     samples_per_symbol: float,
     num_taps: int = 101,
     alpha: float = 0.2,
-) -> np.ndarray:
+) -> NDArrayAny:
     """Design a Root-Raised Cosine (RRC) matched filter.
 
     The RRC filter is the standard matched filter for P25 C4FM. Both transmitter
@@ -224,7 +225,7 @@ class _Equalizer:
 
     def get_equalized_symbol(
         self,
-        buffer: np.ndarray,
+        buffer: NDArrayAny,
         offset: int,
         mu: float
     ) -> float:
@@ -317,7 +318,7 @@ class _FMDemodulator:
         self._i_buffer = np.zeros(20, dtype=np.float32)
         self._q_buffer = np.zeros(20, dtype=np.float32)
 
-    def demodulate(self, i: np.ndarray, q: np.ndarray) -> np.ndarray:
+    def demodulate(self, i: NDArrayFloat, q: NDArrayFloat) -> NDArrayFloat:
         """Demodulate I/Q samples using fractional interpolated differential.
 
         For each output sample x, computes:
@@ -394,7 +395,7 @@ class _FMDemodulator:
 # JIT-compiled interpolator for maximum performance
 # This is called for every symbol extraction
 @jit(nopython=True, cache=True)
-def _interpolate_8tap_jit(samples: np.ndarray, offset: int, taps: np.ndarray) -> float:
+def _interpolate_8tap_jit(samples: NDArrayAny, offset: int, taps: NDArrayAny) -> float:
     """JIT-compiled 8-tap interpolation.
 
     Explicit loop allows numba to optimize to SIMD instructions.
@@ -410,13 +411,13 @@ def _interpolate_8tap_jit(samples: np.ndarray, offset: int, taps: np.ndarray) ->
 
 @jit(nopython=True, cache=True)
 def _timing_score_jit(
-    buffer: np.ndarray,
+    buffer: NDArrayAny,
     offset: float,
     pll: float,
     gain: float,
     samples_per_symbol: float,
-    sync_symbols: np.ndarray,
-    interpolator_taps: np.ndarray,
+    sync_symbols: NDArrayAny,
+    interpolator_taps: NDArrayAny,
 ) -> float:
     """JIT-compiled sync correlation score calculation.
 
@@ -460,13 +461,13 @@ def _timing_score_jit(
 
 @jit(nopython=True, cache=True)
 def _timing_correction_jit(
-    buffer: np.ndarray,
+    buffer: NDArrayAny,
     offset: float,
     pll: float,
     gain: float,
     samples_per_symbol: float,
-    sync_symbols: np.ndarray,
-    interpolator_taps: np.ndarray,
+    sync_symbols: NDArrayAny,
+    interpolator_taps: NDArrayAny,
 ) -> tuple[float, float]:
     """JIT-compiled PLL and gain correction calculation.
 
@@ -537,13 +538,13 @@ def _timing_correction_jit(
 
 @jit(nopython=True, cache=True)
 def _timing_optimize_jit(
-    buffer: np.ndarray,
+    buffer: NDArrayAny,
     buffer_offset: float,
     pll: float,
     gain: float,
     samples_per_symbol: float,
-    sync_symbols: np.ndarray,
-    interpolator_taps: np.ndarray,
+    sync_symbols: NDArrayAny,
+    interpolator_taps: NDArrayAny,
     fine_sync: bool,
 ) -> tuple[float, float, float, float]:
     """JIT-compiled hill climbing optimization for sync timing.
@@ -623,15 +624,15 @@ def _timing_optimize_jit(
 # This processes all phases and returns dibits/soft_symbols in one fast pass
 @jit(nopython=True, cache=True)
 def _symbol_recovery_jit(
-    phases: np.ndarray,
-    buffer: np.ndarray,
+    phases: NDArrayAny,
+    buffer: NDArrayAny,
     buffer_pointer: int,
     sample_point: float,
     samples_per_symbol: float,
     pll: float,
     gain: float,
-    interpolator_taps: np.ndarray,  # Shape: (129, 8) - kept for API compatibility but unused
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, int, float]:
+    interpolator_taps: NDArrayAny,  # Shape: (129, 8) - kept for API compatibility but unused
+) -> tuple[NDArrayAny, NDArrayAny, NDArrayAny, int, float]:
     """JIT-compiled symbol recovery loop with 2-point linear interpolation.
 
     Processes all phase samples through:
@@ -769,13 +770,13 @@ TSDU_MESSAGE_DIBITS = 340
 
 @jit(nopython=True, cache=True)
 def _resample_message_jit(
-    buffer: np.ndarray,
+    buffer: NDArrayAny,
     sync_sample_pos: float,
     samples_per_symbol: float,
     pll: float,
     gain: float,
     num_dibits: int,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[NDArrayAny, NDArrayAny]:
     """Resample message region with corrected timing/PLL/gain.
 
     This is called after sync detection and timing optimization to fix
@@ -1011,7 +1012,7 @@ class _Interpolator:
         [  0.00000e+00,  0.00000e+00,  0.00000e+00,  1.00000e+00,  0.00000e+00,  0.00000e+00,  0.00000e+00,  0.00000e+00 ], # 128/128
     ], dtype=np.float32)
 
-    def filter(self, samples: np.ndarray, offset: int, mu: float) -> float:
+    def filter(self, samples: NDArrayAny, offset: int, mu: float) -> float:
         """Compute interpolated sample value at fractional position.
 
         Uses 8 samples starting at offset. The interpolated value falls between
@@ -1063,7 +1064,7 @@ _interpolator = _Interpolator()
 # JIT-compiled sync correlation function for maximum performance
 # This is called for every symbol, so performance is critical
 @jit(nopython=True, cache=True)
-def _sync_correlate_jit(sync_symbols: np.ndarray, buffer: np.ndarray, pointer: int) -> float:
+def _sync_correlate_jit(sync_symbols: NDArrayAny, buffer: NDArrayAny, pointer: int) -> float:
     """JIT-compiled sync correlation.
 
     Computes dot product between sync pattern and circular buffer.
@@ -1098,7 +1099,7 @@ class _SoftSyncDetector:
         self._buffer = np.zeros(48, dtype=np.float32)
         self._pointer = 0
 
-    def _pattern_to_symbols(self) -> np.ndarray:
+    def _pattern_to_symbols(self) -> NDArrayAny:
         """Convert sync pattern to ideal symbol values."""
         symbols = np.zeros(24, dtype=np.float32)
         pattern = self.SYNC_PATTERN
@@ -1156,7 +1157,7 @@ class _TimingOptimizer:
 
     def optimize(
         self,
-        buffer: np.ndarray,
+        buffer: NDArrayAny,
         buffer_offset: float,
         equalizer: '_Equalizer',
         fine_sync: bool = False
@@ -1310,7 +1311,7 @@ class C4FMDemodulator:
         """API compatibility - SDRTrunk uses fixed timing, not Gardner TED."""
         return 0.0
 
-    def demodulate(self, iq: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def demodulate(self, iq: NDArrayComplex) -> tuple[NDArrayInt, NDArrayFloat]:
         """Demodulate C4FM signal to dibits.
 
         Processes IQ samples through SDRTrunk-compatible pipeline:
@@ -1593,8 +1594,8 @@ class C4FMDemodulator:
         return self._equalizer.pll
 
     def demodulate_discriminator(
-        self, disc_audio: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+        self, disc_audio: NDArrayFloat
+    ) -> tuple[NDArrayInt, NDArrayFloat]:
         """Demodulate C4FM from discriminator audio (instantaneous frequency).
 
         This method accepts discriminator audio directly instead of IQ samples.
@@ -1770,10 +1771,10 @@ class C4FMDemodulator:
 
 
 def c4fm_demod_simple(
-    iq: np.ndarray,
+    iq: NDArrayComplex,
     sample_rate: int = 19200,  # SDRTrunk uses ~19.2 kHz (4 SPS)
     symbol_rate: int = 4800,
-) -> np.ndarray:
+) -> NDArrayInt:
     """Simplified C4FM demodulator (no state, single-shot).
 
     This is a stateless version for processing complete frames.

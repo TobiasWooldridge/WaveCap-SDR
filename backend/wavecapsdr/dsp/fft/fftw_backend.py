@@ -15,6 +15,7 @@ import logging
 from typing import Any
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex
 
 from .base import FFTBackend, FFTResult
 
@@ -79,7 +80,7 @@ class FFTWBackend(FFTBackend):
             f"FFTW backend initialized (fft_size={fft_size}, threads={threads})"
         )
 
-    def execute(self, iq: np.ndarray, sample_rate: int) -> FFTResult:
+    def execute(self, iq: NDArrayComplex, sample_rate: int) -> FFTResult:
         """Compute FFT using pre-planned FFTW.
 
         Args:

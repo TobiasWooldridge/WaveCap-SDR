@@ -11,6 +11,7 @@ from multiprocessing import Queue as MPQueue
 from typing import Any, Callable, TypeVar, cast
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex
 
 from ..config import DeviceConfig
 
@@ -344,7 +345,7 @@ class _SoapyStream(StreamHandle):
     sdr: Any  # SoapySDR.Device (dynamically imported)
     stream: Any  # SoapySDR.Stream (dynamically imported)
 
-    def read(self, num_samples: int) -> tuple[np.ndarray, bool]:
+    def read(self, num_samples: int) -> tuple[NDArrayComplex, bool]:
         buff = np.empty(num_samples, dtype=np.complex64)
         # readStream returns StreamResult with ret, flags, timeNs attributes
         # ret = number of samples read (or negative error code)

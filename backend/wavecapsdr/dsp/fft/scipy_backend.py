@@ -7,6 +7,7 @@ Falls back to numpy.fft if scipy is unavailable.
 from __future__ import annotations
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex
 
 from .base import FFTBackend, FFTResult
 
@@ -34,7 +35,7 @@ class ScipyFFTBackend(FFTBackend):
         """
         super().__init__(fft_size)
 
-    def execute(self, iq: np.ndarray, sample_rate: int) -> FFTResult:
+    def execute(self, iq: NDArrayComplex, sample_rate: int) -> FFTResult:
         """Compute FFT using scipy.fft.
 
         Args:

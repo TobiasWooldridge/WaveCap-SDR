@@ -16,16 +16,13 @@ Numba-accelerated FIR filters provide 3-5x speedup for streaming decimation.
 from __future__ import annotations
 
 import logging
-import os
 from functools import lru_cache
 from typing import cast
 
 import numpy as np
+from wavecapsdr.typing import NDArrayAny, NDArrayFloat
 
 logger = logging.getLogger(__name__)
-
-# Force a threadsafe threading layer to avoid workqueue concurrency errors
-os.environ.setdefault("NUMBA_THREADING_LAYER", "omp")
 
 # Try to import numba for accelerated FIR filtering
 try:
@@ -42,7 +39,7 @@ except ImportError:
 @lru_cache(maxsize=128)
 def _get_butter_coeffs(
     btype: str, cutoff: tuple[float, ...], order: int, sample_rate: int
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[NDArrayAny, NDArrayAny]:
     """Get cached Butterworth filter coefficients.
 
     Args:
@@ -67,7 +64,7 @@ def _get_butter_coeffs(
 @lru_cache(maxsize=64)
 def _get_notch_coeffs(
     normalized_freq: float, q: float, sample_rate: int
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[NDArrayAny, NDArrayAny]:
     """Get cached IIR notch filter coefficients.
 
     Args:
@@ -85,8 +82,8 @@ def _get_notch_coeffs(
 
 
 def highpass_filter(
-    x: np.ndarray, sample_rate: int, cutoff: float, order: int = 5
-) -> np.ndarray:
+    x: NDArrayFloat, sample_rate: int, cutoff: float, order: int = 5
+) -> NDArrayFloat:
     """Apply highpass filter to remove DC offset and low-frequency noise.
 
     Used for:
@@ -122,7 +119,7 @@ def highpass_filter(
 
         # Use cached filter coefficients for performance
         b, a = _get_butter_coeffs("high", (normalized_cutoff,), order, sample_rate)
-        y: np.ndarray = cast(np.ndarray, signal.lfilter(b, a, x)).astype(np.float32)
+        y: NDArrayFloat = cast(NDArrayFloat, signal.lfilter(b, a, x)).astype(np.float32)
         return y
     except ImportError:
         # Fallback: no filtering if scipy not available
@@ -130,8 +127,8 @@ def highpass_filter(
 
 
 def lowpass_filter(
-    x: np.ndarray, sample_rate: int, cutoff: float, order: int = 5
-) -> np.ndarray:
+    x: NDArrayFloat, sample_rate: int, cutoff: float, order: int = 5
+) -> NDArrayFloat:
     """Apply lowpass filter to limit bandwidth and reduce high-frequency noise.
 
     Used for:
@@ -168,7 +165,7 @@ def lowpass_filter(
 
         # Use cached filter coefficients for performance
         b, a = _get_butter_coeffs("low", (normalized_cutoff,), order, sample_rate)
-        y: np.ndarray = cast(np.ndarray, signal.lfilter(b, a, x)).astype(np.float32)
+        y: NDArrayFloat = cast(NDArrayFloat, signal.lfilter(b, a, x)).astype(np.float32)
         return y
     except ImportError:
         # Fallback: no filtering if scipy not available
@@ -176,8 +173,8 @@ def lowpass_filter(
 
 
 def bandpass_filter(
-    x: np.ndarray, sample_rate: int, low: float, high: float, order: int = 5
-) -> np.ndarray:
+    x: NDArrayFloat, sample_rate: int, low: float, high: float, order: int = 5
+) -> NDArrayFloat:
     """Apply bandpass filter to select a specific frequency range.
 
     Used for:
@@ -219,7 +216,7 @@ def bandpass_filter(
 
         # Use cached filter coefficients for performance
         b, a = _get_butter_coeffs("band", (normalized_low, normalized_high), order, sample_rate)
-        y: np.ndarray = cast(np.ndarray, signal.lfilter(b, a, x)).astype(np.float32)
+        y: NDArrayFloat = cast(NDArrayFloat, signal.lfilter(b, a, x)).astype(np.float32)
         return y
     except ImportError:
         # Fallback: no filtering if scipy not available
@@ -227,8 +224,8 @@ def bandpass_filter(
 
 
 def notch_filter(
-    x: np.ndarray, sample_rate: int, freq: float, q: float = 30.0
-) -> np.ndarray:
+    x: NDArrayFloat, sample_rate: int, freq: float, q: float = 30.0
+) -> NDArrayFloat:
     """Apply notch filter to remove a specific frequency tone.
 
     Used for:
@@ -264,7 +261,7 @@ def notch_filter(
 
         # Use cached notch filter coefficients for performance
         b, a = _get_notch_coeffs(normalized_freq, q, sample_rate)
-        y: np.ndarray = cast(np.ndarray, signal.lfilter(b, a, x)).astype(np.float32)
+        y: NDArrayFloat = cast(NDArrayFloat, signal.lfilter(b, a, x)).astype(np.float32)
         return y
     except ImportError:
         # Fallback: no filtering if scipy not available
@@ -272,8 +269,8 @@ def notch_filter(
 
 
 def noise_blanker(
-    x: np.ndarray, threshold_db: float = 10.0, blanking_width: int = 3
-) -> np.ndarray:
+    x: NDArrayFloat, threshold_db: float = 10.0, blanking_width: int = 3
+) -> NDArrayFloat:
     """Apply noise blanker to suppress impulse noise (lightning, ignition, etc.).
 
     The noise blanker detects short-duration high-amplitude spikes in the signal
@@ -347,16 +344,16 @@ def noise_blanker(
     y = x.copy()
     y[expanded_mask] = 0
 
-    return cast(np.ndarray, y.astype(np.float32 if not np.iscomplexobj(x) else np.complex64))
+    return cast(NDArrayFloat, y.astype(np.float32))
 
 
 def spectral_noise_reduction(
-    x: np.ndarray,
+    x: NDArrayFloat,
     sample_rate: int,
     reduction_db: float = 12.0,
     fft_size: int = 1024,
     overlap: float = 0.5,
-) -> np.ndarray:
+) -> NDArrayFloat:
     """Apply spectral noise reduction to suppress background hiss/static.
 
     Uses spectral subtraction with soft gain to reduce broadband noise while
@@ -476,10 +473,10 @@ def spectral_noise_reduction(
 if NUMBA_AVAILABLE:
     @njit(cache=True, fastmath=True)
     def _fir_filter_complex_numba(
-        x: np.ndarray,  # Input signal (complex128)
-        taps: np.ndarray,  # Filter taps (float64)
-        zi: np.ndarray,  # Filter state (complex128, length = len(taps) - 1)
-    ) -> tuple[np.ndarray, np.ndarray]:
+        x: NDArrayAny,  # Input signal (complex128)
+        taps: NDArrayAny,  # Filter taps (float64)
+        zi: NDArrayAny,  # Filter state (complex128, length = len(taps) - 1)
+    ) -> tuple[NDArrayAny, NDArrayAny]:
         """Numba-accelerated FIR filter for complex signals with state.
 
         Direct form I FIR filter implementation optimized for Numba JIT.
@@ -519,10 +516,10 @@ if NUMBA_AVAILABLE:
 
     @njit(cache=True, fastmath=True, parallel=True)
     def _fir_filter_complex_parallel(
-        x: np.ndarray,  # Input signal (complex128)
-        taps: np.ndarray,  # Filter taps (float64)
-        zi: np.ndarray,  # Filter state (complex128, length = len(taps) - 1)
-    ) -> tuple[np.ndarray, np.ndarray]:
+        x: NDArrayAny,  # Input signal (complex128)
+        taps: NDArrayAny,  # Filter taps (float64)
+        zi: NDArrayAny,  # Filter state (complex128, length = len(taps) - 1)
+    ) -> tuple[NDArrayAny, NDArrayAny]:
         """Parallel Numba FIR filter for large signals.
 
         Uses prange for parallel processing of output samples.
@@ -562,11 +559,11 @@ if NUMBA_AVAILABLE:
 
 
 def fir_filter_complex(
-    x: np.ndarray,
-    taps: np.ndarray,
-    zi: np.ndarray | None = None,
+    x: NDArrayAny,
+    taps: NDArrayAny,
+    zi: NDArrayAny | None = None,
     use_parallel: bool = True,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[NDArrayAny, NDArrayAny]:
     """Apply FIR filter to complex signal with streaming state.
 
     This is the main entry point for FIR filtering. Uses Numba-accelerated
@@ -616,12 +613,11 @@ def fir_filter_complex(
 
 
 def fir_decimate(
-    x: np.ndarray,
-    taps: np.ndarray,
+    x: NDArrayAny,
+    taps: NDArrayAny,
     decim_factor: int,
-    zi: np.ndarray | None = None,
-    use_parallel: bool = False,
-) -> tuple[np.ndarray, np.ndarray]:
+    zi: NDArrayAny | None = None,
+) -> tuple[NDArrayAny, NDArrayAny]:
     """Apply FIR filter and decimate in one step.
 
     Filters the signal first, then decimates by taking every decim_factor-th sample.
@@ -644,7 +640,7 @@ def fir_decimate(
         ...     y, zi = fir_decimate(chunk, taps, 30, zi)
     """
     # Filter first
-    filtered, new_zi = fir_filter_complex(x, taps, zi, use_parallel=use_parallel)
+    filtered, new_zi = fir_filter_complex(x, taps, zi)
 
     # Then decimate
     decimated = filtered[::decim_factor]

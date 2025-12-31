@@ -9,6 +9,7 @@ Reference: Fred Harris, "Multirate Signal Processing for Communications Systems"
 from __future__ import annotations
 
 import numpy as np
+from wavecapsdr.typing import NDArrayAny
 from scipy import signal
 from scipy.fft import ifft
 from typing import Optional
@@ -90,7 +91,7 @@ class PolyphaseChannelizer:
             arm_taps = proto[arm::self.channel_count]
             self.arms[arm, :len(arm_taps)] = arm_taps
 
-    def process(self, samples: np.ndarray) -> list[np.ndarray]:
+    def process(self, samples: NDArrayAny) -> list[NDArrayAny]:
         """Process complex IQ samples through the channelizer.
 
         OPTIMIZED: Uses vectorized numpy operations instead of per-arm Python loops.
@@ -106,7 +107,7 @@ class PolyphaseChannelizer:
             for one output time sample. Each array has shape (channel_count,)
             containing complex samples.
         """
-        results: list[np.ndarray] = []
+        results: list[NDArrayAny] = []
 
         # Process in blocks of channel_count samples
         # With 2x oversampling, we output 2 samples per channel_count input samples
@@ -145,9 +146,9 @@ class PolyphaseChannelizer:
 
     def extract_channel(
         self,
-        channel_results: list[np.ndarray],
+        channel_results: list[NDArrayAny],
         channel_index: int,
-    ) -> np.ndarray:
+    ) -> NDArrayAny:
         """Extract samples for a specific channel from processed results.
 
         Args:
@@ -234,12 +235,12 @@ class ChannelCalculator:
 
 
 def channelize_samples(
-    samples: np.ndarray,
+    samples: NDArrayAny,
     sample_rate: float,
     target_frequency: float,
     center_frequency: float,
     channel_bandwidth: int = DEFAULT_CHANNEL_BANDWIDTH,
-) -> tuple[np.ndarray, float]:
+) -> tuple[NDArrayAny, float]:
     """Convenience function to extract a single channel from wideband samples.
 
     Args:

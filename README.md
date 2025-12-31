@@ -163,6 +163,8 @@ npm run build
 cp -r dist/* ../backend/wavecapsdr/static/
 ```
 
+On `git pull`, rebuild the frontend to repopulate `backend/wavecapsdr/static/` (build output is ignored in git).
+
 ## Trunking System Support
 
 WaveCap-SDR includes comprehensive P25 Phase 1 trunking support with automatic voice following:

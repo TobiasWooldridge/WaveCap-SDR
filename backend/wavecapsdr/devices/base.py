@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex
 
 
 @dataclass(frozen=True)
@@ -26,7 +27,7 @@ class DeviceInfo:
 
 
 class StreamHandle(Protocol):
-    def read(self, num_samples: int) -> tuple[np.ndarray, bool]:  # (samples, overrun)
+    def read(self, num_samples: int) -> tuple[NDArrayComplex, bool]:  # (samples, overrun)
         ...
 
     def close(self) -> None:

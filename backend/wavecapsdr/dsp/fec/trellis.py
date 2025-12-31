@@ -25,6 +25,7 @@ import logging
 from dataclasses import dataclass
 
 import numpy as np
+from wavecapsdr.typing import NDArrayAny
 
 logger = logging.getLogger(__name__)
 
@@ -209,10 +210,10 @@ class TrellisDecoder:
 
     def decode(
         self,
-        dibits: np.ndarray,
-        soft_values: np.ndarray | None = None,
+        dibits: NDArrayAny,
+        soft_values: NDArrayAny | None = None,
         debug: bool = False,
-    ) -> tuple[np.ndarray, int]:
+    ) -> tuple[NDArrayAny, int]:
         """Decode a block of trellis-encoded dibits.
 
         Args:
@@ -284,7 +285,7 @@ class TrellisDecoder:
         return best_path.decoded_bits[output_start:]
 
 
-def trellis_encode(dibits: np.ndarray) -> np.ndarray:
+def trellis_encode(dibits: NDArrayAny) -> NDArrayAny:
     """Encode dibits using P25 trellis code.
 
     Args:
@@ -306,10 +307,10 @@ def trellis_encode(dibits: np.ndarray) -> np.ndarray:
 
 
 def trellis_decode(
-    dibits: np.ndarray,
-    soft_values: np.ndarray | None = None,
+    dibits: NDArrayAny,
+    soft_values: NDArrayAny | None = None,
     debug: bool = False,
-) -> tuple[np.ndarray, int]:
+) -> tuple[NDArrayAny, int]:
     """Decode trellis-encoded dibits (convenience function).
 
     Args:
@@ -324,7 +325,7 @@ def trellis_decode(
     return decoder.decode(dibits, soft_values, debug=debug)
 
 
-def trellis_interleave(dibits: np.ndarray, block_size: int = 98) -> np.ndarray:
+def trellis_interleave(dibits: NDArrayAny, block_size: int = 98) -> NDArrayAny:
     """Apply P25 interleaving to trellis-encoded data.
 
     P25 uses block interleaving to spread burst errors across multiple
@@ -352,7 +353,7 @@ def trellis_interleave(dibits: np.ndarray, block_size: int = 98) -> np.ndarray:
     return np.asarray(interleaved[: len(dibits)], dtype=np.uint8)
 
 
-def trellis_deinterleave(dibits: np.ndarray, block_size: int = 98) -> np.ndarray:
+def trellis_deinterleave(dibits: NDArrayAny, block_size: int = 98) -> NDArrayAny:
     """Remove P25 interleaving from received data.
 
     Args:
@@ -428,7 +429,7 @@ class TrellisDecoder34:
         """Initialize 3/4 rate trellis decoder."""
         pass
 
-    def decode(self, symbols: np.ndarray, debug: bool = False) -> tuple[np.ndarray, int]:
+    def decode(self, symbols: NDArrayAny, debug: bool = False) -> tuple[NDArrayAny, int]:
         """Decode 3/4 rate trellis encoded symbols.
 
         Args:
@@ -577,9 +578,9 @@ class TrellisDecoder34:
 
 
 def trellis_decode_3_4(
-    symbols: np.ndarray,
+    symbols: NDArrayAny,
     debug: bool = False,
-) -> tuple[np.ndarray, int]:
+) -> tuple[NDArrayAny, int]:
     """Decode 3/4 rate trellis encoded symbols (convenience function).
 
     This is the correct decoder for P25 TSBK (control channel) messages.

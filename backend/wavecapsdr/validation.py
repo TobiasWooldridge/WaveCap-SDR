@@ -4,6 +4,7 @@ import math
 from typing import Any
 
 import numpy as np
+from wavecapsdr.typing import NDArrayAny
 
 AUDIO_MAX_ABS = 1.2
 DISC_AUDIO_MAX_ABS = 10.0
@@ -33,12 +34,12 @@ CHANNEL_SPACING_MAX_KHZ = 1000.0
 TX_OFFSET_MAX_MHZ = 1000.0
 
 
-def validate_finite_array(values: np.ndarray) -> bool:
+def validate_finite_array(values: NDArrayAny) -> bool:
     return bool(np.isfinite(values).all())
 
 
 def validate_audio_samples(
-    audio: np.ndarray,
+    audio: NDArrayAny,
     max_abs: float = AUDIO_MAX_ABS,
 ) -> tuple[bool, str]:
     if audio.size == 0:
@@ -52,7 +53,7 @@ def validate_audio_samples(
 
 
 def validate_discriminator_samples(
-    audio: np.ndarray,
+    audio: NDArrayAny,
     max_abs: float = DISC_AUDIO_MAX_ABS,
 ) -> tuple[bool, str]:
     if audio.size == 0:

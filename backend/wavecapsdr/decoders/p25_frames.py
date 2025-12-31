@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 
 import numpy as np
+from wavecapsdr.typing import NDArrayAny
 
 from wavecapsdr.decoders.nac_tracker import NACTracker
 from wavecapsdr.dsp.fec.bch import bch_decode
@@ -242,7 +243,7 @@ class TSBKBlock:
     crc_valid: bool = True
 
 
-def dibits_to_bits(dibits: np.ndarray) -> np.ndarray:
+def dibits_to_bits(dibits: NDArrayAny) -> NDArrayAny:
     """Convert dibit array to bit array."""
     bits = np.zeros(len(dibits) * 2, dtype=np.uint8)
     for i, d in enumerate(dibits):
@@ -251,7 +252,7 @@ def dibits_to_bits(dibits: np.ndarray) -> np.ndarray:
     return bits
 
 
-def deinterleave_data(bits: np.ndarray) -> np.ndarray:
+def deinterleave_data(bits: NDArrayAny) -> NDArrayAny:
     """Deinterleave 196-bit block using P25 data deinterleave pattern.
 
     Uses SDRTrunk's deinterleave logic: for each INPUT position i,
@@ -284,7 +285,7 @@ def deinterleave_data(bits: np.ndarray) -> np.ndarray:
     return deinterleaved
 
 
-def crc16_ccitt_p25(bits: np.ndarray) -> tuple[bool, int]:
+def crc16_ccitt_p25(bits: NDArrayAny) -> tuple[bool, int]:
     """Validate CRC-16 CCITT for P25 TSBK message using syndrome-based check.
 
     P25 TSBK uses 96-bit messages: 80 bits data + 16 CRC bits.
@@ -338,7 +339,7 @@ def crc16_ccitt_p25(bits: np.ndarray) -> tuple[bool, int]:
     return (False, -1)
 
 
-def remove_status_symbols(dibits: np.ndarray) -> np.ndarray:
+def remove_status_symbols(dibits: NDArrayAny) -> NDArrayAny:
     """Remove status symbols from dibit stream.
 
     P25 inserts status symbols at regular intervals for
@@ -358,7 +359,7 @@ def remove_status_symbols(dibits: np.ndarray) -> np.ndarray:
 
 
 def decode_nid(
-    dibits: np.ndarray,
+    dibits: NDArrayAny,
     skip_status_at_10: bool = True,
     nac_tracker: NACTracker | None = None,
 ) -> NID | None:
@@ -488,7 +489,7 @@ def decode_nid(
     return NID(nac=nac, duid=duid, errors=errors)
 
 
-def decode_hdu(dibits: np.ndarray) -> HDUFrame | None:
+def decode_hdu(dibits: NDArrayAny) -> HDUFrame | None:
     """Decode Header Data Unit.
 
     HDU structure (total 792 bits = 396 dibits):
@@ -546,7 +547,7 @@ def decode_hdu(dibits: np.ndarray) -> HDUFrame | None:
     )
 
 
-def decode_ldu1(dibits: np.ndarray) -> LDUFrame | None:
+def decode_ldu1(dibits: NDArrayAny) -> LDUFrame | None:
     """Decode Logical Data Unit 1 (voice + link control).
 
     LDU1 structure (1800 bits = 900 dibits):
@@ -579,7 +580,7 @@ def decode_ldu1(dibits: np.ndarray) -> LDUFrame | None:
     )
 
 
-def decode_ldu2(dibits: np.ndarray) -> LDUFrame | None:
+def decode_ldu2(dibits: NDArrayAny) -> LDUFrame | None:
     """Decode Logical Data Unit 2 (voice + encryption sync).
 
     LDU2 structure similar to LDU1 but contains encryption
@@ -607,7 +608,7 @@ def decode_ldu2(dibits: np.ndarray) -> LDUFrame | None:
     )
 
 
-def decode_tdu(dibits: np.ndarray) -> TDUFrame | None:
+def decode_tdu(dibits: NDArrayAny) -> TDUFrame | None:
     """Decode Terminator Data Unit."""
     if len(dibits) < 32:
         return None
@@ -626,7 +627,7 @@ def decode_tdu(dibits: np.ndarray) -> TDUFrame | None:
     return TDUFrame(nid=nid, link_control=lc)
 
 
-def remove_status_symbols_with_offset(dibits: np.ndarray, frame_offset: int) -> np.ndarray:
+def remove_status_symbols_with_offset(dibits: NDArrayAny, frame_offset: int) -> NDArrayAny:
     """Remove status symbols from dibit stream with frame position offset.
 
     Status symbols appear every 36 dibits from frame start. When extracting
@@ -654,7 +655,7 @@ def remove_status_symbols_with_offset(dibits: np.ndarray, frame_offset: int) -> 
     return np.array(result, dtype=dibits.dtype)
 
 
-def decode_tsdu(dibits: np.ndarray, soft: np.ndarray | None = None) -> TSDUFrame | None:
+def decode_tsdu(dibits: NDArrayAny, soft: NDArrayAny | None = None) -> TSDUFrame | None:
     """Decode Trunking Signaling Data Unit.
 
     TSDU structure (360 dibits typical):
@@ -720,7 +721,7 @@ def decode_tsdu(dibits: np.ndarray, soft: np.ndarray | None = None) -> TSDUFrame
     )
 
 
-def extract_imbe_frames(dibits: np.ndarray) -> list[bytes]:
+def extract_imbe_frames(dibits: NDArrayAny) -> list[bytes]:
     """Extract 9 IMBE voice frames from LDU.
 
     Each IMBE frame is 88 bits (44 dibits), protected by
@@ -755,7 +756,7 @@ def extract_imbe_frames(dibits: np.ndarray) -> list[bytes]:
     return frames
 
 
-def extract_link_control(dibits: np.ndarray) -> LinkControl:
+def extract_link_control(dibits: NDArrayAny) -> LinkControl:
     """Extract Link Control from LDU1/TDULC.
 
     LC is 72 bits (36 dibits) protected by Reed-Solomon.
@@ -831,7 +832,7 @@ def extract_link_control(dibits: np.ndarray) -> LinkControl:
     )
 
 
-def _decode_lc_gps_coords(bits: np.ndarray, offset: int) -> tuple[float, float]:
+def _decode_lc_gps_coords(bits: NDArrayAny, offset: int) -> tuple[float, float]:
     """Decode GPS coordinates from Link Control bits.
 
     GPS in Extended LC uses 24-bit signed values:
@@ -863,7 +864,7 @@ def _decode_lc_gps_coords(bits: np.ndarray, offset: int) -> tuple[float, float]:
     return (latitude, longitude)
 
 
-def extract_encryption_sync(dibits: np.ndarray) -> EncryptionSync:
+def extract_encryption_sync(dibits: NDArrayAny) -> EncryptionSync:
     """Extract Encryption Sync from LDU2.
 
     ES contains ALGID, KID, and Message Indicator (MI).
@@ -891,7 +892,7 @@ def extract_encryption_sync(dibits: np.ndarray) -> EncryptionSync:
     )
 
 
-def extract_tsbk_blocks(dibits: np.ndarray, soft: np.ndarray | None = None) -> list[TSBKBlock]:
+def extract_tsbk_blocks(dibits: NDArrayAny, soft: NDArrayAny | None = None) -> list[TSBKBlock]:
     """Extract TSBK blocks from TSDU.
 
     Each TSBK block in a TSDU is:

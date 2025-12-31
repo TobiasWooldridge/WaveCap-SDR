@@ -17,6 +17,7 @@ from functools import lru_cache
 from typing import Any
 
 import numpy as np
+from wavecapsdr.typing import NDArrayAny
 
 # RDS Constants
 RDS_SUBCARRIER_HZ = 57000  # 57 kHz subcarrier (3x 19 kHz pilot)
@@ -108,7 +109,7 @@ class RDSData:
 @lru_cache(maxsize=8)
 def _get_bpf_coeffs(
     sample_rate: int, center_freq: int, bandwidth: int
-) -> tuple[np.ndarray, np.ndarray] | None:
+) -> tuple[NDArrayAny, NDArrayAny] | None:
     """Get bandpass filter coefficients for RDS subcarrier extraction."""
     from scipy import signal
 
@@ -186,7 +187,7 @@ class RDSDecoder:
         # Downsampled buffer for processing
         self._resample_buffer = np.array([], dtype=np.float32)
 
-    def process(self, fm_baseband: np.ndarray) -> RDSData | None:
+    def process(self, fm_baseband: NDArrayAny) -> RDSData | None:
         """Process FM baseband and extract RDS data.
 
         Args:

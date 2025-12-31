@@ -20,6 +20,7 @@ from enum import Enum
 from typing import Any, Callable
 
 import numpy as np
+from wavecapsdr.typing import NDArrayFloat
 
 from wavecapsdr.decoders.ambe import AMBEDecoder, AMBEDecoderError, check_ambe_available
 from wavecapsdr.decoders.imbe import IMBEDecoderError, check_imbe_available
@@ -91,7 +92,7 @@ class VoiceDecoder:
     _stats: VoiceDecoderStats = field(default_factory=VoiceDecoderStats)
 
     # Callbacks
-    on_audio: Callable[[np.ndarray], None] | None = None
+    on_audio: Callable[[NDArrayFloat], None] | None = None
     on_error: Callable[[str], None] | None = None
 
     def __post_init__(self) -> None:
@@ -234,7 +235,7 @@ class VoiceDecoder:
             f"decoded={self._stats.frames_decoded}, dropped={self._stats.frames_dropped})"
         )
 
-    async def decode(self, discriminator_audio: np.ndarray) -> None:
+    async def decode(self, discriminator_audio: NDArrayFloat) -> None:
         """
         Queue discriminator audio for decoding.
 
@@ -253,7 +254,7 @@ class VoiceDecoder:
         elif self._ambe_decoder:
             await self._ambe_decoder.decode(discriminator_audio)
 
-    async def get_audio(self) -> np.ndarray | None:
+    async def get_audio(self) -> NDArrayFloat | None:
         """
         Get decoded audio if available.
 
@@ -283,7 +284,7 @@ class VoiceDecoder:
 
         return audio
 
-    async def get_audio_blocking(self, timeout: float = 0.5) -> np.ndarray | None:
+    async def get_audio_blocking(self, timeout: float = 0.5) -> NDArrayFloat | None:
         """
         Get decoded audio, waiting up to timeout seconds.
 

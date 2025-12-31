@@ -26,6 +26,7 @@ from enum import IntEnum
 from typing import Callable
 
 import numpy as np
+from wavecapsdr.typing import NDArrayAny
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +57,8 @@ class P25P2Timeslot:
     """Decoded P25 Phase 2 timeslot."""
     timeslot_number: int  # 0 or 1
     slot_type: P25P2TimeslotType
-    dibits: np.ndarray
-    isch_dibits: np.ndarray  # Info ISCH for this slot
+    dibits: NDArrayAny
+    isch_dibits: NDArrayAny  # Info ISCH for this slot
     timestamp: int = 0
     valid: bool = True
 
@@ -65,11 +66,11 @@ class P25P2Timeslot:
 @dataclass
 class P25P2SuperFrameFragment:
     """A 720-dibit P25 Phase 2 SuperFrame fragment containing 4 timeslots."""
-    dibits: np.ndarray
+    dibits: NDArrayAny
     timestamp: int
     sync_bit_errors: int = 0
 
-    def get_timeslot(self, index: int) -> tuple[np.ndarray, np.ndarray]:
+    def get_timeslot(self, index: int) -> tuple[NDArrayAny, NDArrayAny]:
         """Get timeslot data and preceding ISCH.
 
         Args:
@@ -92,7 +93,7 @@ class P25P2SyncPattern:
     """P25 Phase 2 sync pattern utilities."""
 
     @staticmethod
-    def get_bit_error_count(dibits: np.ndarray) -> int:
+    def get_bit_error_count(dibits: NDArrayAny) -> int:
         """Calculate bit error count (hamming distance) against sync pattern.
 
         Args:
@@ -116,7 +117,7 @@ class P25P2SyncPattern:
         return errors
 
     @staticmethod
-    def detect_phase_error(dibits: np.ndarray) -> int:
+    def detect_phase_error(dibits: NDArrayAny) -> int:
         """Detect phase rotation error in sync pattern.
 
         Args:
@@ -241,7 +242,7 @@ class DibitDelayBuffer:
             self._filled = True
         return int(oldest)
 
-    def get_buffer(self, start: int, length: int) -> np.ndarray:
+    def get_buffer(self, start: int, length: int) -> NDArrayAny:
         """Get a contiguous section of the buffer."""
         result = np.zeros(length, dtype=np.uint8)
         for i in range(length):
@@ -249,7 +250,7 @@ class DibitDelayBuffer:
             result[i] = self._buffer[idx]
         return result
 
-    def get_message(self, start: int, length: int) -> np.ndarray:
+    def get_message(self, start: int, length: int) -> NDArrayAny:
         """Get buffer section as bit array (2 bits per dibit)."""
         dibits = self.get_buffer(start, length)
         bits = np.zeros(length * 2, dtype=np.uint8)
@@ -448,7 +449,7 @@ class P25P2Decoder:
         self.on_timeslot: Callable[[P25P2Timeslot], None] | None = None
 
     def process_dibits(
-        self, dibits: np.ndarray, soft_symbols: np.ndarray | None = None
+        self, dibits: NDArrayAny, soft_symbols: NDArrayAny | None = None
     ) -> list[P25P2Timeslot]:
         """Process demodulated dibits.
 

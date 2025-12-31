@@ -66,12 +66,9 @@ logs/
 recordings/
 backend/recordings/
 
-# Frontend build artifacts source maps (generated files committed for out-of-box use)
-backend/wavecapsdr/static/assets/*.js.map
-backend/wavecapsdr/static/assets/*.css.map
-# Ignore newly generated hashed assets; keep tracked ones as-is.
-backend/wavecapsdr/static/assets/index-*.js
-backend/wavecapsdr/static/assets/index-*.css
+# Frontend build artifacts (generated from frontend/ build output)
+backend/wavecapsdr/static/*
+!backend/wavecapsdr/static/.gitkeep
 
 # Test and development scripts
 make_wav.py

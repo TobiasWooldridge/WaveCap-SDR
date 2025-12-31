@@ -18,6 +18,7 @@ from enum import IntEnum
 from typing import Any
 
 import numpy as np
+from wavecapsdr.typing import NDArrayAny
 
 # POCSAG Constants
 POCSAG_SYNC_CODEWORD = 0x7CD215D8  # Sync pattern
@@ -149,7 +150,7 @@ class POCSAGDecoder:
         self.messages: list[POCSAGMessage] = []
         self._max_messages = 100
 
-    def process(self, audio: np.ndarray) -> list[POCSAGMessage]:
+    def process(self, audio: NDArrayAny) -> list[POCSAGMessage]:
         """Process audio samples and extract POCSAG messages.
 
         Args:

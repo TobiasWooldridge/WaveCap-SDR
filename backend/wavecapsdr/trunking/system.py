@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex, NDArrayFloat
 from scipy import signal as scipy_signal
 
 from wavecapsdr.decoders.lrrp import LocationCache, RadioLocation
@@ -300,14 +301,14 @@ class VoiceRecorder:
     # Two-stage decimation filter state for IQ processing
     # Stage 1: High decimation with long filter
     _stage1_decim_factor: int = 1
-    _stage1_filter_taps: np.ndarray | None = field(default=None, repr=False)
-    _stage1_filter_zi_template: np.ndarray | None = field(default=None, repr=False)
-    _stage1_filter_zi: np.ndarray | None = field(default=None, repr=False)
+    _stage1_filter_taps: NDArrayFloat | None = field(default=None, repr=False)
+    _stage1_filter_zi_template: NDArrayFloat | None = field(default=None, repr=False)
+    _stage1_filter_zi: NDArrayFloat | None = field(default=None, repr=False)
     # Stage 2: Lower decimation
     _stage2_decim_factor: int = 1
-    _stage2_filter_taps: np.ndarray | None = field(default=None, repr=False)
-    _stage2_filter_zi_template: np.ndarray | None = field(default=None, repr=False)
-    _stage2_filter_zi: np.ndarray | None = field(default=None, repr=False)
+    _stage2_filter_taps: NDArrayFloat | None = field(default=None, repr=False)
+    _stage2_filter_zi_template: NDArrayFloat | None = field(default=None, repr=False)
+    _stage2_filter_zi: NDArrayFloat | None = field(default=None, repr=False)
 
     # FM demodulator state
     _last_phase: float = 0.0
@@ -520,7 +521,7 @@ class VoiceRecorder:
             f"total {total_decim}:1"
         )
 
-    def process_iq(self, iq: np.ndarray, sample_rate: int) -> None:
+    def process_iq(self, iq: NDArrayComplex, sample_rate: int) -> None:
         """Process IQ samples for this voice channel.
 
         Performs frequency shift, decimation, FM demodulation,
@@ -927,14 +928,14 @@ class TrunkingSystem:
     _has_ever_locked: bool = False  # Track if we've ever achieved lock (for dynamic timeouts)
 
     # IQ buffer for control channel - accumulates decimated samples before processing
-    _cc_iq_buffer: np.ndarray = field(default_factory=lambda: np.array([], dtype=np.complex128))
+    _cc_iq_buffer: NDArrayComplex = field(default_factory=lambda: np.array([], dtype=np.complex128))
 
     # Control channel scanner for signal strength measurement
     _cc_scanner: ControlChannelScanner | None = None
     _roam_check_interval: float = 30.0  # Check for better channel every 30 seconds (from config)
     _last_roam_check: float = 0.0
     _roam_threshold_db: float = 6.0  # SNR improvement required to roam (from config)
-    _scan_iq_buffer: list[np.ndarray] = field(default_factory=list)
+    _scan_iq_buffer: list[NDArrayComplex] = field(default_factory=list)
     _scan_buffer_samples: int = 0
     _initial_scan_complete: bool = False
     _initial_scan_enabled: bool = True  # Whether to do initial scan (from config)
@@ -1362,7 +1363,7 @@ class TrunkingSystem:
         # zi values start as None - will be initialized with first sample to prevent transient
         # lfilter_zi returns step response initial conditions (~1.0), but signal is ~0.004
         # Multiplying by first sample scales zi to match signal level
-        filter_state: dict[str, np.ndarray | None] = {
+        filter_state: dict[str, NDArrayComplex | None] = {
             "stage1_zi": None,  # Initialized on first chunk
             "stage2_zi": None,  # Initialized on first chunk
         }
@@ -1375,7 +1376,7 @@ class TrunkingSystem:
         # Phase discontinuities at chunk boundaries corrupt the narrowband signal
         freq_shift_state = {"sample_idx": 0, "last_offset_hz": 0.0}
 
-        def phase_continuous_freq_shift(iq: np.ndarray, offset_hz: float, sample_rate: int) -> np.ndarray:
+        def phase_continuous_freq_shift(iq: NDArrayComplex, offset_hz: float, sample_rate: int) -> NDArrayComplex:
             """Frequency shift with phase continuity across calls.
 
             Unlike the regular freq_shift which starts at phase=0 each call,
@@ -1482,7 +1483,7 @@ class TrunkingSystem:
         INITIAL_SCAN_SAMPLES = capture_sample_rate * 2  # 2 seconds of samples
         ROAM_SCAN_SAMPLES = capture_sample_rate  # 1 second of samples for roaming check
 
-        def on_raw_iq_callback(iq: np.ndarray, sample_rate: int, overflow: bool = False) -> None:
+        def on_raw_iq_callback(iq: NDArrayComplex, sample_rate: int, overflow: bool = False) -> None:
             """IQ callback for trunking system processing.
 
             This receives raw wideband IQ samples, handles initial scanning,
@@ -1682,9 +1683,10 @@ class TrunkingSystem:
                     if filter_state["stage1_zi"] is None:
                         filter_state["stage1_zi"] = stage1_zi_template * centered_iq[0]
                     # Use Numba-accelerated filter + decimate in one pass
-                    decimated1, filter_state["stage1_zi"] = fir_decimate(
-                        centered_iq, stage1_taps, stage1_factor, zi=filter_state["stage1_zi"], use_parallel=False
+                    decimated1, stage1_zi = fir_decimate(
+                        centered_iq, stage1_taps, stage1_factor, zi=filter_state["stage1_zi"]
                     )
+                    filter_state["stage1_zi"] = cast(NDArrayComplex, stage1_zi)
 
                 decimated_iq = decimated1
                 if decimated1.size > 0:
@@ -1694,9 +1696,10 @@ class TrunkingSystem:
                         if filter_state["stage2_zi"] is None:
                             filter_state["stage2_zi"] = stage2_zi_template * decimated1[0]
                         # Use Numba-accelerated filter + decimate in one pass
-                        decimated2, filter_state["stage2_zi"] = fir_decimate(
-                            decimated1, stage2_taps, stage2_factor, zi=filter_state["stage2_zi"], use_parallel=False
+                        decimated2, stage2_zi = fir_decimate(
+                            decimated1, stage2_taps, stage2_factor, zi=filter_state["stage2_zi"]
                         )
+                        filter_state["stage2_zi"] = cast(NDArrayComplex, stage2_zi)
                     # No Stage 3 - stay at 50 kHz (tested: 90.7% CRC pass rate)
                     decimated_iq = decimated2
 

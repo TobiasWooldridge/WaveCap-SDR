@@ -20,9 +20,10 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Callable, Any
+from typing import Any, Callable, cast
 
 import numpy as np
+from wavecapsdr.typing import NDArrayFloat, NDArrayInt
 
 from wavecapsdr.dsp.fec.bch import bch_decode
 
@@ -134,7 +135,7 @@ class P25P1SoftSyncDetector:
 
     # Sync pattern as ideal phase values (for soft correlation)
     # +3 = dibit 1, -3 = dibit 3
-    SYNC_PATTERN_SYMBOLS: np.ndarray = field(default_factory=lambda: np.zeros(24))
+    SYNC_PATTERN_SYMBOLS: NDArrayFloat = field(default_factory=lambda: np.zeros(24))
 
     def __init__(self) -> None:
         # Convert sync pattern to symbol phases
@@ -144,7 +145,7 @@ class P25P1SoftSyncDetector:
         self._symbols = np.zeros(48, dtype=np.float32)
         self._pointer = 0
 
-    def _pattern_to_symbols(self) -> np.ndarray:
+    def _pattern_to_symbols(self) -> NDArrayFloat:
         """Convert sync pattern to ideal symbol values."""
         symbols = np.zeros(24, dtype=np.float32)
         pattern = self.SYNC_PATTERN
@@ -155,7 +156,7 @@ class P25P1SoftSyncDetector:
             # dibit 1 -> +3, dibit 3 -> -3 (only these appear in sync)
             symbols[i] = 3.0 if dibit == 1 else -3.0
 
-        return symbols
+        return cast(NDArrayFloat, symbols)
 
     def reset(self) -> None:
         """Reset detector state."""
@@ -185,7 +186,7 @@ class P25P1SoftSyncDetector:
         # Vectorized dot product instead of Python loop
         return float(np.dot(self.SYNC_PATTERN_SYMBOLS, self._symbols[self._pointer:self._pointer + 24]))
 
-    def process_batch(self, soft_symbols: np.ndarray) -> np.ndarray:
+    def process_batch(self, soft_symbols: NDArrayFloat) -> NDArrayFloat:
         """
         Process batch of soft symbols and return correlation scores.
 
@@ -223,7 +224,7 @@ class P25P1SoftSyncDetector:
                 self._symbols[self._pointer + 24] = sym
                 self._pointer = (self._pointer + 1) % 24
 
-        return scores.astype(np.float32)
+        return cast(NDArrayFloat, scores.astype(np.float32))
 
 
 class P25P1MessageAssembler:
@@ -257,7 +258,7 @@ class P25P1MessageAssembler:
         """Check if message has reached expected length."""
         return len(self._bits) >= self._target_length
 
-    def get_message_bits(self) -> np.ndarray:
+    def get_message_bits(self) -> NDArrayInt:
         """Get assembled message as bit array."""
         return np.array(self._bits, dtype=np.uint8)
 
@@ -353,7 +354,7 @@ class P25P1Message:
     duid: P25P1DataUnitID
     nac: int
     timestamp: int
-    bits: np.ndarray
+    bits: NDArrayInt
     corrected_bit_count: int = 0
     valid: bool = True
 
@@ -466,7 +467,7 @@ class P25P1MessageFramer:
         """
         return self._process(dibit)
 
-    def process_batch(self, soft_symbols: np.ndarray, dibits: np.ndarray) -> int:
+    def process_batch(self, soft_symbols: NDArrayFloat, dibits: NDArrayInt) -> int:
         """
         Process batch of symbols with vectorized sync detection.
 

@@ -24,6 +24,7 @@ import logging
 from collections.abc import Iterator
 
 import numpy as np
+from wavecapsdr.typing import NDArrayAny
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +226,7 @@ def golay_decode(codeword: int) -> tuple[int, int]:
 
 
 def golay_decode_soft(
-    codeword: int, soft_bits: np.ndarray | None = None
+    codeword: int, soft_bits: NDArrayAny | None = None
 ) -> tuple[int, int, float]:
     """Decode Golay(24,12) with soft decision information.
 
@@ -273,7 +274,7 @@ def golay_decode_soft(
     return -1, -1, 0.0
 
 
-def _combinations(items: np.ndarray, r: int) -> Iterator[tuple[int, ...]]:
+def _combinations(items: NDArrayAny, r: int) -> Iterator[tuple[int, ...]]:
     """Generate r-combinations of items."""
     n = len(items)
     if r > n:

@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Any, Callable, TypeVar, cast
 
 import numpy as np
+from wavecapsdr.typing import NDArrayFloat
 
 # Try to import scipy for optimized filtering
 try:
@@ -48,7 +49,7 @@ _SOFT_CLIP_K = np.float32(1.5)  # Knee factor for tanh soft clipping
 _SOFT_CLIP_NORM = np.float32(1.0 / np.tanh(1.5))  # Normalization factor
 
 
-def soft_clip(x: np.ndarray) -> np.ndarray:
+def soft_clip(x: NDArrayFloat) -> NDArrayFloat:
     """Apply soft clipping using tanh function.
 
     Unlike hard clipping (np.clip), soft clipping gradually saturates
@@ -60,12 +61,12 @@ def soft_clip(x: np.ndarray) -> np.ndarray:
     Returns:
         Soft-clipped signal in range [-1, 1]
     """
-    return cast(np.ndarray, np.tanh(x * _SOFT_CLIP_K) * _SOFT_CLIP_NORM)
+    return cast(NDArrayFloat, np.tanh(x * _SOFT_CLIP_K) * _SOFT_CLIP_NORM)
 
 
 def _envelope_detector_vectorized(
-    x: np.ndarray, attack_coef: float, release_coef: float
-) -> np.ndarray:
+    x: NDArrayFloat, attack_coef: float, release_coef: float
+) -> NDArrayFloat:
     """Vectorized envelope detector using scipy.signal.lfilter.
 
     This approximates asymmetric attack/release by using the faster of the two
@@ -94,15 +95,15 @@ def _envelope_detector_vectorized(
 
     # Combine: use attack envelope where signal is rising, release where falling
     # This is approximated by taking the maximum of both envelopes
-    envelope: np.ndarray = cast(np.ndarray, np.maximum(env_attack, env_release)).astype(np.float32)
+    envelope: NDArrayFloat = cast(NDArrayFloat, np.maximum(env_attack, env_release)).astype(np.float32)
 
     return envelope
 
 
 @jit(nopython=True, cache=True)
 def _envelope_detector_jit(
-    x: np.ndarray, attack_coef: float, release_coef: float
-) -> np.ndarray:
+    x: NDArrayFloat, attack_coef: float, release_coef: float
+) -> NDArrayFloat:
     """JIT-compiled envelope detector using Numba.
 
     This provides 50-100x speedup over pure Python for sample-by-sample
@@ -138,8 +139,8 @@ def _envelope_detector_jit(
 
 
 def _envelope_detector_python(
-    x: np.ndarray, attack_coef: float, release_coef: float
-) -> np.ndarray:
+    x: NDArrayFloat, attack_coef: float, release_coef: float
+) -> NDArrayFloat:
     """Pure Python envelope detector (fallback when scipy and numba unavailable)."""
     envelope = np.zeros(x.shape[0], dtype=np.float32)
     if x.shape[0] == 0:
@@ -154,17 +155,17 @@ def _envelope_detector_python(
         else:
             envelope[i] = release_coef * current_sample + (1.0 - release_coef) * envelope[i - 1]
 
-    return cast(np.ndarray, envelope)
+    return cast(NDArrayFloat, envelope)
 
 
 def apply_agc(
-    x: np.ndarray,
+    x: NDArrayFloat,
     sample_rate: int,
     target_db: float = -20.0,
     attack_ms: float = 5.0,
     release_ms: float = 50.0,
     max_gain_db: float = 60.0,
-) -> np.ndarray:
+) -> NDArrayFloat:
     """Apply Automatic Gain Control to maintain consistent signal level.
 
     AGC tracks the signal envelope and adjusts gain to keep the output
@@ -234,8 +235,8 @@ def apply_agc(
 
 
 def apply_simple_agc(
-    x: np.ndarray, target_rms: float = 0.1, max_gain: float = 10.0
-) -> np.ndarray:
+    x: NDArrayFloat, target_rms: float = 0.1, max_gain: float = 10.0
+) -> NDArrayFloat:
     """Apply simplified AGC based on RMS level (block-based, no smoothing).
 
     This is a simpler AGC that operates on the entire block at once,

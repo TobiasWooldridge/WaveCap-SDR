@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from wavecapsdr.typing import NDArrayFloat
 
 from wavecapsdr.decoders.lrrp import RadioLocation
 from wavecapsdr.decoders.voice import VocoderType, VoiceDecoder, VoiceDecoderError
@@ -28,7 +29,7 @@ from wavecapsdr.validation import validate_audio_samples, validate_discriminator
 logger = logging.getLogger(__name__)
 
 
-def pack_pcm16(samples: np.ndarray) -> bytes:
+def pack_pcm16(samples: NDArrayFloat) -> bytes:
     """Convert float32 audio to 16-bit signed PCM bytes."""
     clipped = np.clip(samples, -1.0, 1.0)
     return (clipped * 32767.0).astype(np.int16).tobytes()
@@ -250,7 +251,7 @@ class VoiceChannel:
                 )
                 break
 
-    async def process_discriminator_audio(self, disc_audio: np.ndarray) -> None:
+    async def process_discriminator_audio(self, disc_audio: NDArrayFloat) -> None:
         """Feed discriminator audio to vocoder for decoding.
 
         Args:
@@ -319,7 +320,7 @@ class VoiceChannel:
                 logger.error(f"VoiceChannel {self.id}: Decoder read error: {e}")
                 await asyncio.sleep(0.1)
 
-    async def _broadcast(self, audio: np.ndarray) -> None:
+    async def _broadcast(self, audio: NDArrayFloat) -> None:
         """Broadcast audio to all subscribers with metadata."""
         ok, reason = validate_audio_samples(audio)
         if not ok:

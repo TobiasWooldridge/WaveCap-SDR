@@ -20,6 +20,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import numpy as np
+from wavecapsdr.typing import NDArrayFloat
 from scipy import signal
 
 logger = logging.getLogger(__name__)
@@ -56,17 +57,17 @@ class IMBEDecoderThreaded:
     _read_thread: threading.Thread | None = field(default=None, repr=False)
 
     # Thread-safe queues
-    _input_queue: queue.Queue[np.ndarray | None] = field(
+    _input_queue: queue.Queue[NDArrayFloat | None] = field(
         default_factory=lambda: queue.Queue(maxsize=512),
         repr=False,
     )
-    _output_queue: queue.Queue[np.ndarray] = field(
+    _output_queue: queue.Queue[NDArrayFloat] = field(
         default_factory=lambda: queue.Queue(maxsize=256),
         repr=False,
     )
 
     # Callback for output audio (called from read thread)
-    on_audio: Callable[[np.ndarray], None] | None = field(default=None, repr=False)
+    on_audio: Callable[[NDArrayFloat], None] | None = field(default=None, repr=False)
 
     # Resampling
     _resample_up: int = field(default=0, init=False)
@@ -179,7 +180,7 @@ class IMBEDecoderThreaded:
             f"dropped={self.frames_dropped}, bytes_written={self.bytes_written})"
         )
 
-    def decode(self, discriminator_audio: np.ndarray) -> None:
+    def decode(self, discriminator_audio: NDArrayFloat) -> None:
         """
         Queue discriminator audio for decoding (thread-safe).
 
@@ -207,14 +208,14 @@ class IMBEDecoderThreaded:
             except queue.Full:
                 pass
 
-    def get_audio(self) -> np.ndarray | None:
+    def get_audio(self) -> NDArrayFloat | None:
         """Get decoded audio if available (non-blocking)."""
         try:
             return self._output_queue.get_nowait()
         except queue.Empty:
             return None
 
-    def get_audio_blocking(self, timeout: float = 0.5) -> np.ndarray | None:
+    def get_audio_blocking(self, timeout: float = 0.5) -> NDArrayFloat | None:
         """Get decoded audio, waiting up to timeout seconds."""
         try:
             return self._output_queue.get(timeout=timeout)
@@ -291,7 +292,7 @@ class IMBEDecoderThreaded:
 
         logger.debug("IMBE writer thread exiting")
 
-    def _flush_batch(self, audio: np.ndarray) -> None:
+    def _flush_batch(self, audio: NDArrayFloat) -> None:
         """Write audio batch to DSD-FME stdin."""
         if not self.process or not self.process.stdin:
             return

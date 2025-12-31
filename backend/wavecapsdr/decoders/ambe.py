@@ -22,6 +22,7 @@ import shutil
 import subprocess
 
 import numpy as np
+from wavecapsdr.typing import NDArrayFloat
 from scipy import signal
 
 logger = logging.getLogger(__name__)
@@ -71,8 +72,8 @@ class AMBEDecoder:
         self._decoder_task: asyncio.Task[None] | None = None
 
         # I/O queues
-        self._input_queue: asyncio.Queue[np.ndarray] = asyncio.Queue(maxsize=64)
-        self._output_queue: asyncio.Queue[np.ndarray] = asyncio.Queue(maxsize=64)
+        self._input_queue: asyncio.Queue[NDArrayFloat] = asyncio.Queue(maxsize=64)
+        self._output_queue: asyncio.Queue[NDArrayFloat] = asyncio.Queue(maxsize=64)
 
         # Resampling ratio from DSD output to target rate
         self._resample_up = output_rate
@@ -143,7 +144,7 @@ class AMBEDecoder:
             f"AMBE+2 decoder stopped (decoded={self.frames_decoded}, dropped={self.frames_dropped})"
         )
 
-    async def decode(self, discriminator_audio: np.ndarray) -> None:
+    async def decode(self, discriminator_audio: NDArrayFloat) -> None:
         """
         Queue discriminator audio for decoding.
 
@@ -165,7 +166,7 @@ class AMBEDecoder:
             except (asyncio.QueueEmpty, asyncio.QueueFull):
                 pass
 
-    async def get_audio(self) -> np.ndarray | None:
+    async def get_audio(self) -> NDArrayFloat | None:
         """
         Get decoded and resampled audio.
 
@@ -178,7 +179,7 @@ class AMBEDecoder:
         except asyncio.QueueEmpty:
             return None
 
-    async def get_audio_blocking(self, timeout: float = 0.5) -> np.ndarray | None:
+    async def get_audio_blocking(self, timeout: float = 0.5) -> NDArrayFloat | None:
         """
         Get decoded audio, waiting up to timeout seconds.
 
@@ -192,7 +193,7 @@ class AMBEDecoder:
 
     # --- Sync methods for use from capture thread ---
 
-    def decode_sync(self, discriminator_audio: np.ndarray) -> None:
+    def decode_sync(self, discriminator_audio: NDArrayFloat) -> None:
         """
         Queue discriminator audio for decoding (sync version).
 
@@ -216,7 +217,7 @@ class AMBEDecoder:
             except (asyncio.QueueEmpty, asyncio.QueueFull):
                 pass
 
-    def get_audio_sync(self) -> np.ndarray | None:
+    def get_audio_sync(self) -> NDArrayFloat | None:
         """
         Get decoded audio if available (sync version).
 

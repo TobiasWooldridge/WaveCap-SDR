@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from wavecapsdr.typing import NDArrayAny
 from scipy import signal
 
 from wavecapsdr.dsp.p25.symbol_timing import MuellerMullerTED
@@ -35,7 +36,7 @@ def design_rrc_filter_phase2(
     samples_per_symbol: float,
     num_taps: int = 65,
     alpha: float = 1.0,
-) -> np.ndarray:
+) -> NDArrayAny:
     """Design RRC filter for Phase II CQPSK.
 
     Phase II uses a wider filter (alpha=1.0) compared to Phase I (alpha=0.2)
@@ -175,7 +176,7 @@ class CostasLoop:
 
         return float(error)
 
-    def process_block(self, samples: np.ndarray) -> np.ndarray:
+    def process_block(self, samples: NDArrayAny) -> NDArrayAny:
         """Process a block of samples.
 
         Args:
@@ -275,7 +276,7 @@ class CQPSKDemodulator:
         self._prev_phase = 0.0
         self._filter_state = signal.lfilter_zi(self._rrc, 1.0).astype(np.complex128)
 
-    def demodulate(self, iq: np.ndarray) -> np.ndarray:
+    def demodulate(self, iq: NDArrayAny) -> NDArrayAny:
         """Demodulate CQPSK signal to dibits.
 
         Args:
@@ -306,7 +307,7 @@ class CQPSKDemodulator:
 
         return dibits
 
-    def _differential_decode(self, symbols: np.ndarray) -> np.ndarray:
+    def _differential_decode(self, symbols: NDArrayAny) -> NDArrayAny:
         """Decode pi/4-DQPSK symbols to dibits.
 
         In pi/4-DQPSK, information is encoded in the phase change between
@@ -360,10 +361,10 @@ class CQPSKDemodulator:
 
 
 def cqpsk_demod_simple(
-    iq: np.ndarray,
+    iq: NDArrayAny,
     sample_rate: int = 48000,
     symbol_rate: int = 12000,
-) -> np.ndarray:
+) -> NDArrayAny:
     """Simplified CQPSK demodulator (stateless, single-shot).
 
     Args:

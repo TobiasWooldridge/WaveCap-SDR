@@ -31,6 +31,7 @@ from multiprocessing.shared_memory import SharedMemory
 from typing import Any
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex
 
 from .base import Device, DeviceInfo, StreamHandle
 from .sdrplay_worker import (
@@ -138,7 +139,7 @@ class SDRplayProxyStream(StreamHandle):
             return True
         return False
 
-    def read(self, num_samples: int) -> tuple[np.ndarray, bool]:
+    def read(self, num_samples: int) -> tuple[NDArrayComplex, bool]:
         """Read IQ samples from shared memory ring buffer.
 
         Args:

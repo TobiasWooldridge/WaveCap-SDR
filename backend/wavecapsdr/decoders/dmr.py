@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Any, Callable, cast
 
 import numpy as np
+from wavecapsdr.typing import NDArrayComplex, NDArrayFloat, NDArrayInt
 
 logger = logging.getLogger(__name__)
 
@@ -52,14 +53,14 @@ class DMR4FSKDemodulator:
         # DMR deviation: ±1944 Hz
         self.deviations = np.array([-1944, -648, 648, 1944])
 
-    def demodulate(self, iq: np.ndarray) -> np.ndarray:
+    def demodulate(self, iq: NDArrayComplex) -> NDArrayInt:
         """Demodulate to dibits"""
         if iq.size == 0:
             return np.array([], dtype=np.uint8)
 
-        x: np.ndarray = iq.astype(np.complex64, copy=False)
+        x: NDArrayComplex = iq.astype(np.complex64, copy=False)
         prod = x[1:] * np.conj(x[:-1])
-        inst_freq = cast(np.ndarray, np.angle(prod)) * self.sample_rate / (2 * np.pi)
+        inst_freq = cast(NDArrayFloat, np.angle(prod)) * self.sample_rate / (2 * np.pi)
 
         num_symbols = len(inst_freq) // self.samples_per_symbol
         symbols = np.zeros(num_symbols, dtype=np.uint8)
@@ -71,7 +72,7 @@ class DMR4FSKDemodulator:
             distances = np.abs(self.deviations - symbol_freq)
             symbols[i] = int(np.argmin(distances))
 
-        return cast(np.ndarray, symbols)
+        return cast(NDArrayInt, symbols)
 
 
 class DMRDecoder:
@@ -93,7 +94,7 @@ class DMRDecoder:
 
         logger.info(f"DMR decoder initialized (sample_rate={sample_rate})")
 
-    def process_iq(self, iq: np.ndarray) -> list[DMRFrame]:
+    def process_iq(self, iq: NDArrayComplex) -> list[DMRFrame]:
         """Process IQ and decode DMR frames"""
         if iq.size == 0:
             return []
@@ -114,7 +115,7 @@ class DMRDecoder:
         frame_dibits = dibits[sync_pos:]
         return self._decode_frame(frame_dibits)
 
-    def _find_sync(self, dibits: np.ndarray) -> int | None:
+    def _find_sync(self, dibits: NDArrayInt) -> int | None:
         """Find DMR sync pattern"""
         # Simplified sync search
         if len(dibits) < 24:  # 48 bits sync
@@ -122,7 +123,7 @@ class DMRDecoder:
         # Would implement proper sync detection
         return 0  # Placeholder
 
-    def _decode_frame(self, dibits: np.ndarray) -> list[DMRFrame]:
+    def _decode_frame(self, dibits: NDArrayInt) -> list[DMRFrame]:
         """Decode DMR frame"""
         if len(dibits) < 144:  # DMR burst is 288 bits
             return []
