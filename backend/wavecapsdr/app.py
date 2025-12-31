@@ -5,7 +5,7 @@ import logging.handlers
 from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, cast
+from typing import AsyncIterator, Callable, TextIO, cast
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,7 +23,7 @@ from .state import AppState
 from .trunking.api import router as trunking_router
 
 
-class SafeStreamHandler(logging.StreamHandler):
+class SafeStreamHandler(logging.StreamHandler[TextIO]):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             super().emit(record)
@@ -154,7 +154,7 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
     get_log_streamer().install_handler()
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         """Auto-start configured captures on server startup.
 
         If no captures are configured, initialize a default capture so the UI
