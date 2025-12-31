@@ -2343,6 +2343,7 @@ class TrunkingSystem:
         if self.control_channel_state == ControlChannelState.LOCKED:
             if not has_sync:
                 # Sync lost - transition to SEARCHING (SDRTrunk: 1 second without sync)
+                self._locked_frequency = None
                 logger.warning(
                     f"TrunkingSystem {self.cfg.id}: Lost control channel lock "
                     f"(sync lost, age={sync_age:.1f}s), starting hunt"
@@ -2708,7 +2709,7 @@ class TrunkingSystem:
             "channelMeasurements": channel_measurements,  # WaveCap improvement: show all channel strengths
             # Hunt mode control
             "huntMode": self._hunt_mode.value,
-            "lockedFrequencyHz": self._locked_frequency,
+            "lockedFrequencyHz": self.get_locked_frequency(),
             "controlChannels": self.get_control_channels_info(),
         }
 
