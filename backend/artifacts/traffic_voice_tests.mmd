@@ -1,0 +1,9 @@
+%% Traffic/Voice encoding validation flow
+flowchart LR
+    A[Generate grant PDUs] --> B[TSBK parser round-trip]
+    A --> C[Explicit grant with slot flag]
+    B --> D[Assert slot, TGID, source preserved]
+    C --> D
+    D --> E[Frame codec payload]
+    E --> F[Header & payload unframed]
+    F --> G[Flags and length verified]
