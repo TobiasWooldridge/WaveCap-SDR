@@ -3041,8 +3041,17 @@ def create_scanner(
 
     # Store scanner
     state.scanners[scanner_id] = scanner
+    scanner.set_status_callback(
+        lambda: get_broadcaster().emit_scanner_change(
+            "updated",
+            scanner_id,
+            _to_scanner_model(scanner_id, scanner).model_dump(),
+        )
+    )
 
-    return _to_scanner_model(scanner_id, scanner)
+    scanner_model = _to_scanner_model(scanner_id, scanner)
+    get_broadcaster().emit_scanner_change("created", scanner_id, scanner_model.model_dump())
+    return scanner_model
 
 
 @router.get("/scanners", response_model=list[ScannerModel])
@@ -3061,7 +3070,9 @@ def get_scanner(
     scanner = state.scanners.get(sid)
     if scanner is None:
         raise HTTPException(status_code=404, detail=f"Scanner {sid} not found")
-    return _to_scanner_model(sid, scanner)
+    scanner_model = _to_scanner_model(sid, scanner)
+    get_broadcaster().emit_scanner_change("updated", sid, scanner_model.model_dump())
+    return scanner_model
 
 
 @router.patch("/scanners/{sid}", response_model=ScannerModel)
@@ -3113,6 +3124,7 @@ def delete_scanner(
 
     # Remove from state
     del state.scanners[sid]
+    get_broadcaster().emit_scanner_change("deleted", sid, None)
     return Response(status_code=204)
 
 

@@ -136,6 +136,17 @@ export function useStateWebSocket() {
             return old;
         }
       });
+
+      if (action === "deleted") {
+        queryClient.removeQueries({ queryKey: ["scanners", id] });
+        return;
+      }
+
+      if (data) {
+        queryClient.setQueryData<Scanner>(["scanners", id], (old) =>
+          old ? { ...old, ...data } : (data as Scanner),
+        );
+      }
     },
     [queryClient],
   );

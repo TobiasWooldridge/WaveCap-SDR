@@ -77,6 +77,7 @@ class ScannerService:
         # Update callback can be sync or async
         self._update_callback: Optional[Callable[[float], Union[None, Awaitable[None]]]] = None
         self._rssi_callback: Optional[Callable[[], float]] = None  # Get current RSSI
+        self._status_callback: Optional[Callable[[], None]] = None
 
     def set_update_callback(self, callback: Callable[[float], Union[None, Awaitable[None]]]) -> None:
         """Set callback for frequency updates: callback(frequency_hz)."""
@@ -86,6 +87,19 @@ class ScannerService:
         """Set callback to get current RSSI: rssi = callback()."""
         self._rssi_callback = callback
 
+    def set_status_callback(self, callback: Callable[[], None]) -> None:
+        """Set callback for status updates."""
+        self._status_callback = callback
+
+    def _notify_status(self) -> None:
+        if self._status_callback is None:
+            return
+        try:
+            self._status_callback()
+        except Exception:
+            # Status callbacks are best-effort; avoid breaking scan loop.
+            pass
+
     def start(self) -> None:
         """Start scanning."""
         if self._task is not None:
@@ -93,6 +107,7 @@ class ScannerService:
 
         self.status.state = ScanState.SCANNING
         self._task = asyncio.create_task(self._scan_loop())
+        self._notify_status()
 
     def stop(self) -> None:
         """Stop scanning."""
@@ -102,38 +117,46 @@ class ScannerService:
         self._task.cancel()
         self._task = None
         self.status.state = ScanState.STOPPED
+        self._notify_status()
 
     def pause(self) -> None:
         """Pause scanning (manual pause)."""
         self.status.state = ScanState.PAUSED
+        self._notify_status()
 
     def resume(self) -> None:
         """Resume scanning from pause."""
         if self.status.state == ScanState.PAUSED:
             self.status.state = ScanState.SCANNING
+            self._notify_status()
 
     def lock(self) -> None:
         """Lock on current frequency (stop scanning)."""
         self.status.state = ScanState.LOCKED
+        self._notify_status()
 
     def unlock(self) -> None:
         """Unlock and resume scanning."""
         if self.status.state == ScanState.LOCKED:
             self.status.state = ScanState.SCANNING
+            self._notify_status()
 
     def lockout_current(self) -> None:
         """Add current frequency to lockout list."""
         if self.status.current_frequency not in self.status.lockout_list:
             self.status.lockout_list.append(self.status.current_frequency)
+            self._notify_status()
 
     def clear_lockout(self, frequency: float) -> None:
         """Remove frequency from lockout list."""
         if frequency in self.status.lockout_list:
             self.status.lockout_list.remove(frequency)
+            self._notify_status()
 
     def clear_all_lockouts(self) -> None:
         """Clear all lockouts."""
         self.status.lockout_list.clear()
+        self._notify_status()
 
     def _get_next_frequency(self) -> tuple[float, int]:
         """
@@ -189,9 +212,11 @@ class ScannerService:
                     self.status.state = ScanState.PAUSED
                     # Record hit
                     self.status.hits.append((self.status.current_frequency, time.time()))
+                    self._notify_status()
                     # Pause for configured duration
                     await asyncio.sleep(self.config.pause_duration_ms / 1000.0)
                     self.status.state = ScanState.SCANNING
+                    self._notify_status()
 
                 # Check if paused or locked
                 if self.status.state != ScanState.SCANNING:
@@ -222,8 +247,10 @@ class ScannerService:
                         if self._is_activity_detected():
                             self.status.state = ScanState.PAUSED
                             self.status.hits.append((priority_freq, time.time()))
+                            self._notify_status()
                             await asyncio.sleep(self.config.pause_duration_ms / 1000.0)
                             self.status.state = ScanState.SCANNING
+                            self._notify_status()
                             break  # Return to scan list after priority hit
 
                 # Get next frequency
@@ -237,6 +264,7 @@ class ScannerService:
 
                 self.status.current_frequency = next_freq
                 self.status.current_index = next_idx
+                self._notify_status()
 
                 # Dwell on frequency
                 await asyncio.sleep(self.config.dwell_time_ms / 1000.0)
