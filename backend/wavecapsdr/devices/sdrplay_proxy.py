@@ -36,7 +36,6 @@ from .base import Device, DeviceInfo, StreamHandle
 from .sdrplay_worker import (
     BUFFER_SAMPLES,
     FLAG_DATA_READY,
-    FLAG_OVERFLOW,
     HEADER_SIZE,
     SHM_SIZE,
     _read_header,
@@ -119,6 +118,7 @@ class SDRplayProxyStream(StreamHandle):
     _last_data_time: float = 0.0  # Time when we last received data
 
     _debug_counter: int = 0
+    _last_overflow_count: int = 0
 
     def is_ready(self) -> bool:
         """Check if worker has written first samples (non-blocking).
@@ -180,7 +180,7 @@ class SDRplayProxyStream(StreamHandle):
             return np.empty(0, dtype=np.complex64), False
         self._buf_none_count = 0  # Reset counter on successful read
 
-        write_idx, _, sample_count, _overflow_count, sample_rate, flags, _timestamp = header
+        write_idx, _, sample_count, overflow_count, sample_rate, flags, _timestamp = header
 
         # Debug logging for first few reads and then very infrequently
         if self._debug_counter <= 5 or self._debug_counter % 100000 == 0:
@@ -252,7 +252,7 @@ class SDRplayProxyStream(StreamHandle):
                         header = _read_header(self.shm)
                         if header is None:
                             return np.empty(0, dtype=np.complex64), False
-                        write_idx, _, sample_count, _overflow_count, sample_rate, flags, _timestamp = header
+                        write_idx, _, sample_count, overflow_count, sample_rate, flags, _timestamp = header
                         self._buf_none_count = 0
                         available = write_idx - self._last_read_idx
                         if available > 0:
@@ -284,7 +284,9 @@ class SDRplayProxyStream(StreamHandle):
         # Detect ring buffer overrun: if available > BUFFER_SAMPLES, the writer
         # has wrapped around and overwritten data before we could read it.
         # Reset read position to catch up with writer, discarding missed samples.
-        overflow = bool(flags & FLAG_OVERFLOW)
+        # overflow_count is cumulative; only report overflow when it increases.
+        overflow = overflow_count > self._last_overflow_count
+        self._last_overflow_count = overflow_count
         if available > BUFFER_SAMPLES:
             # Calculate how many samples we missed
             missed = available - BUFFER_SAMPLES
