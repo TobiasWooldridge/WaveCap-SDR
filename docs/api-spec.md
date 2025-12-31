@@ -395,10 +395,10 @@ P25 trunking specifics:
 - **Flow (mermaid)**:
 ```mermaid
 flowchart LR
-  spec["Message spec (YAML/JSON)"] --> encoder["CLI / Harness message encoder"]
-  encoder --> frames["Encoded frames (.bin)"]
-  encoder --> audio["PCM audio (.wav)"]
-  audio --> ws["Optional PCM16 WebSocket stream"]
+  spec(("Message spec (YAML/JSON)")) --> encoder(("CLI / Harness message encoder"))
+  encoder --> frames(("Encoded frames (.bin)"))
+  encoder --> audio(("PCM audio (.wav)"))
+  audio --> ws(("Optional PCM16 WebSocket stream"))
 ```
 
 ## Hardware Support (initial)
