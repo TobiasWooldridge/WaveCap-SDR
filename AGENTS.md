@@ -23,7 +23,8 @@ Scope: applies to the entire repo.
 - Define diagrams using Mermaid blocks instead of exporting static PNGs or similar assets.
 
 ## Workflow Notes
-- Follow repository‑specific instructions in nested `AGENTS.md` files if present; their scope applies to their directory and descendants.
+- Follow repository-specific instructions in nested `AGENTS.md` files if present; their scope applies to their directory and descendants.
+- Always run the linters/tests relevant to the areas you touch before committing changes.
 - Run required checks before publishing a change:
   - Backend tests: `cd backend && source .venv/bin/activate && PYTHONPATH=. pytest tests/`
   - Backend types: `cd backend && source .venv/bin/activate && mypy wavecapsdr`
