@@ -19,5 +19,5 @@ def test_tsbk_iden_up_vu_rejects_out_of_range_base_freq() -> None:
     data[4:8] = base_freq_raw.to_bytes(4, "big")
 
     result = parser.parse(TSBKOpcode.IDEN_UP_VU, 0, bytes(data))
-    assert result["type"] == "PARSE_ERROR"
-    assert "base_freq_mhz" in result.get("error", "")
+    assert result.message_type == "PARSE_ERROR"
+    assert "base_freq_mhz" in result.error

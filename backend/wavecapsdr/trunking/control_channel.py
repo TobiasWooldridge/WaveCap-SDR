@@ -32,7 +32,7 @@ from wavecapsdr.decoders.p25_frames import (
     decode_nid,
     decode_tsdu,
 )
-from wavecapsdr.decoders.p25_tsbk import TSBKParser
+from wavecapsdr.decoders.p25_tsbk import TSBKMessage, TSBKParser
 from wavecapsdr.utils.profiler import get_profiler
 
 # Profiler for control channel processing
@@ -663,6 +663,11 @@ class ControlChannelMonitor:
 
         try:
             result = self._tsbk_parser.parse(opcode, mfid, data)
+            if isinstance(result, TSBKMessage):
+                if result.message_type == "PARSE_ERROR":
+                    self.tsbk_rejected += 1
+                    return None
+                return result.to_dict()
             if result.get("type") == "PARSE_ERROR":
                 self.tsbk_rejected += 1
                 return None

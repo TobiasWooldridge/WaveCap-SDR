@@ -145,6 +145,11 @@ Base path: `/api/v1`
 - GET `/trunking/recipes`
   - List pre-configured trunking system templates.
 
+### Trunking Control Messages
+- Control channel decoders emit typed TSBK structs in `wavecapsdr.decoders.p25_tsbk` (`GroupVoiceGrantMessage`, grant update variants, identifier updates, status broadcasts, affiliation/deny responses, plus opaque and parse-error wrappers). Use `TSBKParser.supported_structs()` to enumerate what the parser produces.
+- Phase I TSBKs are 96 bits: `[LB|Protect|Opcode(6)] + MFID (8) + payload (64) + CRC-16-CCITT (big-endian append, init=0xFFFF over the first 80 bits)`. Bits are MSB-first; `decode_tsdu` trellis-decodes and removes interleaving before the parser runs.
+- Helper encoders in `wavecapsdr.decoders.p25_tsbk` return 8-byte payloads for grants/affiliations and `encode_control_frame(...)` emits the 12-byte frame (header + MFID + payload + CRC). Payload helpers mirror SDRTrunk bit positions and never byte-swap values.
+
 ### Streaming
 - WS `/stream/captures/{id}/iq`
   - Streams capture IQ frames (binary: `iq16` or `f32`).

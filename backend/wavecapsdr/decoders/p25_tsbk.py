@@ -7,9 +7,26 @@ control trunking operations including:
 - System information
 - Registration and authentication
 
-TSBK Opcodes are defined in TIA-102.AABB-A.
+Framing/CRC/FEC conventions (Phase I control channel):
+- Control bursts arrive as 196 dibits carrying a 96-bit TSBK after convolutional
+  (rate 1/2) trellis decoding in `p25_frames.decode_tsdu`. Interleaving is
+  removed before the parser sees the payload.
+- Bits are MSB-first. Header layout: [LB|Protect|Opcode(6b)] + MFID (8b) +
+  64-bit payload + CRC-16-CCITT (80-bit syndrome, init=0xFFFF, big-endian
+  append). CRC validation uses `CCITT_80_CHECKSUMS` to mirror SDRTrunk.
+- Payload bytes are encoded big-endian following SDRTrunk bit positions; helper
+  encoders here return the 8-byte payloads as well as full 12-byte frames via
+  `encode_control_frame`.
 
-Key opcodes for trunking:
+Typed message structs emitted by the parser:
+- GroupVoiceGrantMessage, GroupVoiceGrantUpdateMessage, GroupVoiceGrantUpdateExplicitMessage
+- UnitToUnitGrantMessage, UnitToUnitGrantUpdateMessage
+- IdentifierUpdateVUMessage, IdentifierUpdateTDMA, IdentifierUpdateMessage (alias for 0x3D)
+- RFSSStatusMessage, NetworkStatusMessage, AdjacentStatusMessage
+- SystemServiceMessage, GroupAffiliationResponseMessage, DenyResponseMessage
+- OpaqueTSBKMessage (unknown/manufacturer) and ParseErrorMessage for failures
+
+TSBK Opcodes are defined in TIA-102.AABB-A. Key opcodes for trunking:
 - 0x00: Group Voice Channel Grant
 - 0x02: Group Voice Channel Grant Update
 - 0x03: Unit to Unit Voice Channel Grant
@@ -21,11 +38,13 @@ Key opcodes for trunking:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field, asdict
 from enum import IntEnum
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 logger = logging.getLogger(__name__)
+
+from wavecapsdr.decoders.p25_frames import CCITT_80_CHECKSUMS
 
 from wavecapsdr.validation import (
     BASE_FREQ_MAX_MHZ,
@@ -168,6 +187,349 @@ class SystemStatus:
     services: int = 0  # Available services bitmap
 
 
+@dataclass
+class ChannelGrant:
+    """Grant entry for group or unit-to-unit updates."""
+    channel: int
+    frequency_band: int
+    channel_number: int
+    tgid: int | None = None
+    target_id: int | None = None
+    frequency_hz: float | None = None
+
+
+@dataclass
+class TSBKMessage:
+    """Typed representation of a decoded TSBK."""
+    opcode: int
+    opcode_name: str
+    mfid: int
+    message_type: str
+    raw_data: bytes
+    lb: int | None = field(default=None, init=False)
+    protect: int | None = field(default=None, init=False)
+    trellis_errors: int | None = field(default=None, init=False)
+    last_block: int | None = field(default=None, init=False)
+
+    def payload_bytes(self) -> bytes:
+        """Return the raw 8-byte payload if available."""
+        return self.raw_data
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the legacy dict format expected by the trunking stack."""
+        payload = asdict(self)
+        payload["type"] = payload.pop("message_type")
+        payload["data"] = payload.pop("raw_data").hex()
+        return payload
+
+
+@dataclass
+class GroupVoiceGrantMessage(TSBKMessage):
+    """Group voice channel grant."""
+    tgid: int
+    source_id: int
+    channel: int
+    frequency_band: int
+    channel_number: int
+    frequency_hz: float
+    emergency: bool
+    encrypted: bool
+    duplex: bool
+    priority: int
+
+    def payload_bytes(self) -> bytes:
+        svc_opts = (
+            (0x80 if self.emergency else 0)
+            | (0x40 if self.encrypted else 0)
+            | (0x20 if self.duplex else 0)
+            | (self.priority & 0x07)
+        )
+        data = bytearray(8)
+        data[0] = svc_opts
+        data[1] = ((self.channel >> 12) & 0x0F) << 4 | ((self.channel >> 8) & 0x0F)
+        data[2] = self.channel & 0xFF
+        data[3] = (self.tgid >> 8) & 0xFF
+        data[4] = self.tgid & 0xFF
+        data[5] = (self.source_id >> 16) & 0xFF
+        data[6] = (self.source_id >> 8) & 0xFF
+        data[7] = self.source_id & 0xFF
+        return bytes(data)
+
+
+@dataclass
+class GroupVoiceGrantUpdateMessage(TSBKMessage):
+    """Grant update with one or two group calls."""
+    grant1: ChannelGrant
+    grant2: ChannelGrant | None = None
+
+    def payload_bytes(self) -> bytes:
+        data = bytearray(8)
+        data[0] = ((self.grant1.frequency_band & 0x0F) << 4) | ((self.grant1.channel_number >> 8) & 0x0F)
+        data[1] = self.grant1.channel_number & 0xFF
+        if self.grant1.tgid is not None:
+            data[2] = (self.grant1.tgid >> 8) & 0xFF
+            data[3] = self.grant1.tgid & 0xFF
+
+        if self.grant2:
+            data[4] = ((self.grant2.frequency_band & 0x0F) << 4) | ((self.grant2.channel_number >> 8) & 0x0F)
+            data[5] = self.grant2.channel_number & 0xFF
+            if self.grant2.tgid is not None:
+                data[6] = (self.grant2.tgid >> 8) & 0xFF
+                data[7] = self.grant2.tgid & 0xFF
+        return bytes(data)
+
+
+@dataclass
+class GroupVoiceGrantUpdateExplicitMessage(TSBKMessage):
+    """Grant update with explicit downlink/uplink channels."""
+    downlink_channel: int
+    downlink_frequency_band: int
+    downlink_channel_number: int
+    downlink_frequency_hz: float
+    uplink_channel: int
+    uplink_frequency_band: int
+    uplink_channel_number: int
+    uplink_frequency_hz: float
+    tgid: int
+    emergency: bool
+    encrypted: bool
+    duplex: bool
+    priority: int
+
+    def payload_bytes(self) -> bytes:
+        svc_opts = (
+            (0x80 if self.emergency else 0)
+            | (0x40 if self.encrypted else 0)
+            | (0x20 if self.duplex else 0)
+            | (self.priority & 0x07)
+        )
+        data = bytearray(8)
+        data[0] = svc_opts
+        data[2] = ((self.downlink_frequency_band & 0x0F) << 4) | ((self.downlink_channel_number >> 8) & 0x0F)
+        data[3] = self.downlink_channel_number & 0xFF
+        data[4] = ((self.uplink_frequency_band & 0x0F) << 4) | ((self.uplink_channel_number >> 8) & 0x0F)
+        data[5] = self.uplink_channel_number & 0xFF
+        data[6] = (self.tgid >> 8) & 0xFF
+        data[7] = self.tgid & 0xFF
+        return bytes(data)
+
+
+@dataclass
+class UnitToUnitGrantMessage(TSBKMessage):
+    """Unit-to-unit voice grant."""
+    target_id: int
+    source_id: int
+    channel: int
+    frequency_band: int
+    channel_number: int
+    frequency_hz: float
+
+    def payload_bytes(self) -> bytes:
+        data = bytearray(8)
+        data[0] = ((self.frequency_band & 0x0F) << 4) | ((self.channel_number >> 8) & 0x0F)
+        data[1] = self.channel_number & 0xFF
+        data[2] = (self.target_id >> 16) & 0xFF
+        data[3] = (self.target_id >> 8) & 0xFF
+        data[4] = self.target_id & 0xFF
+        data[5] = (self.source_id >> 16) & 0xFF
+        data[6] = (self.source_id >> 8) & 0xFF
+        data[7] = self.source_id & 0xFF
+        return bytes(data)
+
+
+@dataclass
+class UnitToUnitGrantUpdateMessage(TSBKMessage):
+    """Unit-to-unit voice grant update."""
+    grant1: ChannelGrant
+    grant2: ChannelGrant | None = None
+
+    def payload_bytes(self) -> bytes:
+        data = bytearray(8)
+        data[0] = ((self.grant1.frequency_band & 0x0F) << 4) | ((self.grant1.channel_number >> 8) & 0x0F)
+        data[1] = self.grant1.channel_number & 0xFF
+        if self.grant1.target_id is not None:
+            data[2] = (self.grant1.target_id >> 16) & 0xFF
+            data[3] = (self.grant1.target_id >> 8) & 0xFF
+            data[4] = self.grant1.target_id & 0xFF
+
+        if self.grant2:
+            data[5] = ((self.grant2.frequency_band & 0x0F) << 4) | ((self.grant2.channel_number >> 8) & 0x0F)
+            data[6] = self.grant2.channel_number & 0xFF
+            data[7] = (self.grant2.target_id or 0) & 0xFF
+        return bytes(data)
+
+
+@dataclass
+class IdentifierUpdateVUMessage(TSBKMessage):
+    """Identifier update for VHF/UHF FDMA."""
+    identifier: int
+    bandwidth_khz: float
+    bandwidth_code: int
+    tx_offset_sign: bool
+    tx_offset_hz: float
+    tx_offset_mhz: float
+    channel_spacing_khz: float
+    base_freq_mhz: float
+
+
+@dataclass
+class IdentifierUpdateTDMA(TSBKMessage):
+    """Identifier update for TDMA."""
+    identifier: int
+    channel_type: int
+    access_type: str
+    slot_count: int
+    tx_offset_sign: bool
+    tx_offset_hz: float
+    tx_offset_mhz: float
+    channel_spacing_khz: float
+    base_freq_mhz: float
+
+
+@dataclass
+class SystemServiceMessage(TSBKMessage):
+    """System service broadcast message."""
+    services_available: int
+    services_supported: int
+    composite_control: bool
+    data_services: bool
+    voice_services: bool
+    registration: bool
+    authentication: bool
+
+    def payload_bytes(self) -> bytes:
+        data = bytearray(8)
+        data[0] = (self.services_available >> 16) & 0xFF
+        data[1] = (self.services_available >> 8) & 0xFF
+        data[2] = self.services_available & 0xFF
+        data[3] = (self.services_supported >> 16) & 0xFF
+        data[4] = (self.services_supported >> 8) & 0xFF
+        data[5] = self.services_supported & 0xFF
+        return bytes(data)
+
+
+@dataclass
+class GroupAffiliationResponseMessage(TSBKMessage):
+    """Affiliation response."""
+    response: int
+    success: bool
+    tgid: int
+    announcement_group: int
+    target_id: int
+
+    def payload_bytes(self) -> bytes:
+        data = bytearray(8)
+        data[0] = self.response & 0xFF
+        data[1] = (self.tgid >> 8) & 0xFF
+        data[2] = self.tgid & 0xFF
+        data[3] = (self.announcement_group >> 8) & 0xFF
+        data[4] = self.announcement_group & 0xFF
+        data[5] = (self.target_id >> 8) & 0xFF
+        data[6] = self.target_id & 0xFF
+        return bytes(data)
+
+
+@dataclass
+class DenyResponseMessage(TSBKMessage):
+    """Deny response."""
+    service_type: int
+    reason: int
+    reason_text: str
+    target_address: int
+
+    def payload_bytes(self) -> bytes:
+        data = bytearray(8)
+        data[0] = (self.service_type & 0x3F) << 2
+        data[1] = self.reason & 0xFF
+        data[2] = (self.target_address >> 16) & 0xFF
+        data[3] = (self.target_address >> 8) & 0xFF
+        data[4] = self.target_address & 0xFF
+        return bytes(data)
+
+
+@dataclass
+class RFSSStatusMessage(TSBKMessage):
+    """RFSS status broadcast."""
+    lra: int
+    active_network_connection: bool
+    system_id: int
+    rfss_id: int
+    site_id: int
+    channel: int
+    frequency_band: int
+    channel_number: int
+    service_class: int
+
+
+@dataclass
+class AdjacentStatusMessage(TSBKMessage):
+    """Adjacent status broadcast."""
+    lra: int
+    active_network_connection: bool
+    system_id: int
+    rfss_id: int
+    site_id: int
+    channel: int
+    frequency_band: int
+    channel_number: int
+    service_class: int
+
+
+@dataclass
+class NetworkStatusMessage(TSBKMessage):
+    """Network status broadcast."""
+    lra: int
+    wacn: int
+    system_id: int
+    channel: int
+    frequency_band: int
+    channel_number: int
+    service_class: int
+
+
+@dataclass
+class IdentifierUpdateMessage(IdentifierUpdateVUMessage):
+    """Identifier update using opcode 0x3D (alias of IDEN_UP_VU)."""
+
+
+@dataclass
+class OpaqueTSBKMessage(TSBKMessage):
+    """Catch-all message when the opcode is not parsed."""
+    data: bytes = field(default_factory=bytes)
+
+    def payload_bytes(self) -> bytes:
+        return self.data or self.raw_data
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = super().to_dict()
+        payload["data"] = (self.data or self.raw_data).hex()
+        return payload
+
+
+@dataclass
+class ParseErrorMessage(TSBKMessage):
+    """Parsing failed due to validation."""
+    error: str
+
+
+SUPPORTED_TSBK_STRUCTS: tuple[type[TSBKMessage], ...] = (
+    GroupVoiceGrantMessage,
+    GroupVoiceGrantUpdateMessage,
+    GroupVoiceGrantUpdateExplicitMessage,
+    UnitToUnitGrantMessage,
+    UnitToUnitGrantUpdateMessage,
+    IdentifierUpdateVUMessage,
+    IdentifierUpdateTDMA,
+    IdentifierUpdateMessage,
+    SystemServiceMessage,
+    GroupAffiliationResponseMessage,
+    DenyResponseMessage,
+    RFSSStatusMessage,
+    AdjacentStatusMessage,
+    NetworkStatusMessage,
+)
+
+
 class TSBKParser:
     """Parser for TSBK messages.
 
@@ -185,6 +547,11 @@ class TSBKParser:
         # Callbacks
         self.on_voice_grant: Callable[[VoiceGrant], None] | None = None
         self.on_system_update: Callable[[SystemStatus], None] | None = None
+
+    @staticmethod
+    def supported_structs() -> Sequence[type[TSBKMessage]]:
+        """Return the typed message classes emitted by the parser."""
+        return SUPPORTED_TSBK_STRUCTS
 
     def add_channel_id(self, ident: ChannelIdentifier) -> None:
         """Add or update channel identifier."""
@@ -209,8 +576,8 @@ class TSBKParser:
 
         return ident.get_frequency(channel_num)
 
-    def parse(self, opcode: int, mfid: int, data: bytes) -> dict[str, Any]:
-        """Parse TSBK message.
+    def parse(self, opcode: int, mfid: int, data: bytes) -> TSBKMessage:
+        """Parse TSBK message into a typed model.
 
         Args:
             opcode: 6-bit opcode
@@ -218,7 +585,7 @@ class TSBKParser:
             data: 8-byte data payload (64 bits per TIA-102.AABB-A)
 
         Returns:
-            Dict with parsed message fields
+            Typed TSBKMessage describing the decoded payload.
         """
         if len(data) != 8:
             raise ValueError(f"TSBK data must be 8 bytes (got {len(data)})")
@@ -227,13 +594,19 @@ class TSBKParser:
             'opcode': opcode,
             'opcode_name': self._opcode_name(opcode),
             'mfid': mfid,
+            'raw_data': data,
         }
 
         if mfid != 0:
             # Non-standard (manufacturer-specific) message
-            result['type'] = 'MANUFACTURER_SPECIFIC'
-            result['data'] = data.hex()
-            return result
+            return OpaqueTSBKMessage(
+                opcode=opcode,
+                opcode_name=self._opcode_name(opcode),
+                mfid=mfid,
+                message_type='MANUFACTURER_SPECIFIC',
+                raw_data=data,
+                data=data,
+            )
 
         # Parse based on opcode
         try:
@@ -285,13 +658,17 @@ class TSBKParser:
                 logger.debug(f"Unknown TSBK opcode 0x{opcode:02X}: {data.hex()}")
 
             self._validate_result(result)
+            return self._build_message(result, data)
         except Exception as e:
             logger.warning(f"Error parsing TSBK opcode {opcode:02X}: {e}")
-            result['type'] = 'PARSE_ERROR'
-            result['error'] = str(e)
-            result['data'] = data.hex()
-
-        return result
+            return ParseErrorMessage(
+                opcode=opcode,
+                opcode_name=self._opcode_name(opcode),
+                mfid=mfid,
+                message_type='PARSE_ERROR',
+                raw_data=data,
+                error=str(e),
+            )
 
     def _opcode_name(self, opcode: int) -> str:
         """Get human-readable opcode name."""
@@ -418,6 +795,219 @@ class TSBKParser:
                     "tx_offset_mhz",
                 )
             return
+
+    def _build_message(self, result: dict[str, Any], raw_data: bytes) -> TSBKMessage:
+        """Convert validated dict payload to a typed TSBKMessage."""
+        msg_type = result.get("type", "UNKNOWN")
+        opcode = int(result["opcode"])
+        opcode_name = str(result.get("opcode_name", ""))
+        mfid = int(result.get("mfid", 0))
+        common_args = dict(
+            opcode=opcode,
+            opcode_name=opcode_name,
+            mfid=mfid,
+            message_type=msg_type,
+            raw_data=raw_data,
+        )
+
+        if msg_type == "GROUP_VOICE_GRANT":
+            return GroupVoiceGrantMessage(
+                **common_args,
+                tgid=int(result["tgid"]),
+                source_id=int(result["source_id"]),
+                channel=int(result["channel"]),
+                frequency_band=int(result["frequency_band"]),
+                channel_number=int(result["channel_number"]),
+                frequency_hz=float(result.get("frequency_hz", 0.0)),
+                emergency=bool(result.get("emergency", False)),
+                encrypted=bool(result.get("encrypted", False)),
+                duplex=bool(result.get("duplex", False)),
+                priority=int(result.get("priority", 0)),
+            )
+
+        if msg_type == "GROUP_VOICE_GRANT_UPDATE":
+            grant1 = result.get("grant1") or {}
+            grant2 = result.get("grant2") or None
+            return GroupVoiceGrantUpdateMessage(
+                **common_args,
+                grant1=self._grant_from_dict(grant1, False),
+                grant2=self._grant_from_dict(grant2, False) if isinstance(grant2, dict) else None,
+            )
+
+        if msg_type == "GROUP_VOICE_GRANT_UPDATE_EXPLICIT":
+            return GroupVoiceGrantUpdateExplicitMessage(
+                **common_args,
+                downlink_channel=int(result["downlink_channel"]),
+                downlink_frequency_band=int(result["downlink_frequency_band"]),
+                downlink_channel_number=int(result["downlink_channel_number"]),
+                downlink_frequency_hz=float(result.get("downlink_frequency_hz", 0.0)),
+                uplink_channel=int(result["uplink_channel"]),
+                uplink_frequency_band=int(result["uplink_frequency_band"]),
+                uplink_channel_number=int(result["uplink_channel_number"]),
+                uplink_frequency_hz=float(result.get("uplink_frequency_hz", 0.0)),
+                tgid=int(result["tgid"]),
+                emergency=bool(result.get("emergency", False)),
+                encrypted=bool(result.get("encrypted", False)),
+                duplex=bool(result.get("duplex", False)),
+                priority=int(result.get("priority", 0)),
+            )
+
+        if msg_type == "UNIT_TO_UNIT_GRANT":
+            return UnitToUnitGrantMessage(
+                **common_args,
+                target_id=int(result["target_id"]),
+                source_id=int(result["source_id"]),
+                channel=int(result["channel"]),
+                frequency_band=int(result["frequency_band"]),
+                channel_number=int(result["channel_number"]),
+                frequency_hz=float(result.get("frequency_hz", 0.0)),
+            )
+
+        if msg_type == "UNIT_TO_UNIT_GRANT_UPDATE":
+            grant1 = self._grant_from_dict(result.get("grant1") or {}, True)
+            grant2_dict = result.get("grant2")
+            grant2 = self._grant_from_dict(grant2_dict, True) if isinstance(grant2_dict, dict) else None
+            return UnitToUnitGrantUpdateMessage(
+                **common_args,
+                grant1=grant1,
+                grant2=grant2,
+            )
+
+        if msg_type == "IDENTIFIER_UPDATE_VU":
+            return IdentifierUpdateVUMessage(
+                **common_args,
+                identifier=int(result["identifier"]),
+                bandwidth_khz=float(result["bandwidth_khz"]),
+                bandwidth_code=int(result["bandwidth_code"]),
+                tx_offset_sign=bool(result["tx_offset_sign"]),
+                tx_offset_hz=float(result["tx_offset_hz"]),
+                tx_offset_mhz=float(result["tx_offset_mhz"]),
+                channel_spacing_khz=float(result["channel_spacing_khz"]),
+                base_freq_mhz=float(result["base_freq_mhz"]),
+            )
+
+        if msg_type == "IDENTIFIER_UPDATE_TDMA":
+            return IdentifierUpdateTDMA(
+                **common_args,
+                identifier=int(result["identifier"]),
+                channel_type=int(result["channel_type"]),
+                access_type=str(result["access_type"]),
+                slot_count=int(result["slot_count"]),
+                tx_offset_sign=bool(result["tx_offset_sign"]),
+                tx_offset_hz=float(result["tx_offset_hz"]),
+                tx_offset_mhz=float(result["tx_offset_mhz"]),
+                channel_spacing_khz=float(result["channel_spacing_khz"]),
+                base_freq_mhz=float(result["base_freq_mhz"]),
+            )
+
+        if msg_type == "IDENTIFIER_UPDATE":
+            return IdentifierUpdateMessage(
+                **common_args,
+                identifier=int(result["identifier"]),
+                bandwidth_khz=float(result["bandwidth_khz"]),
+                bandwidth_code=int(result["bandwidth_code"]),
+                tx_offset_sign=bool(result["tx_offset_sign"]),
+                tx_offset_hz=float(result["tx_offset_hz"]),
+                tx_offset_mhz=float(result["tx_offset_mhz"]),
+                channel_spacing_khz=float(result["channel_spacing_khz"]),
+                base_freq_mhz=float(result["base_freq_mhz"]),
+            )
+
+        if msg_type == "SYSTEM_SERVICE":
+            return SystemServiceMessage(
+                **common_args,
+                services_available=int(result["services_available"]),
+                services_supported=int(result["services_supported"]),
+                composite_control=bool(result.get("composite_control", False)),
+                data_services=bool(result.get("data_services", False)),
+                voice_services=bool(result.get("voice_services", False)),
+                registration=bool(result.get("registration", False)),
+                authentication=bool(result.get("authentication", False)),
+            )
+
+        if msg_type == "GROUP_AFFILIATION_RESPONSE":
+            return GroupAffiliationResponseMessage(
+                **common_args,
+                response=int(result["response"]),
+                success=bool(result.get("success", False)),
+                tgid=int(result["tgid"]),
+                announcement_group=int(result["announcement_group"]),
+                target_id=int(result["target_id"]),
+            )
+
+        if msg_type == "DENY_RESPONSE":
+            return DenyResponseMessage(
+                **common_args,
+                service_type=int(result["service_type"]),
+                reason=int(result["reason"]),
+                reason_text=str(result["reason_text"]),
+                target_address=int(result["target_address"]),
+            )
+
+        if msg_type == "RFSS_STATUS":
+            return RFSSStatusMessage(
+                **common_args,
+                lra=int(result["lra"]),
+                active_network_connection=bool(result.get("active_network_connection", False)),
+                system_id=int(result["system_id"]),
+                rfss_id=int(result["rfss_id"]),
+                site_id=int(result["site_id"]),
+                channel=int(result["channel"]),
+                frequency_band=int(result["frequency_band"]),
+                channel_number=int(result["channel_number"]),
+                service_class=int(result["service_class"]),
+            )
+
+        if msg_type == "ADJACENT_STATUS":
+            return AdjacentStatusMessage(
+                **common_args,
+                lra=int(result["lra"]),
+                active_network_connection=bool(result.get("active_network_connection", False)),
+                system_id=int(result["system_id"]),
+                rfss_id=int(result["rfss_id"]),
+                site_id=int(result["site_id"]),
+                channel=int(result["channel"]),
+                frequency_band=int(result["frequency_band"]),
+                channel_number=int(result["channel_number"]),
+                service_class=int(result["service_class"]),
+            )
+
+        if msg_type == "NETWORK_STATUS":
+            return NetworkStatusMessage(
+                **common_args,
+                lra=int(result["lra"]),
+                wacn=int(result["wacn"]),
+                system_id=int(result["system_id"]),
+                channel=int(result["channel"]),
+                frequency_band=int(result["frequency_band"]),
+                channel_number=int(result["channel_number"]),
+                service_class=int(result["service_class"]),
+            )
+
+        if msg_type == "PARSE_ERROR":
+            return ParseErrorMessage(
+                **common_args,
+                error=str(result.get("error", "failed to parse message")),
+            )
+
+        # Fallback to opaque raw message
+        return OpaqueTSBKMessage(
+            **common_args,
+            data=raw_data,
+        )
+
+    def _grant_from_dict(self, grant: dict[str, Any], use_target: bool) -> ChannelGrant:
+        """Convert dict grant payloads to ChannelGrant dataclass."""
+        if not grant:
+            return ChannelGrant(channel=0, frequency_band=0, channel_number=0)
+        return ChannelGrant(
+            channel=int(grant.get("channel", 0)),
+            frequency_band=int(grant.get("frequency_band", 0)),
+            channel_number=int(grant.get("channel_number", 0)),
+            tgid=None if use_target else int(grant.get("tgid", 0)),
+            target_id=int(grant.get("target_id", 0)) if use_target else None,
+            frequency_hz=float(grant.get("frequency_hz", 0.0)) if grant.get("frequency_hz") is not None else None,
+        )
 
     def _parse_grp_v_ch_grant(self, data: bytes, result: dict[str, Any]) -> None:
         """Parse Group Voice Channel Grant.
@@ -1058,3 +1648,72 @@ class TSBKParser:
         result['target_address'] = target
 
         logger.info(f"Deny: {result['reason_text']} for target {target}")
+
+
+# ============================================================================
+# Encoder helpers
+# ============================================================================
+
+def _bytes_to_bits_be(data: Sequence[int]) -> list[int]:
+    """Convert bytes to MSB-first bit list."""
+    bits: list[int] = []
+    for byte in data:
+        for shift in range(7, -1, -1):
+            bits.append((int(byte) >> shift) & 0x1)
+    return bits
+
+
+def _compute_crc16_ccitt(bits: Sequence[int]) -> int:
+    """Compute CCITT-16 CRC across the first 80 bits of a TSBK frame."""
+    calculated = 0xFFFF
+    for i in range(min(80, len(bits))):
+        if bits[i]:
+            calculated ^= CCITT_80_CHECKSUMS[i]
+    return calculated & 0xFFFF
+
+
+def encode_control_frame(message: TSBKMessage, lb: int = 1, protect: int = 0) -> bytes:
+    """Encode a full 96-bit control frame (header + MFID + payload + CRC).
+
+    Args:
+        message: Typed message to encode. The payload is taken from payload_bytes().
+        lb: Last block bit (0 or 1).
+        protect: Protect flag bit (0 or 1).
+
+    Returns:
+        12-byte control frame suitable for dibit mapping (MSB-first).
+    """
+    payload = message.payload_bytes()
+    if len(payload) != 8:
+        raise ValueError(f"TSBK payload must be 8 bytes, got {len(payload)}")
+
+    header = ((lb & 0x1) << 7) | ((protect & 0x1) << 6) | (message.opcode & 0x3F)
+    frame = bytearray()
+    frame.append(header)
+    frame.append(message.mfid & 0xFF)
+    frame.extend(payload)
+
+    bits = _bytes_to_bits_be(frame)
+    crc = _compute_crc16_ccitt(bits)
+    frame.extend(crc.to_bytes(2, "big"))
+    return bytes(frame)
+
+
+def encode_voice_assignment(grant: GroupVoiceGrantMessage) -> bytes:
+    """Encode a group voice grant payload (8 bytes)."""
+    return grant.payload_bytes()
+
+
+def encode_voice_assignment_update(update: GroupVoiceGrantUpdateMessage | GroupVoiceGrantUpdateExplicitMessage) -> bytes:
+    """Encode a group voice grant update payload (8 bytes)."""
+    return update.payload_bytes()
+
+
+def encode_unit_assignment_update(update: UnitToUnitGrantUpdateMessage) -> bytes:
+    """Encode a unit-to-unit voice grant update payload (8 bytes)."""
+    return update.payload_bytes()
+
+
+def encode_affiliation_response(message: GroupAffiliationResponseMessage) -> bytes:
+    """Encode a group affiliation response payload (8 bytes)."""
+    return message.payload_bytes()
