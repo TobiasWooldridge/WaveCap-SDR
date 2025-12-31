@@ -94,6 +94,20 @@ def _first_text(elem: ElementTree.Element, tag_names: Iterable[str]) -> str:
     return ""
 
 
+def _local_name(tag: str) -> str:
+    if "}" in tag:
+        return tag.split("}", 1)[1]
+    return tag
+
+
+def _has_child_tag(elem: ElementTree.Element, tag_names: Iterable[str]) -> bool:
+    wanted = set(tag_names)
+    for child in list(elem):
+        if _local_name(child.tag) in wanted:
+            return True
+    return False
+
+
 def parse_talkgroups_response(xml_text: str) -> dict[int, RadioReferenceTalkgroup]:
     try:
         root = ElementTree.fromstring(xml_text)
@@ -106,7 +120,9 @@ def parse_talkgroups_response(xml_text: str) -> dict[int, RadioReferenceTalkgrou
         raise RadioReferenceError(fault_string)
 
     talkgroups: dict[int, RadioReferenceTalkgroup] = {}
-    for tg_elem in root.findall(".//{*}Talkgroup"):
+    for tg_elem in root.iter():
+        if not _has_child_tag(tg_elem, ["tgDec", "tgId"]):
+            continue
         tg_dec_text = _first_text(tg_elem, ["tgDec", "tgId"])
         if not tg_dec_text:
             continue

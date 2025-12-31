@@ -17,6 +17,7 @@ from wavecapsdr.decoders.p25_tsbk_encoders import (
 )
 from wavecapsdr.decoders.traffic_voice import (
     TrafficChannelGrant,
+    encode_explicit_voice_grant_pdu,
     encode_group_voice_grant_pdu,
 )
 from wavecapsdr.utils.packing import int_to_bits
@@ -276,6 +277,34 @@ def test_group_voice_grant_decodes_from_encoded_tsbk_block() -> None:
     assert parsed["channel"] == (grant.channel_id << 12) | grant.channel_number
 
 
+def test_group_voice_grant_update_explicit_decodes_from_encoded_tsbk_block() -> None:
+    grant = TrafficChannelGrant(
+        channel_id=0x4,
+        channel_number=0x456,
+        tgid=0x2222,
+        source_id=0x010203,
+        timeslot=0,
+        emergency=True,
+        encrypted=False,
+        duplex=True,
+        priority=5,
+    )
+    payload = encode_explicit_voice_grant_pdu(grant, uplink_channel=(0x7, 0x123))
+    dibits = _encode_tsbk_block(TSBKOpcode.GRP_V_CH_GRANT_UPDT_EXP, 0, payload)
+
+    blocks = extract_tsbk_blocks(dibits)
+    assert len(blocks) == 1
+    block = blocks[0]
+    assert block.crc_valid is True
+    assert block.opcode == TSBKOpcode.GRP_V_CH_GRANT_UPDT_EXP
+
+    parsed = TSBKParser().parse(block.opcode, block.mfid, block.data)
+    assert parsed["type"] == "GROUP_VOICE_GRANT_UPDATE_EXPLICIT"
+    assert parsed["tgid"] == grant.tgid
+    assert parsed["downlink_channel"] == (grant.channel_id << 12) | grant.channel_number
+    assert parsed["uplink_channel"] == (0x7 << 12) | 0x123
+
+
 def test_group_affiliation_response_decodes_from_encoded_tsbk_block() -> None:
     payload = encode_group_affiliation_response(
         response_code=1,
@@ -391,6 +420,32 @@ def test_iden_up_vu_decodes_from_encoded_tsbk_block() -> None:
     assert parsed["channel_spacing_khz"] == 12.5
     assert parsed["tx_offset_sign"] is True
     assert parsed["base_freq_mhz"] == pytest.approx(851.00625, rel=1e-6)
+
+
+def test_iden_up_decodes_from_encoded_tsbk_block() -> None:
+    payload = _encode_iden_up_vu_payload(
+        identifier=9,
+        bandwidth_code=0x3,
+        tx_offset_sign=False,
+        tx_offset_raw=80,
+        spacing_raw=200,
+        base_freq_mhz=762.125,
+    )
+    dibits = _encode_tsbk_block(TSBKOpcode.IDEN_UP, 0, payload)
+
+    blocks = extract_tsbk_blocks(dibits)
+    assert len(blocks) == 1
+    block = blocks[0]
+    assert block.crc_valid is True
+    assert block.opcode == TSBKOpcode.IDEN_UP
+
+    parsed = TSBKParser().parse(block.opcode, block.mfid, block.data)
+    assert parsed["type"] == "IDENTIFIER_UPDATE"
+    assert parsed["identifier"] == 9
+    assert parsed["bandwidth_code"] == 0x3
+    assert parsed["channel_spacing_khz"] == 25.0
+    assert parsed["tx_offset_sign"] is False
+    assert parsed["base_freq_mhz"] == pytest.approx(762.125, rel=1e-6)
 
 
 def test_rfss_status_decodes_from_encoded_tsbk_block() -> None:
