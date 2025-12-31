@@ -305,7 +305,7 @@ class TestAudioQualityMetrics:
         audio = np.array([0.0, 0.3, -0.8, 0.5, -0.2], dtype=np.float32)
 
         peak = np.max(np.abs(audio))
-        assert peak == 0.8
+        assert peak == pytest.approx(0.8)
 
     def test_crest_factor(self):
         """Calculate crest factor (peak/RMS ratio)."""
