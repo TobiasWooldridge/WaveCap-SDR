@@ -392,14 +392,6 @@ P25 trunking specifics:
 - **Harness shortcut**:
   - `python -m wavecapsdr.harness --message-spec ./fixtures/voice.yaml --out ./harness_out`
   - Outputs `message.bin` (concatenated frames) and `message.wav` (decoded audio or silence fallback); `--message-stream-ws` mirrors the CLI streaming option for end-to-end decode exercises.
-- **Flow (mermaid)**:
-```mermaid
-flowchart LR
-  spec(("Message spec (YAML/JSON)")) --> encoder(("CLI / Harness message encoder"))
-  encoder --> frames(("Encoded frames (.bin)"))
-  encoder --> audio(("PCM audio (.wav)"))
-  audio --> ws(("Optional PCM16 WebSocket stream"))
-```
 
 ## Hardware Support (initial)
 - RTL-SDR (via Soapy RTL driver) — enumerate, tune, stream IQ at common rates (250 kS/s–2.4 MS/s).
