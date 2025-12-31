@@ -2763,17 +2763,17 @@ async def stream_state(websocket: WebSocket) -> None:
     app_state: AppState = websocket.app.state.app_state
     broadcaster = get_broadcaster()
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
+    snapshot_event = asyncio.Event()
 
     def on_state_change(change: Any) -> None:
         try:
             queue.put_nowait(change.to_dict())
         except asyncio.QueueFull:
-            pass  # Drop if queue is full
+            snapshot_event.set()  # Trigger resync when queue overflows
 
     unsubscribe = broadcaster.subscribe(on_state_change)
 
-    try:
-        # Send initial full state snapshot
+    async def send_snapshot() -> None:
         tm = getattr(app_state, "trunking_manager", None)
         captures = [_to_capture_model(c, tm).model_dump() for c in app_state.captures.list_captures()]
         channels = [_to_channel_model(ch).model_dump() for ch in app_state.captures.list_channels()]
@@ -2781,7 +2781,6 @@ async def stream_state(websocket: WebSocket) -> None:
             _to_scanner_model(sid, s).model_dump()
             for sid, s in app_state.scanners.items()
         ]
-
         await websocket.send_json({
             "type": "snapshot",
             "captures": captures,
@@ -2789,14 +2788,37 @@ async def stream_state(websocket: WebSocket) -> None:
             "scanners": scanners,
         })
 
+    try:
+        # Send initial full state snapshot
+        await send_snapshot()
+
         # Then stream incremental changes with periodic keepalive
         while True:
-            try:
-                msg = await asyncio.wait_for(queue.get(), timeout=30.0)
-                await websocket.send_json(msg)
-            except asyncio.TimeoutError:
-                # Send keepalive ping
+            queue_task = asyncio.create_task(queue.get())
+            snapshot_task = asyncio.create_task(snapshot_event.wait())
+            done, pending = await asyncio.wait(
+                {queue_task, snapshot_task},
+                timeout=30.0,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            for task in pending:
+                task.cancel()
+
+            if not done:
                 await websocket.send_json({"type": "ping", "timestamp": time.time()})
+                continue
+
+            if snapshot_task in done:
+                snapshot_event.clear()
+                with contextlib.suppress(asyncio.QueueEmpty):
+                    while True:
+                        queue.get_nowait()
+                await send_snapshot()
+                continue
+
+            msg = queue_task.result()
+            await websocket.send_json(msg)
     except WebSocketDisconnect:
         logger.info("WebSocket /api/v1/stream/state disconnected")
     except asyncio.CancelledError:
