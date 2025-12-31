@@ -393,11 +393,20 @@ export type StateChangeAction =
   | "stopped";
 export type StateChangeType = "capture" | "channel" | "scanner";
 
+export type StateChangeData =
+  | Capture
+  | Channel
+  | Scanner
+  | Partial<Capture>
+  | Partial<Channel>
+  | Partial<Scanner>
+  | null;
+
 export interface StateChangeMessage {
   type: StateChangeType;
   action: StateChangeAction;
   id: string;
-  data: Capture | Channel | Scanner | null;
+  data: StateChangeData;
   timestamp: number;
 }
 

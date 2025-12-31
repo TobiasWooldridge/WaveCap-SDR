@@ -42,7 +42,7 @@ export function useStateWebSocket() {
           case "started":
           case "stopped":
             if (data) {
-              return old.map((c) => (c.id === id ? data : c));
+              return old.map((c) => (c.id === id ? { ...c, ...data } : c));
             }
             return old;
 
@@ -54,7 +54,7 @@ export function useStateWebSocket() {
         }
       });
     },
-    [queryClient]
+    [queryClient],
   );
 
   const updateChannelCache = useCallback(
@@ -63,13 +63,16 @@ export function useStateWebSocket() {
       // For deleted channels, we need to check all capture channel lists
       if (action === "deleted") {
         // Get all query keys matching ["channels", *]
-        const queries = queryClient.getQueriesData<Channel[]>({ queryKey: ["channels"] });
+        const queries = queryClient.getQueriesData<Channel[]>({
+          queryKey: ["channels"],
+        });
         for (const [key, channels] of queries) {
           if (channels && Array.isArray(channels)) {
             const captureId = key[1] as string;
             if (channels.some((ch) => ch.id === id)) {
-              queryClient.setQueryData<Channel[]>(["channels", captureId], (old) =>
-                old ? old.filter((ch) => ch.id !== id) : old
+              queryClient.setQueryData<Channel[]>(
+                ["channels", captureId],
+                (old) => (old ? old.filter((ch) => ch.id !== id) : old),
               );
             }
           }
@@ -96,14 +99,14 @@ export function useStateWebSocket() {
           case "updated":
           case "started":
           case "stopped":
-            return old.map((ch) => (ch.id === id ? data : ch));
+            return old.map((ch) => (ch.id === id ? { ...ch, ...data } : ch));
 
           default:
             return old;
         }
       });
     },
-    [queryClient]
+    [queryClient],
   );
 
   const updateScannerCache = useCallback(
@@ -122,7 +125,7 @@ export function useStateWebSocket() {
           case "started":
           case "stopped":
             if (data) {
-              return old.map((s) => (s.id === id ? data : s));
+              return old.map((s) => (s.id === id ? { ...s, ...data } : s));
             }
             return old;
 
@@ -134,62 +137,71 @@ export function useStateWebSocket() {
         }
       });
     },
-    [queryClient]
+    [queryClient],
   );
 
-  const handleStateChange = useCallback((message: StateChangeMessage) => {
-    const { type, action, id, data } = message;
-    console.log(`[StateWS] ${type}.${action}:`, id);
+  const handleStateChange = useCallback(
+    (message: StateChangeMessage) => {
+      const { type, action, id, data } = message;
+      console.log(`[StateWS] ${type}.${action}:`, id);
 
-    if (type === "capture") {
-      updateCaptureCache(action, id, data as Capture | null);
-    } else if (type === "channel") {
-      updateChannelCache(action, id, data as Channel | null);
-    } else if (type === "scanner") {
-      updateScannerCache(action, id, data as Scanner | null);
-    }
-  }, [updateCaptureCache, updateChannelCache, updateScannerCache]);
+      if (type === "capture") {
+        updateCaptureCache(action, id, data as Capture | null);
+      } else if (type === "channel") {
+        updateChannelCache(action, id, data as Channel | null);
+      } else if (type === "scanner") {
+        updateScannerCache(action, id, data as Scanner | null);
+      }
+    },
+    [updateCaptureCache, updateChannelCache, updateScannerCache],
+  );
 
-  const handleSnapshot = useCallback((message: StateSnapshotMessage) => {
-    console.log("[StateWS] Received snapshot:", {
-      captures: message.captures.length,
-      channels: message.channels.length,
-      scanners: message.scanners.length,
-    });
+  const handleSnapshot = useCallback(
+    (message: StateSnapshotMessage) => {
+      console.log("[StateWS] Received snapshot:", {
+        captures: message.captures.length,
+        channels: message.channels.length,
+        scanners: message.scanners.length,
+      });
 
-    // Update captures cache
-    queryClient.setQueryData<Capture[]>(["captures"], message.captures);
+      // Update captures cache
+      queryClient.setQueryData<Capture[]>(["captures"], message.captures);
 
-    // Update channels cache per capture
-    const channelsByCapture = new Map<string, Channel[]>();
-    for (const channel of message.channels) {
-      const existing = channelsByCapture.get(channel.captureId) || [];
-      existing.push(channel);
-      channelsByCapture.set(channel.captureId, existing);
-    }
-    for (const [captureId, channels] of channelsByCapture) {
-      queryClient.setQueryData<Channel[]>(["channels", captureId], channels);
-    }
+      // Update channels cache per capture
+      const channelsByCapture = new Map<string, Channel[]>();
+      for (const channel of message.channels) {
+        const existing = channelsByCapture.get(channel.captureId) || [];
+        existing.push(channel);
+        channelsByCapture.set(channel.captureId, existing);
+      }
+      for (const [captureId, channels] of channelsByCapture) {
+        queryClient.setQueryData<Channel[]>(["channels", captureId], channels);
+      }
 
-    // Update scanners cache
-    queryClient.setQueryData<Scanner[]>(["scanners"], message.scanners);
-  }, [queryClient]);
+      // Update scanners cache
+      queryClient.setQueryData<Scanner[]>(["scanners"], message.scanners);
+    },
+    [queryClient],
+  );
 
-  const handleMessage = useCallback((message: StateMessage) => {
-    if (message.type === "ping") {
-      // Keepalive - no action needed
-      return;
-    }
+  const handleMessage = useCallback(
+    (message: StateMessage) => {
+      if (message.type === "ping") {
+        // Keepalive - no action needed
+        return;
+      }
 
-    if (message.type === "snapshot") {
-      // Full state snapshot - replace all cached data
-      handleSnapshot(message);
-      return;
-    }
+      if (message.type === "snapshot") {
+        // Full state snapshot - replace all cached data
+        handleSnapshot(message);
+        return;
+      }
 
-    // Incremental state change
-    handleStateChange(message);
-  }, [handleSnapshot, handleStateChange]);
+      // Incremental state change
+      handleStateChange(message);
+    },
+    [handleSnapshot, handleStateChange],
+  );
 
   const connect = useCallback(() => {
     if (!mountedRef.current || !shouldReconnectRef.current) return;
@@ -251,9 +263,14 @@ export function useStateWebSocket() {
 
       // Attempt reconnection with exponential backoff
       if (reconnectAttempts.current < maxReconnectAttempts) {
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
+        const delay = Math.min(
+          1000 * Math.pow(2, reconnectAttempts.current),
+          30000,
+        );
         reconnectAttempts.current++;
-        console.log(`[StateWS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current})`);
+        console.log(
+          `[StateWS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts.current})`,
+        );
         reconnectTimeoutRef.current = window.setTimeout(connect, delay);
       } else {
         console.error("[StateWS] Max reconnection attempts reached");

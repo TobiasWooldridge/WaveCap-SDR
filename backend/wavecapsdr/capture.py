@@ -1935,6 +1935,20 @@ class Capture:
     def remove_channel(self, chan_id: str) -> None:
         self._channels.pop(chan_id, None)
 
+    def _emit_state_change(self, action: str) -> None:
+        """Notify subscribers of a capture state transition."""
+        from .state_broadcaster import get_broadcaster
+
+        get_broadcaster().emit_capture_change(
+            action,
+            self.cfg.id,
+            {
+                "id": self.cfg.id,
+                "state": self.state,
+                "errorMessage": self.error_message,
+            },
+        )
+
     def _cancel_retry_timer(self) -> None:
         """Cancel any pending retry timer."""
         if self._retry_timer is not None:
@@ -1953,6 +1967,7 @@ class Capture:
                 flush=True
             )
             self.state = "failed"
+            self._emit_state_change("updated")
             return
 
         print(
@@ -1985,6 +2000,7 @@ class Capture:
                         self.state = "failed"
                         if not self.error_message:
                             self.error_message = "Capture thread died unexpectedly"
+                        self._emit_state_change("updated")
                         if self._auto_restart_enabled:
                             self._schedule_restart()
                     continue
@@ -2029,6 +2045,7 @@ class Capture:
                                 f"Startup timeout: device initialization hung for {elapsed:.0f}s. "
                                 "Check device connection and ensure no other application is using it."
                             )
+                    self._emit_state_change("updated")
                     self._startup_time = 0.0  # Reset to prevent repeated triggers
                     continue  # Skip IQ watchdog check
 
@@ -2085,6 +2102,7 @@ class Capture:
                     # Manual restart of the service/WaveCap is more reliable.
                     self.state = "failed"
                     self.error_message = f"No IQ samples received for {now - self._last_iq_time:.0f}s"
+                    self._emit_state_change("updated")
                     self._last_iq_time = now  # Reset to avoid log spam
                     self._stop_event.set()
                     if self._stream is not None:
@@ -2117,6 +2135,7 @@ class Capture:
 
         self.state = "starting"
         self.error_message = None
+        self._emit_state_change("updated")
         self._startup_time = time.time()  # Record startup time for watchdog
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._run_thread, name=f"Capture-{self.cfg.id}", daemon=True)
@@ -2138,6 +2157,7 @@ class Capture:
         self._cancel_retry_timer()
 
         self.state = "stopping"
+        self._emit_state_change("updated")
         self._stop_event.set()
 
         # Close stream early to unblock reads
@@ -2165,6 +2185,7 @@ class Capture:
         # for the lifetime of the Capture. We only close the stream.
         # The device will be closed when the Capture is deleted.
         self.state = "stopped"
+        self._emit_state_change("stopped")
 
         # Keep auto-restart disabled - manual restart is more reliable
         # self._auto_restart_enabled = True
@@ -2869,6 +2890,7 @@ class Capture:
             self._stream = _configure_and_start()
             # Successfully started!
             self.state = "running"
+            self._emit_state_change("started")
             self._startup_time = 0.0  # Clear startup time - we're running now
             self._retry_count = 0  # Reset retry counter on success
             # Reset overflow counters on fresh start
@@ -2883,6 +2905,7 @@ class Capture:
             if isinstance(e, SDRplayServiceError):
                 self.error_message = str(e)
                 self.state = "failed"
+                self._emit_state_change("updated")
                 print(f"[ERROR] Capture {self.cfg.id} SDRplay service error: {e}", flush=True)
                 # Invalidate caches so stale devices aren't shown
                 invalidate_sdrplay_caches()
@@ -2894,6 +2917,7 @@ class Capture:
             if isinstance(e, SoapyTimeoutError):
                 self.error_message = str(e)
                 self.state = "failed"
+                self._emit_state_change("updated")
                 print(f"[ERROR] Capture {self.cfg.id} device timeout: {e}", flush=True)
                 # Invalidate caches to trigger fresh enumeration
                 if "sdrplay" in str(self.cfg.device_id or "").lower():
@@ -2952,6 +2976,7 @@ class Capture:
                 if not self._stop_event.is_set():
                     self.state = "failed"
                     self.error_message = f"Stream read failed: {e}"
+                    self._emit_state_change("updated")
                 break
             if samples.size == 0:
                 # Light backoff to avoid busy-spin

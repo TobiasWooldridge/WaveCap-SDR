@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import logging.handlers
 import inspect
@@ -182,6 +183,10 @@ def create_app(config: AppConfig, config_path: str | None = None) -> FastAPI:
         cleanup_orphan_sdrplay_workers()
 
         app_state: AppState = app.state.app_state
+
+        # Ensure state broadcaster can safely marshal updates from worker threads.
+        from .state_broadcaster import get_broadcaster
+        get_broadcaster().set_event_loop(asyncio.get_running_loop())
 
         # Start P25 trunking manager (already created in AppState.from_config)
         await app_state.trunking_manager.start()
