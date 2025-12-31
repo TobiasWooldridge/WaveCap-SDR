@@ -305,6 +305,98 @@ def test_group_voice_grant_update_explicit_decodes_from_encoded_tsbk_block() -> 
     assert parsed["uplink_channel"] == (0x7 << 12) | 0x123
 
 
+def _encode_group_voice_grant_update_payload(
+    *,
+    grant1_band: int,
+    grant1_channel: int,
+    grant1_tgid: int,
+    grant2_band: int,
+    grant2_channel: int,
+    grant2_tgid: int,
+) -> bytes:
+    data = bytearray(8)
+    data[0] = ((grant1_band & 0x0F) << 4) | ((grant1_channel >> 8) & 0x0F)
+    data[1] = grant1_channel & 0xFF
+    data[2] = (grant1_tgid >> 8) & 0xFF
+    data[3] = grant1_tgid & 0xFF
+    data[4] = ((grant2_band & 0x0F) << 4) | ((grant2_channel >> 8) & 0x0F)
+    data[5] = grant2_channel & 0xFF
+    data[6] = (grant2_tgid >> 8) & 0xFF
+    data[7] = grant2_tgid & 0xFF
+    return bytes(data)
+
+
+def _encode_uu_voice_grant_update_payload(
+    *,
+    grant1_band: int,
+    grant1_channel: int,
+    grant1_target: int,
+    grant2_band: int,
+    grant2_channel: int,
+    grant2_target: int,
+) -> bytes:
+    data = bytearray(8)
+    data[0] = ((grant1_band & 0x0F) << 4) | ((grant1_channel >> 8) & 0x0F)
+    data[1] = grant1_channel & 0xFF
+    data[2] = (grant1_target >> 16) & 0xFF
+    data[3] = (grant1_target >> 8) & 0xFF
+    data[4] = grant1_target & 0xFF
+    data[5] = ((grant2_band & 0x0F) << 4) | ((grant2_channel >> 8) & 0x0F)
+    data[6] = grant2_channel & 0xFF
+    data[7] = grant2_target & 0xFF
+    return bytes(data)
+
+
+def test_group_voice_grant_update_decodes_from_encoded_tsbk_block() -> None:
+    payload = _encode_group_voice_grant_update_payload(
+        grant1_band=0x2,
+        grant1_channel=0x345,
+        grant1_tgid=0x1111,
+        grant2_band=0x4,
+        grant2_channel=0x222,
+        grant2_tgid=0x3333,
+    )
+    dibits = _encode_tsbk_block(TSBKOpcode.GRP_V_CH_GRANT_UPDT, 0, payload)
+
+    blocks = extract_tsbk_blocks(dibits)
+    assert len(blocks) == 1
+    block = blocks[0]
+    assert block.crc_valid is True
+    assert block.opcode == TSBKOpcode.GRP_V_CH_GRANT_UPDT
+
+    parsed = TSBKParser().parse(block.opcode, block.mfid, block.data)
+    assert parsed["type"] == "GROUP_VOICE_GRANT_UPDATE"
+    assert parsed["grant1"]["channel"] == (0x2 << 12) | 0x345
+    assert parsed["grant1"]["tgid"] == 0x1111
+    assert parsed["grant2"]["channel"] == (0x4 << 12) | 0x222
+    assert parsed["grant2"]["tgid"] == 0x3333
+
+
+def test_unit_to_unit_grant_update_decodes_from_encoded_tsbk_block() -> None:
+    payload = _encode_uu_voice_grant_update_payload(
+        grant1_band=0x1,
+        grant1_channel=0x234,
+        grant1_target=0x00A1B2,
+        grant2_band=0x5,
+        grant2_channel=0x123,
+        grant2_target=0x7F,
+    )
+    dibits = _encode_tsbk_block(TSBKOpcode.UU_V_CH_GRANT_UPDT, 0, payload)
+
+    blocks = extract_tsbk_blocks(dibits)
+    assert len(blocks) == 1
+    block = blocks[0]
+    assert block.crc_valid is True
+    assert block.opcode == TSBKOpcode.UU_V_CH_GRANT_UPDT
+
+    parsed = TSBKParser().parse(block.opcode, block.mfid, block.data)
+    assert parsed["type"] == "UNIT_TO_UNIT_GRANT_UPDATE"
+    assert parsed["grant1"]["channel"] == (0x1 << 12) | 0x234
+    assert parsed["grant1"]["target_id"] == 0x00A1B2
+    assert parsed["grant2"]["channel"] == (0x5 << 12) | 0x123
+    assert parsed["grant2"]["target_id"] == 0x7F
+
+
 def test_group_affiliation_response_decodes_from_encoded_tsbk_block() -> None:
     payload = encode_group_affiliation_response(
         response_code=1,
@@ -571,6 +663,29 @@ def test_deny_response_decodes_from_encoded_tsbk_block() -> None:
     assert parsed["target_address"] == 0x123456
 
 
+@pytest.mark.parametrize(
+    ("reason", "expected_text"),
+    [
+        (0x11, "Unit not authorized"),
+        (0x2F, "Unit busy"),
+        (0x40, "Site access denied"),
+        (0x99, "Unknown (0x99)"),
+    ],
+)
+def test_deny_response_reason_texts(reason: int, expected_text: str) -> None:
+    payload = _encode_deny_response_payload(
+        service_type=0x01,
+        reason=reason,
+        target_address=0x00A0B0,
+    )
+    dibits = _encode_tsbk_block(TSBKOpcode.DENY_RSP, 0, payload)
+
+    block = extract_tsbk_blocks(dibits)[0]
+    parsed = TSBKParser().parse(block.opcode, block.mfid, block.data)
+    assert parsed["type"] == "DENY_RESPONSE"
+    assert parsed["reason_text"] == expected_text
+
+
 def test_adjacent_status_decodes_from_encoded_tsbk_block() -> None:
     payload = _encode_adjacent_status_payload(
         lra=0x10,
@@ -627,3 +742,60 @@ def test_iden_up_tdma_decodes_from_encoded_tsbk_block() -> None:
     assert parsed["channel_spacing_khz"] == 25.0
     assert parsed["tx_offset_sign"] is False
     assert parsed["base_freq_mhz"] == pytest.approx(762.0, rel=1e-6)
+
+
+def test_iden_up_tdma_min_spacing_negative_offset() -> None:
+    payload = _encode_iden_up_tdma_payload(
+        identifier=1,
+        channel_type=0x02,
+        tx_offset_sign=False,
+        tx_offset_raw=1,
+        spacing_raw=1,
+        base_freq_mhz=851.0125,
+    )
+    dibits = _encode_tsbk_block(TSBKOpcode.IDEN_UP_TDMA, 0, payload)
+
+    block = extract_tsbk_blocks(dibits)[0]
+    parsed = TSBKParser().parse(block.opcode, block.mfid, block.data)
+    assert parsed["type"] == "IDENTIFIER_UPDATE_TDMA"
+    assert parsed["channel_spacing_khz"] == pytest.approx(0.125, rel=1e-6)
+    assert parsed["tx_offset_sign"] is False
+    assert parsed["tx_offset_mhz"] == pytest.approx(-0.000125, rel=1e-6)
+
+
+def test_iden_up_tdma_max_spacing_positive_offset() -> None:
+    payload = _encode_iden_up_tdma_payload(
+        identifier=2,
+        channel_type=0x03,
+        tx_offset_sign=True,
+        tx_offset_raw=7000,
+        spacing_raw=0x3FF,
+        base_freq_mhz=774.0000,
+    )
+    dibits = _encode_tsbk_block(TSBKOpcode.IDEN_UP_TDMA, 0, payload)
+
+    block = extract_tsbk_blocks(dibits)[0]
+    parsed = TSBKParser().parse(block.opcode, block.mfid, block.data)
+    assert parsed["type"] == "IDENTIFIER_UPDATE_TDMA"
+    assert parsed["channel_spacing_khz"] == pytest.approx(127.875, rel=1e-6)
+    assert parsed["tx_offset_sign"] is True
+    assert parsed["tx_offset_mhz"] == pytest.approx(895.125, rel=1e-6)
+    assert parsed["slot_count"] == 4
+
+
+@pytest.mark.parametrize(
+    ("opcode", "expected_type"),
+    [
+        (TSBKOpcode.ACK_RSP, "ACKNOWLEDGE_RESPONSE"),
+        (TSBKOpcode.QUE_RSP, "QUEUED_RESPONSE"),
+        (TSBKOpcode.EXT_FNCT_CMD, "EXTENDED_FUNCTION_COMMAND"),
+    ],
+)
+def test_control_response_opcodes_preserve_payload(opcode: TSBKOpcode, expected_type: str) -> None:
+    payload = bytes([0x10, 0x20, 0x30, 0x40, 0x55, 0x66, 0x77, 0x88])
+    dibits = _encode_tsbk_block(opcode, 0, payload)
+
+    block = extract_tsbk_blocks(dibits)[0]
+    parsed = TSBKParser().parse(block.opcode, block.mfid, block.data)
+    assert parsed["type"] == expected_type
+    assert parsed["data"] == payload.hex()
