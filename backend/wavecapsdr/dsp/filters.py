@@ -16,12 +16,16 @@ Numba-accelerated FIR filters provide 3-5x speedup for streaming decimation.
 from __future__ import annotations
 
 import logging
+import os
 from functools import lru_cache
 from typing import cast
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+# Force a threadsafe threading layer to avoid workqueue concurrency errors
+os.environ.setdefault("NUMBA_THREADING_LAYER", "omp")
 
 # Try to import numba for accelerated FIR filtering
 try:
@@ -616,6 +620,7 @@ def fir_decimate(
     taps: np.ndarray,
     decim_factor: int,
     zi: np.ndarray | None = None,
+    use_parallel: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Apply FIR filter and decimate in one step.
 
@@ -639,7 +644,7 @@ def fir_decimate(
         ...     y, zi = fir_decimate(chunk, taps, 30, zi)
     """
     # Filter first
-    filtered, new_zi = fir_filter_complex(x, taps, zi)
+    filtered, new_zi = fir_filter_complex(x, taps, zi, use_parallel=use_parallel)
 
     # Then decimate
     decimated = filtered[::decim_factor]

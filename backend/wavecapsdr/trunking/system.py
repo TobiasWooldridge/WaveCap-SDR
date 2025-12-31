@@ -1683,7 +1683,7 @@ class TrunkingSystem:
                         filter_state["stage1_zi"] = stage1_zi_template * centered_iq[0]
                     # Use Numba-accelerated filter + decimate in one pass
                     decimated1, filter_state["stage1_zi"] = fir_decimate(
-                        centered_iq, stage1_taps, stage1_factor, zi=filter_state["stage1_zi"]
+                        centered_iq, stage1_taps, stage1_factor, zi=filter_state["stage1_zi"], use_parallel=False
                     )
 
                 decimated_iq = decimated1
@@ -1695,7 +1695,7 @@ class TrunkingSystem:
                             filter_state["stage2_zi"] = stage2_zi_template * decimated1[0]
                         # Use Numba-accelerated filter + decimate in one pass
                         decimated2, filter_state["stage2_zi"] = fir_decimate(
-                            decimated1, stage2_taps, stage2_factor, zi=filter_state["stage2_zi"]
+                            decimated1, stage2_taps, stage2_factor, zi=filter_state["stage2_zi"], use_parallel=False
                         )
                     # No Stage 3 - stay at 50 kHz (tested: 90.7% CRC pass rate)
                     decimated_iq = decimated2

@@ -1,8 +1,21 @@
-# Hot reload: POST /api/v1/config/reload (Bearer token) to apply changes without restarting
 captures: []
 device:
   driver: soapy
-device_names: {}
+  device_args: driver=rtlsdr
+device_names:
+  'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog V4,serial=00000001': RTL-SDR
+    Blog V4
+  ? 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
+    V4,serial=00000001,tuner=Rafael Micro R828D'
+  : RTLSDR
+  driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240305E670,serial=240305E670: RSPdx-R2
+    E670
+  driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070: RSPdx-R2
+    F070
+  driver=sdrplay,label=SDRplay Dev1 RSPdx-R2 240305E670,serial=240305E670: RSPdx-R2
+    E670
+  driver=sdrplay,serial=240305E670: RSPdx-R2 E670
+  driver=sdrplay,serial=240309F070: RSPdx-R2 F070
 limits:
   max_concurrent_captures: 2
   max_channels_per_capture: 8
@@ -585,7 +598,7 @@ trunking:
   systems:
     sa_grn_2:
       antenna: Antenna B
-      auto_start: true
+      auto_start: false
       bandwidth: 5000000
       center_hz: 414.95 MHz
       control_channel_timeout: 5
@@ -641,6 +654,122 @@ trunking:
       protocol: p25_phase1
       record_unknown: true
       recording_path: ./recordings/sa_grn_2
+      squelch_db: -60
+      system_id: 988
+      wacn: 781056
+      talkgroups_file: talkgroups/sa_grn.yaml
+      default_hunt_mode: scan_once
+    sa_grn_rtl:
+      antenna: RX
+      auto_start: true
+      bandwidth: 2000000
+      center_hz: 413.3125 MHz
+      control_channel_timeout: 5
+      control_channels:
+      - frequency: 412.4875 MHz
+        name: New Royal Adelaide Hospital
+      - frequency: 413.225 MHz
+        name: Cherry Gardens
+      - frequency: 413.3125 MHz
+        name: Adelaide Main
+      - frequency: 413.35 MHz
+        name: Hackham West
+      channel_identifiers:
+        0:
+          base_freq_mhz: 412.475
+          channel_spacing_khz: 12.5
+          bandwidth_khz: 12.5
+          tx_offset_mhz: 0.0
+        1:
+          base_freq_mhz: 415.125
+          channel_spacing_khz: 12.5
+          bandwidth_khz: 12.5
+          tx_offset_mhz: 0.0
+        2:
+          base_freq_mhz: 420.0125
+          channel_spacing_khz: 6.25
+          bandwidth_khz: 12.5
+          tx_offset_mhz: 5.2
+        3:
+          base_freq_mhz: 467.5
+          channel_spacing_khz: 6.25
+          bandwidth_khz: 12.5
+          tx_offset_mhz: -10.0
+      device_id: "driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog V4,serial=00000001"
+      gain: 35.0
+      agc_enabled: false
+      sample_rate: 2400000
+      id: sa_grn_rtl
+      max_voice_recorders: 2
+      min_call_duration: 1.0
+      modulation: lsm
+      name: SA GRN Radio (RTL-SDR)
+      protocol: p25_phase1
+      record_unknown: true
+      recording_path: ./recordings/sa_grn_rtl
+      squelch_db: -60
+      system_id: 988
+      wacn: 781056
+      talkgroups_file: talkgroups/sa_grn.yaml
+      default_hunt_mode: scan_once
+    sa_grn_sdrplay_b:
+      antenna: Antenna B
+      auto_start: true
+      bandwidth: 5000000
+      center_hz: 414.95 MHz
+      control_channel_timeout: 5
+      control_channels:
+      - frequency: 412.4875 MHz
+        name: New Royal Adelaide Hospital
+      - frequency: 413.225 MHz
+        name: Cherry Gardens
+      - frequency: 413.3125 MHz
+        name: Adelaide Main
+      - frequency: 413.35 MHz
+        name: Hackham West
+      - frequency: 414.5875 MHz
+        name: Banksia Park - Tea Tree Gully
+      - frequency: 414.6875 MHz
+        name: Pt Adelaide
+      - frequency: 414.7625 MHz
+        name: Mt Lofty
+      - frequency: 415.8375 MHz
+        name: Banksia Park (Alt)
+      - frequency: 417.6875 MHz
+        name: Pt Adelaide (Alt)
+      channel_identifiers:
+        0:
+          base_freq_mhz: 412.475
+          channel_spacing_khz: 12.5
+          bandwidth_khz: 12.5
+          tx_offset_mhz: 0.0
+        1:
+          base_freq_mhz: 415.125
+          channel_spacing_khz: 12.5
+          bandwidth_khz: 12.5
+          tx_offset_mhz: 0.0
+        2:
+          base_freq_mhz: 420.0125
+          channel_spacing_khz: 6.25
+          bandwidth_khz: 12.5
+          tx_offset_mhz: 5.2
+        3:
+          base_freq_mhz: 467.5
+          channel_spacing_khz: 6.25
+          bandwidth_khz: 12.5
+          tx_offset_mhz: -10.0
+      device_id: "driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240305E670,serial=240305E670"
+      gain: 22.0
+      agc_enabled: false
+      sample_rate: 5500000
+      id: sa_grn_sdrplay_b
+      max_voice_recorders: 2
+      min_call_duration: 1.0
+      modulation: lsm
+      name: SA GRN Radio (SDRplay E670 Ant B)
+      protocol: p25_phase1
+      record_unknown: true
+      recording_path: ./recordings/sa_grn_sdrplay_b
       squelch_db: -60
       system_id: 988
       wacn: 781056
