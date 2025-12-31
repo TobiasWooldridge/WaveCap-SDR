@@ -170,6 +170,14 @@ class SDRplayProxyStream(StreamHandle):
                 )
             return np.empty(0, dtype=np.complex64), False
         buf = self.shm.buf
+        if buf is None:
+            self._buf_none_count = getattr(self, "_buf_none_count", 0) + 1
+            if self._buf_none_count <= 5 or self._buf_none_count % 5000 == 0:
+                logger.warning(
+                    f"SDRplayProxyStream.read()[{self._debug_counter}]: "
+                    f"shared memory buffer unavailable (count={self._buf_none_count})"
+                )
+            return np.empty(0, dtype=np.complex64), False
         self._buf_none_count = 0  # Reset counter on successful read
 
         write_idx, _, sample_count, _overflow_count, sample_rate, flags, _timestamp = header

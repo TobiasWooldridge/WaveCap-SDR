@@ -189,6 +189,8 @@ def _read_header(shm: SharedMemory) -> tuple[int, int, int, int, int, int, float
     Returns: (write_idx, read_idx, sample_count, overflow_count, sample_rate, flags, timestamp)
              or None if the shared memory buffer is not available
     """
+    if shm.buf is None:
+        return None
     try:
         header = bytes(shm.buf[:HEADER_SIZE])
         return struct.unpack(HEADER_FORMAT, header)
