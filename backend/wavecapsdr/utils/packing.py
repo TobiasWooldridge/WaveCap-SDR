@@ -1,7 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Mapping, Sequence
+from typing import Iterable, Mapping, Sequence, TYPE_CHECKING, TypeAlias
+
+if TYPE_CHECKING:
+    import numpy as np
+
+    BitBuffer: TypeAlias = Sequence[int] | bytes | bytearray | np.ndarray
+else:
+    BitBuffer = Sequence[int] | bytes | bytearray
 
 
 @dataclass(frozen=True)
@@ -33,7 +40,10 @@ class BitFieldSpec:
             int_value = int(value)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"{self.name} is not an int-like value") from exc
-        if int_value < self.min_value or int_value > int(self.max_value):
+        max_value = self.max_value
+        if max_value is None:
+            raise ValueError(f"{self.name} max_value not initialized")
+        if int_value < self.min_value or int_value > int(max_value):
             raise ValueError(
                 f"{self.name} out of range {self.min_value}-{self.max_value} "
                 f"(got {int_value})"
@@ -50,7 +60,7 @@ def int_to_bits(value: int, width: int) -> list[int]:
     return [(value >> (width - 1 - i)) & 1 for i in range(width)]
 
 
-def bits_to_int(bits: Sequence[int], start: int, length: int) -> int:
+def bits_to_int(bits: BitBuffer, start: int, length: int) -> int:
     """Extract an integer from a bit sequence."""
     if length <= 0:
         raise ValueError("length must be positive")
@@ -189,7 +199,7 @@ def insert_crc16(
 
 
 def unpack_bit_fields(
-    bit_buffer: Sequence[int] | bytes | bytearray,
+    bit_buffer: BitBuffer,
     fields: Sequence[BitFieldSpec],
     *,
     offset: int = 0,
@@ -226,7 +236,7 @@ def _crc16_ccitt(
     return crc & 0xFFFF
 
 
-def _coerce_bits(bit_buffer: Sequence[int] | bytes | bytearray) -> list[int]:
+def _coerce_bits(bit_buffer: BitBuffer) -> list[int]:
     """Ensure we operate on a list of bits."""
     if isinstance(bit_buffer, (bytes, bytearray)):
         return bytes_to_bits(bit_buffer)
