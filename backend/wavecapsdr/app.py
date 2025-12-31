@@ -23,6 +23,7 @@ from .device_namer import generate_capture_name, get_device_nickname
 from .mcp_server import router as mcp_router
 from .state import AppState
 from .trunking.api import router as trunking_router
+from .utils.log_sampling import LogSamplingFilter, LogSamplingRule
 
 # Work around slowapi using deprecated asyncio.iscoroutinefunction on Python 3.14+.
 slowapi_asyncio = cast(Any, getattr(slowapi_extension, "asyncio", None))
