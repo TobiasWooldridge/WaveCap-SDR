@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCaptures } from "./useCaptures";
 import { useDevices } from "./useDevices";
 import { useTrunkingSystems } from "./useTrunking";
@@ -93,7 +93,39 @@ export function useSelectedRadio() {
   const { data: trunkingSystems, isLoading: trunkingLoading } =
     useTrunkingSystems();
 
+  const [stableTrunkingSystems, setStableTrunkingSystems] = useState<
+    TrunkingSystem[]
+  >([]);
+  const lastNonEmptyTrunkingAt = useRef<number | null>(null);
+  const trunkingGraceMs = 5000;
+
   const isLoading = capturesLoading || devicesLoading || trunkingLoading;
+
+  useEffect(() => {
+    if (!trunkingSystems) return;
+    if (trunkingSystems.length > 0) {
+      setStableTrunkingSystems(trunkingSystems);
+      lastNonEmptyTrunkingAt.current = Date.now();
+      return;
+    }
+    if (stableTrunkingSystems.length === 0) {
+      lastNonEmptyTrunkingAt.current = null;
+    }
+  }, [trunkingSystems, stableTrunkingSystems.length]);
+
+  const trunkingSystemsForTabs = useMemo(() => {
+    if (trunkingSystems && trunkingSystems.length > 0) {
+      return trunkingSystems;
+    }
+    if (stableTrunkingSystems.length === 0) {
+      return trunkingSystems ?? stableTrunkingSystems;
+    }
+    const lastNonEmpty = lastNonEmptyTrunkingAt.current;
+    if (lastNonEmpty && Date.now() - lastNonEmpty <= trunkingGraceMs) {
+      return stableTrunkingSystems;
+    }
+    return trunkingSystems ?? stableTrunkingSystems;
+  }, [trunkingSystems, stableTrunkingSystems]);
 
   // =========================================================================
   // Build device tabs (Level 1)
@@ -159,8 +191,8 @@ export function useSelectedRadio() {
     }
 
     // Second pass: add/update devices from trunking systems
-    if (trunkingSystems) {
-      for (const system of trunkingSystems) {
+    if (trunkingSystemsForTabs) {
+      for (const system of trunkingSystemsForTabs) {
         if (!system.deviceId) continue;
         const stableDeviceId = getStableDeviceId(system.deviceId);
 
@@ -214,7 +246,7 @@ export function useSelectedRadio() {
     return Array.from(deviceMap.values()).sort((a, b) => {
       return a.deviceName.localeCompare(b.deviceName);
     });
-  }, [captures, devices, trunkingSystems]);
+  }, [captures, devices, trunkingSystemsForTabs]);
 
   // =========================================================================
   // Device Selection (Level 1)
@@ -451,8 +483,8 @@ export function useSelectedRadio() {
       }
     }
 
-    if (trunkingSystems) {
-      for (const system of trunkingSystems) {
+    if (trunkingSystemsForTabs) {
+      for (const system of trunkingSystemsForTabs) {
         const stableDeviceId = system.deviceId
           ? getStableDeviceId(system.deviceId)
           : "";
@@ -476,7 +508,7 @@ export function useSelectedRadio() {
     }
 
     return result;
-  }, [captures, devices, trunkingSystems]);
+  }, [captures, devices, trunkingSystemsForTabs]);
 
   // Legacy: selectTab (converts to selectDevice + setViewMode)
   const selectTab = useCallback(
