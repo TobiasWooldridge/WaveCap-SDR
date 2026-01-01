@@ -233,9 +233,11 @@ def decimate_iq_for_p25(iq: NDArrayComplex, sample_rate: int) -> tuple[NDArrayCo
         # Debug: log before/after magnitudes periodically
         global _decimate_debug_count
         _decimate_debug_count += 1
-        _debug = _decimate_debug_count <= 10 or _decimate_debug_count % 100 == 0
+        _debug = logger.isEnabledFor(logging.DEBUG) and (
+            _decimate_debug_count <= 10 or _decimate_debug_count % 100 == 0
+        )
 
-        before_mean = np.mean(np.abs(iq)) if _debug else 0
+        before_mean = np.mean(np.abs(iq)) if _debug else 0.0
 
         # Find rational approximation for resampling ratio
         # up/down where output_rate = sample_rate * up / down
@@ -259,13 +261,12 @@ def decimate_iq_for_p25(iq: NDArrayComplex, sample_rate: int) -> tuple[NDArrayCo
             if _debug:
                 after_mean = np.mean(np.abs(result))
                 ratio = before_mean / after_mean if after_mean > 1e-10 else 0
-                print(
-                    f"[DECIM] #{_decimate_debug_count}: "
-                    f"before={before_mean:.4f}, after={after_mean:.4f}, "
-                    f"ratio={ratio:.1f}x, decim={decim_factor}x (simple), "
-                    f"output_rate={output_rate}",
-                    flush=True,
-                )
+            logger.debug(
+                f"[DECIM] #{_decimate_debug_count}: "
+                f"before={before_mean:.4f}, after={after_mean:.4f}, "
+                f"ratio={ratio:.1f}x, decim={decim_factor}x (simple), "
+                f"output_rate={output_rate}"
+            )
             return result, output_rate
 
         # Use resample_poly for proper anti-aliasing resampling
@@ -279,12 +280,11 @@ def decimate_iq_for_p25(iq: NDArrayComplex, sample_rate: int) -> tuple[NDArrayCo
         if _debug:
             after_mean = np.mean(np.abs(result))
             ratio = before_mean / after_mean if after_mean > 1e-10 else 0
-            print(
+            logger.debug(
                 f"[DECIM] #{_decimate_debug_count}: "
                 f"before={before_mean:.4f}, after={after_mean:.4f}, "
                 f"ratio={ratio:.1f}x, resample={up}/{down}, "
-                f"output_rate={output_rate}",
-                flush=True,
+                f"output_rate={output_rate}"
             )
 
         return result, output_rate
@@ -2490,6 +2490,7 @@ class Capture:
         self,
         samples: NDArrayComplex,
         executor: ThreadPoolExecutor,
+        timeout: float = 0.5,
     ) -> list[tuple[Channel, NDArrayFloat | None]]:
         """Process all running channels using ThreadPoolExecutor.
 
@@ -2503,6 +2504,7 @@ class Capture:
         Args:
             samples: IQ samples from device
             executor: ThreadPoolExecutor for DSP work
+            timeout: Max seconds to wait for DSP results before dropping audio
 
         Returns:
             List of (channel, processed_audio) tuples
@@ -2556,7 +2558,7 @@ class Capture:
         # Waiting in parallel = max(T) blocking time
         from concurrent.futures import wait, FIRST_EXCEPTION
 
-        done, not_done = wait(futures.keys(), timeout=0.5, return_when=FIRST_EXCEPTION)
+        done, not_done = wait(futures.keys(), timeout=timeout, return_when=FIRST_EXCEPTION)
 
         # Cancel any timed-out futures
         for future in not_done:
@@ -2646,18 +2648,17 @@ class Capture:
 
             if base.size > 0:
                 # Diagnostic: Log raw and frequency-shifted IQ magnitude
-                if not hasattr(ch, "_p25_diag_count"):
-                    ch._p25_diag_count = 0
-                ch._p25_diag_count += 1
-                if ch._p25_diag_count <= 10 or ch._p25_diag_count % 100 == 0:
-                    raw_mag = np.abs(iq)
-                    base_mag = np.abs(base)
-                    print(
-                        f"[P25_IQ] Channel {ch.cfg.id} call #{ch._p25_diag_count}: "
-                        f"raw_mean={np.mean(raw_mag):.4f}, raw_max={np.max(raw_mag):.4f}, "
-                        f"after_shift_mean={np.mean(base_mag):.4f}, offset={ch.cfg.offset_hz / 1e3:.1f}kHz",
-                        flush=True,
-                    )
+                if logger.isEnabledFor(logging.DEBUG):
+                    ch._p25_diag_count += 1
+                    if ch._p25_diag_count <= 10 or ch._p25_diag_count % 100 == 0:
+                        raw_mag = np.abs(iq)
+                        base_mag = np.abs(base)
+                        logger.debug(
+                            f"[P25_IQ] Channel {ch.cfg.id} call #{ch._p25_diag_count}: "
+                            f"raw_mean={np.mean(raw_mag):.4f}, raw_max={np.max(raw_mag):.4f}, "
+                            f"after_shift_mean={np.mean(base_mag):.4f}, "
+                            f"offset={ch.cfg.offset_hz / 1e3:.1f}kHz"
+                        )
 
                 # Decimate to P25 processing rate (~48 kHz) if needed
                 # This is critical for wideband captures (e.g., 8 MHz trunking)
@@ -3084,42 +3085,45 @@ class Capture:
             # Instead, inline the same logic here to avoid requiring a loop in this thread.
             #
             # Duplicate minimal logic of _broadcast_iq without awaiting.
-            payload = pack_iq16(samples)
             with self._iq_sinks_lock:
                 iq_sinks = list(self._iq_sinks)
-            for q, loop in iq_sinks:
-                # Use default args to capture loop variables (avoids closure issues)
-                def _try_put(q: asyncio.Queue[bytes] = q, payload: bytes = payload) -> None:
-                    try:
-                        q.put_nowait(payload)
-                    except asyncio.QueueFull:
-                        with contextlib.suppress(asyncio.QueueEmpty):
-                            _ = q.get_nowait()
-                        with contextlib.suppress(asyncio.QueueFull):
+            if iq_sinks:
+                payload = pack_iq16(samples.copy())
+                for q, loop in iq_sinks:
+                    # Use default args to capture loop variables (avoids closure issues)
+                    def _try_put(q: asyncio.Queue[bytes] = q, payload: bytes = payload) -> None:
+                        try:
                             q.put_nowait(payload)
+                        except asyncio.QueueFull:
+                            with contextlib.suppress(asyncio.QueueEmpty):
+                                _ = q.get_nowait()
+                            with contextlib.suppress(asyncio.QueueFull):
+                                q.put_nowait(payload)
 
-                try:
-                    loop.call_soon_threadsafe(_try_put)
-                except Exception:
-                    with self._iq_sinks_lock, contextlib.suppress(Exception):
-                        self._iq_sinks.discard((q, loop))
+                    try:
+                        loop.call_soon_threadsafe(_try_put)
+                    except Exception:
+                        with self._iq_sinks_lock, contextlib.suppress(Exception):
+                            self._iq_sinks.discard((q, loop))
             # Checkpoint A: After IQ broadcast
             if _verbose_debug:
                 logger.debug(
                     f"Capture {self.cfg.id}: iter={_capture_loop_counter} checkpoint A - after IQ broadcast"
                 )
+            skip_optional = self._iq_overflow_current
             # Calculate server-side metrics for all running channels (no async needed)
             # OPTIMIZATION: Only compute metrics if channel has subscribers OR every 10th chunk
             # This reduces CPU load by ~90% when channels are idle (no audio listeners)
             chans = list(self._channels.values())
-            for ch in chans:
-                if ch.state == "running":
-                    ch._metrics_counter = getattr(ch, "_metrics_counter", 0) + 1
-                    # Compute metrics if: has audio subscribers, OR every 10th chunk for API polling
-                    if ch._audio_sinks or ch._metrics_counter % 10 == 0:
-                        # Update signal metrics synchronously (RSSI, SNR)
-                        # No copy needed - synchronous read-only operation
-                        ch.update_signal_metrics(samples, self.cfg.sample_rate)
+            if not skip_optional:
+                for ch in chans:
+                    if ch.state == "running":
+                        ch._metrics_counter = getattr(ch, "_metrics_counter", 0) + 1
+                        # Compute metrics if: has audio subscribers, OR every 10th chunk for API polling
+                        if ch._audio_sinks or ch._metrics_counter % 10 == 0:
+                            # Update signal metrics synchronously (RSSI, SNR)
+                            # No copy needed - synchronous read-only operation
+                            ch.update_signal_metrics(samples, self.cfg.sample_rate)
 
             # Checkpoint B: After channel metrics
             if _verbose_debug:
@@ -3129,94 +3133,97 @@ class Capture:
             # Calculate FFT for spectrum display and channel classifier
             # Always runs (for classifier), but rate adapts based on viewer count
             fft_time_ms = 0.0
-            with self._fft_sinks_lock:
-                fft_sinks = list(self._fft_sinks)
-
-            # Debug: log FFT processing periodically
-            if self._fft_counter % 100 == 0 and fft_sinks:
-                logger.debug(
-                    f"FFT processing for {self.cfg.id}: {len(self._fft_sinks)} subscribers, counter={self._fft_counter}"
-                )
-
-            # Adaptive FFT FPS based on subscriber count
-            # - No viewers: 1 FPS (minimal, just for classifier)
-            # - 1 viewer: configured FPS (default 15)
-            # - 2+ viewers: boost FPS for better responsiveness (up to 2x target)
-            # Final FPS is capped at fft_max_fps (hard limit)
-            base_fps = self.cfg.fft_fps or 15
-            max_fps = self.cfg.fft_max_fps or 60
-            subscriber_count = len(fft_sinks)
-            if subscriber_count >= 2:
-                target_fps = min(max_fps, base_fps * 2)
-            elif subscriber_count == 1:
-                target_fps = min(max_fps, base_fps)
+            if skip_optional:
+                self._fft_counter += 1
             else:
-                target_fps = 1  # Minimal FPS for classifier when no viewers
+                with self._fft_sinks_lock:
+                    fft_sinks = list(self._fft_sinks)
 
-            # Calculate FFT rate using ACTUAL received samples (not requested chunk)
-            # The SDR may return fewer samples than requested
-            actual_samples = samples.size
-            current_fft_rate = self.cfg.sample_rate / max(1, actual_samples)
+                # Debug: log FFT processing periodically
+                if self._fft_counter % 100 == 0 and fft_sinks:
+                    logger.debug(
+                        f"FFT processing for {self.cfg.id}: {len(self._fft_sinks)} subscribers, counter={self._fft_counter}"
+                    )
 
-            # Calculate skip interval to achieve target FPS
-            skip_interval = max(1, int(current_fft_rate / target_fps))
+                # Adaptive FFT FPS based on subscriber count
+                # - No viewers: 1 FPS (minimal, just for classifier)
+                # - 1 viewer: configured FPS (default 15)
+                # - 2+ viewers: boost FPS for better responsiveness (up to 2x target)
+                # Final FPS is capped at fft_max_fps (hard limit)
+                base_fps = self.cfg.fft_fps or 15
+                max_fps = self.cfg.fft_max_fps or 60
+                subscriber_count = len(fft_sinks)
+                if subscriber_count >= 2:
+                    target_fps = min(max_fps, base_fps * 2)
+                elif subscriber_count == 1:
+                    target_fps = min(max_fps, base_fps)
+                else:
+                    target_fps = 1  # Minimal FPS for classifier when no viewers
 
-            # Increment frame counter
-            self._fft_counter += 1
+                # Calculate FFT rate using ACTUAL received samples (not requested chunk)
+                # The SDR may return fewer samples than requested
+                actual_samples = samples.size
+                current_fft_rate = self.cfg.sample_rate / max(1, actual_samples)
 
-            # Only calculate FFT every Nth frame
-            if self._fft_counter % skip_interval == 0:
-                # No copy needed - synchronous read-only operation
-                fft_start = time_module.perf_counter()
-                fft_size = self.cfg.fft_size or 2048
-                self._calculate_fft(samples, self.cfg.sample_rate, fft_size)
-                fft_time_ms = (time_module.perf_counter() - fft_start) * 1000
-                self._record_perf_time(self._perf_fft_times, fft_time_ms)
+                # Calculate skip interval to achieve target FPS
+                skip_interval = max(1, int(current_fft_rate / target_fps))
 
-                # Calculate actual FPS (exponential moving average)
-                now = time_module.perf_counter()
-                if self._fft_last_time > 0:
-                    delta = now - self._fft_last_time
-                    if delta > 0:
-                        instant_fps = 1.0 / delta
-                        # EMA with alpha=0.1 for smooth FPS display
-                        self._fft_actual_fps = 0.9 * self._fft_actual_fps + 0.1 * instant_fps
-                self._fft_last_time = now
+                # Increment frame counter
+                self._fft_counter += 1
 
-                # Broadcast FFT to subscribers (only if there are any)
-                if (
-                    fft_sinks
-                    and self._fft_power_list is not None
-                    and self._fft_freqs_list is not None
-                ):
-                    payload_fft = {
-                        "power": self._fft_power_list,
-                        "freqs": self._fft_freqs_list,
-                        "centerHz": self.cfg.center_hz,
-                        "sampleRate": self.cfg.sample_rate,
-                        "fftSize": fft_size,
-                        "actualFps": round(self._fft_actual_fps, 1),
-                    }
-                    for fft_q, fft_loop in fft_sinks:
-                        # Use default args to capture loop variables (avoids closure issues)
-                        def _try_put_fft(
-                            q: asyncio.Queue[dict[str, Any]] = fft_q,
-                            payload: dict[str, Any] = payload_fft,
-                        ) -> None:
-                            try:
-                                q.put_nowait(payload)
-                            except asyncio.QueueFull:
-                                with contextlib.suppress(asyncio.QueueEmpty):
-                                    _ = q.get_nowait()
-                                with contextlib.suppress(asyncio.QueueFull):
+                # Only calculate FFT every Nth frame
+                if self._fft_counter % skip_interval == 0:
+                    # No copy needed - synchronous read-only operation
+                    fft_start = time_module.perf_counter()
+                    fft_size = self.cfg.fft_size or 2048
+                    self._calculate_fft(samples, self.cfg.sample_rate, fft_size)
+                    fft_time_ms = (time_module.perf_counter() - fft_start) * 1000
+                    self._record_perf_time(self._perf_fft_times, fft_time_ms)
+
+                    # Calculate actual FPS (exponential moving average)
+                    now = time_module.perf_counter()
+                    if self._fft_last_time > 0:
+                        delta = now - self._fft_last_time
+                        if delta > 0:
+                            instant_fps = 1.0 / delta
+                            # EMA with alpha=0.1 for smooth FPS display
+                            self._fft_actual_fps = 0.9 * self._fft_actual_fps + 0.1 * instant_fps
+                    self._fft_last_time = now
+
+                    # Broadcast FFT to subscribers (only if there are any)
+                    if (
+                        fft_sinks
+                        and self._fft_power_list is not None
+                        and self._fft_freqs_list is not None
+                    ):
+                        payload_fft = {
+                            "power": self._fft_power_list,
+                            "freqs": self._fft_freqs_list,
+                            "centerHz": self.cfg.center_hz,
+                            "sampleRate": self.cfg.sample_rate,
+                            "fftSize": fft_size,
+                            "actualFps": round(self._fft_actual_fps, 1),
+                        }
+                        for fft_q, fft_loop in fft_sinks:
+                            # Use default args to capture loop variables (avoids closure issues)
+                            def _try_put_fft(
+                                q: asyncio.Queue[dict[str, Any]] = fft_q,
+                                payload: dict[str, Any] = payload_fft,
+                            ) -> None:
+                                try:
                                     q.put_nowait(payload)
+                                except asyncio.QueueFull:
+                                    with contextlib.suppress(asyncio.QueueEmpty):
+                                        _ = q.get_nowait()
+                                    with contextlib.suppress(asyncio.QueueFull):
+                                        q.put_nowait(payload)
 
-                        try:
-                            fft_loop.call_soon_threadsafe(_try_put_fft)
-                        except Exception:
-                            with self._fft_sinks_lock:
-                                with contextlib.suppress(Exception):
-                                    self._fft_sinks.discard((fft_q, fft_loop))
+                            try:
+                                fft_loop.call_soon_threadsafe(_try_put_fft)
+                            except Exception:
+                                with self._fft_sinks_lock:
+                                    with contextlib.suppress(Exception):
+                                        self._fft_sinks.discard((fft_q, fft_loop))
 
             # Checkpoint C: After FFT processing
             if _verbose_debug:
@@ -3230,12 +3237,13 @@ class Capture:
             dsp_time_ms = 0.0
             if chans:
                 dsp_executor = self._get_dsp_executor()
-                samples_for_channels = samples.copy()
+                chunk_seconds = samples.size / float(self.cfg.sample_rate)
+                dsp_timeout = min(0.5, max(0.05, chunk_seconds * 1.5))
 
                 # Process all channels in parallel (or sequentially for single channel)
                 dsp_start = time_module.perf_counter()
                 channel_results = self._process_channels_parallel(
-                    samples_for_channels, dsp_executor
+                    samples, dsp_executor, timeout=dsp_timeout
                 )
                 dsp_time_ms = (time_module.perf_counter() - dsp_start) * 1000
                 self._record_perf_time(self._perf_dsp_times, dsp_time_ms)
