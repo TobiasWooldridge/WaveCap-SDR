@@ -8,6 +8,7 @@ def test_sdrplay_lock_reentrant(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(sdrplay_lock, "_LOCK_PATH", str(lock_path))
     monkeypatch.setattr(sdrplay_lock, "_LOCK_COUNT", 0)
     monkeypatch.setattr(sdrplay_lock, "_LOCK_FILE", None)
+    monkeypatch.setattr(sdrplay_lock, "_LOCK_FILE_DISABLED", False)
 
     try:
         sdrplay_lock.acquire_sdrplay_lock(cooldown=0.0)
