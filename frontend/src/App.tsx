@@ -82,6 +82,7 @@ function AppContent() {
   );
 
   const [showWizard, setShowWizard] = useState(false);
+  const [wizardDeviceId, setWizardDeviceId] = useState<string | undefined>(undefined);
   const [showTrunkingWizard, setShowTrunkingWizard] = useState(false);
   const [showDeviceSettings, setShowDeviceSettings] = useState(false);
 
@@ -95,6 +96,7 @@ function AppContent() {
 
   const handleCreateSuccess = () => {
     setShowWizard(false);
+    setWizardDeviceId(undefined);
     // The new capture will auto-select via the hook
   };
 
@@ -102,6 +104,14 @@ function AppContent() {
     setShowTrunkingWizard(false);
     // The new trunking system will auto-select via the hook
   };
+
+  const openCaptureWizard = useCallback(
+    (deviceId?: string) => {
+      setWizardDeviceId(deviceId);
+      setShowWizard(true);
+    },
+    [],
+  );
 
   if (isLoading) {
     return (
@@ -129,7 +139,7 @@ function AppContent() {
             selectedDeviceId={selectedDeviceId}
             currentMode={viewMode}
             onSelectDevice={handleSelectDevice}
-            onCreateCapture={() => setShowWizard(true)}
+            onCreateCapture={() => openCaptureWizard(selectedDevice?.id)}
             onCreateTrunkingSystem={() => setShowTrunkingWizard(true)}
             onDeleteCapture={handleDeleteCapture}
             onDeleteTrunkingSystem={handleDeleteTrunkingSystem}
@@ -223,7 +233,7 @@ function AppContent() {
             </p>
             <button
               className="btn btn-primary"
-              onClick={() => setShowWizard(true)}
+              onClick={() => openCaptureWizard(selectedDevice?.id)}
             >
               Add Radio
             </button>
@@ -251,7 +261,7 @@ function AppContent() {
             </p>
             <button
               className="btn btn-primary"
-              onClick={() => setShowWizard(true)}
+              onClick={() => openCaptureWizard()}
             >
               Add Radio
             </button>
@@ -262,8 +272,12 @@ function AppContent() {
       {/* Modals */}
       {showWizard && (
         <CreateCaptureWizard
-          onClose={() => setShowWizard(false)}
+          onClose={() => {
+            setShowWizard(false);
+            setWizardDeviceId(undefined);
+          }}
           onSuccess={handleCreateSuccess}
+          initialDeviceId={wizardDeviceId}
         />
       )}
 

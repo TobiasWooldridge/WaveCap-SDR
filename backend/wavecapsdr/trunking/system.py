@@ -1124,19 +1124,37 @@ class TrunkingSystem:
             return
 
         half_bw = self.cfg.sample_rate / 2.0
+        in_band = [freq for freq in control_freqs if abs(freq - self.cfg.center_hz) <= half_bw]
         out_of_band = [freq for freq in control_freqs if abs(freq - self.cfg.center_hz) > half_bw]
         if out_of_band:
+            out_min = min(out_of_band) / 1e6
+            out_max = max(out_of_band) / 1e6
+            logger.warning(
+                f"TrunkingSystem {self.cfg.id}: Ignoring {len(out_of_band)}/{len(control_freqs)} "
+                f"control channels outside capture bandwidth "
+                f"(center={self.cfg.center_hz / 1e6:.4f} MHz, "
+                f"bw={self.cfg.sample_rate / 1e6:.1f} Msps, "
+                f"out_of_band={out_min:.4f}-{out_max:.4f} MHz)"
+            )
+            in_band_set = set(in_band)
+            if self._enabled_channels is None:
+                self._enabled_channels = in_band_set
+            else:
+                self._enabled_channels &= in_band_set
+            if self._cc_scanner is not None:
+                self._cc_scanner.control_channels = in_band
+        if not in_band:
             logger.error(
-                f"TrunkingSystem {self.cfg.id}: Control channels outside capture bandwidth "
-                f"(center={self.cfg.center_hz / 1e6:.4f} MHz, bw={self.cfg.sample_rate / 1e6:.1f} Msps): "
-                f"{[round(f / 1e6, 6) for f in out_of_band]} MHz"
+                f"TrunkingSystem {self.cfg.id}: No control channels within capture bandwidth "
+                f"(center={self.cfg.center_hz / 1e6:.4f} MHz, bw={self.cfg.sample_rate / 1e6:.1f} Msps)"
             )
             self._set_state(TrunkingSystemState.FAILED)
             return
 
         # Initialize control channel
-        # If we have a saved locked frequency, start there; otherwise use first channel
-        if self._locked_frequency is not None:
+        # If we have a saved locked frequency, start there; otherwise use first enabled channel
+        enabled_channels = self.get_enabled_channels()
+        if self._locked_frequency is not None and self.is_channel_enabled(self._locked_frequency):
             try:
                 self.control_channel_index = self.cfg.control_channel_frequencies.index(
                     self._locked_frequency
@@ -1149,8 +1167,19 @@ class TrunkingSystem:
                 f"{self._locked_frequency / 1e6:.4f} MHz"
             )
         else:
-            self.control_channel_index = 0
-            self.control_channel_freq_hz = self.cfg.control_channels[0].frequency_hz
+            if not enabled_channels:
+                logger.error(
+                    f"TrunkingSystem {self.cfg.id}: No enabled control channels available"
+                )
+                self._set_state(TrunkingSystemState.FAILED)
+                return
+            self.control_channel_freq_hz = enabled_channels[0]
+            try:
+                self.control_channel_index = self.cfg.control_channel_frequencies.index(
+                    self.control_channel_freq_hz
+                )
+            except ValueError:
+                self.control_channel_index = 0
 
         # If initial scan is disabled or we have a saved lock, mark as complete
         if not self._initial_scan_enabled or self._locked_frequency is not None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import time
 from dataclasses import fields
@@ -254,6 +255,44 @@ async def shutdown_server(request: Request) -> dict[str, str]:
 # Frontend log storage
 _frontend_logs: list[dict[str, Any]] = []
 _FRONTEND_LOG_MAX = 500  # Keep last 500 log entries
+_FRONTEND_LOG_MESSAGE_MAX = 600
+_FRONTEND_LOG_LEVELS = {
+    "debug": logging.DEBUG,
+    "log": logging.DEBUG,
+    "info": logging.INFO,
+    "warn": logging.WARNING,
+    "warning": logging.WARNING,
+    "error": logging.ERROR,
+}
+_frontend_logger = logging.getLogger("wavecapsdr.frontend")
+
+
+def _format_frontend_arg(arg: Any) -> str:
+    if isinstance(arg, (dict, list, tuple)):
+        try:
+            return json.dumps(arg, ensure_ascii=True, separators=(",", ":"))
+        except Exception:
+            return str(arg)
+    return str(arg)
+
+
+def _format_frontend_log_message(entry: dict[str, Any]) -> str:
+    args = entry.get("args", [])
+    if not isinstance(args, list):
+        args = [args]
+    parts = [_format_frontend_arg(arg) for arg in args if arg is not None]
+    message = " ".join(parts).strip() or "(empty frontend log)"
+    source = entry.get("source")
+    if source:
+        message = f"[{source}] {message}"
+    stack = entry.get("stack")
+    if stack:
+        stack_line = str(stack).splitlines()[0] if isinstance(stack, str) else str(stack)
+        if stack_line:
+            message = f"{message} | stack: {stack_line}"
+    if len(message) > _FRONTEND_LOG_MESSAGE_MAX:
+        message = f"{message[:_FRONTEND_LOG_MESSAGE_MAX]}...(truncated)"
+    return message
 
 
 @router.post("/frontend-logs")
@@ -264,8 +303,14 @@ async def receive_frontend_logs(request: Request) -> dict[str, Any]:
         body = await request.json()
         logs = body.get("logs", [])
         for log in logs:
+            if not isinstance(log, dict):
+                continue
             log["received_at"] = time.time()
             _frontend_logs.append(log)
+            level_name = str(log.get("level", "info")).lower()
+            level = _FRONTEND_LOG_LEVELS.get(level_name, logging.INFO)
+            message = _format_frontend_log_message(log)
+            _frontend_logger.log(level, message)
         # Trim to max size
         if len(_frontend_logs) > _FRONTEND_LOG_MAX:
             _frontend_logs = _frontend_logs[-_FRONTEND_LOG_MAX:]
@@ -3249,11 +3294,6 @@ def clear_all_lockouts(
 # ==============================================================================
 # Frontend error logging endpoint
 # ==============================================================================
-
-import json
-from pathlib import Path
-
-from pydantic import BaseModel
 
 
 class FrontendErrorReport(BaseModel):

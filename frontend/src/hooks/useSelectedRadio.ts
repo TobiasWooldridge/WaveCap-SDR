@@ -4,6 +4,7 @@ import { useDevices } from "./useDevices";
 import { useTrunkingSystems } from "./useTrunking";
 import { findDeviceForCapture, getStableDeviceId } from "../utils/deviceId";
 import { getDeviceDisplayName } from "../utils/device";
+import { logger } from "../services/logger";
 import type {
   Capture,
   Device,
@@ -127,6 +128,19 @@ export function useSelectedRadio() {
     return trunkingSystems ?? stableTrunkingSystems;
   }, [trunkingSystems, stableTrunkingSystems]);
 
+  const usingTrunkingFallback = useMemo(() => {
+    if (trunkingSystems && trunkingSystems.length > 0) {
+      return false;
+    }
+    if (stableTrunkingSystems.length === 0) {
+      return false;
+    }
+    const lastNonEmpty = lastNonEmptyTrunkingAt.current;
+    return Boolean(
+      lastNonEmpty && Date.now() - lastNonEmpty <= trunkingGraceMs,
+    );
+  }, [trunkingSystems, stableTrunkingSystems]);
+
   // =========================================================================
   // Build device tabs (Level 1)
   // =========================================================================
@@ -236,8 +250,8 @@ export function useSelectedRadio() {
       }
     }
 
-    // Third pass: compute status for each device
-    for (const tab of deviceMap.values()) {
+  // Third pass: compute status for each device
+  for (const tab of deviceMap.values()) {
       tab.status = computeDeviceStatus(tab.capture, tab.trunkingSystem);
     }
 
@@ -458,6 +472,44 @@ export function useSelectedRadio() {
       setViewModeState("trunking");
     }
   }, [selectedDeviceTab, viewMode, modeExplicit]);
+
+  const lastDeviceTabsKey = useRef<string>("");
+  useEffect(() => {
+    const tabIds = deviceTabs.map((tab) => tab.deviceId);
+    const nextKey = tabIds.join("|");
+    if (nextKey === lastDeviceTabsKey.current) return;
+    logger.info("[UI] Device tabs updated", {
+      count: deviceTabs.length,
+      deviceIds: tabIds,
+      selectedDeviceId,
+      viewMode,
+    });
+    lastDeviceTabsKey.current = nextKey;
+  }, [deviceTabs, selectedDeviceId, viewMode]);
+
+  const lastTrunkingCount = useRef<number | null>(null);
+  useEffect(() => {
+    if (!trunkingSystems) return;
+    const nextCount = trunkingSystems.length;
+    if (lastTrunkingCount.current === nextCount) return;
+    lastTrunkingCount.current = nextCount;
+    logger.info("[UI] Trunking systems count", {
+      count: nextCount,
+      deviceIds: trunkingSystems.map((system) => system.deviceId),
+      selectedDeviceId,
+    });
+  }, [trunkingSystems, selectedDeviceId]);
+
+  const lastUsingFallback = useRef<boolean>(false);
+  useEffect(() => {
+    if (usingTrunkingFallback === lastUsingFallback.current) return;
+    lastUsingFallback.current = usingTrunkingFallback;
+    logger.warn("[UI] Trunking fallback active", {
+      active: usingTrunkingFallback,
+      liveCount: trunkingSystems?.length ?? 0,
+      cachedCount: stableTrunkingSystems.length,
+    });
+  }, [usingTrunkingFallback, trunkingSystems, stableTrunkingSystems.length]);
 
   // =========================================================================
   // Legacy compatibility: RadioTab[] and selectTab for old RadioTabBar

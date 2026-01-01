@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Wand2, Radio } from "lucide-react";
 import { useRecipes } from "../hooks/useRecipes";
 import { useDevices } from "../hooks/useDevices";
@@ -15,19 +15,27 @@ import Spinner from "./primitives/Spinner.react";
 interface CreateCaptureWizardProps {
   onClose: () => void;
   onSuccess: (captureId: string) => void;
+  initialDeviceId?: string;
 }
 
-export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardProps) {
+export function CreateCaptureWizard({
+  onClose,
+  onSuccess,
+  initialDeviceId,
+}: CreateCaptureWizardProps) {
   const { data: devices, isLoading: devicesLoading } = useDevices();
   const { data: captures } = useCaptures();
   const createCapture = useCreateCapture();
   const createChannel = useCreateChannel();
   const toast = useToast();
 
-  const [step, setStep] = useState<"select-device" | "select-recipe" | "configure">("select-device");
+  const [step, setStep] = useState<"select-device" | "select-recipe" | "configure">(
+    "select-device",
+  );
   const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
   const [customFrequency, setCustomFrequency] = useState<number>(100);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
+  const autoAdvancedRef = useRef(false);
 
   // Get set of device IDs currently in use by running/starting captures
   const usedDeviceIds = useMemo(() => {
@@ -39,6 +47,16 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
     );
   }, [captures]);
 
+  const lockedDevice = useMemo(() => {
+    if (!devices || !initialDeviceId) return null;
+    return devices.find((device) => device.id === initialDeviceId) ?? null;
+  }, [devices, initialDeviceId]);
+
+  const lockedDeviceAvailable = useMemo(() => {
+    if (!lockedDevice) return false;
+    return !usedDeviceIds.has(lockedDevice.id);
+  }, [lockedDevice, usedDeviceIds]);
+
   // Filter to only available (not in use) devices
   const availableDevices = useMemo(() => {
     if (!devices) return [];
@@ -47,14 +65,32 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
 
   // Default to first available device when devices become available
   useEffect(() => {
-    if (availableDevices.length && !selectedDeviceId) {
+    if (initialDeviceId) {
+      if (selectedDeviceId !== initialDeviceId) {
+        setSelectedDeviceId(initialDeviceId);
+      }
+      if (lockedDeviceAvailable && !autoAdvancedRef.current) {
+        setStep("select-recipe");
+        autoAdvancedRef.current = true;
+      }
+      return;
+    }
+
+    if (!availableDevices.length) return;
+
+    if (!selectedDeviceId) {
+      setSelectedDeviceId(availableDevices[0].id);
+      return;
+    }
+    if (!availableDevices.find((d) => d.id === selectedDeviceId)) {
       setSelectedDeviceId(availableDevices[0].id);
     }
-    // If selected device becomes unavailable, clear selection
-    if (selectedDeviceId && availableDevices.length && !availableDevices.find(d => d.id === selectedDeviceId)) {
-      setSelectedDeviceId(availableDevices[0].id);
-    }
-  }, [availableDevices, selectedDeviceId]);
+  }, [
+    availableDevices,
+    selectedDeviceId,
+    initialDeviceId,
+    lockedDeviceAvailable,
+  ]);
 
   // Fetch recipes adjusted for selected device's capabilities
   const { data: recipes, isLoading: recipesLoading } = useRecipes(selectedDeviceId || undefined);
@@ -113,6 +149,9 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
   };
 
   const isLoading = recipesLoading || devicesLoading;
+  const canProceedFromDeviceStep = initialDeviceId
+    ? lockedDeviceAvailable
+    : availableDevices.length > 0 && Boolean(selectedDeviceId);
 
   return (
     <div className="modal show d-block" style={{ backgroundColor: "rgba(0,0,0,0.5)" }} onClick={onClose}>
@@ -123,7 +162,8 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
             <Flex align="center" gap={2}>
               <Wand2 size={24} />
               <h5 className="modal-title">
-                {step === "select-device" && "Select SDR Device"}
+                {step === "select-device" &&
+                  (initialDeviceId ? "Selected SDR Device" : "Select SDR Device")}
                 {step === "select-recipe" && "Choose a Recipe"}
                 {step === "configure" && `Configure ${selectedRecipe?.name}`}
               </h5>
@@ -140,7 +180,41 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
             ) : step === "select-device" ? (
               /* Step 1: Device Selection */
               <Flex direction="column" gap={3}>
-                {availableDevices.length === 0 ? (
+                {initialDeviceId ? (
+                  <>
+                    <p className="text-muted mb-2">
+                      This capture will use the selected device.
+                    </p>
+                    {lockedDevice ? (
+                      <div className="list-group">
+                        <div className="list-group-item d-flex justify-content-between align-items-center">
+                          <div>
+                            <div className="fw-semibold">{getDeviceDisplayName(lockedDevice)}</div>
+                            <small className="text-muted">
+                              {lockedDevice.driver} •{" "}
+                              {formatFrequencyWithUnit(lockedDevice.freqMinHz, 0)}-
+                              {formatFrequencyWithUnit(lockedDevice.freqMaxHz, 0)}
+                            </small>
+                          </div>
+                          <span className="badge bg-primary">Locked</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="alert alert-warning mb-0">
+                        <strong>Device not available.</strong>
+                        <span className="ms-1">Reconnect the SDR and try again.</span>
+                      </div>
+                    )}
+                    {!lockedDeviceAvailable && lockedDevice && (
+                      <div className="alert alert-warning mb-0">
+                        <strong>Device in use.</strong>
+                        <span className="ms-1">
+                          Stop the existing capture to create a new one.
+                        </span>
+                      </div>
+                    )}
+                  </>
+                ) : availableDevices.length === 0 ? (
                   <div className="alert alert-warning mb-0">
                     <strong>No devices available.</strong>
                     {devices && devices.length > 0 ? (
@@ -284,7 +358,7 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
           {/* Footer */}
           <div className="modal-footer">
             {/* Back button */}
-            {step === "select-recipe" && (
+            {step === "select-recipe" && !initialDeviceId && (
               <Button use="secondary" size="sm" onClick={() => setStep("select-device")}>
                 Back
               </Button>
@@ -305,7 +379,7 @@ export function CreateCaptureWizard({ onClose, onSuccess }: CreateCaptureWizardP
                 use="primary"
                 size="sm"
                 onClick={() => setStep("select-recipe")}
-                disabled={!selectedDeviceId || availableDevices.length === 0}
+                disabled={!canProceedFromDeviceStep}
               >
                 Next
               </Button>

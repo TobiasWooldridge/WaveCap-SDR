@@ -609,22 +609,130 @@ trunking:
       control_channels:
       - frequency: 412.4875 MHz
         name: New Royal Adelaide Hospital
+      - frequency: 412.9625 MHz
+        name: Manting Rd (Mindarie)
+      - frequency: 412.9875 MHz
+        name: Rieger Building
+      - frequency: 413 MHz
+        name: Bookpurnong Tce (Loxton) (+2 more)
+      - frequency: 413.0875 MHz
+        name: Bone Rd (Pinnaroo) (+1 more)
+      - frequency: 413.125 MHz
+        name: Murtho Rd (Paringa)
+      - frequency: 413.1375 MHz
+        name: Nitschke Hill
+      - frequency: 413.175 MHz
+        name: Bull Creek
+      - frequency: 413.1875 MHz
+        name: White Hill - Murray Bridge
+      - frequency: 413.2125 MHz
+        name: One Tree Hill (+1 more)
       - frequency: 413.225 MHz
         name: Cherry Gardens
+      - frequency: 413.25 MHz
+        name: Browns Rd (Monash) (+1 more)
+      - frequency: 413.2875 MHz
+        name: Trial Hill
       - frequency: 413.3125 MHz
-        name: Adelaide Main
+        name: Adelaide Main GRN Site
+      - frequency: 413.325 MHz
+        name: Cowell
+      - frequency: 413.3375 MHz
+        name: Talinga
       - frequency: 413.35 MHz
-        name: Hackham West
+        name: Hackham West (+2 more)
+      - frequency: 413.3625 MHz
+        name: Kadina
+      - frequency: 413.375 MHz
+        name: Mount Compass
+      - frequency: 413.3875 MHz
+        name: Mt Barker
+      - frequency: 413.4 MHz
+        name: Ramco
+      - frequency: 413.4125 MHz
+        name: Virginia
+      - frequency: 413.4375 MHz
+        name: Cummins
       - frequency: 414.5875 MHz
         name: Banksia Park - Tea Tree Gully
       - frequency: 414.6875 MHz
         name: Pt Adelaide
       - frequency: 414.7625 MHz
-        name: Mt Lofty
+        name: Mt lofty
+      - frequency: 414.7875 MHz
+        name: Gawler
+      - frequency: 415.0375 MHz
+        name: Williamstown
+      - frequency: 415.1625 MHz
+        name: Glenelg
+      - frequency: 415.25 MHz
+        name: Mt Terrible
+      - frequency: 415.7625 MHz
+        name: Mt lofty
+      - frequency: 415.7875 MHz
+        name: Williamstown
       - frequency: 415.8375 MHz
-        name: Banksia Park (Alt)
+        name: Banksia Park - Tea Tree Gully
+      - frequency: 415.9625 MHz
+        name: One Tree Hill
+      - frequency: 416.0875 MHz
+        name: Bone Rd (Pinnaroo)
+      - frequency: 416.125 MHz
+        name: Murtho Rd (Paringa)
+      - frequency: 416.2125 MHz
+        name: Vardon Tce (Lameroo)
+      - frequency: 416.25 MHz
+        name: Browns Rd (Monash) (+1 more)
+      - frequency: 416.35 MHz
+        name: Coonawarra
+      - frequency: 416.3625 MHz
+        name: Kadina
+      - frequency: 416.45 MHz
+        name: Trott Park
+      - frequency: 416.4625 MHz
+        name: Manting Rd (Mindarie)
+      - frequency: 416.5 MHz
+        name: Bookpurnong Tce (Loxton) (+1 more)
+      - frequency: 416.5875 MHz
+        name: Bone Rd (Pinnaroo)
+      - frequency: 416.625 MHz
+        name: Murtho Rd (Paringa)
+      - frequency: 416.7125 MHz
+        name: Vardon Tce (Lameroo)
+      - frequency: 416.75 MHz
+        name: Browns Rd (Monash)
+      - frequency: 416.85 MHz
+        name: Coonawarra
+      - frequency: 416.8625 MHz
+        name: Kadina
+      - frequency: 416.9625 MHz
+        name: Manting Rd (Mindarie)
+      - frequency: 417 MHz
+        name: Bookpurnong Tce (Loxton)
+      - frequency: 417.0375 MHz
+        name: Gawler
       - frequency: 417.6875 MHz
-        name: Pt Adelaide (Alt)
+        name: Pt Adelaide
+      - frequency: 417.7625 MHz
+        name: Mt lofty
+      - frequency: 420.1375 MHz
+        name: Lobethal
+      - frequency: 420.175 MHz
+        name: Unknown
+      - frequency: 420.2375 MHz
+        name: SAGRN site
+      - frequency: 420.25 MHz
+        name: State Admin Center (CBD)
+      - frequency: 420.3625 MHz
+        name: Belair
+      - frequency: 420.425 MHz
+        name: Unknown
+      - frequency: 420.675 MHz
+        name: Unknown
+      - frequency: 422.1375 MHz
+        name: Mt Gambier
+      - frequency: 468 MHz
+        name: Mt lofty
       channel_identifiers:
         0:
           base_freq_mhz: 412.475
@@ -672,12 +780,130 @@ trunking:
       control_channels:
       - frequency: 412.4875 MHz
         name: New Royal Adelaide Hospital
+      - frequency: 412.9625 MHz
+        name: Manting Rd (Mindarie)
+      - frequency: 412.9875 MHz
+        name: Rieger Building
+      - frequency: 413 MHz
+        name: Bookpurnong Tce (Loxton) (+2 more)
+      - frequency: 413.0875 MHz
+        name: Bone Rd (Pinnaroo) (+1 more)
+      - frequency: 413.125 MHz
+        name: Murtho Rd (Paringa)
+      - frequency: 413.1375 MHz
+        name: Nitschke Hill
+      - frequency: 413.175 MHz
+        name: Bull Creek
+      - frequency: 413.1875 MHz
+        name: White Hill - Murray Bridge
+      - frequency: 413.2125 MHz
+        name: One Tree Hill (+1 more)
       - frequency: 413.225 MHz
         name: Cherry Gardens
+      - frequency: 413.25 MHz
+        name: Browns Rd (Monash) (+1 more)
+      - frequency: 413.2875 MHz
+        name: Trial Hill
       - frequency: 413.3125 MHz
-        name: Adelaide Main
+        name: Adelaide Main GRN Site
+      - frequency: 413.325 MHz
+        name: Cowell
+      - frequency: 413.3375 MHz
+        name: Talinga
       - frequency: 413.35 MHz
-        name: Hackham West
+        name: Hackham West (+2 more)
+      - frequency: 413.3625 MHz
+        name: Kadina
+      - frequency: 413.375 MHz
+        name: Mount Compass
+      - frequency: 413.3875 MHz
+        name: Mt Barker
+      - frequency: 413.4 MHz
+        name: Ramco
+      - frequency: 413.4125 MHz
+        name: Virginia
+      - frequency: 413.4375 MHz
+        name: Cummins
+      - frequency: 414.5875 MHz
+        name: Banksia Park - Tea Tree Gully
+      - frequency: 414.6875 MHz
+        name: Pt Adelaide
+      - frequency: 414.7625 MHz
+        name: Mt lofty
+      - frequency: 414.7875 MHz
+        name: Gawler
+      - frequency: 415.0375 MHz
+        name: Williamstown
+      - frequency: 415.1625 MHz
+        name: Glenelg
+      - frequency: 415.25 MHz
+        name: Mt Terrible
+      - frequency: 415.7625 MHz
+        name: Mt lofty
+      - frequency: 415.7875 MHz
+        name: Williamstown
+      - frequency: 415.8375 MHz
+        name: Banksia Park - Tea Tree Gully
+      - frequency: 415.9625 MHz
+        name: One Tree Hill
+      - frequency: 416.0875 MHz
+        name: Bone Rd (Pinnaroo)
+      - frequency: 416.125 MHz
+        name: Murtho Rd (Paringa)
+      - frequency: 416.2125 MHz
+        name: Vardon Tce (Lameroo)
+      - frequency: 416.25 MHz
+        name: Browns Rd (Monash) (+1 more)
+      - frequency: 416.35 MHz
+        name: Coonawarra
+      - frequency: 416.3625 MHz
+        name: Kadina
+      - frequency: 416.45 MHz
+        name: Trott Park
+      - frequency: 416.4625 MHz
+        name: Manting Rd (Mindarie)
+      - frequency: 416.5 MHz
+        name: Bookpurnong Tce (Loxton) (+1 more)
+      - frequency: 416.5875 MHz
+        name: Bone Rd (Pinnaroo)
+      - frequency: 416.625 MHz
+        name: Murtho Rd (Paringa)
+      - frequency: 416.7125 MHz
+        name: Vardon Tce (Lameroo)
+      - frequency: 416.75 MHz
+        name: Browns Rd (Monash)
+      - frequency: 416.85 MHz
+        name: Coonawarra
+      - frequency: 416.8625 MHz
+        name: Kadina
+      - frequency: 416.9625 MHz
+        name: Manting Rd (Mindarie)
+      - frequency: 417 MHz
+        name: Bookpurnong Tce (Loxton)
+      - frequency: 417.0375 MHz
+        name: Gawler
+      - frequency: 417.6875 MHz
+        name: Pt Adelaide
+      - frequency: 417.7625 MHz
+        name: Mt lofty
+      - frequency: 420.1375 MHz
+        name: Lobethal
+      - frequency: 420.175 MHz
+        name: Unknown
+      - frequency: 420.2375 MHz
+        name: SAGRN site
+      - frequency: 420.25 MHz
+        name: State Admin Center (CBD)
+      - frequency: 420.3625 MHz
+        name: Belair
+      - frequency: 420.425 MHz
+        name: Unknown
+      - frequency: 420.675 MHz
+        name: Unknown
+      - frequency: 422.1375 MHz
+        name: Mt Gambier
+      - frequency: 468 MHz
+        name: Mt lofty
       channel_identifiers:
         0:
           base_freq_mhz: 412.475
@@ -726,22 +952,130 @@ trunking:
       control_channels:
       - frequency: 412.4875 MHz
         name: New Royal Adelaide Hospital
+      - frequency: 412.9625 MHz
+        name: Manting Rd (Mindarie)
+      - frequency: 412.9875 MHz
+        name: Rieger Building
+      - frequency: 413 MHz
+        name: Bookpurnong Tce (Loxton) (+2 more)
+      - frequency: 413.0875 MHz
+        name: Bone Rd (Pinnaroo) (+1 more)
+      - frequency: 413.125 MHz
+        name: Murtho Rd (Paringa)
+      - frequency: 413.1375 MHz
+        name: Nitschke Hill
+      - frequency: 413.175 MHz
+        name: Bull Creek
+      - frequency: 413.1875 MHz
+        name: White Hill - Murray Bridge
+      - frequency: 413.2125 MHz
+        name: One Tree Hill (+1 more)
       - frequency: 413.225 MHz
         name: Cherry Gardens
+      - frequency: 413.25 MHz
+        name: Browns Rd (Monash) (+1 more)
+      - frequency: 413.2875 MHz
+        name: Trial Hill
       - frequency: 413.3125 MHz
-        name: Adelaide Main
+        name: Adelaide Main GRN Site
+      - frequency: 413.325 MHz
+        name: Cowell
+      - frequency: 413.3375 MHz
+        name: Talinga
       - frequency: 413.35 MHz
-        name: Hackham West
+        name: Hackham West (+2 more)
+      - frequency: 413.3625 MHz
+        name: Kadina
+      - frequency: 413.375 MHz
+        name: Mount Compass
+      - frequency: 413.3875 MHz
+        name: Mt Barker
+      - frequency: 413.4 MHz
+        name: Ramco
+      - frequency: 413.4125 MHz
+        name: Virginia
+      - frequency: 413.4375 MHz
+        name: Cummins
       - frequency: 414.5875 MHz
         name: Banksia Park - Tea Tree Gully
       - frequency: 414.6875 MHz
         name: Pt Adelaide
       - frequency: 414.7625 MHz
-        name: Mt Lofty
+        name: Mt lofty
+      - frequency: 414.7875 MHz
+        name: Gawler
+      - frequency: 415.0375 MHz
+        name: Williamstown
+      - frequency: 415.1625 MHz
+        name: Glenelg
+      - frequency: 415.25 MHz
+        name: Mt Terrible
+      - frequency: 415.7625 MHz
+        name: Mt lofty
+      - frequency: 415.7875 MHz
+        name: Williamstown
       - frequency: 415.8375 MHz
-        name: Banksia Park (Alt)
+        name: Banksia Park - Tea Tree Gully
+      - frequency: 415.9625 MHz
+        name: One Tree Hill
+      - frequency: 416.0875 MHz
+        name: Bone Rd (Pinnaroo)
+      - frequency: 416.125 MHz
+        name: Murtho Rd (Paringa)
+      - frequency: 416.2125 MHz
+        name: Vardon Tce (Lameroo)
+      - frequency: 416.25 MHz
+        name: Browns Rd (Monash) (+1 more)
+      - frequency: 416.35 MHz
+        name: Coonawarra
+      - frequency: 416.3625 MHz
+        name: Kadina
+      - frequency: 416.45 MHz
+        name: Trott Park
+      - frequency: 416.4625 MHz
+        name: Manting Rd (Mindarie)
+      - frequency: 416.5 MHz
+        name: Bookpurnong Tce (Loxton) (+1 more)
+      - frequency: 416.5875 MHz
+        name: Bone Rd (Pinnaroo)
+      - frequency: 416.625 MHz
+        name: Murtho Rd (Paringa)
+      - frequency: 416.7125 MHz
+        name: Vardon Tce (Lameroo)
+      - frequency: 416.75 MHz
+        name: Browns Rd (Monash)
+      - frequency: 416.85 MHz
+        name: Coonawarra
+      - frequency: 416.8625 MHz
+        name: Kadina
+      - frequency: 416.9625 MHz
+        name: Manting Rd (Mindarie)
+      - frequency: 417 MHz
+        name: Bookpurnong Tce (Loxton)
+      - frequency: 417.0375 MHz
+        name: Gawler
       - frequency: 417.6875 MHz
-        name: Pt Adelaide (Alt)
+        name: Pt Adelaide
+      - frequency: 417.7625 MHz
+        name: Mt lofty
+      - frequency: 420.1375 MHz
+        name: Lobethal
+      - frequency: 420.175 MHz
+        name: Unknown
+      - frequency: 420.2375 MHz
+        name: SAGRN site
+      - frequency: 420.25 MHz
+        name: State Admin Center (CBD)
+      - frequency: 420.3625 MHz
+        name: Belair
+      - frequency: 420.425 MHz
+        name: Unknown
+      - frequency: 420.675 MHz
+        name: Unknown
+      - frequency: 422.1375 MHz
+        name: Mt Gambier
+      - frequency: 468 MHz
+        name: Mt lofty
       channel_identifiers:
         0:
           base_freq_mhz: 412.475

@@ -356,7 +356,7 @@ class TestTrunkingSystem:
 
     @pytest.mark.anyio
     async def test_control_channel_out_of_band_fails(self, mock_capture_manager):
-        """Test that out-of-band control channels fail fast."""
+        """Test that all out-of-band control channels fail fast."""
         cfg = TrunkingSystemConfig(
             id="test",
             name="Test System",
@@ -368,6 +368,26 @@ class TestTrunkingSystem:
 
         await system.start(mock_capture_manager)
         assert system.state == TrunkingSystemState.FAILED
+
+    @pytest.mark.anyio
+    async def test_control_channel_out_of_band_ignored_when_in_band_exists(
+        self, mock_capture_manager
+    ):
+        """Test that out-of-band control channels are ignored if any are in-band."""
+        cfg = TrunkingSystemConfig(
+            id="test",
+            name="Test System",
+            control_channels=[851.1e6, 852.1e6],
+            center_hz=851.0e6,
+            sample_rate=2_000_000,
+        )
+        system = TrunkingSystem(cfg=cfg)
+
+        await system.start(mock_capture_manager)
+        assert system.state == TrunkingSystemState.SEARCHING
+        assert system.control_channel_freq_hz == 851.1e6
+        assert system.is_channel_enabled(851.1e6) is True
+        assert system.is_channel_enabled(852.1e6) is False
 
     def test_voice_grant_invalid_tgid(self):
         """Test that invalid talkgroup IDs are rejected."""

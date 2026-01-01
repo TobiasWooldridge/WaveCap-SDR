@@ -127,7 +127,7 @@ class SDRplayProxyStream(StreamHandle):
                     f"shared memory buffer unavailable (count={self._buf_none_count})"
                 )
             return np.empty(0, dtype=np.complex64), False
-        buf = self.shm.buf
+        buf = getattr(self.shm, "buf", None)
         if buf is None:
             self._buf_none_count = getattr(self, "_buf_none_count", 0) + 1
             if self._buf_none_count <= 5 or self._buf_none_count % 5000 == 0:

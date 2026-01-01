@@ -129,7 +129,7 @@ Base path: `/api/v1`
 - POST `/trunking/systems/{id}/start`
   - Start control channel monitoring and voice tracking.
   - C4FM control-channel decode uses soft-decision trellis when available.
-  - Fails fast when `sampleRate`/`centerHz` are invalid or control channels fall outside the capture bandwidth.
+  - Ignores control channels outside capture bandwidth; fails when `sampleRate`/`centerHz` are invalid or no control channels are in-band.
 - POST `/trunking/systems/{id}/stop`
   - Stop trunking system.
 - GET `/trunking/systems/{id}/talkgroups`
@@ -210,6 +210,16 @@ flowchart TD
 ### Health
 - GET `/health`
   - Comprehensive health check with device, capture, and channel status.
+
+### Frontend Logs
+- POST `/frontend-logs`
+  - Body: `{ logs: [{ level, args, timestamp, stack?, source? }] }`
+  - Captures browser console logs and errors sent by the UI.
+  - Logs are buffered in memory (last 500) and also emitted into the server log stream under `wavecapsdr.frontend`.
+- GET `/frontend-logs?level=&prefix=&limit=`
+  - Returns recent frontend logs with optional filters.
+- DELETE `/frontend-logs`
+  - Clears stored frontend log buffer.
 
 Error handling:
 - JSON errors: `{ error: { code, message, details? } }` with appropriate HTTP status.
