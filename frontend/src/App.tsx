@@ -159,6 +159,23 @@ function AppContent() {
         <div className="flex-grow-1">
           <TrunkingPanel systemId={trunkingSystemForDevice.id} />
         </div>
+      ) : viewMode === "trunking" && selectedDeviceTab ? (
+        /* Trunking Mode - no system configured */
+        <div className="flex-grow-1 d-flex justify-content-center align-items-center">
+          <div className="text-center text-muted">
+            <Wand2 size={48} className="mb-3 opacity-50" />
+            <h5>No Trunking System</h5>
+            <p className="small">
+              This device does not have a trunking system configured yet.
+            </p>
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowTrunkingWizard(true)}
+            >
+              Add Trunking
+            </button>
+          </div>
+        </div>
       ) : viewMode === "digital" && selectedCapture ? (
         /* Digital Mode - Pager messages */
         <div className="flex-grow-1">
@@ -193,6 +210,23 @@ function AppContent() {
             <div className="p-2">
               <ChannelList capture={selectedCapture} />
             </div>
+          </div>
+        </div>
+      ) : viewMode === "radio" && selectedDeviceTab ? (
+        /* Radio Mode - no capture configured */
+        <div className="flex-grow-1 d-flex justify-content-center align-items-center">
+          <div className="text-center text-muted">
+            <Wand2 size={48} className="mb-3 opacity-50" />
+            <h5>No Radio Capture</h5>
+            <p className="small">
+              This device does not have a radio capture configured yet.
+            </p>
+            <button
+              className="btn btn-primary"
+              onClick={() => setShowWizard(true)}
+            >
+              Add Radio
+            </button>
           </div>
         </div>
       ) : selectedDeviceTab ? (

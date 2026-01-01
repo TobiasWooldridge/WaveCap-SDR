@@ -274,7 +274,7 @@ function DeviceTabItem({
   return (
     <div
       className={`
-        d-flex align-items-center gap-2 px-3 py-2
+        d-flex align-items-center gap-2 px-3 py-2 flex-shrink-0
         border-end border-secondary
         ${isSelected ? "bg-body" : "bg-dark text-light"}
         ${!isSelected && "hover-lighten"}
@@ -336,19 +336,22 @@ function DeviceTabItem({
           />
         )}
 
-        {/* Delete button when selected */}
-        {isSelected && (
-          <button
-            className="btn btn-sm p-0 border-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            title="Delete device configuration"
-          >
-            <X size={14} className="text-muted" />
-          </button>
-        )}
+        {/* Reserve delete button space to prevent layout shifts */}
+        <button
+          className="btn btn-sm btn-icon-sm p-0 border-0"
+          onClick={(e) => {
+            if (!isSelected) return;
+            e.stopPropagation();
+            onDelete();
+          }}
+          title={isSelected ? "Delete device configuration" : undefined}
+          aria-hidden={!isSelected}
+          tabIndex={isSelected ? 0 : -1}
+          disabled={!isSelected}
+          style={{ visibility: isSelected ? "visible" : "hidden" }}
+        >
+          <X size={14} className="text-muted" />
+        </button>
       </div>
     </div>
   );

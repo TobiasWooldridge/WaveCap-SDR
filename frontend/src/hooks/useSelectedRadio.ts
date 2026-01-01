@@ -394,6 +394,10 @@ export function useSelectedRadio() {
     }
     return "radio";
   });
+  const [modeExplicit, setModeExplicit] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.has("mode");
+  });
 
   // Set view mode and update URL
   const setViewMode = useCallback((mode: ViewMode) => {
@@ -401,6 +405,7 @@ export function useSelectedRadio() {
     const url = new URL(window.location.href);
     url.searchParams.set("mode", mode);
     window.history.replaceState({}, "", url.toString());
+    setModeExplicit(true);
   }, []);
 
   // Auto-switch mode based on what's available for selected device
@@ -413,13 +418,14 @@ export function useSelectedRadio() {
     }
     // If viewing radio but device doesn't have it, switch to trunking if available
     else if (
+      !modeExplicit &&
       viewMode === "radio" &&
       !selectedDeviceTab.hasRadio &&
       selectedDeviceTab.hasTrunking
     ) {
       setViewModeState("trunking");
     }
-  }, [selectedDeviceTab, viewMode]);
+  }, [selectedDeviceTab, viewMode, modeExplicit]);
 
   // =========================================================================
   // Legacy compatibility: RadioTab[] and selectTab for old RadioTabBar
