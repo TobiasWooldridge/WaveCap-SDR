@@ -289,7 +289,7 @@ class SDRplayProxyStream(StreamHandle):
         # Read samples from ring buffer (single-copy into output)
         samples = np.empty(to_read, dtype=np.complex64)
         if read_offset + to_read <= BUFFER_SAMPLES:
-            view = np.ndarray(
+            view: NDArrayComplex = np.ndarray(
                 shape=(to_read,),
                 dtype=np.complex64,
                 buffer=buf,
@@ -298,7 +298,7 @@ class SDRplayProxyStream(StreamHandle):
             samples[:] = view
         else:
             first_count = BUFFER_SAMPLES - read_offset
-            view1 = np.ndarray(
+            view1: NDArrayComplex = np.ndarray(
                 shape=(first_count,),
                 dtype=np.complex64,
                 buffer=buf,
@@ -307,7 +307,7 @@ class SDRplayProxyStream(StreamHandle):
             samples[:first_count] = view1
 
             second_count = to_read - first_count
-            view2 = np.ndarray(
+            view2: NDArrayComplex = np.ndarray(
                 shape=(second_count,),
                 dtype=np.complex64,
                 buffer=buf,

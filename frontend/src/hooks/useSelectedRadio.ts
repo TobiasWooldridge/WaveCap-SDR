@@ -3,7 +3,7 @@ import { useCaptures } from "./useCaptures";
 import { useDevices } from "./useDevices";
 import { useTrunkingSystems } from "./useTrunking";
 import { findDeviceForCapture, getStableDeviceId } from "../utils/deviceId";
-import { getDeviceDisplayName } from "../utils/device";
+import { getDeviceDisplayName, getDeviceNameFromId } from "../utils/device";
 import { logger } from "../services/logger";
 import type {
   Capture,
@@ -215,7 +215,7 @@ export function useSelectedRadio() {
 
         if (!deviceMap.has(stableDeviceId)) {
           // Device only has trunking, no capture
-          let deviceName = "Trunking";
+          let deviceName = getDeviceNameFromId(system.deviceId);
           if (devices) {
             const device = devices.find(
               (d) => getStableDeviceId(d.id) === stableDeviceId,
@@ -250,8 +250,8 @@ export function useSelectedRadio() {
       }
     }
 
-  // Third pass: compute status for each device
-  for (const tab of deviceMap.values()) {
+    // Third pass: compute status for each device
+    for (const tab of deviceMap.values()) {
       tab.status = computeDeviceStatus(tab.capture, tab.trunkingSystem);
     }
 
@@ -540,7 +540,9 @@ export function useSelectedRadio() {
         const stableDeviceId = system.deviceId
           ? getStableDeviceId(system.deviceId)
           : "";
-        let deviceName = "Trunking";
+        let deviceName = system.deviceId
+          ? getDeviceNameFromId(system.deviceId)
+          : "Unknown Device";
         if (system.deviceId && devices) {
           const device = devices.find(
             (d) => getStableDeviceId(d.id) === stableDeviceId,

@@ -40,6 +40,7 @@ Base path: `/api/v1`
   - Get device nickname and shorthand.
 - PATCH `/devices/{deviceId}/name`
   - Set custom nickname for device.
+- Client display names: prefer nickname > shorthand > label; if only a `deviceId` string is available, derive a readable name from it instead of using generic placeholders.
 
 ### Recipes
 - GET `/recipes`

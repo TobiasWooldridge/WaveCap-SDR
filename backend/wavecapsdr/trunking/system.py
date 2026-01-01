@@ -1168,9 +1168,7 @@ class TrunkingSystem:
             )
         else:
             if not enabled_channels:
-                logger.error(
-                    f"TrunkingSystem {self.cfg.id}: No enabled control channels available"
-                )
+                logger.error(f"TrunkingSystem {self.cfg.id}: No enabled control channels available")
                 self._set_state(TrunkingSystemState.FAILED)
                 return
             self.control_channel_freq_hz = enabled_channels[0]
@@ -1425,9 +1423,7 @@ class TrunkingSystem:
             n = np.arange(iq.size, dtype=np.float64) + freq_shift_state["sample_idx"]
             phase = -2.0 * np.pi * offset_hz * n / sample_rate
             shift = np.exp(1j * phase).astype(np.complex64)
-            shifted_iq = np.asarray(
-                iq.astype(np.complex64, copy=False) * shift, dtype=np.complex64
-            )
+            shifted_iq = np.asarray(iq.astype(np.complex64, copy=False) * shift, dtype=np.complex64)
             shifted_iq = cast(NDArrayComplex, shifted_iq)
 
             # Update sample index for next call
@@ -1759,12 +1755,8 @@ class TrunkingSystem:
                     power_stage1 = float(np.mean(np.abs(decimated1) ** 2))
                     power_out = float(np.mean(np.abs(decimated_iq) ** 2))
                     # Use scientific notation to see actual values - show filter vs decim power loss
-                    logger.debug(
-                        "[DIAG-DECIM] Stage1: in=%.2e, decim=%.2e", power_in, power_stage1
-                    )
-                    logger.debug(
-                        "[DIAG-DECIM] Stage2: in=%.2e, out=%.2e", power_stage1, power_out
-                    )
+                    logger.debug("[DIAG-DECIM] Stage1: in=%.2e, decim=%.2e", power_in, power_stage1)
+                    logger.debug("[DIAG-DECIM] Stage2: in=%.2e, out=%.2e", power_stage1, power_out)
             else:
                 decimated_iq = centered_iq
             if _verbose and logger.isEnabledFor(logging.DEBUG):
