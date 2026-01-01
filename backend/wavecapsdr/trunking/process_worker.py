@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import queue as queue_module
 import threading
 from multiprocessing.connection import Connection
 from typing import Any
@@ -15,6 +16,7 @@ from wavecapsdr.trunking.manager import TrunkingManager
 
 
 logger = logging.getLogger(__name__)
+_EVENT_PIPE_QUEUE_SIZE = 500
 
 
 def run_trunking_worker(
@@ -79,7 +81,11 @@ async def _worker_main(
     await manager.start()
 
     event_queue = await manager.subscribe_events()
-    event_task = asyncio.create_task(_forward_events(event_queue, event_conn))
+    send_queue: queue_module.Queue[dict[str, Any] | None] = queue_module.Queue(
+        maxsize=_EVENT_PIPE_QUEUE_SIZE
+    )
+    sender_thread = _start_event_sender(send_queue, event_conn)
+    event_task = asyncio.create_task(_forward_events(event_queue, send_queue))
 
     cmd_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     loop = asyncio.get_running_loop()
@@ -108,6 +114,7 @@ async def _worker_main(
         event_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await event_task
+        _stop_event_sender(send_queue, sender_thread)
         await manager.stop()
         await _stop_captures(captures)
         cmd_conn.close()
@@ -265,13 +272,49 @@ def _build_snapshot(manager: TrunkingManager) -> dict[str, Any]:
     }
 
 
-async def _forward_events(queue: asyncio.Queue[dict[str, Any]], event_conn: Connection) -> None:
+async def _forward_events(
+    queue: asyncio.Queue[dict[str, Any]],
+    send_queue: queue_module.Queue[dict[str, Any] | None],
+) -> None:
     while True:
         event = await queue.get()
         try:
-            await asyncio.to_thread(event_conn.send, event)
-        except (BrokenPipeError, EOFError, OSError):
-            break
+            send_queue.put_nowait(event)
+        except queue_module.Full:
+            try:
+                send_queue.get_nowait()
+            except queue_module.Empty:
+                pass
+            with contextlib.suppress(queue_module.Full):
+                send_queue.put_nowait(event)
+
+
+def _start_event_sender(
+    send_queue: queue_module.Queue[dict[str, Any] | None],
+    event_conn: Connection,
+) -> threading.Thread:
+    def _sender() -> None:
+        while True:
+            event = send_queue.get()
+            if event is None:
+                break
+            try:
+                event_conn.send(event)
+            except (BrokenPipeError, EOFError, OSError):
+                break
+
+    thread = threading.Thread(target=_sender, daemon=True)
+    thread.start()
+    return thread
+
+
+def _stop_event_sender(
+    send_queue: queue_module.Queue[dict[str, Any] | None],
+    sender_thread: threading.Thread,
+) -> None:
+    with contextlib.suppress(queue_module.Full):
+        send_queue.put_nowait(None)
+    sender_thread.join(timeout=1.0)
 
 
 async def _stop_captures(captures: CaptureManager) -> None:
