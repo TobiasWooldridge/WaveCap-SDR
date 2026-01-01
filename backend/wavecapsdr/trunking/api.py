@@ -1008,17 +1008,18 @@ async def trunking_stream_all(websocket: WebSocket) -> None:
 
 @router.get("/systems/{system_id}/voice-streams", response_model=list[VoiceStreamResponse])
 async def list_voice_streams(system_id: str, request: Request) -> list[VoiceStreamResponse]:
-    """List active voice streams for a trunking system."""
+    """List active voice streams for a trunking system.
+
+    In subprocess mode, this returns an empty list since voice channels
+    run in the worker process. Use the WebSocket endpoint to stream audio.
+    """
     manager = get_trunking_manager(request)
-    if not manager.supports_voice_streams:
-        raise HTTPException(
-            status_code=503,
-            detail="Voice streams are unavailable when trunking worker_mode=per_device is enabled",
-        )
     system = manager.get_system(system_id)
     if system is None:
         raise HTTPException(status_code=404, detail=f"System {system_id} not found")
 
+    # In subprocess mode, voice channels are in the worker process
+    # Return empty list but don't block (audio streaming is still available)
     voice_channels = system.get_voice_channels()
     return [
         VoiceStreamResponse(
@@ -1062,6 +1063,9 @@ async def voice_stream_all(websocket: WebSocket, system_id: str) -> None:
 
     Delivers multiplexed audio from all active voice channels with metadata.
     Each message is JSON with base64-encoded PCM16 audio.
+
+    Works in both direct mode (TrunkingManager) and subprocess mode
+    (TrunkingProcessManager) via IPC.
     """
     await websocket.accept()
 
@@ -1077,7 +1081,7 @@ async def voice_stream_all(websocket: WebSocket, system_id: str) -> None:
     if not manager.supports_voice_streams:
         await websocket.close(
             code=1011,
-            reason="Voice streams unavailable when trunking worker_mode=per_device is enabled",
+            reason="Voice streams not supported by this trunking manager",
         )
         return
 
@@ -1086,7 +1090,59 @@ async def voice_stream_all(websocket: WebSocket, system_id: str) -> None:
         await websocket.close(code=1008, reason=f"System {system_id} not found")
         return
 
-    # Subscribe to all voice channels
+    # Check if manager has subscribe_audio method (subprocess mode via IPC)
+    if hasattr(manager, "subscribe_audio"):
+        # Subprocess mode: use IPC-based audio streaming
+        await _voice_stream_ipc(websocket, system_id, manager)
+    else:
+        # Direct mode: subscribe to voice channels directly
+        await _voice_stream_direct(websocket, system_id, system)
+
+
+async def _voice_stream_ipc(
+    websocket: WebSocket,
+    system_id: str,
+    manager: Any,  # TrunkingProcessManager with subscribe_audio method
+) -> None:
+    """Handle voice streaming via IPC from subprocess worker."""
+    queue: asyncio.Queue[bytes] | None = None
+    try:
+        queue = await manager.subscribe_audio(system_id)
+        logger.info(f"Voice stream {system_id}: Subscribed via IPC")
+
+        bytes_sent = 0
+        messages_sent = 0
+
+        while True:
+            try:
+                # Wait for audio data with timeout
+                data = await asyncio.wait_for(queue.get(), timeout=1.0)
+                await websocket.send_bytes(data)
+                bytes_sent += len(data)
+                messages_sent += 1
+                if messages_sent % 50 == 0:
+                    logger.info(
+                        f"Voice stream {system_id}: Sent {messages_sent} messages, {bytes_sent} bytes"
+                    )
+            except asyncio.TimeoutError:
+                # Check if WebSocket is still connected
+                continue
+
+    except WebSocketDisconnect:
+        logger.info(f"Voice stream WebSocket disconnected for {system_id}")
+    except Exception as e:
+        logger.error(f"Voice stream WebSocket error: {e}")
+    finally:
+        if queue is not None:
+            manager.unsubscribe_audio(system_id, queue)
+
+
+async def _voice_stream_direct(
+    websocket: WebSocket,
+    system_id: str,
+    system: TrunkingSystemLike,
+) -> None:
+    """Handle voice streaming by subscribing to voice channels directly."""
     subscribed_queues: list[asyncio.Queue[bytes]] = []
     subscribed_channels: list[str] = []
 
@@ -1183,6 +1239,9 @@ async def voice_stream_single(websocket: WebSocket, system_id: str, stream_id: s
 
     Delivers audio from one voice channel with metadata.
     Each message is JSON with base64-encoded PCM16 audio.
+
+    Note: In subprocess mode, use /stream/{system_id}/voice instead
+    to receive multiplexed audio from all voice channels.
     """
     await websocket.accept()
 
@@ -1195,12 +1254,6 @@ async def voice_stream_single(websocket: WebSocket, system_id: str, stream_id: s
     if manager is None:
         await websocket.close(code=1011, reason="TrunkingManager not initialized")
         return
-    if not manager.supports_voice_streams:
-        await websocket.close(
-            code=1011,
-            reason="Voice streams unavailable when trunking worker_mode=per_device is enabled",
-        )
-        return
 
     system = manager.get_system(system_id)
     if system is None:
@@ -1209,7 +1262,16 @@ async def voice_stream_single(websocket: WebSocket, system_id: str, stream_id: s
 
     voice_channel = system.get_voice_channel(stream_id)
     if voice_channel is None:
-        await websocket.close(code=1008, reason=f"Voice stream {stream_id} not found")
+        # In subprocess mode, voice channels aren't accessible directly
+        # Suggest using the multiplexed stream endpoint
+        if hasattr(manager, "subscribe_audio"):
+            await websocket.close(
+                code=1008,
+                reason=f"Voice stream {stream_id} not found. "
+                f"In subprocess mode, use /stream/{system_id}/voice for multiplexed audio.",
+            )
+        else:
+            await websocket.close(code=1008, reason=f"Voice stream {stream_id} not found")
         return
 
     # Subscribe to audio
@@ -1241,6 +1303,9 @@ async def voice_stream_pcm(request: Request, system_id: str, stream_id: str) -> 
     Returns continuous PCM16 audio at 48kHz mono.
     Designed for piping to Whisper or other audio processing tools.
 
+    Note: In subprocess mode, individual voice channels are not accessible.
+    Use the WebSocket endpoint /stream/{system_id}/voice for multiplexed audio.
+
     Example:
         curl -s "http://localhost:8087/api/v1/trunking/stream/psern/voice/vr0.pcm" | \\
             whisper --model medium --language en -
@@ -1252,11 +1317,6 @@ async def voice_stream_pcm(request: Request, system_id: str, stream_id: str) -> 
     manager = getattr(state, "trunking_manager", None)
     if manager is None:
         raise HTTPException(status_code=500, detail="TrunkingManager not initialized")
-    if not manager.supports_voice_streams:
-        raise HTTPException(
-            status_code=503,
-            detail="Voice streams are unavailable when trunking worker_mode=per_device is enabled",
-        )
 
     system = manager.get_system(system_id)
     if system is None:
@@ -1264,6 +1324,13 @@ async def voice_stream_pcm(request: Request, system_id: str, stream_id: str) -> 
 
     voice_channel = system.get_voice_channel(stream_id)
     if voice_channel is None:
+        # In subprocess mode, voice channels aren't accessible directly
+        if hasattr(manager, "subscribe_audio"):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Voice stream {stream_id} not found. "
+                f"In subprocess mode, use WebSocket /stream/{system_id}/voice for multiplexed audio.",
+            )
         raise HTTPException(status_code=404, detail=f"Voice stream {stream_id} not found")
 
     # Subscribe to raw PCM audio

@@ -260,7 +260,7 @@ class _WorkerHandle:
 
 
 class TrunkingProcessManager(TrunkingManagerLike):
-    supports_voice_streams: ClassVar[bool] = False
+    supports_voice_streams: ClassVar[bool] = True  # Voice streams now supported via IPC
 
     def __init__(
         self,
@@ -285,6 +285,9 @@ class TrunkingProcessManager(TrunkingManagerLike):
         # FFT subscriber tracking: device_id -> set of (queue, loop) tuples
         self._fft_subscribers: dict[str, set[tuple[asyncio.Queue[dict[str, Any]], asyncio.AbstractEventLoop]]] = {}
         self._fft_subscribers_lock = threading.Lock()
+        # Audio subscriber tracking: system_id -> set of (queue, loop) tuples
+        self._audio_subscribers: dict[str, set[tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop]]] = {}
+        self._audio_subscribers_lock = threading.Lock()
 
     def set_config_path(self, config_path: str) -> None:
         self._config_path = config_path
@@ -626,9 +629,12 @@ class TrunkingProcessManager(TrunkingManagerLike):
         for queue, loop in subscribers:
             try:
                 if loop.is_running():
-                    loop.call_soon_threadsafe(
-                        lambda q=queue, d=fft_data: q.put_nowait(d) if not q.full() else None
-                    )
+
+                    def _enqueue(q: asyncio.Queue[dict[str, Any]], d: dict[str, Any]) -> None:
+                        if not q.full():
+                            q.put_nowait(d)
+
+                    loop.call_soon_threadsafe(_enqueue, queue, fft_data)
             except Exception:
                 pass
 
@@ -645,6 +651,102 @@ class TrunkingProcessManager(TrunkingManagerLike):
     def has_subprocess_capture(self, capture_id: str) -> bool:
         """Check if a capture ID belongs to a subprocess trunking system."""
         return self.get_device_for_capture(capture_id) is not None
+
+    # =========================================================================
+    # Audio Streaming for Subprocess Voice Channels
+    # =========================================================================
+
+    async def subscribe_audio(self, system_id: str) -> asyncio.Queue[bytes]:
+        """Subscribe to voice audio for a trunking system.
+
+        Returns a queue that will receive audio data (JSON-encoded).
+        """
+        system = self._systems.get(system_id)
+        if system is None:
+            raise ValueError(f"System '{system_id}' not found")
+
+        device_id = _normalize_device_id(system.cfg.device_id)
+
+        queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=50)
+        loop = asyncio.get_running_loop()
+
+        with self._audio_subscribers_lock:
+            if system_id not in self._audio_subscribers:
+                self._audio_subscribers[system_id] = set()
+            is_first = len(self._audio_subscribers[system_id]) == 0
+            self._audio_subscribers[system_id].add((queue, loop))
+
+        # If first subscriber for this system's device, start audio forwarding
+        if is_first:
+            handle = self._workers.get(device_id)
+            if handle is not None:
+                try:
+                    await self._rpc_call(handle, "subscribe_audio")
+                    logger.info(f"Started audio forwarding from worker {device_id}")
+                except Exception as e:
+                    logger.error(f"Failed to start audio forwarding: {e}")
+
+        return queue
+
+    def unsubscribe_audio(self, system_id: str, queue: asyncio.Queue[bytes]) -> None:
+        """Unsubscribe from voice audio for a trunking system."""
+        system = self._systems.get(system_id)
+        if system is None:
+            return
+
+        device_id = _normalize_device_id(system.cfg.device_id)
+
+        with self._audio_subscribers_lock:
+            subs = self._audio_subscribers.get(system_id)
+            if subs is None:
+                return
+            # Remove this subscriber
+            subs_to_remove = [s for s in subs if s[0] is queue]
+            for s in subs_to_remove:
+                subs.discard(s)
+            is_last = len(subs) == 0
+
+        # If last subscriber, tell the worker to stop forwarding audio
+        if is_last:
+            handle = self._workers.get(device_id)
+            if handle is not None:
+                try:
+                    self._send_command(handle, "unsubscribe_audio")
+                    logger.info(f"Stopped audio forwarding from worker {device_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to stop audio forwarding: {e}")
+
+    def _broadcast_audio(self, channel_id: str, audio_data: Any) -> None:
+        """Broadcast audio data to all subscribers.
+
+        Audio events include the channelId which maps to a voice channel
+        in one of the trunking systems.
+        """
+        # Convert audio_data to bytes if it's a string (JSON)
+        if isinstance(audio_data, str):
+            data = audio_data.encode("utf-8")
+        elif isinstance(audio_data, bytes):
+            data = audio_data
+        else:
+            return
+
+        # Broadcast to all system subscribers (audio comes from any voice channel)
+        with self._audio_subscribers_lock:
+            all_subscribers: list[tuple[asyncio.Queue[bytes], asyncio.AbstractEventLoop]] = []
+            for subs in self._audio_subscribers.values():
+                all_subscribers.extend(subs)
+
+        for queue, loop in all_subscribers:
+            try:
+                if loop.is_running():
+
+                    def _enqueue_audio(q: asyncio.Queue[bytes], d: bytes) -> None:
+                        if not q.full():
+                            q.put_nowait(d)
+
+                    loop.call_soon_threadsafe(_enqueue_audio, queue, data)
+            except Exception:
+                pass
 
     def _require_worker(self, system_id: str) -> _WorkerHandle:
         handle = self._system_to_worker.get(system_id)
@@ -829,6 +931,13 @@ class TrunkingProcessManager(TrunkingManagerLike):
             if isinstance(capture_id, str) and fft_data is not None:
                 self._broadcast_fft(capture_id, fft_data)
             return  # Don't broadcast FFT to regular event subscribers
+        elif event_type == "voice_audio":
+            # Forward voice audio to local subscribers
+            channel_id = event.get("channelId")
+            audio_data = event.get("data")
+            if isinstance(channel_id, str) and audio_data is not None:
+                self._broadcast_audio(channel_id, audio_data)
+            return  # Don't broadcast audio to regular event subscribers
 
         self._schedule_broadcast(event)
 

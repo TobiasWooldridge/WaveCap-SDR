@@ -20,6 +20,7 @@ from wavecapsdr.utils.log_levels import parse_log_level
 logger = logging.getLogger(__name__)
 _EVENT_PIPE_QUEUE_SIZE = 500
 _FFT_FORWARD_INTERVAL = 1.0 / 30  # 30 FPS max for forwarded FFT
+_AUDIO_FORWARD_INTERVAL = 0.02  # 50 FPS max for audio (20ms chunks)
 
 
 def _should_use_sdrplay_proxy(device_id: str) -> bool:
@@ -106,6 +107,10 @@ async def _worker_main(
     global _fft_forwarder
     _fft_forwarder = FFTForwarder(manager, send_queue)
 
+    # Create audio forwarder for voice channel streaming to main process
+    global _audio_forwarder
+    _audio_forwarder = AudioForwarder(manager, send_queue)
+
     cmd_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     loop = asyncio.get_running_loop()
 
@@ -135,6 +140,8 @@ async def _worker_main(
             await event_task
         if _fft_forwarder is not None:
             await _fft_forwarder.stop()
+        if _audio_forwarder is not None:
+            await _audio_forwarder.stop()
         _stop_event_sender(send_queue, sender_thread)
         await manager.stop()
         await _stop_captures(captures)
@@ -261,6 +268,20 @@ async def _handle_request(manager: TrunkingManager, req: dict[str, Any]) -> dict
                 result = {"status": "ok"}
             else:
                 raise ValueError("FFT forwarder not initialized")
+        elif action == "subscribe_audio":
+            # Subscribe to audio forwarding from subprocess
+            if _audio_forwarder is not None:
+                await _audio_forwarder.subscribe()
+                result = {"status": "ok"}
+            else:
+                raise ValueError("Audio forwarder not initialized")
+        elif action == "unsubscribe_audio":
+            # Unsubscribe from audio forwarding
+            if _audio_forwarder is not None:
+                await _audio_forwarder.unsubscribe()
+                result = {"status": "ok"}
+            else:
+                raise ValueError("Audio forwarder not initialized")
         else:
             raise ValueError(f"Unknown action: {action}")
 
@@ -468,3 +489,137 @@ class FFTForwarder:
 
 # Global FFT forwarder for the worker (set in _worker_main)
 _fft_forwarder: FFTForwarder | None = None
+
+
+class AudioForwarder:
+    """Forwards voice channel audio from subprocess to main process.
+
+    Subscribes to all active voice channels and forwards audio frames
+    via the event pipe. Audio events include call metadata and base64-encoded
+    PCM16 audio data.
+    """
+
+    def __init__(
+        self,
+        manager: TrunkingManager,
+        send_queue: queue_module.Queue[dict[str, Any] | None],
+    ) -> None:
+        self._manager = manager
+        self._send_queue = send_queue
+        self._subscriber_count = 0
+        self._audio_task: asyncio.Task[None] | None = None
+        self._stop_event = asyncio.Event()
+        self._lock = asyncio.Lock()
+        self._subscribed_channels: set[str] = set()
+
+    async def subscribe(self) -> None:
+        """Add a subscriber. Starts audio forwarding if first subscriber."""
+        async with self._lock:
+            self._subscriber_count += 1
+            if self._subscriber_count == 1:
+                self._stop_event.clear()
+                self._audio_task = asyncio.create_task(self._forward_audio())
+                logger.info("Audio forwarding started (first subscriber)")
+
+    async def unsubscribe(self) -> None:
+        """Remove a subscriber. Stops audio forwarding if last subscriber."""
+        async with self._lock:
+            self._subscriber_count = max(0, self._subscriber_count - 1)
+            if self._subscriber_count == 0 and self._audio_task is not None:
+                self._stop_event.set()
+                self._audio_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._audio_task
+                self._audio_task = None
+                self._subscribed_channels.clear()
+                logger.info("Audio forwarding stopped (no subscribers)")
+
+    async def stop(self) -> None:
+        """Stop all audio forwarding."""
+        async with self._lock:
+            self._subscriber_count = 0
+            if self._audio_task is not None:
+                self._stop_event.set()
+                self._audio_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._audio_task
+                self._audio_task = None
+                self._subscribed_channels.clear()
+
+    async def _forward_audio(self) -> None:
+        """Forward audio from all voice channels to main process."""
+        import base64
+
+        logger.info("Audio forwarding: starting channel monitor")
+
+        # Track queues per channel
+        channel_queues: dict[str, asyncio.Queue[bytes]] = {}
+
+        try:
+            while not self._stop_event.is_set():
+                # Check for new voice channels from any system
+                for system in self._manager.list_systems():
+                    voice_channels = system.get_voice_channels()
+                    for vc in voice_channels:
+                        if vc.id not in self._subscribed_channels and vc.state == "active":
+                            # Subscribe to this voice channel
+                            try:
+                                queue = await vc.subscribe_audio("json")
+                                channel_queues[vc.id] = queue
+                                self._subscribed_channels.add(vc.id)
+                                logger.info(f"Audio forwarding: subscribed to {vc.id}")
+                            except Exception as e:
+                                logger.error(f"Audio forwarding: failed to subscribe to {vc.id}: {e}")
+
+                # Read from all subscribed queues (non-blocking)
+                for channel_id, queue in list(channel_queues.items()):
+                    try:
+                        # Non-blocking check for audio data
+                        data = queue.get_nowait()
+                        # Forward as audio event
+                        event = {
+                            "type": "voice_audio",
+                            "channelId": channel_id,
+                            "data": data.decode("utf-8") if isinstance(data, bytes) else data,
+                        }
+                        try:
+                            self._send_queue.put_nowait(event)
+                        except queue_module.Full:
+                            # Drop audio frame if queue is full
+                            pass
+                    except asyncio.QueueEmpty:
+                        pass
+                    except Exception as e:
+                        logger.error(f"Audio forwarding error for {channel_id}: {e}")
+
+                # Clean up ended channels
+                ended_channels = []
+                for system in self._manager.list_systems():
+                    for vc in system.get_voice_channels():
+                        if vc.id in self._subscribed_channels and vc.state == "ended":
+                            ended_channels.append(vc)
+
+                for vc in ended_channels:
+                    if vc.id in channel_queues:
+                        vc.unsubscribe(channel_queues[vc.id])
+                        del channel_queues[vc.id]
+                    self._subscribed_channels.discard(vc.id)
+                    logger.info(f"Audio forwarding: unsubscribed from {vc.id} (ended)")
+
+                await asyncio.sleep(_AUDIO_FORWARD_INTERVAL)
+
+        except asyncio.CancelledError:
+            # Clean up all subscriptions
+            for system in self._manager.list_systems():
+                for vc in system.get_voice_channels():
+                    if vc.id in channel_queues:
+                        vc.unsubscribe(channel_queues[vc.id])
+            channel_queues.clear()
+            self._subscribed_channels.clear()
+            raise
+        except Exception as e:
+            logger.error(f"Audio forwarding error: {e}")
+
+
+# Global audio forwarder for the worker (set in _worker_main)
+_audio_forwarder: AudioForwarder | None = None
