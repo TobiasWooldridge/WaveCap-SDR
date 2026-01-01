@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from .utils.log_levels import parse_log_level
 from .utils.log_sampling import LogSamplingFilter, LogSamplingRule
 
 logger = logging.getLogger(__name__)
@@ -84,7 +86,9 @@ class LogStreamer:
 
         # Install custom logging handler on the root logger
         self._handler = LogStreamHandler(self._on_log)
-        self._handler.setLevel(logging.INFO)
+        stream_level = parse_log_level(os.getenv("WAVECAP_LOG_STREAM_LEVEL"), logging.INFO)
+        sampling_level = parse_log_level(os.getenv("WAVECAP_LOG_SAMPLING_LEVEL"), logging.INFO)
+        self._handler.setLevel(stream_level)
         sampling_rules = (
             LogSamplingRule(prefix="wavecapsdr.decoders.p25", max_per_interval=3, interval_s=1.0),
             LogSamplingRule(
@@ -94,7 +98,7 @@ class LogStreamer:
                 prefix="wavecapsdr.trunking.control_channel", max_per_interval=3, interval_s=1.0
             ),
         )
-        self._handler.addFilter(LogSamplingFilter(sampling_rules, max_level=logging.INFO))
+        self._handler.addFilter(LogSamplingFilter(sampling_rules, max_level=sampling_level))
         logging.getLogger().addHandler(self._handler)
         self._initialized = True
         logger.debug("LogStreamer handler installed")

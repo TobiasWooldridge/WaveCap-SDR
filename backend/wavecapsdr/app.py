@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import logging.handlers
 import inspect
+import os
 from contextlib import asynccontextmanager
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -23,6 +24,7 @@ from .device_namer import generate_capture_name, get_device_nickname
 from .mcp_server import router as mcp_router
 from .state import AppState
 from .trunking.api import router as trunking_router
+from .utils.log_levels import parse_log_level
 from .utils.log_sampling import LogSamplingFilter, LogSamplingRule
 
 # Work around slowapi using deprecated asyncio.iscoroutinefunction on Python 3.14+.
@@ -92,6 +94,11 @@ def setup_file_logging() -> None:
 
     Logs to backend/logs/wavecapsdr.log with 5MB rotation, 3 backups.
     """
+    root_level = parse_log_level(os.getenv("WAVECAP_LOG_LEVEL"), logging.DEBUG)
+    file_level = parse_log_level(os.getenv("WAVECAP_LOG_FILE_LEVEL"), logging.DEBUG)
+    console_level = parse_log_level(os.getenv("WAVECAP_LOG_CONSOLE_LEVEL"), logging.INFO)
+    sampling_level = parse_log_level(os.getenv("WAVECAP_LOG_SAMPLING_LEVEL"), logging.INFO)
+
     log_dir = Path(__file__).parent.parent / "logs"
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / "wavecapsdr.log"
@@ -102,7 +109,7 @@ def setup_file_logging() -> None:
         maxBytes=5 * 1024 * 1024,  # 5MB
         backupCount=3,
     )
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(file_level)
     file_handler.setFormatter(
         logging.Formatter(
             "%(asctime)s [%(levelname)s] %(name)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
@@ -111,12 +118,12 @@ def setup_file_logging() -> None:
 
     # Configure root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG)
+    root_logger.setLevel(root_level)
     root_logger.addHandler(file_handler)
 
     # Also add console handler for INFO and above
     console_handler = SafeStreamHandler()
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(console_level)
     console_handler.setFormatter(logging.Formatter("[%(levelname)s] %(name)s: %(message)s"))
 
     # Rate-limit noisy loggers to reduce file/console overhead in hot paths.
@@ -131,8 +138,8 @@ def setup_file_logging() -> None:
             prefix="wavecapsdr.devices.sdrplay_proxy", max_per_interval=5, interval_s=1.0
         ),
     )
-    file_handler.addFilter(LogSamplingFilter(sampling_rules, max_level=logging.INFO))
-    console_handler.addFilter(LogSamplingFilter(sampling_rules, max_level=logging.INFO))
+    file_handler.addFilter(LogSamplingFilter(sampling_rules, max_level=sampling_level))
+    console_handler.addFilter(LogSamplingFilter(sampling_rules, max_level=sampling_level))
 
     root_logger.addHandler(console_handler)
 

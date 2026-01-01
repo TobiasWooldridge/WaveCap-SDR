@@ -11,6 +11,12 @@ set -euo pipefail
 #   DEVICE_ARGS="driver=..."  # Specific device arguments (optional)
 #   CONFIG=path/to/config.yaml # Config file path (optional)
 #   SDRPLAY_FIX=1             # Run scripts/fix-sdrplay.sh preflight before start (optional)
+#   WAVECAP_LOG_LEVEL=INFO    # Root log level (DEBUG, INFO, WARNING, ERROR)
+#   WAVECAP_LOG_CONSOLE_LEVEL=INFO # Console log level
+#   WAVECAP_LOG_FILE_LEVEL=DEBUG   # File log level
+#   WAVECAP_LOG_STREAM_LEVEL=INFO  # Log stream (WebSocket) level
+#   WAVECAP_LOG_SAMPLING_LEVEL=INFO # Sampling filter max level
+#   WAVECAP_UVICORN_LOG_LEVEL=info  # Uvicorn log level (lowercase)
 #
 # Examples:
 #   ./start-app.sh                                    # Start with defaults

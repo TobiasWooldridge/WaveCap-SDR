@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import contextlib
+import logging
 import os
 import signal
 import sys
@@ -12,6 +13,7 @@ import uvicorn
 
 from .app import create_app
 from .config import default_config_path, load_config
+from .utils.log_levels import log_level_name
 
 
 def _get_lock_file_path(port: int) -> Path:
@@ -141,11 +143,16 @@ def main(argv: list[str] | None = None) -> None:
     # Configure uvicorn with appropriate timeouts for streaming
     # timeout_keep_alive: How long to wait for HTTP keep-alive between requests (default: 5)
     # We set this higher to support long-running streaming connections
+    uvicorn_level_env = os.environ.get("WAVECAP_UVICORN_LOG_LEVEL")
+    if uvicorn_level_env is None:
+        uvicorn_level_env = os.environ.get("WAVECAP_LOG_LEVEL")
+    uvicorn_log_level = log_level_name(uvicorn_level_env, logging.INFO)
+
     uvicorn.run(
         app,
         host=cfg.server.bind_address,
         port=cfg.server.port,
-        log_level="info",
+        log_level=uvicorn_log_level,
         timeout_keep_alive=300,  # 5 minutes for streaming connections
         timeout_graceful_shutdown=10,  # 10 seconds for graceful shutdown
     )

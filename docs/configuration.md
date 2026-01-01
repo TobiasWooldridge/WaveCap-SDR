@@ -31,6 +31,14 @@ Recovery
 - `recovery.iq_watchdog_enabled` (bool, default `true`): Enable IQ sample watchdog (restart capture if no samples).
 - `recovery.iq_watchdog_timeout` (float, default `30.0`): Watchdog timeout in seconds.
 
+Logging (runtime env)
+- `WAVECAP_LOG_LEVEL` (string, default `DEBUG`): Root log level (affects `logger.isEnabledFor` gates).
+- `WAVECAP_LOG_CONSOLE_LEVEL` (string, default `INFO`): Console handler level.
+- `WAVECAP_LOG_FILE_LEVEL` (string, default `DEBUG`): File handler level.
+- `WAVECAP_LOG_STREAM_LEVEL` (string, default `INFO`): Log streaming handler level (WebSocket).
+- `WAVECAP_LOG_SAMPLING_LEVEL` (string, default `INFO`): Sampling filter max level (rate-limits only at/below this level).
+- `WAVECAP_UVICORN_LOG_LEVEL` (string, optional): Uvicorn log level (falls back to `WAVECAP_LOG_LEVEL` if unset).
+
 Antennas (device-specific presets)
 - `antennas.<device_id>.<preset_name>` (string): Preferred antenna for a specific device and preset combination.
 - Example:
@@ -143,6 +151,9 @@ Environment overrides examples
 - `WAVECAPSDR__SERVER__PORT=8089`
 - `WAVECAPSDR__DEVICE__DRIVER=fake`
 - `WAVECAPSDR__SERVER__AUTH_TOKEN=secret123`
+- `WAVECAP_LOG_LEVEL=WARNING`
+- `WAVECAP_LOG_CONSOLE_LEVEL=INFO`
+- `WAVECAP_LOG_FILE_LEVEL=INFO`
 - `WAVECAP_RR_USERNAME=your_rr_username`
 - `WAVECAP_RR_PASSWORD=your_rr_password`
 - `WAVECAP_RR_APP_KEY=your_rr_app_key`

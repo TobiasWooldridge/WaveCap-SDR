@@ -32,6 +32,7 @@ from typing import Any, Callable
 
 import numpy as np
 from wavecapsdr.typing import NDArrayComplex
+from wavecapsdr.utils.log_levels import parse_log_level
 
 # Module-level logger (configured per-process)
 logger: logging.Logger | None = None
@@ -50,9 +51,13 @@ def _setup_subprocess_logging(device_serial: str) -> logging.Logger:
     log_dir = Path(__file__).parent.parent.parent / "logs"
     log_dir.mkdir(exist_ok=True)
 
+    root_level = parse_log_level(os.getenv("WAVECAP_LOG_LEVEL"), logging.DEBUG)
+    file_level = parse_log_level(os.getenv("WAVECAP_LOG_FILE_LEVEL"), logging.DEBUG)
+    console_level = parse_log_level(os.getenv("WAVECAP_LOG_CONSOLE_LEVEL"), logging.INFO)
+
     # Create logger for this worker
     worker_logger = logging.getLogger(f"sdrplay_worker.{os.getpid()}")
-    worker_logger.setLevel(logging.DEBUG)
+    worker_logger.setLevel(root_level)
 
     # Clear any existing handlers
     worker_logger.handlers.clear()
@@ -64,7 +69,7 @@ def _setup_subprocess_logging(device_serial: str) -> logging.Logger:
         maxBytes=5 * 1024 * 1024,  # 5MB
         backupCount=3,
     )
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(file_level)
     file_handler.setFormatter(
         logging.Formatter(
             "%(asctime)s [%(levelname)s] [PID:%(process)d] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
@@ -74,7 +79,7 @@ def _setup_subprocess_logging(device_serial: str) -> logging.Logger:
 
     # Also log to stderr (captured by parent if configured)
     stderr_handler = logging.StreamHandler(sys.stderr)
-    stderr_handler.setLevel(logging.INFO)
+    stderr_handler.setLevel(console_level)
     stderr_handler.setFormatter(
         logging.Formatter("[SDRplayWorker:%(process)d] %(levelname)s: %(message)s")
     )

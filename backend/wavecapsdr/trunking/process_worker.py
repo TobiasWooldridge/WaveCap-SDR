@@ -13,6 +13,7 @@ from wavecapsdr.capture import CaptureManager
 from wavecapsdr.config import AppConfig, load_config
 from wavecapsdr.trunking.config import HuntMode, TalkgroupConfig, TrunkingSystemConfig
 from wavecapsdr.trunking.manager import TrunkingManager
+from wavecapsdr.utils.log_levels import parse_log_level
 
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ def run_trunking_worker(
 ) -> None:
     """Entry point for per-device trunking worker process."""
     logging.basicConfig(
-        level=logging.INFO,
+        level=parse_log_level(os.getenv("WAVECAP_LOG_LEVEL"), logging.INFO),
         format="[TrunkingWorker] %(levelname)s: %(message)s",
     )
     try:

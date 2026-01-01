@@ -355,6 +355,12 @@ Configuration via environment variables:
 - `DEVICE_ARGS`: specific device selection (optional, e.g., `"driver=rtlsdr,serial=00000001"`)
 - `CONFIG`: path to YAML configuration file (optional)
 - `SDRPLAY_FIX`: when set to `1`, `start-app.sh` runs `scripts/fix-sdrplay.sh` (non-interactive, no-start) before launching the server
+- `WAVECAP_LOG_LEVEL`: root log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`)
+- `WAVECAP_LOG_CONSOLE_LEVEL`: console log level (defaults to `INFO`)
+- `WAVECAP_LOG_FILE_LEVEL`: file log level (defaults to `DEBUG`)
+- `WAVECAP_LOG_STREAM_LEVEL`: log stream level (defaults to `INFO`)
+- `WAVECAP_LOG_SAMPLING_LEVEL`: sampling filter max level (defaults to `INFO`)
+- `WAVECAP_UVICORN_LOG_LEVEL`: uvicorn log level (defaults to `WAVECAP_LOG_LEVEL` or `info`)
 
 ### Config Reload
 - POST `/api/v1/config/reload`

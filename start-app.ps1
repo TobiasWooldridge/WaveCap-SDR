@@ -8,6 +8,12 @@
 #   $env:DRIVER="soapy"              # SDR driver (default: soapy)
 #   $env:DEVICE_ARGS="driver=..."    # Specific device arguments (optional)
 #   $env:CONFIG="path/to/config.yaml" # Config file path (optional)
+#   $env:WAVECAP_LOG_LEVEL="INFO"    # Root log level (DEBUG, INFO, WARNING, ERROR)
+#   $env:WAVECAP_LOG_CONSOLE_LEVEL="INFO" # Console log level
+#   $env:WAVECAP_LOG_FILE_LEVEL="DEBUG"   # File log level
+#   $env:WAVECAP_LOG_STREAM_LEVEL="INFO"  # Log stream (WebSocket) level
+#   $env:WAVECAP_LOG_SAMPLING_LEVEL="INFO" # Sampling filter max level
+#   $env:WAVECAP_UVICORN_LOG_LEVEL="info"  # Uvicorn log level (lowercase)
 #
 # Examples:
 #   .\start-app.ps1                                    # Start with defaults
