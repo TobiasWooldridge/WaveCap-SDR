@@ -22,6 +22,10 @@ _MESSAGE_LOG_MAX_SIZE = 500
 _CALL_HISTORY_MAX_SIZE = 100
 
 
+class _WorkerRpcTransportError(RuntimeError):
+    pass
+
+
 def _normalize_device_id(device_id: str | None) -> str:
     if device_id and device_id.strip():
         return device_id
@@ -495,8 +499,7 @@ class TrunkingProcessManager(TrunkingManagerLike):
         if handle is None:
             raise ValueError(f"System '{system_id}' not found")
         if not handle.process.is_alive():
-            self._shutdown_worker(handle)
-            raise RuntimeError(f"Trunking worker for system '{system_id}' is not running")
+            handle = self._restart_worker(handle, f"system '{system_id}' worker not running")
         return handle
 
     def _next_request_id(self) -> int:
@@ -521,26 +524,32 @@ class TrunkingProcessManager(TrunkingManagerLike):
         def _send_and_wait() -> dict[str, Any]:
             with handle.rpc_lock:
                 if not handle.process.is_alive():
-                    raise RuntimeError("Worker process is not running")
+                    raise _WorkerRpcTransportError("Worker process is not running")
                 try:
                     handle.cmd_conn.send(request)
                 except (BrokenPipeError, EOFError, OSError) as exc:
-                    raise RuntimeError("Worker RPC send failed") from exc
+                    raise _WorkerRpcTransportError("Worker RPC send failed") from exc
                 if not handle.cmd_conn.poll(self._rpc_timeout_s):
                     if not handle.process.is_alive():
-                        raise RuntimeError(f"Worker process died during RPC '{action}'")
+                        raise _WorkerRpcTransportError(f"Worker process died during RPC '{action}'")
                     raise TimeoutError(f"Worker RPC timeout for {action}")
                 try:
                     response = handle.cmd_conn.recv()
                 except (EOFError, OSError) as exc:
                     if not handle.process.is_alive():
-                        raise RuntimeError(f"Worker process died during RPC '{action}'") from exc
-                    raise RuntimeError("Worker RPC recv failed") from exc
+                        raise _WorkerRpcTransportError(
+                            f"Worker process died during RPC '{action}'"
+                        ) from exc
+                    raise _WorkerRpcTransportError("Worker RPC recv failed") from exc
                 if not isinstance(response, dict):
                     raise RuntimeError("Worker RPC returned invalid response")
                 return cast(dict[str, Any], response)
 
-        response = await asyncio.to_thread(_send_and_wait)
+        try:
+            response = await asyncio.to_thread(_send_and_wait)
+        except (TimeoutError, _WorkerRpcTransportError) as exc:
+            self._restart_worker(handle, f"RPC '{action}' failed: {exc}")
+            raise RuntimeError(f"Worker RPC failed for '{action}', worker restarted") from exc
         if not response.get("ok", False):
             raise RuntimeError(response.get("error", "Worker RPC error"))
         result = response.get("result", {})
@@ -570,6 +579,16 @@ class TrunkingProcessManager(TrunkingManagerLike):
         )
         handle.event_thread = self._start_event_thread(handle)
         return handle
+
+    def _restart_worker(self, handle: _WorkerHandle, reason: str) -> _WorkerHandle:
+        logger.warning("Restarting trunking worker %s: %s", handle.device_id, reason)
+        system_ids = list(handle.system_ids)
+        self._shutdown_worker(handle)
+        new_handle = self._start_worker(handle.device_id, system_ids)
+        self._workers[handle.device_id] = new_handle
+        for system_id in system_ids:
+            self._system_to_worker[system_id] = new_handle
+        return new_handle
 
     def _shutdown_worker(self, handle: _WorkerHandle) -> None:
         try:
