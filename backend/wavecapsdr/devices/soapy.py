@@ -1058,6 +1058,32 @@ class SoapyDriver(DeviceDriver):
         self._enumerate_cache = None
         self._sdrplay_device_cache.clear()
 
+    def _parse_driver_arg(self, args: str) -> str | None:
+        for part in args.split(","):
+            part = part.strip()
+            if part.lower().startswith("driver="):
+                return part.split("=", 1)[1].strip().lower()
+        return None
+
+    def _resolve_driver_hint(self, identifier: str | None) -> str | None:
+        if not identifier:
+            return None
+        driver = self._parse_driver_arg(identifier)
+        if driver:
+            return driver
+        if self._enumerate_cache is not None:
+            _cache_time, cached_results = self._enumerate_cache
+            for device in cached_results:
+                if device.id == identifier or device.label == identifier:
+                    return device.driver
+        try:
+            for device in self.enumerate():
+                if device.id == identifier or device.label == identifier:
+                    return device.driver
+        except Exception:
+            return None
+        return None
+
     def _enumerate_driver(self, driver_name: str, timeout: float = 5.0) -> list[DeviceInfo]:
         """Enumerate devices for a specific driver with timeout protection."""
         # Use multiprocessing to isolate and timeout the enumeration
@@ -1392,7 +1418,8 @@ class SoapyDriver(DeviceDriver):
         args = id_or_args or self._cfg.device_args or ""
 
         # Check if this is an SDRplay device
-        is_sdrplay = "sdrplay" in args.lower()
+        driver_hint = self._resolve_driver_hint(id_or_args or args)
+        is_sdrplay = driver_hint == "sdrplay" or "sdrplay" in args.lower()
 
         # For SDRplay, use subprocess proxy to bypass API single-device limitation
         # Each SDRplay device runs in its own isolated subprocess
