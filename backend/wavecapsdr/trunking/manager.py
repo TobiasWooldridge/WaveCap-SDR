@@ -23,7 +23,12 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from wavecapsdr.config import default_config_path, update_trunking_system_state
-from wavecapsdr.trunking.config import HuntMode, TalkgroupConfig, TrunkingSystemConfig, load_talkgroups_csv
+from wavecapsdr.trunking.config import (
+    HuntMode,
+    TalkgroupConfig,
+    TrunkingSystemConfig,
+    load_talkgroups_csv,
+)
 from wavecapsdr.trunking.system import (
     ActiveCall,
     TrunkingSystem,

@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -34,6 +33,7 @@ import numpy as np
 from wavecapsdr.typing import NDArrayComplex
 
 from .base import Device, DeviceInfo, StreamHandle
+from .sdrplay_lock import acquire_sdrplay_lock, release_sdrplay_lock
 from .sdrplay_worker import (
     BUFFER_SAMPLES,
     FLAG_DATA_READY,
@@ -46,57 +46,8 @@ from .soapy import decrement_sdrplay_active_captures, increment_sdrplay_active_c
 
 logger = logging.getLogger(__name__)
 
-# =============================================================================
-# Global SDRplay Operation Serialization
-# =============================================================================
-# The SDRplay API cannot handle concurrent device selection/initialization.
-# All SDRplay operations across ALL devices must be serialized through this
-# global lock to prevent sdrplay_api_Fail errors.
-
-_sdrplay_global_lock = threading.RLock()  # RLock allows same thread to acquire multiple times
-_sdrplay_last_operation_time: float = 0.0
-
-
-def _acquire_sdrplay_lock(cooldown: float = 1.0) -> None:
-    """Acquire global SDRplay lock with cooldown enforcement.
-
-    All SDRplay operations must go through this to prevent:
-    1. Concurrent device selection causing sdrplay_api_Fail
-    2. Rapid operations overwhelming the SDRplay API service
-
-    Args:
-        cooldown: Minimum seconds to wait since last operation
-    """
-    global _sdrplay_last_operation_time
-
-    import threading
-
-    thread_id = threading.current_thread().name
-    print(f"[LOCK] Thread {thread_id} attempting to acquire SDRplay global lock...", flush=True)
-
-    _sdrplay_global_lock.acquire()
-    print(f"[LOCK] Thread {thread_id} ACQUIRED SDRplay global lock", flush=True)
-    try:
-        elapsed = time.time() - _sdrplay_last_operation_time
-        if elapsed < cooldown:
-            sleep_time = cooldown - elapsed
-            print(f"[LOCK] Thread {thread_id} cooldown wait: {sleep_time:.2f}s", flush=True)
-            time.sleep(sleep_time)
-    except Exception:
-        print(f"[LOCK] Thread {thread_id} exception, releasing lock", flush=True)
-        _sdrplay_global_lock.release()
-        raise
-
-
-def _release_sdrplay_lock() -> None:
-    """Release global SDRplay lock and update timestamp."""
-    global _sdrplay_last_operation_time
-    import threading
-
-    thread_id = threading.current_thread().name
-    _sdrplay_last_operation_time = time.time()
-    _sdrplay_global_lock.release()
-    print(f"[LOCK] Thread {thread_id} RELEASED SDRplay global lock", flush=True)
+# Global SDRplay operations are serialized via an inter-process lock
+# (implemented in sdrplay_lock.py).
 
 
 def _generate_shm_name() -> str:
@@ -380,15 +331,6 @@ class SDRplayProxyStream(StreamHandle):
                 f"returning {len(samples)} samples, new _last_read_idx={self._last_read_idx}"
             )
 
-        # Check for status messages (non-blocking) - may set overflow flag
-        while self.status_pipe.poll(timeout=0):
-            try:
-                msg = self.status_pipe.recv()
-                if msg.get("type") == "overflow":
-                    overflow = True
-            except EOFError:
-                break
-
         return samples, overflow
 
     def close(self) -> None:
@@ -449,7 +391,7 @@ class SDRplayProxyDevice(Device):
 
         # Acquire global lock - serializes all SDRplay device operations
         if not already_have_lock:
-            _acquire_sdrplay_lock(self.operation_cooldown)
+            acquire_sdrplay_lock(self.operation_cooldown)
         try:
             # Re-check after acquiring lock (another thread may have started worker)
             if self._worker_process is not None and self._worker_process.is_alive():
@@ -479,6 +421,12 @@ class SDRplayProxyDevice(Device):
             )
             self._worker_process.start()
             logger.info(f"Worker process started, PID={self._worker_process.pid}")
+            if self._worker_cmd_pipe is not None:
+                self._worker_cmd_pipe.close()
+                self._worker_cmd_pipe = None
+            if self._worker_status_pipe is not None:
+                self._worker_status_pipe.close()
+                self._worker_status_pipe = None
 
             # Wait for worker to be ready
             start_time = time.time()
@@ -539,7 +487,7 @@ class SDRplayProxyDevice(Device):
                 raise TimeoutError("Device open timed out")
         finally:
             if not already_have_lock:
-                _release_sdrplay_lock()
+                release_sdrplay_lock()
 
     def _cleanup_worker(self) -> None:
         """Clean up worker subprocess and resources."""
@@ -583,6 +531,16 @@ class SDRplayProxyDevice(Device):
                 self._status_pipe.close()
             self._status_pipe = None
 
+        if self._worker_cmd_pipe is not None:
+            with contextlib.suppress(Exception):
+                self._worker_cmd_pipe.close()
+            self._worker_cmd_pipe = None
+
+        if self._worker_status_pipe is not None:
+            with contextlib.suppress(Exception):
+                self._worker_status_pipe.close()
+            self._worker_status_pipe = None
+
         logger.debug("Worker cleanup complete")
 
     def configure(
@@ -602,7 +560,7 @@ class SDRplayProxyDevice(Device):
     ) -> None:
         """Configure device via worker subprocess."""
         # Acquire global lock for SDRplay operations
-        _acquire_sdrplay_lock(self.operation_cooldown)
+        acquire_sdrplay_lock(self.operation_cooldown)
         try:
             logger.info(
                 f"Configuring device: center={center_hz / 1e6:.3f}MHz, rate={sample_rate / 1e6:.3f}MHz, antenna={antenna}"
@@ -659,7 +617,7 @@ class SDRplayProxyDevice(Device):
             logger.error("Configure timed out")
             raise TimeoutError("Configure timed out")
         finally:
-            _release_sdrplay_lock()
+            release_sdrplay_lock()
 
     def start_stream(self, already_have_lock: bool = False) -> StreamHandle:
         """Start IQ streaming via worker subprocess.
@@ -669,7 +627,7 @@ class SDRplayProxyDevice(Device):
         """
         # Acquire global lock - activateStream() cannot be called concurrently
         if not already_have_lock:
-            _acquire_sdrplay_lock(self.operation_cooldown)
+            acquire_sdrplay_lock(self.operation_cooldown)
         try:
             logger.info("Starting IQ stream")
             self._ensure_worker(already_have_lock=True)  # We already hold the lock
@@ -722,7 +680,7 @@ class SDRplayProxyDevice(Device):
         finally:
             # Only release lock if we acquired it
             if not already_have_lock:
-                _release_sdrplay_lock()
+                release_sdrplay_lock()
 
     def configure_and_start(
         self,
@@ -748,7 +706,7 @@ class SDRplayProxyDevice(Device):
             StreamHandle for reading IQ samples
         """
         # Acquire global lock for entire configure+start sequence
-        _acquire_sdrplay_lock(self.operation_cooldown)
+        acquire_sdrplay_lock(self.operation_cooldown)
         try:
             logger.info(
                 f"Atomic configure+start: center={center_hz / 1e6:.3f}MHz, rate={sample_rate / 1e6:.3f}MHz"
@@ -804,7 +762,7 @@ class SDRplayProxyDevice(Device):
             return self.start_stream(already_have_lock=True)
         finally:
             # Always release lock when done (success or failure)
-            _release_sdrplay_lock()
+            release_sdrplay_lock()
 
     def get_antenna(self) -> str | None:
         """Return the currently configured antenna."""
@@ -848,7 +806,7 @@ class SDRplayProxyDevice(Device):
         if ppm is not None:
             cmd["ppm"] = ppm
 
-        _acquire_sdrplay_lock(self.operation_cooldown)
+        acquire_sdrplay_lock(self.operation_cooldown)
         try:
             self._cmd_pipe.send(cmd)
 
@@ -865,12 +823,12 @@ class SDRplayProxyDevice(Device):
 
             raise TimeoutError("Reconfigure timed out")
         finally:
-            _release_sdrplay_lock()
+            release_sdrplay_lock()
 
     def close(self) -> None:
         """Close device and terminate worker subprocess."""
         # Acquire global lock for SDRplay operations
-        _acquire_sdrplay_lock(self.operation_cooldown)
+        acquire_sdrplay_lock(self.operation_cooldown)
         try:
             logger.info("Closing device")
 
@@ -900,4 +858,4 @@ class SDRplayProxyDevice(Device):
             self._configured = False
             logger.info("Device closed")
         finally:
-            _release_sdrplay_lock()
+            release_sdrplay_lock()

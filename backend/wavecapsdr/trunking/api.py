@@ -227,6 +227,7 @@ class TrunkingRecipeResponse(BaseModel):
 # Helper Functions
 # ============================================================================
 
+
 def get_trunking_manager(request: Request) -> TrunkingManagerLike:
     """Get the TrunkingManager from app state."""
     state = getattr(request.app.state, "app_state", None)

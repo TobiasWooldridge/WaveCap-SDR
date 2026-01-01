@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import threading
 import time
@@ -139,7 +140,7 @@ class TrunkingSystemProxy(TrunkingSystemLike):
 
     def get_messages(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         messages = list(reversed(self._messages))
-        return messages[offset:offset + limit]
+        return messages[offset : offset + limit]
 
     def clear_messages(self) -> int:
         count = len(self._messages)
@@ -493,6 +494,9 @@ class TrunkingProcessManager(TrunkingManagerLike):
         handle = self._system_to_worker.get(system_id)
         if handle is None:
             raise ValueError(f"System '{system_id}' not found")
+        if not handle.process.is_alive():
+            self._shutdown_worker(handle)
+            raise RuntimeError(f"Trunking worker for system '{system_id}' is not running")
         return handle
 
     def _next_request_id(self) -> int:
@@ -516,10 +520,22 @@ class TrunkingProcessManager(TrunkingManagerLike):
 
         def _send_and_wait() -> dict[str, Any]:
             with handle.rpc_lock:
-                handle.cmd_conn.send(request)
+                if not handle.process.is_alive():
+                    raise RuntimeError("Worker process is not running")
+                try:
+                    handle.cmd_conn.send(request)
+                except (BrokenPipeError, EOFError, OSError) as exc:
+                    raise RuntimeError("Worker RPC send failed") from exc
                 if not handle.cmd_conn.poll(self._rpc_timeout_s):
+                    if not handle.process.is_alive():
+                        raise RuntimeError(f"Worker process died during RPC '{action}'")
                     raise TimeoutError(f"Worker RPC timeout for {action}")
-                response = handle.cmd_conn.recv()
+                try:
+                    response = handle.cmd_conn.recv()
+                except (EOFError, OSError) as exc:
+                    if not handle.process.is_alive():
+                        raise RuntimeError(f"Worker process died during RPC '{action}'") from exc
+                    raise RuntimeError("Worker RPC recv failed") from exc
                 if not isinstance(response, dict):
                     raise RuntimeError("Worker RPC returned invalid response")
                 return cast(dict[str, Any], response)
@@ -541,6 +557,10 @@ class TrunkingProcessManager(TrunkingManagerLike):
             daemon=True,
         )
         process.start()
+        with contextlib.suppress(Exception):
+            cmd_child.close()
+        with contextlib.suppress(Exception):
+            event_child.close()
         handle = _WorkerHandle(
             device_id=device_id,
             system_ids=set(system_ids),
@@ -710,7 +730,9 @@ class TrunkingProcessManager(TrunkingManagerLike):
                 if isinstance(snapshot, dict):
                     self._apply_snapshot(snapshot)
             except Exception as exc:
-                logger.warning("Failed to refresh snapshot from worker %s: %s", handle.device_id, exc)
+                logger.warning(
+                    "Failed to refresh snapshot from worker %s: %s", handle.device_id, exc
+                )
 
     def _build_snapshot(self) -> dict[str, Any]:
         all_messages: list[dict[str, Any]] = []

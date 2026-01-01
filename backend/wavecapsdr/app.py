@@ -123,9 +123,13 @@ def setup_file_logging() -> None:
     sampling_rules = (
         LogSamplingRule(prefix="wavecapsdr.decoders.p25", max_per_interval=5, interval_s=1.0),
         LogSamplingRule(prefix="wavecapsdr.decoders.p25_tsbk", max_per_interval=5, interval_s=1.0),
-        LogSamplingRule(prefix="wavecapsdr.trunking.control_channel", max_per_interval=5, interval_s=1.0),
+        LogSamplingRule(
+            prefix="wavecapsdr.trunking.control_channel", max_per_interval=5, interval_s=1.0
+        ),
         LogSamplingRule(prefix="wavecapsdr.trunking.system", max_per_interval=10, interval_s=1.0),
-        LogSamplingRule(prefix="wavecapsdr.devices.sdrplay_proxy", max_per_interval=5, interval_s=1.0),
+        LogSamplingRule(
+            prefix="wavecapsdr.devices.sdrplay_proxy", max_per_interval=5, interval_s=1.0
+        ),
     )
     file_handler.addFilter(LogSamplingFilter(sampling_rules, max_level=logging.INFO))
     console_handler.addFilter(LogSamplingFilter(sampling_rules, max_level=logging.INFO))

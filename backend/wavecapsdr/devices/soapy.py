@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import multiprocessing
+import queue as queue_module
 import threading
 import time
 from collections.abc import Iterable
@@ -1080,8 +1081,14 @@ class SoapyDriver(DeviceDriver):
             )
         else:
             # Check results
-            if not queue.empty():
-                status, data = queue.get()
+            try:
+                status, data = queue.get(timeout=0.2)
+            except queue_module.Empty:
+                print(
+                    f"Warning: Enumeration for driver '{driver_name}' returned no data",
+                    flush=True,
+                )
+            else:
                 if status == "success":
                     results = [DeviceInfo(**d) for d in data]
                 else:
@@ -1340,11 +1347,11 @@ class SoapyDriver(DeviceDriver):
                 "Try: POST /api/v1/devices/sdrplay/restart-service"
             )
 
-        if queue.empty():
+        try:
+            status, data = queue.get(timeout=0.2)
+        except queue_module.Empty:
             _sdrplay_health_status = False
             raise SDRplayServiceError("Device open failed - no response from subprocess")
-
-        status, data = queue.get()
         if status == "error":
             raise SDRplayServiceError(f"Device open failed: {data}")
 

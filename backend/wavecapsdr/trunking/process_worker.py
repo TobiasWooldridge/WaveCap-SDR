@@ -52,6 +52,7 @@ async def _worker_main(
 ) -> None:
     cfg = load_config(config_path)
     from wavecapsdr.state import create_device_driver
+
     driver = create_device_driver(cfg)
     captures = CaptureManager(cfg, driver)
 
@@ -153,7 +154,11 @@ async def _handle_request(manager: TrunkingManager, req: dict[str, Any]) -> dict
             system = manager.get_system(system_id_str)
             if system is None:
                 raise ValueError(f"System '{system_id}' not found")
-            result = {"messages": system.get_messages(limit=args.get("limit", 100), offset=args.get("offset", 0))}
+            result = {
+                "messages": system.get_messages(
+                    limit=args.get("limit", 100), offset=args.get("offset", 0)
+                )
+            }
         elif action == "clear_messages":
             system_id_str = _require_system_id(system_id)
             system = manager.get_system(system_id_str)
@@ -230,15 +235,17 @@ def _build_snapshot(manager: TrunkingManager) -> dict[str, Any]:
 
     for system in systems:
         for msg in system.get_messages(limit=200):
-            all_messages.append({
-                "systemId": system.cfg.id,
-                "timestamp": msg.get("timestamp", 0),
-                "opcode": msg.get("opcode", 0),
-                "opcodeName": msg.get("opcode_name", ""),
-                "nac": msg.get("nac"),
-                "summary": msg.get("summary", ""),
-                "raw": msg.get("raw"),
-            })
+            all_messages.append(
+                {
+                    "systemId": system.cfg.id,
+                    "timestamp": msg.get("timestamp", 0),
+                    "opcode": msg.get("opcode", 0),
+                    "opcodeName": msg.get("opcode_name", ""),
+                    "nac": msg.get("nac"),
+                    "summary": msg.get("summary", ""),
+                    "raw": msg.get("raw"),
+                }
+            )
         for active_call in system.get_active_calls():
             call_dict = active_call.to_dict()
             call_dict["systemId"] = system.cfg.id
@@ -262,8 +269,8 @@ async def _forward_events(queue: asyncio.Queue[dict[str, Any]], event_conn: Conn
     while True:
         event = await queue.get()
         try:
-            event_conn.send(event)
-        except (BrokenPipeError, EOFError):
+            await asyncio.to_thread(event_conn.send, event)
+        except (BrokenPipeError, EOFError, OSError):
             break
 
 
