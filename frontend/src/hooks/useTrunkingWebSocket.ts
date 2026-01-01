@@ -45,9 +45,12 @@ export function useTrunkingWebSocket(
   const [callHistory, setCallHistory] = useState<CallHistoryEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const upsertSystemCache = useCallback(
+  const updateSystemCache = useCallback(
     (system: TrunkingSystem) => {
       queryClient.setQueryData(trunkingKeys.system(system.id), system);
+      if (systemId) {
+        return;
+      }
       queryClient.setQueryData<TrunkingSystem[]>(trunkingKeys.systems(), (old) => {
         if (!old || old.length === 0) {
           return [system];
@@ -66,7 +69,7 @@ export function useTrunkingWebSocket(
         return next;
       });
     },
-    [queryClient],
+    [queryClient, systemId],
   );
 
   const handleEvent = useCallback(
@@ -88,7 +91,7 @@ export function useTrunkingWebSocket(
           if (systemId) {
             const system = event.systems.find((s) => s.id === systemId);
             if (system) {
-              upsertSystemCache(system);
+              updateSystemCache(system);
             }
           } else {
             queryClient.setQueryData(trunkingKeys.systems(), event.systems);
@@ -100,7 +103,7 @@ export function useTrunkingWebSocket(
             prev.map((s) => (s.id === event.systemId ? event.system : s))
           );
           // Update query cache
-          upsertSystemCache(event.system);
+          updateSystemCache(event.system);
           break;
 
         case "call_start":
@@ -136,7 +139,7 @@ export function useTrunkingWebSocket(
           break;
       }
     },
-    [queryClient, onCallStart, onCallEnd, onMessage, systemId, upsertSystemCache]
+    [queryClient, onCallStart, onCallEnd, onMessage, systemId, updateSystemCache]
   );
 
   const connect = useCallback(() => {
