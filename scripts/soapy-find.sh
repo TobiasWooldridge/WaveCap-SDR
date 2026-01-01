@@ -21,8 +21,15 @@ fi
 if [[ $# -gt 0 ]]; then
   ARGS=$(printf ",%s" "$@")
   ARGS="${ARGS:1}"
-  exec "$UTIL" "${SECONDS_ARG[@]}" --find="${ARGS}"
+  if [[ ${#SECONDS_ARG[@]} -gt 0 ]]; then
+    exec "$UTIL" "${SECONDS_ARG[@]}" --find="${ARGS}"
+  else
+    exec "$UTIL" --find="${ARGS}"
+  fi
 else
-  exec "$UTIL" "${SECONDS_ARG[@]}" --find
+  if [[ ${#SECONDS_ARG[@]} -gt 0 ]]; then
+    exec "$UTIL" "${SECONDS_ARG[@]}" --find
+  else
+    exec "$UTIL" --find
+  fi
 fi
-

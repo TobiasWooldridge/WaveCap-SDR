@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 # Import profiler for performance analysis
 from wavecapsdr.utils.profiler import get_profiler
 
-_c4fm_profiler = get_profiler("C4FM", enabled=True)
+_c4fm_profiler = get_profiler("C4FM", enabled=False)
 
 
 # Constants from SDRTrunk P25P1DemodulatorC4FM.java

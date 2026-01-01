@@ -562,7 +562,7 @@ class TrunkingProcessManager(TrunkingManagerLike):
         process = self._ctx.Process(
             target=run_trunking_worker,
             args=(self._config_path, system_ids, device_id, cmd_child, event_child),
-            daemon=True,
+            daemon=False,  # allow SDRplay worker subprocesses
         )
         process.start()
         with contextlib.suppress(Exception):

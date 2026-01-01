@@ -120,9 +120,9 @@ def _log_to_pipe(status_pipe: Connection, level: str, message: str) -> None:
 HEADER_SIZE = 64
 HEADER_FORMAT = "<QQQQIId16x"  # 8+8+8+8+4+4+8+16 = 64 bytes
 
-# Buffer size for IQ samples (64MB = 8,388,608 complex64 samples)
-# At 6 MHz sample rate, this is ~1.4s of buffer for DSP/CPU bursts.
-BUFFER_SAMPLES = 8 * 1024 * 1024
+# Buffer size for IQ samples (256MB = 33,554,432 complex64 samples)
+# At 6 MHz sample rate, this is ~5.6s of buffer for DSP/CPU bursts.
+BUFFER_SAMPLES = 32 * 1024 * 1024
 BUFFER_SIZE = BUFFER_SAMPLES * 8  # complex64 = 8 bytes per sample
 
 # Total shared memory size

@@ -36,8 +36,8 @@ from wavecapsdr.decoders.p25_frames import (
 from wavecapsdr.decoders.p25_tsbk import TSBKParser
 from wavecapsdr.utils.profiler import get_profiler
 
-# Profiler for control channel processing
-_cc_profiler = get_profiler("ControlChannel", enabled=True)
+# Profiler for control channel processing (disabled by default to reduce overhead)
+_cc_profiler = get_profiler("ControlChannel", enabled=False)
 from wavecapsdr.trunking.config import TrunkingProtocol
 
 logger = logging.getLogger(__name__)

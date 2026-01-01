@@ -64,8 +64,8 @@ from wavecapsdr.utils.profiler import get_profiler
 
 logger = logging.getLogger(__name__)
 
-# Profiler for IQ processing performance analysis
-_iq_profiler = get_profiler("TrunkingIQ", enabled=True)
+# Profiler for IQ processing performance analysis (disabled by default to reduce overhead)
+_iq_profiler = get_profiler("TrunkingIQ", enabled=False)
 
 # State persistence directory (persists hunt mode and locked frequency across restarts)
 _STATE_DIR = Path.home() / ".wavecapsdr" / "trunking_state"
@@ -1425,6 +1425,10 @@ class TrunkingSystem:
             n = np.arange(iq.size, dtype=np.float64) + freq_shift_state["sample_idx"]
             phase = -2.0 * np.pi * offset_hz * n / sample_rate
             shift = np.exp(1j * phase).astype(np.complex64)
+            shifted_iq = np.asarray(
+                iq.astype(np.complex64, copy=False) * shift, dtype=np.complex64
+            )
+            shifted_iq = cast(NDArrayComplex, shifted_iq)
 
             # Update sample index for next call
             freq_shift_state["sample_idx"] += iq.size
@@ -1435,80 +1439,87 @@ class TrunkingSystem:
             if freq_shift_state["sample_idx"] >= wrap_samples:
                 freq_shift_state["sample_idx"] %= wrap_samples
 
-            shifted_iq = (iq.astype(np.complex64, copy=False) * shift).astype(np.complex64)
-
-            # [DIAG-STAGE2] Frequency shift diagnostics
+            # [DIAG-STAGE2] Frequency shift diagnostics (debug-only)
             if logger.isEnabledFor(logging.DEBUG):
                 if "call_count" not in freq_shift_state:
                     freq_shift_state["call_count"] = 0
                 freq_shift_state["call_count"] += 1
 
-                if freq_shift_state["call_count"] % 100 == 0:
+                if freq_shift_state["call_count"] % 500 == 0:
                     # Check phase continuity
                     actual_start_phase = float(phase[0]) if len(phase) > 0 else 0.0
                     iq_power_before = float(np.mean(np.abs(iq) ** 2))
                     iq_power_after = float(np.mean(np.abs(shifted_iq) ** 2))
                     logger.debug(
-                        f"[DIAG-STAGE2] calls={freq_shift_state['call_count']}, "
-                        f"offset={offset_hz / 1e3:.1f}kHz, sample_idx={freq_shift_state['sample_idx']}, "
-                        f"start_phase={actual_start_phase:.4f}rad, "
-                        f"power_before={iq_power_before:.6f}, power_after={iq_power_after:.6f}"
+                        "[DIAG-STAGE2] calls=%s, offset=%.1fkHz, sample_idx=%s, start_phase=%.4frad, "
+                        "power_before=%.6f, power_after=%.6f",
+                        freq_shift_state["call_count"],
+                        offset_hz / 1e3,
+                        freq_shift_state["sample_idx"],
+                        actual_start_phase,
+                        iq_power_before,
+                        iq_power_after,
                     )
-                    # [DIAG-STAGE2b] Check where signal power is in spectrum BEFORE and AFTER shift
-                    if len(shifted_iq) >= 4096 and freq_shift_state["call_count"] == 100:
-                        freq_resolution = sample_rate / 4096
 
-                        # FFT BEFORE shift
-                        fft_before = np.fft.fft(iq[:4096])
-                        fft_power_before = np.abs(fft_before) ** 2
-                        peak_bin_before = np.argmax(fft_power_before)
-                        peak_freq_before = peak_bin_before * freq_resolution
-                        if peak_bin_before > 2048:
-                            peak_freq_before = peak_freq_before - sample_rate
+                # [DIAG-STAGE2b] Optional FFT check on an early call
+                if len(shifted_iq) >= 4096 and freq_shift_state["call_count"] == 100:
+                    freq_resolution = sample_rate / 4096
 
-                        # FFT AFTER shift
-                        fft_after = np.fft.fft(shifted_iq[:4096])
-                        fft_power_after = np.abs(fft_after) ** 2
-                        peak_bin_after = np.argmax(fft_power_after)
-                        peak_freq_after = peak_bin_after * freq_resolution
-                        if peak_bin_after > 2048:
-                            peak_freq_after = peak_freq_after - sample_rate
+                    # FFT BEFORE shift
+                    fft_before = np.fft.fft(iq[:4096])
+                    fft_power_before = np.abs(fft_before) ** 2
+                    peak_bin_before = np.argmax(fft_power_before)
+                    peak_freq_before = peak_bin_before * freq_resolution
+                    if peak_bin_before > 2048:
+                        peak_freq_before = peak_freq_before - sample_rate
 
-                        # Check power at expected signal location BEFORE shift (-2300 kHz = offset)
-                        expected_bin = int(offset_hz / freq_resolution)
-                        if expected_bin < 0:
-                            expected_bin += 4096
-                        expected_power = fft_power_before[expected_bin]
-                        noise_floor = np.median(fft_power_before)
-                        snr_at_expected = (
-                            10 * np.log10(expected_power / noise_floor) if noise_floor > 0 else 0
-                        )
+                    # FFT AFTER shift
+                    fft_after = np.fft.fft(shifted_iq[:4096])
+                    fft_power_after = np.abs(fft_after) ** 2
+                    peak_bin_after = np.argmax(fft_power_after)
+                    peak_freq_after = peak_bin_after * freq_resolution
+                    if peak_bin_after > 2048:
+                        peak_freq_after = peak_freq_after - sample_rate
 
-                        # Check power in baseband (0 Hz ± 50 kHz) AFTER shift
-                        baseband_bins = int(50000 / freq_resolution)
-                        baseband_power = np.sum(fft_power_after[:baseband_bins]) + np.sum(
-                            fft_power_after[-baseband_bins:]
-                        )
-                        total_power = np.sum(fft_power_after)
-                        baseband_ratio = baseband_power / total_power if total_power > 0 else 0
+                    # Check power at expected signal location BEFORE shift (-2300 kHz = offset)
+                    expected_bin = int(offset_hz / freq_resolution)
+                    if expected_bin < 0:
+                        expected_bin += 4096
+                    expected_power = fft_power_before[expected_bin]
+                    noise_floor = np.median(fft_power_before)
+                    snr_at_expected = (
+                        10 * np.log10(expected_power / noise_floor) if noise_floor > 0 else 0
+                    )
 
-                        logger.debug(
-                            f"[DIAG-STAGE2b] BEFORE shift: peak_bin={peak_bin_before}, "
-                            f"peak_freq={peak_freq_before / 1e3:.1f}kHz, "
-                            f"SNR_at_{offset_hz / 1e3:.0f}kHz={snr_at_expected:.1f}dB"
-                        )
-                        logger.debug(
-                            f"[DIAG-STAGE2b] AFTER shift: peak_bin={peak_bin_after}, "
-                            f"peak_freq={peak_freq_after / 1e3:.1f}kHz, "
-                            f"baseband_power_ratio={baseband_ratio:.4f} "
-                            f"(should be >0.8 if signal centered)"
-                        )
+                    # Check power in baseband (0 Hz ± 50 kHz) AFTER shift
+                    baseband_bins = int(50000 / freq_resolution)
+                    baseband_power = np.sum(fft_power_after[:baseband_bins]) + np.sum(
+                        fft_power_after[-baseband_bins:]
+                    )
+                    total_power = np.sum(fft_power_after)
+                    baseband_ratio = baseband_power / total_power if total_power > 0 else 0
 
-            return np.asarray(shifted_iq, dtype=np.complex64)
+                    logger.debug(
+                        "[DIAG-STAGE2b] BEFORE shift: peak_bin=%s, peak_freq=%.1fkHz, "
+                        "SNR_at_%.0fkHz=%.1fdB",
+                        peak_bin_before,
+                        peak_freq_before / 1e3,
+                        offset_hz / 1e3,
+                        snr_at_expected,
+                    )
+                    logger.debug(
+                        "[DIAG-STAGE2b] AFTER shift: peak_bin=%s, peak_freq=%.1fkHz, "
+                        "baseband_power_ratio=%.4f (should be >0.8 if signal centered)",
+                        peak_bin_after,
+                        peak_freq_after / 1e3,
+                        baseband_ratio,
+                    )
+
+            return shifted_iq
 
         # IQ buffer for control channel - accumulate decimated samples before processing.
         # Larger buffers improve sync stability at the cost of added latency.
-        IQ_BUFFER_SECONDS = 0.8
+        IQ_BUFFER_SECONDS = 1.5
         IQ_BUFFER_MIN_SAMPLES = max(20_000, int(actual_sample_rate * IQ_BUFFER_SECONDS))
         # Buffer is stored as chunk list so it can be reset from hunting without large copies
 
@@ -1743,15 +1754,17 @@ class TrunkingSystem:
                     decimated_iq = decimated2
 
                 # [DIAG-DECIM] Decimation diagnostics
-                if logger.isEnabledFor(logging.DEBUG) and iq_debug_state["calls"] % 100 == 0:
+                if logger.isEnabledFor(logging.DEBUG) and iq_debug_state["calls"] % 200 == 0:
                     power_in = float(np.mean(np.abs(centered_iq) ** 2))
                     power_stage1 = float(np.mean(np.abs(decimated1) ** 2))
                     power_out = float(np.mean(np.abs(decimated_iq) ** 2))
                     # Use scientific notation to see actual values - show filter vs decim power loss
                     logger.debug(
-                        f"[DIAG-DECIM] Stage1: in={power_in:.2e}, decim={power_stage1:.2e}"
+                        "[DIAG-DECIM] Stage1: in=%.2e, decim=%.2e", power_in, power_stage1
                     )
-                    logger.debug(f"[DIAG-DECIM] Stage2: in={power_stage1:.2e}, out={power_out:.2e}")
+                    logger.debug(
+                        "[DIAG-DECIM] Stage2: in=%.2e, out=%.2e", power_stage1, power_out
+                    )
             else:
                 decimated_iq = centered_iq
             if _verbose and logger.isEnabledFor(logging.DEBUG):
@@ -2832,6 +2845,11 @@ class TrunkingSystem:
         # If switching to MANUAL with a specific frequency, tune to it now
         if mode == HuntMode.MANUAL and locked_freq is not None:
             self._tune_to_frequency(locked_freq)
+            if not self._initial_scan_complete:
+                # Manual lock should bypass initial scan gating immediately.
+                self._initial_scan_complete = True
+                self._scan_iq_buffer.clear()
+                self._scan_buffer_samples = 0
             logger.info(
                 f"TrunkingSystem {self.cfg.id}: Hunt mode set to MANUAL, "
                 f"locked to {locked_freq / 1e6:.4f} MHz"
@@ -2839,6 +2857,9 @@ class TrunkingSystem:
         elif mode == HuntMode.SCAN_ONCE:
             # Reset scan_once state to trigger a new scan
             self._scan_once_complete = False
+            self._initial_scan_complete = False
+            self._scan_iq_buffer.clear()
+            self._scan_buffer_samples = 0
             logger.info(
                 f"TrunkingSystem {self.cfg.id}: Hunt mode set to SCAN_ONCE, "
                 f"will scan and lock to best channel"

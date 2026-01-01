@@ -86,8 +86,13 @@ class SDRplayProxyStream(StreamHandle):
         if header is None:
             return False
         write_idx, _, sample_count, _, _, flags, _ = header
-        logger.info(
-            f"is_ready() check: write_idx={write_idx}, sample_count={sample_count}, flags={flags}, shm={self.shm.name}, stream_id={id(self)}"
+        logger.debug(
+            "is_ready() check: write_idx=%s, sample_count=%s, flags=%s, shm=%s, stream_id=%s",
+            write_idx,
+            sample_count,
+            flags,
+            self.shm.name,
+            id(self),
         )
         if flags & FLAG_DATA_READY:
             self._data_ready = True
@@ -106,8 +111,8 @@ class SDRplayProxyStream(StreamHandle):
         self._debug_counter += 1
 
         # CRITICAL DEBUG: Log at start to confirm read() is being called
-        if self._debug_counter <= 30:
-            logger.info(f"SDRplayProxyStream.read() ENTRY: counter={self._debug_counter}")
+        if logger.isEnabledFor(logging.DEBUG) and self._debug_counter <= 5:
+            logger.debug("SDRplayProxyStream.read() ENTRY: counter=%s", self._debug_counter)
 
         if self._closed:
             if self._debug_counter <= 10 or self._debug_counter % 1000 == 0:
@@ -325,14 +330,18 @@ class SDRplayProxyStream(StreamHandle):
             self._diag_overflow_count += 1
 
         # Log every 100 reads
-        if self._diag_read_counter % 100 == 0:
+        if logger.isEnabledFor(logging.DEBUG) and self._diag_read_counter % 1000 == 0:
             iq_power = float(np.mean(np.abs(samples) ** 2)) if len(samples) > 0 else 0.0
             iq_peak = float(np.max(np.abs(samples))) if len(samples) > 0 else 0.0
-            logger.info(
-                f"[DIAG-STAGE1] reads={self._diag_read_counter}, "
-                f"available={available}, returned={len(samples)}, "
-                f"overflow_total={self._diag_overflow_count}, "
-                f"iq_power={iq_power:.6f}, iq_peak={iq_peak:.4f}"
+            logger.debug(
+                "[DIAG-STAGE1] reads=%s, available=%s, returned=%s, overflow_total=%s, "
+                "iq_power=%.6f, iq_peak=%.4f",
+                self._diag_read_counter,
+                available,
+                len(samples),
+                self._diag_overflow_count,
+                iq_power,
+                iq_peak,
             )
 
         # Log successful reads for debugging (very infrequently)
