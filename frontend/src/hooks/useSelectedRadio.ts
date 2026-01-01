@@ -213,6 +213,56 @@ export function useSelectedRadio() {
         // Map control channel state to our simplified type
         const ccState = mapControlChannelState(system.controlChannelState);
 
+        // Try to find the trunking capture in our captures list
+        // (for in-process mode, captures are in main CaptureManager)
+        // For subprocess mode (per_device), create a synthetic capture
+        let trunkingCapture: Capture | null = null;
+        if (system.captureId && captures) {
+          trunkingCapture =
+            captures.find((c) => c.id === system.captureId) ?? null;
+        }
+
+        // If capture not found but we have captureId, create synthetic capture
+        // (subprocess mode - capture exists in worker but not main process)
+        if (!trunkingCapture && system.captureId && system.state !== "stopped") {
+          // Map trunking state to capture state:
+          // - "running", "synced", or "searching" means SDR is actively capturing (show spectrum)
+          // - "starting" means SDR is initializing
+          // - "failed" means error state
+          const isActive =
+            system.state === "running" ||
+            system.state === "synced" ||
+            system.state === "searching";
+          const captureState = isActive
+            ? "running"
+            : system.state === "failed"
+              ? "failed"
+              : "starting";
+          trunkingCapture = {
+            id: system.captureId,
+            deviceId: system.deviceId || "",
+            state: captureState,
+            centerHz: system.centerHz,
+            sampleRate: system.sampleRate,
+            gain: null,
+            bandwidth: null,
+            ppm: null,
+            antenna: null,
+            errorMessage: null,
+            name: null,
+            autoName: system.name,
+            fftFps: 15,
+            fftMaxFps: 60,
+            fftSize: 2048,
+            iqOverflowCount: 0,
+            iqOverflowRate: 0,
+            retryAttempt: null,
+            retryMaxAttempts: null,
+            retryDelay: null,
+            trunkingSystemId: system.id,
+          };
+        }
+
         if (!deviceMap.has(stableDeviceId)) {
           // Device only has trunking, no capture
           let deviceName = getDeviceNameFromId(system.deviceId);
@@ -226,12 +276,14 @@ export function useSelectedRadio() {
           deviceMap.set(stableDeviceId, {
             deviceId: stableDeviceId,
             deviceName,
-            capture: null,
+            // Use trunking capture if found (in-process mode)
+            capture: trunkingCapture,
             trunkingSystem: system,
             status: "stopped",
-            hasRadio: false,
+            // Has radio if we found the trunking capture
+            hasRadio: trunkingCapture !== null,
             hasTrunking: true,
-            frequencyHz: system.controlChannelFreqHz ?? 0,
+            frequencyHz: system.controlChannelFreqHz ?? system.centerHz ?? 0,
             // Trunking-specific status fields
             controlChannelState: ccState,
             activeCalls: system.activeCalls,
@@ -246,6 +298,11 @@ export function useSelectedRadio() {
           existing.controlChannelState = ccState;
           existing.activeCalls = system.activeCalls;
           existing.isManuallyLocked = system.lockedFrequencyHz !== null;
+          // If device doesn't have a capture but trunking has one, use it
+          if (!existing.capture && trunkingCapture) {
+            existing.capture = trunkingCapture;
+            existing.hasRadio = true;
+          }
         }
       }
     }

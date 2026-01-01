@@ -82,9 +82,13 @@ def cmd_list_devices(args: argparse.Namespace) -> int:
             print(f"  Serial: {d.get('serial', 'unknown')}")
             print(f"    Label: {d.get('label', 'unknown')}")
             if args.verbose:
-                # Open device to get more info
+                # Open device to get more info (with timeout)
                 try:
-                    sdr = SoapySDR.Device(dict(dev))
+                    DEVICE_OPEN_TIMEOUT_US = 10_000_000
+                    try:
+                        sdr = SoapySDR.Device.make(dict(dev), DEVICE_OPEN_TIMEOUT_US)
+                    except AttributeError:
+                        sdr = SoapySDR.Device(dict(dev))
                     antennas = sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0)
                     print(f"    Antennas: {', '.join(antennas)}")
 
@@ -169,8 +173,13 @@ def cmd_capture_iq(args: argparse.Namespace) -> int:
     dev_info = dict(results[0])
     print(f"  Device: {dev_info.get('label', dev_info.get('serial', 'unknown'))}")
 
-    # Open device
-    sdr: Any = SoapySDR.Device(dict(results[0]))
+    # Open device with timeout (10 seconds = 10,000,000 microseconds)
+    DEVICE_OPEN_TIMEOUT_US = 10_000_000
+    try:
+        sdr: Any = SoapySDR.Device.make(dict(results[0]), DEVICE_OPEN_TIMEOUT_US)
+    except AttributeError:
+        # Fallback for SoapySDR without timeout support
+        sdr = SoapySDR.Device(dict(results[0]))
 
     # Configure antenna for RSP devices
     if args.antenna:

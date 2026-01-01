@@ -29,18 +29,25 @@ The SA-GRN (South Australian Government Radio Network, also written SAGRN) is a 
 
 ### Modulation
 
-**The SA-GRN uses LSM (Linear Simulcast Modulation), also known as CQPSK.**
+**Likely LSM (Linear Simulcast Modulation) for metro sites, possibly C4FM for rural.**
 
-This is because:
-1. The network is built on Motorola Astro-25 with IP-based infrastructure
-2. It covers 265,000+ km² with 240+ sites - large-area coverage requiring simulcast
-3. Motorola IP Simulcast uses LSM/CQPSK modulation (not C4FM)
+The modulation depends on site type:
+- **IP Simulcast cells** (metro Adelaide): LSM/CQPSK
+- **Standalone trunked sites** (rural): Likely C4FM
+
+Evidence for LSM in metro:
+1. Network is built on Motorola Astro-25 with IP-based infrastructure
+2. Large-area coverage (265,000+ km²) with 240+ sites suggests simulcast
+3. Motorola IP Simulcast uses LSM/CQPSK modulation
 4. LSM allows greater site separation and better audio quality in overlap zones
 
-When configuring receivers for SA-GRN:
-- Use **LSM/CQPSK** modulation (not C4FM)
-- C4FM is used by subscriber equipment (portables, mobiles) when transmitting
-- Base stations transmit in CQPSK/LSM for simulcast compatibility
+When configuring receivers:
+- **Metro Adelaide sites**: Try LSM/CQPSK first
+- **Rural/remote sites**: May need C4FM
+- C4FM is always used by subscriber equipment (portables, mobiles) when transmitting
+- Base stations transmit in CQPSK/LSM for IP Simulcast, C4FM for standalone
+
+**Note**: Empirical testing is recommended to confirm which modulation works for your location. If one modulation yields zero TSBK decodes, try the other.
 
 ### Sample Rate Requirements
 

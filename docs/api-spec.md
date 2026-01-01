@@ -150,6 +150,7 @@ Base path: `/api/v1`
 - GET `/trunking/systems/{id}/voice-streams`
   - List active voice streams for playback.
   - Returns 503 when `trunking.worker_mode=per_device` (voice streams are disabled in worker mode).
+- When `trunking.worker_mode=per_device` and the device is SDRplay, the worker opens the radio directly (no SDRplay proxy) because each worker owns a single device process.
 - GET `/trunking/recipes`
   - List pre-configured trunking system templates.
 

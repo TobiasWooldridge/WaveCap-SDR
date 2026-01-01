@@ -6,6 +6,7 @@ import logging
 import os
 import queue as queue_module
 import threading
+import time
 from multiprocessing.connection import Connection
 from typing import Any
 
@@ -18,6 +19,13 @@ from wavecapsdr.utils.log_levels import parse_log_level
 
 logger = logging.getLogger(__name__)
 _EVENT_PIPE_QUEUE_SIZE = 500
+_FFT_FORWARD_INTERVAL = 1.0 / 30  # 30 FPS max for forwarded FFT
+
+
+def _should_use_sdrplay_proxy(device_id: str) -> bool:
+    if not device_id or device_id == "auto":
+        return True
+    return "sdrplay" not in device_id.lower()
 
 
 def run_trunking_worker(
@@ -56,7 +64,13 @@ async def _worker_main(
     cfg = load_config(config_path)
     from wavecapsdr.state import create_device_driver
 
-    driver = create_device_driver(cfg)
+    use_sdrplay_proxy = _should_use_sdrplay_proxy(device_id)
+    if not use_sdrplay_proxy:
+        logger.info(
+            "Trunking worker %s: SDRplay proxy disabled (direct Soapy in per-device worker)",
+            device_id,
+        )
+    driver = create_device_driver(cfg, use_sdrplay_proxy=use_sdrplay_proxy)
     captures = CaptureManager(cfg, driver)
 
     manager = TrunkingManager()
@@ -88,6 +102,10 @@ async def _worker_main(
     sender_thread = _start_event_sender(send_queue, event_conn)
     event_task = asyncio.create_task(_forward_events(event_queue, send_queue))
 
+    # Create FFT forwarder for spectrum streaming to main process
+    global _fft_forwarder
+    _fft_forwarder = FFTForwarder(manager, send_queue)
+
     cmd_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     loop = asyncio.get_running_loop()
 
@@ -115,6 +133,8 @@ async def _worker_main(
         event_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await event_task
+        if _fft_forwarder is not None:
+            await _fft_forwarder.stop()
         _stop_event_sender(send_queue, sender_thread)
         await manager.stop()
         await _stop_captures(captures)
@@ -227,6 +247,20 @@ async def _handle_request(manager: TrunkingManager, req: dict[str, Any]) -> dict
             if system is None:
                 raise ValueError(f"System '{system_id}' not found")
             result = {"measurements": system.trigger_scan()}
+        elif action == "subscribe_fft":
+            # Subscribe to FFT forwarding from subprocess
+            if _fft_forwarder is not None:
+                await _fft_forwarder.subscribe()
+                result = {"status": "ok"}
+            else:
+                raise ValueError("FFT forwarder not initialized")
+        elif action == "unsubscribe_fft":
+            # Unsubscribe from FFT forwarding
+            if _fft_forwarder is not None:
+                await _fft_forwarder.unsubscribe()
+                result = {"status": "ok"}
+            else:
+                raise ValueError("FFT forwarder not initialized")
         else:
             raise ValueError(f"Unknown action: {action}")
 
@@ -328,3 +362,109 @@ def _require_system_id(system_id: Any) -> str:
     if not isinstance(system_id, str) or not system_id:
         raise ValueError("Request is missing system_id")
     return system_id
+
+
+class FFTForwarder:
+    """Forwards FFT data from subprocess captures to main process.
+
+    Subscribes to capture FFT when there are remote subscribers,
+    and forwards FFT frames via the event pipe at a throttled rate.
+    """
+
+    def __init__(
+        self,
+        manager: TrunkingManager,
+        send_queue: queue_module.Queue[dict[str, Any] | None],
+    ) -> None:
+        self._manager = manager
+        self._send_queue = send_queue
+        self._subscriber_count = 0
+        self._fft_task: asyncio.Task[None] | None = None
+        self._stop_event = asyncio.Event()
+        self._lock = asyncio.Lock()
+        self._last_send_time = 0.0
+
+    async def subscribe(self) -> None:
+        """Add a subscriber. Starts FFT forwarding if first subscriber."""
+        async with self._lock:
+            self._subscriber_count += 1
+            if self._subscriber_count == 1:
+                self._stop_event.clear()
+                self._fft_task = asyncio.create_task(self._forward_fft())
+                logger.info("FFT forwarding started (first subscriber)")
+
+    async def unsubscribe(self) -> None:
+        """Remove a subscriber. Stops FFT forwarding if last subscriber."""
+        async with self._lock:
+            self._subscriber_count = max(0, self._subscriber_count - 1)
+            if self._subscriber_count == 0 and self._fft_task is not None:
+                self._stop_event.set()
+                self._fft_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._fft_task
+                self._fft_task = None
+                logger.info("FFT forwarding stopped (no subscribers)")
+
+    async def stop(self) -> None:
+        """Stop all FFT forwarding."""
+        async with self._lock:
+            self._subscriber_count = 0
+            if self._fft_task is not None:
+                self._stop_event.set()
+                self._fft_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._fft_task
+                self._fft_task = None
+
+    async def _forward_fft(self) -> None:
+        """Forward FFT data from the trunking capture to main process."""
+        # Find the capture from one of the running systems
+        capture = None
+        for system in self._manager.list_systems():
+            cap = getattr(system, "_capture", None)
+            if cap is not None:
+                capture = cap
+                break
+
+        if capture is None:
+            logger.warning("FFT forwarding: no capture found")
+            return
+
+        capture_id = capture.cfg.id
+        logger.info(f"FFT forwarding: subscribing to capture {capture_id}")
+
+        try:
+            fft_queue = await capture.subscribe_fft()
+            try:
+                while not self._stop_event.is_set():
+                    try:
+                        # Get FFT data with timeout
+                        fft_data = await asyncio.wait_for(fft_queue.get(), timeout=0.5)
+                    except asyncio.TimeoutError:
+                        continue
+
+                    # Throttle to avoid flooding the pipe
+                    now = time.monotonic()
+                    if now - self._last_send_time < _FFT_FORWARD_INTERVAL:
+                        continue
+                    self._last_send_time = now
+
+                    # Forward FFT as a special event
+                    event = {
+                        "type": "fft",
+                        "captureId": capture_id,
+                        "data": fft_data,
+                    }
+                    try:
+                        self._send_queue.put_nowait(event)
+                    except queue_module.Full:
+                        # Drop FFT frame if queue is full
+                        pass
+            finally:
+                capture.unsubscribe_fft(fft_queue)
+        except Exception as e:
+            logger.error(f"FFT forwarding error: {e}")
+
+
+# Global FFT forwarder for the worker (set in _worker_main)
+_fft_forwarder: FFTForwarder | None = None

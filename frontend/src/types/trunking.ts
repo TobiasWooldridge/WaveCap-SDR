@@ -6,7 +6,7 @@ export type TrunkingSystemState =
   | "stopped"
   | "starting"
   | "searching"
-  | "syncing"
+  | "synced"  // Locked to control channel (renamed from syncing to match backend)
   | "running"
   | "failed";
 
@@ -25,6 +25,7 @@ export interface TrunkingSystem {
   controlChannelState: ControlChannelState;
   controlChannelFreqHz: number | null;
   centerHz: number; // SDR center frequency (auto-managed by trunking)
+  sampleRate: number; // SDR sample rate for spectrum display
   nac: number | null;
   systemId: number | null;
   rfssId: number | null;
@@ -36,6 +37,8 @@ export interface TrunkingSystem {
   huntMode: HuntMode;
   lockedFrequencyHz: number | null;
   controlChannels: ControlChannel[];
+  // Capture association (for Radio tab integration)
+  captureId: string | null;
 }
 
 export interface ControlChannelMeasurement {

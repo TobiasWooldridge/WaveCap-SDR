@@ -1191,6 +1191,7 @@ class TrunkingSystem:
 
         try:
             # Create wideband capture for this trunking system
+            logger.info(f"TrunkingSystem {self.cfg.id}: Creating capture with gain={self.cfg.gain}, antenna={self.cfg.antenna}")
             self._capture = capture_manager.create_capture(
                 device_id=self.cfg.device_id,
                 center_hz=self.cfg.center_hz,
@@ -1556,8 +1557,7 @@ class TrunkingSystem:
                 # IMPORTANT: preserve_polarity=True to avoid flip-flopping on repeated overflows
                 if system._control_monitor is not None:
                     system._control_monitor.reset(preserve_polarity=True)
-                # Skip processing this batch - let state stabilize
-                return
+                # Continue processing this batch after resetting state.
 
             # Debug: Track IQ flow (reduced frequency, use logger instead of print)
             iq_debug_state["samples"] += len(iq)

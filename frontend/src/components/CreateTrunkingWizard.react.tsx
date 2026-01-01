@@ -49,7 +49,7 @@ export function CreateTrunkingWizard({ onClose, onSuccess }: CreateTrunkingWizar
     }
     if (trunkingSystems) {
       for (const s of trunkingSystems) {
-        if (s.deviceId && (s.state === "running" || s.state === "starting" || s.state === "searching" || s.state === "syncing")) {
+        if (s.deviceId && (s.state === "running" || s.state === "starting" || s.state === "searching" || s.state === "synced")) {
           used.add(s.deviceId);
         }
       }

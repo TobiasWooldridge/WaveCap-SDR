@@ -2394,6 +2394,7 @@ async def stream_capture_spectrum(websocket: WebSocket, cid: str) -> None:
     """Stream FFT/spectrum data for waterfall/spectrum analyzer display.
 
     Only calculates FFT when there are active subscribers for efficiency.
+    Supports both in-process captures and subprocess trunking captures.
     """
     app_state: AppState = websocket.app.state.app_state
     token = app_state.config.server.auth_token
@@ -2409,13 +2410,35 @@ async def stream_capture_spectrum(websocket: WebSocket, cid: str) -> None:
             return
 
     await websocket.accept()
-    cap = app_state.captures.get_capture(cid)
-    if cap is None:
-        await websocket.close(code=4404)
-        return
-    q = await cap.subscribe_fft()
 
-    logger.info(f"Spectrum WebSocket stream started for capture {cid}, client={websocket.client}")
+    # Check if capture is in main process
+    cap = app_state.captures.get_capture(cid)
+    is_subprocess = False
+    q = None
+
+    if cap is not None:
+        # Normal in-process capture
+        q = await cap.subscribe_fft()
+    else:
+        # Check if this is a subprocess trunking capture
+        from wavecapsdr.trunking.process_manager import TrunkingProcessManager
+
+        tm = app_state.trunking_manager
+        if isinstance(tm, TrunkingProcessManager) and tm.has_subprocess_capture(cid):
+            try:
+                q = await tm.subscribe_fft(cid)
+                is_subprocess = True
+            except ValueError:
+                await websocket.close(code=4404)
+                return
+        else:
+            await websocket.close(code=4404)
+            return
+
+    logger.info(
+        f"Spectrum WebSocket stream started for capture {cid} "
+        f"(subprocess={is_subprocess}), client={websocket.client}"
+    )
     try:
         while True:
             data = await q.get()
@@ -2433,7 +2456,14 @@ async def stream_capture_spectrum(websocket: WebSocket, cid: str) -> None:
         )
         raise
     finally:
-        cap.unsubscribe_fft(q)
+        if is_subprocess:
+            from wavecapsdr.trunking.process_manager import TrunkingProcessManager
+
+            tm = app_state.trunking_manager
+            if isinstance(tm, TrunkingProcessManager):
+                tm.unsubscribe_fft(cid, q)
+        elif cap is not None:
+            cap.unsubscribe_fft(q)
         logger.info(f"Spectrum WebSocket stream ended for capture {cid}")
 
 

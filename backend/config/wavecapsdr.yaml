@@ -599,6 +599,7 @@ stream:
   default_format: iq16
   default_audio_rate: 48000
 trunking:
+  worker_mode: per_device
   systems:
     sa_grn_2:
       antenna: Antenna B
@@ -770,7 +771,8 @@ trunking:
       system_id: 988
       wacn: 781056
       talkgroups_file: talkgroups/sa_grn.yaml
-      default_hunt_mode: scan_once
+      default_hunt_mode: manual
+      skip_initial_scan: true
     sa_grn_rtl:
       antenna: RX
       auto_start: true
@@ -942,10 +944,11 @@ trunking:
       system_id: 988
       wacn: 781056
       talkgroups_file: talkgroups/sa_grn.yaml
-      default_hunt_mode: scan_once
+      default_hunt_mode: manual
+      skip_initial_scan: true
     sa_grn_sdrplay_b:
       antenna: Antenna B
-      auto_start: false
+      auto_start: true
       bandwidth: 5000000
       center_hz: 414.95 MHz
       control_channel_timeout: 5
@@ -1113,4 +1116,5 @@ trunking:
       system_id: 988
       wacn: 781056
       talkgroups_file: talkgroups/sa_grn.yaml
-      default_hunt_mode: scan_once
+      default_hunt_mode: manual
+      skip_initial_scan: true

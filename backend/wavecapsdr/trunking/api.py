@@ -115,6 +115,7 @@ class SystemResponse(BaseModel):
     controlChannelState: str
     controlChannelFreqHz: float | None
     centerHz: float  # SDR center frequency (auto-managed by trunking)
+    sampleRate: int  # SDR sample rate for spectrum display
     nac: int | None
     systemId: int | None
     rfssId: int | None
@@ -126,6 +127,8 @@ class SystemResponse(BaseModel):
     huntMode: str
     lockedFrequencyHz: float | None
     controlChannels: list[ControlChannelResponse]
+    # Capture association (for Radio tab integration)
+    captureId: str | None = None
 
 
 class ActiveCallResponse(BaseModel):
@@ -244,6 +247,12 @@ def get_trunking_manager(request: Request) -> TrunkingManagerLike:
 def system_to_response(system: TrunkingSystemLike) -> SystemResponse:
     """Convert TrunkingSystem to API response."""
     d = system.to_dict()
+    # Get capture ID if available (for Radio tab integration)
+    # Use format "trunking:{system_id}" to make IDs unique across subprocesses
+    raw_capture_id = d.get("captureId") or (
+        system.capture_id() if hasattr(system, "capture_id") else None
+    )
+    capture_id = f"trunking:{d['id']}" if raw_capture_id else None
     return SystemResponse(
         id=d["id"],
         name=d["name"],
@@ -253,6 +262,7 @@ def system_to_response(system: TrunkingSystemLike) -> SystemResponse:
         controlChannelState=d["controlChannelState"],
         controlChannelFreqHz=d["controlChannelFreqHz"],
         centerHz=system.cfg.center_hz,  # SDR center frequency (auto-managed)
+        sampleRate=system.cfg.sample_rate,  # SDR sample rate
         nac=d["nac"],
         systemId=d["systemId"],
         rfssId=d["rfssId"],
@@ -264,6 +274,7 @@ def system_to_response(system: TrunkingSystemLike) -> SystemResponse:
         huntMode=d["huntMode"],
         lockedFrequencyHz=d["lockedFrequencyHz"],
         controlChannels=d["controlChannels"],
+        captureId=capture_id,
     )
 
 

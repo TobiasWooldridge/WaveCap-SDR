@@ -157,43 +157,38 @@ stop_sdrplay_api() {
     fi
 }
 
-# Step 3: Reset USB devices (optional, requires usbreset)
+# Step 3: Reset USB devices using uhubctl power cycling
 reset_usb_devices() {
     log_info "Resetting USB devices..."
 
-    # Check if usbreset is available
-    if command -v usbreset &> /dev/null; then
-        # Find SDRplay devices (vendor ID 1df7)
-        for dev in $(lsusb 2>/dev/null | grep -i "1df7\|sdrplay" | awk '{print $2":"$4}' | tr -d ':'); do
-            log_info "  Resetting SDRplay USB device..."
-            sudo usbreset "$dev" 2>/dev/null || true
-        done
+    # Check if uhubctl is available (preferred method)
+    if command -v uhubctl &> /dev/null; then
+        # Power cycle all ports on smart USB hubs
+        # uhubctl will find all controllable hubs automatically
+        log_info "  Power cycling USB ports with uhubctl..."
 
-        # Find RTL-SDR devices (vendor ID 0bda)
-        for dev in $(lsusb 2>/dev/null | grep -i "0bda\|rtl" | awk '{print $2":"$4}' | tr -d ':'); do
-            log_info "  Resetting RTL-SDR USB device..."
-            sudo usbreset "$dev" 2>/dev/null || true
-        done
+        # Power off all controllable ports
+        if sudo uhubctl -a off 2>/dev/null; then
+            log_info "  USB ports powered off"
+            sleep 2
 
-        sleep $SLEEP_SHORT
-        log_success "USB devices reset"
-    else
-        # Alternative: use ioreg to find and "tickle" USB devices
-        log_info "  usbreset not available, using alternative reset method..."
-
-        # For SDRplay, restarting the API is usually sufficient
-        # For RTL-SDR, we can try to reset by re-probing
-
-        # On macOS, we can try to reset USB by touching the kernel extension
-        # This is less reliable but better than nothing
-        if [ -d /System/Library/Extensions/IOUSBFamily.kext ]; then
-            # Just touch the extension to trigger re-enumeration (requires SIP disabled)
-            # This is usually not needed and can cause issues, so we skip it
-            :
+            # Power on all controllable ports
+            if sudo uhubctl -a on 2>/dev/null; then
+                log_info "  USB ports powered on"
+                sleep 3
+                log_success "USB power cycle complete"
+            else
+                log_warn "  Failed to power on USB ports"
+            fi
+        else
+            log_warn "  No controllable USB hubs found or uhubctl failed"
+            log_info "  Trying to list available hubs..."
+            sudo uhubctl 2>/dev/null | head -20 || true
         fi
-
-        log_warn "  USB reset limited without usbreset tool"
-        log_info "  Consider installing: brew install usbreset (if available)"
+    else
+        log_warn "  uhubctl not available"
+        log_info "  Install with: brew install uhubctl"
+        log_info "  Skipping USB power cycle - devices may need manual reconnection"
     fi
 }
 
@@ -238,9 +233,11 @@ verify_devices() {
         # Run SoapySDRUtil to find devices
         local output=$(SoapySDRUtil --find 2>/dev/null)
 
-        # Count devices
-        local sdrplay_count=$(echo "$output" | grep -c "driver = sdrplay" || echo 0)
-        local rtlsdr_count=$(echo "$output" | grep -c "driver = rtlsdr" || echo 0)
+        # Count devices (grep -c returns 1 on no match, so we capture and default)
+        local sdrplay_count
+        local rtlsdr_count
+        sdrplay_count=$(echo "$output" | grep -c "driver = sdrplay") || sdrplay_count=0
+        rtlsdr_count=$(echo "$output" | grep -c "driver = rtlsdr") || rtlsdr_count=0
 
         devices_found=$((sdrplay_count + rtlsdr_count))
 

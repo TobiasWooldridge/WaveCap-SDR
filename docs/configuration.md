@@ -98,6 +98,7 @@ Trunking Systems
 Trunking Workers
 - `trunking.worker_mode` (enum `disabled`|`per_device`, default `disabled`): Run trunking systems in per-device worker processes for isolation.
   - Voice streaming endpoints are disabled in `per_device` mode.
+  - SDRplay devices in `per_device` mode use direct SoapySDR access (no proxy), since each worker owns a single device process.
 - `trunking.worker_rpc_timeout_s` (float, default `5.0`): Timeout for manager-to-worker RPC calls.
 - `trunking.worker_event_queue_size` (int, default `200`): Max queued trunking events per subscriber (oldest dropped when full).
 

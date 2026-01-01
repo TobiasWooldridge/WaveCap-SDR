@@ -281,6 +281,10 @@ class TrunkingProcessManager(TrunkingManagerLike):
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._request_id = 0
         self._request_lock = threading.Lock()
+        self._refresh_task: asyncio.Task[None] | None = None
+        # FFT subscriber tracking: device_id -> set of (queue, loop) tuples
+        self._fft_subscribers: dict[str, set[tuple[asyncio.Queue[dict[str, Any]], asyncio.AbstractEventLoop]]] = {}
+        self._fft_subscribers_lock = threading.Lock()
 
     def set_config_path(self, config_path: str) -> None:
         self._config_path = config_path
@@ -318,10 +322,30 @@ class TrunkingProcessManager(TrunkingManagerLike):
 
         await self._refresh_snapshots()
 
+        # Start periodic refresh task to keep stats updated
+        self._refresh_task = asyncio.create_task(self._periodic_refresh())
+
+    async def _periodic_refresh(self) -> None:
+        """Periodically refresh snapshots from workers to keep stats current."""
+        while self._running:
+            await asyncio.sleep(2.0)  # Refresh every 2 seconds
+            if self._running:
+                try:
+                    await self._refresh_snapshots()
+                except Exception as e:
+                    logger.debug(f"Periodic snapshot refresh failed: {e}")
+
     async def stop(self) -> None:
         if not self._running:
             return
         self._running = False
+
+        # Cancel periodic refresh task
+        if self._refresh_task:
+            self._refresh_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._refresh_task
+            self._refresh_task = None
 
         for handle in list(self._workers.values()):
             self._shutdown_worker(handle)
@@ -492,6 +516,135 @@ class TrunkingProcessManager(TrunkingManagerLike):
 
     async def unsubscribe_events(self, queue: asyncio.Queue[dict[str, Any]]) -> None:
         self._event_queues.discard(queue)
+
+    # =========================================================================
+    # FFT Streaming for Subprocess Captures
+    # =========================================================================
+
+    def _parse_trunking_capture_id(self, capture_id: str) -> str | None:
+        """Parse 'trunking:{system_id}' format, returning system_id or None."""
+        if capture_id.startswith("trunking:"):
+            return capture_id[9:]  # len("trunking:") == 9
+        return None
+
+    def get_device_for_capture(self, capture_id: str) -> str | None:
+        """Get the device ID that owns a capture.
+
+        Accepts either raw capture ID (e.g., 'c1') or trunking format
+        (e.g., 'trunking:sa_grn_2').
+        """
+        # Check if this is a trunking:{system_id} format
+        system_id = self._parse_trunking_capture_id(capture_id)
+        if system_id is not None:
+            system = self._systems.get(system_id)
+            if system is not None:
+                return system.cfg.device_id or "auto"
+            return None
+
+        # Fall back to checking raw capture IDs
+        for system in self._systems.values():
+            if system.capture_id() == capture_id:
+                return system.cfg.device_id or "auto"
+        return None
+
+    async def subscribe_fft(self, capture_id: str) -> asyncio.Queue[dict[str, Any]]:
+        """Subscribe to FFT data for a subprocess capture.
+
+        Returns a queue that will receive FFT data frames.
+        """
+        device_id = self.get_device_for_capture(capture_id)
+        if device_id is None:
+            raise ValueError(f"Capture '{capture_id}' not found in any trunking system")
+
+        # Normalize device ID
+        device_id = _normalize_device_id(device_id)
+
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=4)
+        loop = asyncio.get_running_loop()
+
+        with self._fft_subscribers_lock:
+            if device_id not in self._fft_subscribers:
+                self._fft_subscribers[device_id] = set()
+            is_first = len(self._fft_subscribers[device_id]) == 0
+            self._fft_subscribers[device_id].add((queue, loop))
+
+        # If first subscriber, tell the worker to start forwarding FFT
+        if is_first:
+            handle = self._workers.get(device_id)
+            if handle is not None:
+                try:
+                    await self._rpc_call(handle, "subscribe_fft")
+                    logger.info(f"Started FFT forwarding from worker {device_id}")
+                except Exception as e:
+                    logger.error(f"Failed to start FFT forwarding: {e}")
+
+        return queue
+
+    def unsubscribe_fft(self, capture_id: str, queue: asyncio.Queue[dict[str, Any]]) -> None:
+        """Unsubscribe from FFT data for a subprocess capture."""
+        device_id = self.get_device_for_capture(capture_id)
+        if device_id is None:
+            return
+
+        device_id = _normalize_device_id(device_id)
+
+        with self._fft_subscribers_lock:
+            subs = self._fft_subscribers.get(device_id)
+            if subs is None:
+                return
+            # Remove this subscriber
+            subs_to_remove = [s for s in subs if s[0] is queue]
+            for s in subs_to_remove:
+                subs.discard(s)
+            is_last = len(subs) == 0
+
+        # If last subscriber, tell the worker to stop forwarding FFT
+        if is_last:
+            handle = self._workers.get(device_id)
+            if handle is not None:
+                try:
+                    # Fire and forget - don't wait for response
+                    self._send_command(handle, "unsubscribe_fft")
+                    logger.info(f"Stopped FFT forwarding from worker {device_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to stop FFT forwarding: {e}")
+
+    def _broadcast_fft(self, capture_id: str, fft_data: dict[str, Any]) -> None:
+        """Broadcast FFT data to all subscribers for a capture."""
+        device_id = self.get_device_for_capture(capture_id)
+        if device_id is None:
+            return
+
+        device_id = _normalize_device_id(device_id)
+
+        with self._fft_subscribers_lock:
+            subs = self._fft_subscribers.get(device_id)
+            if not subs:
+                return
+            subscribers = list(subs)
+
+        for queue, loop in subscribers:
+            try:
+                if loop.is_running():
+                    loop.call_soon_threadsafe(
+                        lambda q=queue, d=fft_data: q.put_nowait(d) if not q.full() else None
+                    )
+            except Exception:
+                pass
+
+    def _send_command(self, handle: _WorkerHandle, action: str, **kwargs: Any) -> None:
+        """Send a command to a worker without waiting for response."""
+        request_id = self._next_request_id()
+        msg: dict[str, Any] = {"id": request_id, "action": action}
+        msg.update(kwargs)
+        try:
+            handle.cmd_conn.send(msg)
+        except Exception:
+            pass
+
+    def has_subprocess_capture(self, capture_id: str) -> bool:
+        """Check if a capture ID belongs to a subprocess trunking system."""
+        return self.get_device_for_capture(capture_id) is not None
 
     def _require_worker(self, system_id: str) -> _WorkerHandle:
         handle = self._system_to_worker.get(system_id)
@@ -669,6 +822,13 @@ class TrunkingProcessManager(TrunkingManagerLike):
                 proxy = self._systems.get(system_id)
                 if proxy:
                     proxy.append_message(_normalize_message(message))
+        elif event_type == "fft":
+            # Forward FFT data to local subscribers
+            capture_id = event.get("captureId")
+            fft_data = event.get("data")
+            if isinstance(capture_id, str) and fft_data is not None:
+                self._broadcast_fft(capture_id, fft_data)
+            return  # Don't broadcast FFT to regular event subscribers
 
         self._schedule_broadcast(event)
 
@@ -746,6 +906,11 @@ class TrunkingProcessManager(TrunkingManagerLike):
             try:
                 snapshot = await self._rpc_call(handle, "snapshot")
                 if isinstance(snapshot, dict):
+                    # Debug: log captureId from snapshot
+                    for sys_data in snapshot.get("systems", []):
+                        cap_id = sys_data.get("captureId")
+                        if cap_id:
+                            logger.debug(f"Snapshot has captureId={cap_id} for {sys_data.get('id')}")
                     self._apply_snapshot(snapshot)
             except Exception as exc:
                 logger.warning(

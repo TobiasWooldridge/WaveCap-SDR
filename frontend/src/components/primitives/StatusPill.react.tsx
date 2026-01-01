@@ -201,8 +201,8 @@ export function getTrunkingStatusPropsSimple(state: string): StatusPillConfig {
       return { label: "Starting", variant: "warning" };
     case "searching":
       return { label: "Hunting", variant: "warning" };
-    case "syncing":
-      return { label: "Syncing", variant: "warning" };
+    case "synced":
+      return { label: "Synced", variant: "success" };
     case "failed":
       return { label: "Failed", variant: "danger" };
     default:

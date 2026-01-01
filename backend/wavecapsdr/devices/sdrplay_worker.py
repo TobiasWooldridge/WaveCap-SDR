@@ -377,7 +377,12 @@ class SDRplayWorker:
                 logger.info(f"Opening device: {self.device_args}")
             _log_to_pipe(self.status_pipe, "info", f"Opening device: {self.device_args}")
 
-            sdr = SoapySDR.Device(self.device_args)
+            # Open with timeout (10 seconds = 10,000,000 microseconds)
+            DEVICE_OPEN_TIMEOUT_US = 10_000_000
+            try:
+                sdr = SoapySDR.Device.make(self.device_args, DEVICE_OPEN_TIMEOUT_US)
+            except AttributeError:
+                sdr = SoapySDR.Device(self.device_args)
             self.sdr = sdr
 
             # Query device info
@@ -910,7 +915,14 @@ class SDRplayWorker:
             self._read_buffer = np.empty(chunk_size, dtype=np.complex64)
         buff = self._read_buffer[:chunk_size]
 
-        sr = sdr.readStream(self.stream, [buff.view(np.float32)], chunk_size, flags=0)
+        # Use readStreamIntoBuffers if available (more efficient for pre-allocated buffers)
+        try:
+            sr = sdr.readStreamIntoBuffers(
+                self.stream, [buff.view(np.float32)], flags=0, timeoutUs=100000
+            )
+        except AttributeError:
+            # Fallback to legacy readStream
+            sr = sdr.readStream(self.stream, [buff.view(np.float32)], chunk_size, flags=0)
 
         # Handle StreamResult
         if hasattr(sr, "ret"):
@@ -923,9 +935,9 @@ class SDRplayWorker:
             ret = sr
             flags = 0
 
-        # Log sample reads periodically (every 1000 calls or on error)
+        # Log sample reads periodically (every 10000 calls or on error)
         self._stream_call_count = getattr(self, "_stream_call_count", 0) + 1
-        if ret <= 0 or self._stream_call_count <= 5 or self._stream_call_count % 1000 == 0:
+        if ret <= 0 or self._stream_call_count <= 5 or self._stream_call_count % 10000 == 0:
             if logger:
                 logger.debug(
                     f"_stream_samples[{self._stream_call_count}]: ret={ret}, flags={flags}"

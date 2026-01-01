@@ -179,8 +179,8 @@ function formatState(state: string): string {
       return "Starting";
     case "searching":
       return "Searching for control channel";
-    case "syncing":
-      return "Syncing";
+    case "synced":
+      return "Synced to control channel";
     case "running":
       return "Running";
     case "failed":

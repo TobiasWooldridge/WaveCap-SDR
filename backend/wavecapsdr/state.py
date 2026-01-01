@@ -26,7 +26,7 @@ from .capture import CaptureManager
 from .device_namer import load_device_nicknames
 
 
-def create_device_driver(cfg: AppConfig) -> DeviceDriver:
+def create_device_driver(cfg: AppConfig, *, use_sdrplay_proxy: bool = True) -> DeviceDriver:
     driver: DeviceDriver
     if cfg.device.driver == "fake":
         # Explicit fake driver mode - only show fake device
@@ -43,7 +43,7 @@ def create_device_driver(cfg: AppConfig) -> DeviceDriver:
             driver = FakeDriver()  # type: ignore[unreachable]
         else:
             try:
-                soapy_driver = SoapyDriver(cfg.device)
+                soapy_driver = SoapyDriver(cfg.device, use_sdrplay_proxy=use_sdrplay_proxy)
                 # Wrap SoapyDriver in CompositeDriver to handle fake device visibility
                 # CompositeDriver only shows fake device when show_fake_device=True
                 driver = CompositeDriver(soapy_driver, cfg.device)

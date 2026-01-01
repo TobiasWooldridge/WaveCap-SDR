@@ -3033,18 +3033,26 @@ class Capture:
         # At 6MHz: 300,000 samples = 50ms (20 chunks/sec)
         # This gives more time for DSP processing between reads
         chunk = max(8192, self.cfg.sample_rate // 20)
+        max_stream_chunk = getattr(self._stream, "max_samples", None)
+        if isinstance(max_stream_chunk, int) and max_stream_chunk > 0:
+            chunk = min(chunk, max_stream_chunk)
         # Initialize IQ watchdog timestamp
         self._last_iq_time = time.time()
         import time as time_module  # Explicit import for perf_counter
 
         _capture_loop_counter = 0
         stream = self._stream
+        # Get device identifier for debug output
+        _dev_label = "?"
+        if self.cfg.device_id:
+            if "serial=" in self.cfg.device_id:
+                _dev_label = self.cfg.device_id.split("serial=")[-1][:6]
+            elif "rtlsdr" in self.cfg.device_id.lower():
+                _dev_label = "RTL"
         while not self._stop_event.is_set():
             _capture_loop_counter += 1
-            if _capture_loop_counter <= 5 or _capture_loop_counter % 100000 == 0:
-                logger.debug(
-                    f"Capture {self.cfg.id}: loop iteration {_capture_loop_counter}, calling read()"
-                )
+            if _capture_loop_counter <= 5:
+                print(f"[CAPTURE] {self.cfg.id}@{_dev_label} iter={_capture_loop_counter}: reading...", flush=True)
             loop_start = time_module.perf_counter()
             try:
                 samples, overflow = stream.read(chunk)
@@ -3067,6 +3075,9 @@ class Capture:
                 continue
             # Update IQ watchdog - we received samples
             self._last_iq_time = time.time()
+            # Startup logging
+            if _capture_loop_counter <= 5:
+                print(f"[CAPTURE] {self.cfg.id}@{_dev_label} iter={_capture_loop_counter}: got {samples.size} samples", flush=True)
 
             # Debug logging every 100 reads with data
             if not hasattr(self, "_iq_debug_counter"):

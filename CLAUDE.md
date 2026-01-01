@@ -172,6 +172,13 @@ npm run build       # Compile check
 - Repository: https://github.com/TobiasWooldridge/SoapySDRPlay3
 - This fork includes API-level locking to prevent crashes on rapid config changes
 
+**Known Issues (tracked on our forks):**
+- [SoapySDRPlay3#1](https://github.com/TobiasWooldridge/SoapySDRPlay3/issues/1): Device open can hang indefinitely, blocks signals
+
+**Fork enhancements (TobiasWooldridge/SoapySDR):**
+- `Device.make(args, timeoutUs)` - timeout parameter for device open
+- `Device.cancelMake()` - cancel pending device open from another thread
+
 Build and install:
 ```bash
 cd ../SoapySDRPlay3
@@ -193,13 +200,19 @@ The SDRplay API service can become stuck, causing captures to hang in "starting"
 **Automatic Recovery:**
 WaveCap-SDR has proactive health monitoring that detects stuck states and attempts service restart.
 
-**Manual Recovery (Linux/systemd):**
+**Manual Recovery:**
 ```bash
+# Full reset script (stops server, restarts SDRplay service, verifies devices)
+scripts/fix-sdr-devices.sh
+
 # Via API
 curl -X POST http://localhost:8087/api/v1/devices/sdrplay/restart-service
 
-# Via CLI
+# Via CLI (Linux/systemd)
 sudo systemctl restart sdrplay
+
+# Via CLI (macOS)
+sudo launchctl kickstart -k system/com.sdrplay.sdrplayapiservice
 ```
 
 ## Claude Code Skills
