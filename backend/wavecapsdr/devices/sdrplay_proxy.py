@@ -279,25 +279,36 @@ class SDRplayProxyStream(StreamHandle):
 
         # Calculate read position in ring buffer
         buffer_start = HEADER_SIZE
-        read_offset = (self._last_read_idx % BUFFER_SAMPLES) * 8  # 8 bytes per complex64
+        read_offset = self._last_read_idx % BUFFER_SAMPLES
 
-        # Read samples from ring buffer
-        bytes_to_read = to_read * 8
-        bytes_to_end = (BUFFER_SAMPLES * 8) - read_offset
-
-        if bytes_to_read <= bytes_to_end:
-            # Single read (no wrap)
-            samples_bytes = bytes(
-                buf[buffer_start + read_offset : buffer_start + read_offset + bytes_to_read]
+        # Read samples from ring buffer (single-copy into output)
+        samples = np.empty(to_read, dtype=np.complex64)
+        if read_offset + to_read <= BUFFER_SAMPLES:
+            view = np.ndarray(
+                shape=(to_read,),
+                dtype=np.complex64,
+                buffer=buf,
+                offset=buffer_start + (read_offset * 8),
             )
+            samples[:] = view
         else:
-            # Split read (wrap around)
-            part1 = bytes(buf[buffer_start + read_offset : buffer_start + BUFFER_SAMPLES * 8])
-            part2 = bytes(buf[buffer_start : buffer_start + bytes_to_read - bytes_to_end])
-            samples_bytes = part1 + part2
+            first_count = BUFFER_SAMPLES - read_offset
+            view1 = np.ndarray(
+                shape=(first_count,),
+                dtype=np.complex64,
+                buffer=buf,
+                offset=buffer_start + (read_offset * 8),
+            )
+            samples[:first_count] = view1
 
-        # Convert to numpy array (copy to make writeable)
-        samples = np.frombuffer(samples_bytes, dtype=np.complex64).copy()
+            second_count = to_read - first_count
+            view2 = np.ndarray(
+                shape=(second_count,),
+                dtype=np.complex64,
+                buffer=buf,
+                offset=buffer_start,
+            )
+            samples[first_count:] = view2
 
         # Update read position
         self._last_read_idx += to_read
