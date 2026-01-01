@@ -91,14 +91,13 @@ def _active_call_from_dict(data: dict[str, Any]) -> ActiveCall:
 def _normalize_message(message: dict[str, Any]) -> dict[str, Any]:
     if "opcode_name" in message:
         return message
-    return {
-        "timestamp": message.get("timestamp", 0),
-        "opcode": message.get("opcode", 0),
-        "opcode_name": message.get("opcodeName", ""),
-        "nac": message.get("nac"),
-        "summary": message.get("summary", ""),
-        "raw": message.get("raw"),
-    }
+    message["opcode_name"] = message.pop("opcodeName", "")
+    message.setdefault("timestamp", 0)
+    message.setdefault("opcode", 0)
+    message.setdefault("nac", None)
+    message.setdefault("summary", "")
+    message.setdefault("raw", None)
+    return message
 
 
 @dataclass
