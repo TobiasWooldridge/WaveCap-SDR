@@ -45,6 +45,30 @@ export function useTrunkingWebSocket(
   const [callHistory, setCallHistory] = useState<CallHistoryEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  const upsertSystemCache = useCallback(
+    (system: TrunkingSystem) => {
+      queryClient.setQueryData(trunkingKeys.system(system.id), system);
+      queryClient.setQueryData<TrunkingSystem[]>(trunkingKeys.systems(), (old) => {
+        if (!old || old.length === 0) {
+          return [system];
+        }
+        let found = false;
+        const next = old.map((existing) => {
+          if (existing.id === system.id) {
+            found = true;
+            return system;
+          }
+          return existing;
+        });
+        if (!found) {
+          next.push(system);
+        }
+        return next;
+      });
+    },
+    [queryClient],
+  );
+
   const handleEvent = useCallback(
     (event: TrunkingEvent) => {
       switch (event.type) {
@@ -60,8 +84,15 @@ export function useTrunkingWebSocket(
           if (event.callHistory && event.callHistory.length > 0) {
             setCallHistory(event.callHistory);
           }
-          // Update query cache
-          queryClient.setQueryData(trunkingKeys.systems(), event.systems);
+          // Update query cache (avoid overwriting list with a single-system snapshot)
+          if (systemId) {
+            const system = event.systems.find((s) => s.id === systemId);
+            if (system) {
+              upsertSystemCache(system);
+            }
+          } else {
+            queryClient.setQueryData(trunkingKeys.systems(), event.systems);
+          }
           break;
 
         case "system_update":
@@ -69,11 +100,7 @@ export function useTrunkingWebSocket(
             prev.map((s) => (s.id === event.systemId ? event.system : s))
           );
           // Update query cache
-          queryClient.setQueryData(
-            trunkingKeys.system(event.systemId),
-            event.system
-          );
-          queryClient.invalidateQueries({ queryKey: trunkingKeys.systems() });
+          upsertSystemCache(event.system);
           break;
 
         case "call_start":
@@ -109,7 +136,7 @@ export function useTrunkingWebSocket(
           break;
       }
     },
-    [queryClient, onCallStart, onCallEnd, onMessage]
+    [queryClient, onCallStart, onCallEnd, onMessage, systemId, upsertSystemCache]
   );
 
   const connect = useCallback(() => {
