@@ -67,7 +67,12 @@ These scripts handle virtual environment setup, dependency installation, and sta
 - `DEVICE_ARGS` (optional, e.g., `"driver=rtlsdr"`)
 - `CONFIG` (optional, path to config file)
 - Use `./restart-sdrplay.sh` whenever the SDRplay systemd service needs a manual restart (script wraps `sudo systemctl restart sdrplay`). `start-app.sh` automatically attempts a non-interactive restart via this helper, but if sudo prompts for a password you'll need to run the helper yourself before starting the app.
-- When radios misbehave (especially SDRplay enumeration or streaming issues), run `scripts/fix-sdrplay.sh` to power-cycle and reinitialize the device.
+- When radios misbehave (especially SDRplay enumeration or streaming issues), run `sudo scripts/fix-sdrplay-full.sh` which:
+  1. Kills all SDRplay service instances
+  2. Power-cycles SDRplay USB ports via uhubctl (ports 3,4 on hub 2-1.1.4)
+  3. Restarts the SDRplay service
+  4. Verifies enumeration works
+- For passwordless execution, add to sudoers: `echo 'USER ALL=(ALL) NOPASSWD: /path/to/scripts/fix-sdrplay-full.sh' | sudo tee /etc/sudoers.d/fix-sdrplay`
 
 ## Test Harness (for agentic tools)
 Use the built‑in harness to spin up a local server, create a capture, add channels, stream audio, and validate levels. It works with the fake driver (offline) and SoapySDR (RTL‑SDR, SDRplay RSPdx‑r2).

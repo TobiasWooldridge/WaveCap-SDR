@@ -1191,12 +1191,13 @@ class TrunkingSystem:
 
         try:
             # Create wideband capture for this trunking system
-            logger.info(f"TrunkingSystem {self.cfg.id}: Creating capture with gain={self.cfg.gain}, antenna={self.cfg.antenna}")
+            logger.info(f"TrunkingSystem {self.cfg.id}: Creating capture with gain={self.cfg.gain}, ppm={self.cfg.ppm}, antenna={self.cfg.antenna}")
             self._capture = capture_manager.create_capture(
                 device_id=self.cfg.device_id,
                 center_hz=self.cfg.center_hz,
                 sample_rate=self.cfg.sample_rate,
                 gain=self.cfg.gain,
+                ppm=self.cfg.ppm,
                 antenna=self.cfg.antenna,
                 device_settings=self.cfg.device_settings if self.cfg.device_settings else None,
                 element_gains=self.cfg.element_gains if self.cfg.element_gains else None,
@@ -1306,14 +1307,42 @@ class TrunkingSystem:
 
         input_rate = self.cfg.sample_rate  # e.g., 6 MHz
 
-        # Stage 1: Coarse decimation to 200 kHz
-        stage1_factor = 30
-        stage1_rate = input_rate // stage1_factor  # 200 kHz
+        # Target ~50 kHz output for ~10 SPS (P25 symbol rate is 4800 baud)
+        # Calculate decimation factors dynamically based on input rate
+        target_output_rate = 48000  # 48 kHz gives 10 SPS
 
-        # Stage 2: Final decimation to 50 kHz (10.4 SPS)
-        # This matches SDRTrunk's recording sample rate
-        stage2_factor = 4
-        stage2_rate = stage1_rate // stage2_factor  # 50 kHz
+        total_decim = max(1, input_rate // target_output_rate)
+
+        # Two-stage decimation for better anti-aliasing
+        # Find suitable stage1 and stage2 factors
+        if total_decim >= 48:
+            # For high sample rates (5-8 MHz), use 30:1 + 4:1 or similar
+            for s1 in [30, 24, 20, 16, 12, 10, 8]:
+                if total_decim % s1 == 0:
+                    s2 = total_decim // s1
+                    if 2 <= s2 <= 10:
+                        stage1_factor = s1
+                        stage2_factor = s2
+                        break
+            else:
+                # Fallback: use sqrt-like split
+                stage1_factor = int(total_decim**0.5)
+                stage2_factor = total_decim // stage1_factor
+        else:
+            # For lower sample rates (2-3 MHz), use smaller first stage
+            for s1 in [12, 10, 8, 6, 4]:
+                if total_decim % s1 == 0:
+                    s2 = total_decim // s1
+                    if 2 <= s2 <= 10:
+                        stage1_factor = s1
+                        stage2_factor = s2
+                        break
+            else:
+                stage1_factor = total_decim
+                stage2_factor = 1
+
+        stage1_rate = input_rate // stage1_factor
+        stage2_rate = stage1_rate // stage2_factor
 
         # Final output rate - stay at 50 kHz
         actual_sample_rate = stage2_rate

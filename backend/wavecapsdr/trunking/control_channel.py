@@ -584,8 +584,8 @@ class ControlChannelMonitor:
     DIBIT_TO_SYMBOL = np.array([+1.0, +3.0, -1.0, -3.0], dtype=np.float32)
     # SDRTrunk uses 80 with radian-scale symbols (max ~133), which is 60% of max
     # WaveCap uses ±3 normalized symbols (max 216), so 60% = 130
-    # Raise to 130 to eliminate false positive sync detection on noise
-    SOFT_SYNC_THRESHOLD = 130  # 60% of max (216), equivalent to SDRTrunk's 80/133
+    # Lowered to 100 (46%) to allow marginal signals to be decoded
+    SOFT_SYNC_THRESHOLD = 100  # Lowered for weak signals (was 130)
 
     def _soft_correlation(
         self, dibits: list[int], detect_polarity: bool = False

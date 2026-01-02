@@ -249,6 +249,7 @@ class TrunkingSystemConfig:
     sample_rate: int = 8_000_000
     device_id: str = ""
     gain: float | None = None  # RF gain (None = auto)
+    ppm: float | None = None  # PPM frequency correction (important for RTL-SDR)
     antenna: str | None = None  # SDR antenna port
     device_settings: dict[str, str] = field(
         default_factory=dict

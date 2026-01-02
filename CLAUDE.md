@@ -202,8 +202,9 @@ WaveCap-SDR has proactive health monitoring that detects stuck states and attemp
 
 **Manual Recovery:**
 ```bash
-# Full reset script (stops server, restarts SDRplay service, verifies devices)
-scripts/fix-sdr-devices.sh
+# Full reset script (kills service, power-cycles USB, restarts service, verifies enumeration)
+# Requires uhubctl for USB power cycling
+sudo scripts/fix-sdrplay-full.sh
 
 # Via API
 curl -X POST http://localhost:8087/api/v1/devices/sdrplay/restart-service
@@ -212,7 +213,12 @@ curl -X POST http://localhost:8087/api/v1/devices/sdrplay/restart-service
 sudo systemctl restart sdrplay
 
 # Via CLI (macOS)
-sudo launchctl kickstart -k system/com.sdrplay.sdrplayapiservice
+sudo launchctl kickstart -k system/com.sdrplay.service
+```
+
+**Passwordless sudo for fix script:**
+```bash
+echo 'thw ALL=(ALL) NOPASSWD: /Users/thw/Projects/WaveCap-SDR/scripts/fix-sdrplay-full.sh' | sudo tee /etc/sudoers.d/fix-sdrplay
 ```
 
 ## Claude Code Skills

@@ -929,7 +929,8 @@ trunking:
           tx_offset_mhz: -10.0
       device_id: 'driver=rtlsdr,label=Generic RTL2832U OEM :: 00000001,manufacturer=RTLSDRBlog,product=Blog
         V4,serial=00000001'
-      gain: 35.0
+      gain: 49.6
+      ppm: 30.0
       agc_enabled: false
       sample_rate: 2400000
       id: sa_grn_rtl
