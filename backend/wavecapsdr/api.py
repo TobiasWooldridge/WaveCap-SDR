@@ -2865,12 +2865,17 @@ async def stream_state(websocket: WebSocket) -> None:
         channels = [_to_channel_model(ch).model_dump() for ch in app_state.captures.list_channels()]
         scanners = [_to_scanner_model(sid, s).model_dump() for sid, s in app_state.scanners.items()]
 
+        # Send empty devices list - device enumeration is blocking and can hang
+        # the event loop (especially with SDRplay). Frontend fetches via REST API.
+        devices: list[dict[str, Any]] = []
+
         await websocket.send_json(
             {
                 "type": "snapshot",
                 "captures": captures,
                 "channels": channels,
                 "scanners": scanners,
+                "devices": devices,
             }
         )
 

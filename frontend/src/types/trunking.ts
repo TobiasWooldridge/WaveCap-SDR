@@ -21,6 +21,7 @@ export interface TrunkingSystem {
   name: string;
   protocol: TrunkingProtocol;
   deviceId: string | null;
+  deviceName: string | null; // Human-readable device name
   state: TrunkingSystemState;
   controlChannelState: ControlChannelState;
   controlChannelFreqHz: number | null;

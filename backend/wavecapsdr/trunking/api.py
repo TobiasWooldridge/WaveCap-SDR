@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 from starlette.responses import StreamingResponse
 
 from wavecapsdr.decoders.voice import VoiceDecoder
+from wavecapsdr.device_namer import get_device_nickname, get_device_shorthand
 from wavecapsdr.trunking import (
     HuntMode,
     TalkgroupConfig,
@@ -111,6 +112,7 @@ class SystemResponse(BaseModel):
     name: str
     protocol: str
     deviceId: str | None
+    deviceName: str | None  # Human-readable device name
     state: str
     controlChannelState: str
     controlChannelFreqHz: float | None
@@ -244,6 +246,37 @@ def get_trunking_manager(request: Request) -> TrunkingManagerLike:
     return cast(TrunkingManagerLike, manager)
 
 
+def _get_device_display_name(device_id: str | None) -> str | None:
+    """Get human-readable device name for a device ID.
+
+    Priority: nickname > shorthand > extracted from device ID
+    """
+    if not device_id:
+        return None
+
+    # Check for user-set nickname
+    nickname = get_device_nickname(device_id)
+    if nickname:
+        return nickname
+
+    # Try to generate shorthand from device ID
+    # Device IDs look like: "driver=sdrplay,label=SDRplay Dev0 RSPdx-R2 240309F070,serial=240309F070"
+    import re
+
+    label_match = re.search(r"label=([^,]+)", device_id)
+    label = label_match.group(1) if label_match else ""
+
+    shorthand = get_device_shorthand(device_id, label)
+    if shorthand and shorthand != "SDR Device":
+        return shorthand
+
+    # Fall back to label if available
+    if label:
+        return label
+
+    return None
+
+
 def system_to_response(system: TrunkingSystemLike) -> SystemResponse:
     """Convert TrunkingSystem to API response."""
     d = system.to_dict()
@@ -253,11 +286,17 @@ def system_to_response(system: TrunkingSystemLike) -> SystemResponse:
         system.capture_id() if hasattr(system, "capture_id") else None
     )
     capture_id = f"trunking:{d['id']}" if raw_capture_id else None
+
+    # Get human-readable device name
+    device_id = d.get("deviceId")
+    device_name = _get_device_display_name(device_id)
+
     return SystemResponse(
         id=d["id"],
         name=d["name"],
         protocol=d["protocol"],
-        deviceId=d.get("deviceId"),
+        deviceId=device_id,
+        deviceName=device_name,
         state=d["state"],
         controlChannelState=d["controlChannelState"],
         controlChannelFreqHz=d["controlChannelFreqHz"],

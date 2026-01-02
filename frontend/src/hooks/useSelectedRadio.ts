@@ -265,8 +265,9 @@ export function useSelectedRadio() {
 
         if (!deviceMap.has(stableDeviceId)) {
           // Device only has trunking, no capture
-          let deviceName = getDeviceNameFromId(system.deviceId);
-          if (devices) {
+          // Prefer deviceName from API, then device lookup, then parse from ID
+          let deviceName = system.deviceName || getDeviceNameFromId(system.deviceId);
+          if (!system.deviceName && devices) {
             const device = devices.find(
               (d) => getStableDeviceId(d.id) === stableDeviceId,
             );
@@ -302,6 +303,10 @@ export function useSelectedRadio() {
           if (!existing.capture && trunkingCapture) {
             existing.capture = trunkingCapture;
             existing.hasRadio = true;
+          }
+          // Update deviceName if trunking has a better one
+          if (system.deviceName && existing.deviceName === "Unknown Device") {
+            existing.deviceName = system.deviceName;
           }
         }
       }
@@ -597,10 +602,10 @@ export function useSelectedRadio() {
         const stableDeviceId = system.deviceId
           ? getStableDeviceId(system.deviceId)
           : "";
-        let deviceName = system.deviceId
-          ? getDeviceNameFromId(system.deviceId)
-          : "Unknown Device";
-        if (system.deviceId && devices) {
+        // Prefer deviceName from API, then device lookup, then parse from ID
+        let deviceName = system.deviceName
+          || (system.deviceId ? getDeviceNameFromId(system.deviceId) : "Unknown Device");
+        if (!system.deviceName && system.deviceId && devices) {
           const device = devices.find(
             (d) => getStableDeviceId(d.id) === stableDeviceId,
           );
