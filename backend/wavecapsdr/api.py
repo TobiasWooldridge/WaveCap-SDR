@@ -1010,9 +1010,11 @@ def get_sdrplay_health() -> dict[str, Any]:
     """Get SDRplay service health status for monitoring.
 
     Returns metrics about SDRplay enumeration success/failure history,
-    which can be used to detect stuck service states proactively.
+    service responsiveness, and recovery module status.
+    Integrates with SoapySDRPlay3's health monitoring API when available.
     """
     from .devices.soapy import get_sdrplay_health_status
+    from .sdrplay_recovery import check_service_responsive
 
     health = get_sdrplay_health_status()
 
@@ -1020,8 +1022,12 @@ def get_sdrplay_health() -> dict[str, Any]:
     recovery = get_recovery()
     allowed, reason = recovery.can_restart()
 
+    # Quick service responsiveness check (non-blocking, uses cached result or fast timeout)
+    service_responsive = check_service_responsive(timeout_seconds=3.0)
+
     return {
         "health": health,
+        "service_responsive": service_responsive,
         "recovery": {
             "enabled": recovery.enabled,
             "can_restart": allowed,

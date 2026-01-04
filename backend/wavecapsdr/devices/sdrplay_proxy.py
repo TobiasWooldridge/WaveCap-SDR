@@ -370,9 +370,9 @@ class SDRplayProxyDevice(Device):
     info: DeviceInfo
     device_args: str
     operation_cooldown: float = (
-        1.0  # Minimum seconds between operations (SDRplay API needs time to stabilize)
+        2.5  # Minimum seconds between operations (SDRplay API needs time to stabilize)
     )
-    # Reduced from 2.0s to 1.0s for faster multi-device startup (~3s vs ~6s for 3 devices)
+    # Increased from 1.0s to 2.5s - service corruption issues require longer cooldown
     _worker_process: Process | None = None
     _shm: SharedMemory | None = None
     _cmd_pipe: Connection | None = None
@@ -879,3 +879,63 @@ class SDRplayProxyDevice(Device):
             logger.info("Device closed")
         finally:
             release_sdrplay_lock()
+
+    def get_health_info(self, timeout: float = 2.0) -> dict[str, Any] | None:
+        """Get health information from worker subprocess.
+
+        Returns:
+            Health info dict or None if worker not running
+        """
+        if self._cmd_pipe is None or self._status_pipe is None:
+            return None
+
+        if self._worker_process is None or not self._worker_process.is_alive():
+            return None
+
+        try:
+            self._cmd_pipe.send({"type": "get_health"})
+
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                if self._status_pipe.poll(timeout=0.1):
+                    msg = self._status_pipe.recv()
+                    if msg.get("type") == "health_info":
+                        return dict(msg)
+                    # Handle other message types
+                    self._handle_worker_message(msg)
+
+            logger.warning("get_health_info timed out")
+            return None
+        except Exception as e:
+            logger.error(f"Error getting health info: {e}")
+            return None
+
+    def trigger_recovery(self, timeout: float = 5.0) -> bool:
+        """Trigger recovery on the worker's device.
+
+        Returns:
+            True if recovery was triggered successfully
+        """
+        if self._cmd_pipe is None or self._status_pipe is None:
+            return False
+
+        if self._worker_process is None or not self._worker_process.is_alive():
+            return False
+
+        try:
+            self._cmd_pipe.send({"type": "trigger_recovery"})
+
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                if self._status_pipe.poll(timeout=0.1):
+                    msg = self._status_pipe.recv()
+                    if msg.get("type") == "recovery_result":
+                        return bool(msg.get("success", False))
+                    # Handle other message types
+                    self._handle_worker_message(msg)
+
+            logger.warning("trigger_recovery timed out")
+            return False
+        except Exception as e:
+            logger.error(f"Error triggering recovery: {e}")
+            return False

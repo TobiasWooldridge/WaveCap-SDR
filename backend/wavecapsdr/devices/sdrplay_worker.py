@@ -266,6 +266,7 @@ class SDRplayWorker:
     """Subprocess worker for isolated SDRplay device control.
 
     Runs in a separate process to bypass SDRplay API single-device limit.
+    Integrates with SoapySDRPlay3's health monitoring system.
     """
 
     def __init__(
@@ -296,6 +297,12 @@ class SDRplayWorker:
         self.center_hz = 100e6
         self._read_buffer: NDArrayComplex | None = None
         self._iq_buffer: NDArrayComplex | None = None
+
+        # Health monitoring (from SoapySDRPlay3 driver)
+        self._health_status: str = "healthy"
+        self._last_health_report: float = 0.0
+        self._health_report_interval: float = 5.0  # Report health every 5 seconds
+        self._driver_has_health_api: bool = False
 
     def run(self) -> None:
         """Main loop: process commands and stream IQ to shared memory."""
@@ -365,6 +372,10 @@ class SDRplayWorker:
             self._stop_stream()
         elif cmd_type == "shutdown":
             self.running = False
+        elif cmd_type == "get_health":
+            self._report_health()
+        elif cmd_type == "trigger_recovery":
+            self._trigger_recovery()
         else:
             self.status_pipe.send({"type": "error", "message": f"Unknown command: {cmd_type}"})
 
@@ -390,9 +401,22 @@ class SDRplayWorker:
             hardware = str(sdr.getHardwareKey())
             antennas: list[str] = list(sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0))
 
+            # Check for SoapySDRPlay3 health monitoring API via device settings
+            try:
+                # Try to read a health-related setting to detect API availability
+                watchdog_enabled = sdr.readSetting("watchdog_enabled")
+                self._driver_has_health_api = True
+                if logger:
+                    logger.info(f"SoapySDRPlay3 health monitoring API detected (watchdog_enabled={watchdog_enabled})")
+            except Exception:
+                self._driver_has_health_api = False
+                if logger:
+                    logger.debug("SoapySDRPlay3 health monitoring API not available")
+
             if logger:
                 logger.info(
-                    f"Device opened: driver={driver}, hardware={hardware}, antennas={antennas}"
+                    f"Device opened: driver={driver}, hardware={hardware}, "
+                    f"antennas={antennas}, health_api={self._driver_has_health_api}"
                 )
 
             self.status_pipe.send(
@@ -401,6 +425,7 @@ class SDRplayWorker:
                     "driver": driver,
                     "hardware": hardware,
                     "antennas": antennas,
+                    "health_api_available": self._driver_has_health_api,
                 }
             )
 
@@ -1014,6 +1039,112 @@ class SDRplayWorker:
                 logger.debug(
                     f"Header write: shm={self.shm_name}, write_idx={self.write_idx}, flags={header_flags}"
                 )
+
+    def _on_health_status_change(self, status: int) -> None:
+        """Callback from SoapySDRPlay3 driver when health status changes.
+
+        Args:
+            status: Integer status code from DeviceHealthStatus enum
+        """
+        status_names = {
+            0: "healthy",
+            1: "warning",
+            2: "stale",
+            3: "recovering",
+            4: "service_unresponsive",
+            5: "device_removed",
+            6: "failed",
+        }
+        status_name = status_names.get(status, f"unknown({status})")
+        self._health_status = status_name
+
+        if logger:
+            logger.info(f"Health status changed: {status_name}")
+
+        # Report critical status changes immediately
+        if status >= 2:  # Stale or worse
+            _log_to_pipe(self.status_pipe, "warning", f"Device health status: {status_name}")
+            self.status_pipe.send({
+                "type": "health_status",
+                "status": status_name,
+                "critical": status >= 4,  # ServiceUnresponsive or worse
+            })
+
+    def _report_health(self) -> None:
+        """Report current health status to main process."""
+        health_info: dict[str, Any] = {
+            "type": "health_info",
+            "status": self._health_status,
+            "streaming": self.streaming,
+            "sample_count": self.sample_count,
+            "overflow_count": self.overflow_count,
+            "health_api_available": self._driver_has_health_api,
+        }
+
+        # Get health configuration from driver settings if available
+        if self.sdr is not None and self._driver_has_health_api:
+            try:
+                sdr = self.sdr
+                watchdog_config: dict[str, Any] = {}
+
+                def read_setting(key: str) -> str | None:
+                    try:
+                        return str(sdr.readSetting(key))
+                    except Exception:
+                        return None
+
+                for key in ["watchdog_enabled", "auto_recover", "max_recovery_attempts",
+                            "callback_timeout_ms", "restart_service_on_failure", "usb_reset_on_failure"]:
+                    val = read_setting(key)
+                    if val is not None:
+                        watchdog_config[key] = val
+
+                if watchdog_config:
+                    health_info["watchdog_config"] = watchdog_config
+
+            except Exception as e:
+                if logger:
+                    logger.debug(f"Failed to get driver health settings: {e}")
+
+        self.status_pipe.send(health_info)
+
+    def _trigger_recovery(self) -> None:
+        """Trigger recovery via the driver's recovery API."""
+        if self.sdr is None:
+            self.status_pipe.send({
+                "type": "recovery_result",
+                "success": False,
+                "reason": "Device not open",
+            })
+            return
+
+        if not self._driver_has_health_api:
+            self.status_pipe.send({
+                "type": "recovery_result",
+                "success": False,
+                "reason": "Driver does not support health API",
+            })
+            return
+
+        try:
+            success = False
+            if hasattr(self.sdr, "triggerRecovery"):
+                success = self.sdr.triggerRecovery()
+                if logger:
+                    logger.info(f"Driver recovery triggered: success={success}")
+
+            self.status_pipe.send({
+                "type": "recovery_result",
+                "success": success,
+            })
+        except Exception as e:
+            if logger:
+                logger.error(f"Failed to trigger recovery: {e}")
+            self.status_pipe.send({
+                "type": "recovery_result",
+                "success": False,
+                "reason": str(e),
+            })
 
     def cleanup(self) -> None:
         """Clean up resources."""

@@ -1581,10 +1581,27 @@ class SoapyDriver(DeviceDriver):
 
         # For SDRplay, use subprocess proxy to bypass API single-device limitation
         # Each SDRplay device runs in its own isolated subprocess
+        #
+        # Two proxy modes available:
+        # 1. Native driver proxy (SoapySDRPlay3 with ENABLE_SUBPROCESS_MULTIDEV)
+        #    - Enabled by adding proxy=true to device args
+        #    - Driver spawns worker subprocess transparently
+        #    - More robust recovery and health monitoring
+        # 2. Python subprocess proxy (SDRplayProxyDevice)
+        #    - Fallback when native proxy unavailable
+        #    - Uses multiprocessing + shared memory
         if is_sdrplay and self._use_sdrplay_proxy:
+            # Try native driver proxy first by adding proxy=true to args
+            native_proxy_args = self._add_proxy_arg(args)
+            if self._check_native_proxy_available(native_proxy_args):
+                print(f"[SOAPY] Using native driver proxy for SDRplay: {native_proxy_args}", flush=True)
+                # Use direct open with proxy=true - driver handles subprocess
+                return self._open_with_native_proxy(native_proxy_args)
+
+            # Fallback to Python subprocess proxy
             from .sdrplay_proxy import SDRplayProxyDevice
 
-            print(f"[SOAPY] Using subprocess proxy for SDRplay device: {args}", flush=True)
+            print(f"[SOAPY] Using Python subprocess proxy for SDRplay device: {args}", flush=True)
 
             # IMPORTANT: DO NOT probe device here! Device probing via subprocess
             # happens BEFORE the global SDRplay lock is acquired, which can corrupt
@@ -1741,5 +1758,103 @@ class SoapyDriver(DeviceDriver):
                 sdr, info = _open_device()
         else:
             sdr, info = _open_device()
+
+        return _SoapyDevice(info=info, sdr=sdr)
+
+    def _add_proxy_arg(self, args: str) -> str:
+        """Add proxy=true to device args string for native driver proxy."""
+        if "proxy=true" in args.lower():
+            return args
+        if args:
+            return f"{args},proxy=true"
+        return "proxy=true"
+
+    def _check_native_proxy_available(self, args: str) -> bool:
+        """Check if SoapySDRPlay3's native proxy mode is available.
+
+        The driver must be compiled with ENABLE_SUBPROCESS_MULTIDEV for this to work.
+        We detect availability by checking if enumeration returns proxy-tagged devices.
+        """
+        try:
+            SoapySDR = self._SoapySDR
+
+            # Quick check: enumerate with proxy=true and see if results have proxy tag
+            # This is fast because proxy mode uses cached results
+            results = SoapySDR.Device.enumerate(args)
+
+            # If we got results and they have proxy=true, native proxy is available
+            for r in results:
+                if r.get("proxy") == "true":
+                    return True
+
+            # No proxy devices found - driver doesn't support native proxy
+            return False
+        except Exception as e:
+            print(f"[SOAPY] Native proxy check failed: {e}", flush=True)
+            return False
+
+    def _open_with_native_proxy(self, args: str) -> Device:
+        """Open SDRplay device using native driver proxy mode.
+
+        The SoapySDRPlay3 driver handles subprocess spawning transparently.
+        We just open the device normally - the driver does the rest.
+        """
+        SoapySDR = self._SoapySDR
+
+        # Open with timeout
+        DEVICE_OPEN_TIMEOUT_US = 10_000_000
+        try:
+            sdr = SoapySDR.Device.make(args, DEVICE_OPEN_TIMEOUT_US)
+        except AttributeError:
+            sdr = SoapySDR.Device(args)
+
+        # Query device info
+        driver = str(sdr.getDriverKey())
+        hardware = str(sdr.getHardwareKey())
+
+        # Get frequency range
+        try:
+            rx_ranges = sdr.getFrequencyRange(SoapySDR.SOAPY_SDR_RX, 0)
+            freq_min = float(rx_ranges[0].minimum()) if rx_ranges else 1e4
+            freq_max = float(rx_ranges[0].maximum()) if rx_ranges else 6e9
+        except Exception:
+            freq_min, freq_max = 1e4, 6e9
+
+        # Get sample rates
+        try:
+            sample_rates = tuple(sdr.listSampleRates(SoapySDR.SOAPY_SDR_RX, 0))
+        except Exception:
+            sample_rates = (2_000_000, 3_000_000, 4_000_000, 5_000_000, 6_000_000)
+
+        # Get gain range
+        try:
+            gain_range = sdr.getGainRange(SoapySDR.SOAPY_SDR_RX, 0)
+            gain_min = float(gain_range.minimum())
+            gain_max = float(gain_range.maximum())
+        except Exception:
+            gain_min, gain_max = 0.0, 59.0
+
+        # Get antennas
+        try:
+            antennas = tuple(sdr.listAntennas(SoapySDR.SOAPY_SDR_RX, 0))
+        except Exception:
+            antennas = ("Antenna A", "Antenna B", "Antenna C")
+
+        info = DeviceInfo(
+            id=args,
+            driver=driver,
+            label=f"{hardware} (native proxy)",
+            freq_min_hz=freq_min,
+            freq_max_hz=freq_max,
+            sample_rates=sample_rates,
+            gains=("IFGR", "RFGR"),
+            gain_min=gain_min,
+            gain_max=gain_max,
+            bandwidth_min=200_000.0,
+            bandwidth_max=8_000_000.0,
+            ppm_min=-100.0,
+            ppm_max=100.0,
+            antennas=antennas,
+        )
 
         return _SoapyDevice(info=info, sdr=sdr)

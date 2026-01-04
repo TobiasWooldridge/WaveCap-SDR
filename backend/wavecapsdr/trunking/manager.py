@@ -117,6 +117,9 @@ class TrunkingManager:
 
         Starts background maintenance tasks and loads any registered configs.
         Individual systems must be started separately with start_system().
+
+        SDRplay systems are started sequentially with delays to avoid
+        overwhelming the SDRplay API service.
         """
         if self._running:
             return
@@ -128,12 +131,46 @@ class TrunkingManager:
             self._event_loop = None
             logger.warning("TrunkingManager: No running event loop; events may be dropped")
 
-        # Load pending system configs
+        # Separate SDRplay configs from others for sequential startup
+        sdrplay_configs: list[TrunkingSystemConfig] = []
+        other_configs: list[TrunkingSystemConfig] = []
+
         for config in self._pending_configs:
+            device_id = (config.device_id or "").lower()
+            if "sdrplay" in device_id:
+                sdrplay_configs.append(config)
+            else:
+                other_configs.append(config)
+
+        # Load non-SDRplay configs first (can start in parallel)
+        for config in other_configs:
             try:
                 await self.add_system(config)
             except Exception as e:
                 logger.error(f"Failed to load trunking system '{config.id}': {e}")
+
+        # Load SDRplay configs sequentially with delay between each
+        # This prevents overwhelming the SDRplay API service
+        if sdrplay_configs:
+            logger.info(
+                f"Starting {len(sdrplay_configs)} SDRplay trunking systems sequentially..."
+            )
+            for i, config in enumerate(sdrplay_configs):
+                try:
+                    # Add system (will auto-start if auto_start=true)
+                    await self.add_system(config)
+
+                    # Wait between SDRplay system startups to let API stabilize
+                    # Skip delay after the last one
+                    if i < len(sdrplay_configs) - 1:
+                        delay = 5.0  # 5 seconds between SDRplay startups
+                        logger.info(
+                            f"Waiting {delay}s before starting next SDRplay system..."
+                        )
+                        await asyncio.sleep(delay)
+                except Exception as e:
+                    logger.error(f"Failed to load trunking system '{config.id}': {e}")
+
         self._pending_configs.clear()
 
         # Start maintenance task
