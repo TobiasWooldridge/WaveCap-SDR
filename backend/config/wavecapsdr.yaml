@@ -762,7 +762,7 @@ trunking:
       id: sa_grn_2
       max_voice_recorders: 2
       min_call_duration: 1.0
-      modulation: lsm
+      modulation: c4fm
       name: SA GRN Radio 2 (SDRplay F070)
       protocol: p25_phase1
       record_unknown: true
@@ -777,7 +777,7 @@ trunking:
       antenna: RX
       auto_start: true
       bandwidth: 2000000
-      center_hz: 413.3125 MHz
+      center_hz: 413.4125 MHz
       control_channel_timeout: 5
       control_channels:
       - frequency: 412.4875 MHz
@@ -936,7 +936,7 @@ trunking:
       id: sa_grn_rtl
       max_voice_recorders: 2
       min_call_duration: 1.0
-      modulation: lsm
+      modulation: c4fm
       name: SA GRN Radio (RTL-SDR)
       protocol: p25_phase1
       record_unknown: true
@@ -1108,7 +1108,7 @@ trunking:
       id: sa_grn_sdrplay_b
       max_voice_recorders: 2
       min_call_duration: 1.0
-      modulation: lsm
+      modulation: c4fm
       name: SA GRN Radio (SDRplay E670 Ant B)
       protocol: p25_phase1
       record_unknown: true
