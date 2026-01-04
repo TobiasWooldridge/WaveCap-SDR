@@ -172,8 +172,19 @@ npm run build       # Compile check
 - Repository: https://github.com/TobiasWooldridge/SoapySDRPlay3
 - This fork includes API-level locking to prevent crashes on rapid config changes
 
-**Known Issues (tracked on our forks):**
-- [SoapySDRPlay3#1](https://github.com/TobiasWooldridge/SoapySDRPlay3/issues/1): Device open can hang indefinitely, blocks signals
+**SoapySDRPlay3 Enhancements:**
+- **Native subprocess proxy** (`SOAPY_SDRPLAY_MULTIDEV=1` or `proxy=true` in device args)
+  - Transparent multi-device support at driver level
+  - Each device runs in isolated subprocess via fork/exec
+  - Shared memory ring buffer for zero-copy IQ transfer
+  - Automatic worker health monitoring and restart
+- Timeout protection on all blocking API calls (prevents indefinite hangs)
+- Health monitoring with `DeviceHealthStatus` enum (Healthy, Warning, Stale, Recovering, ServiceUnresponsive, DeviceRemoved, Failed)
+- Watchdog system with configurable `WatchdogConfig` (callback timeouts, auto-recovery)
+- Settings cache for recovery (restores frequency, gain, antenna after stream recovery)
+- Service health tracking (`isServiceResponsive()`, `getConsecutiveTimeouts()`)
+- Recovery controls (`triggerRecovery()`, `restartService()`, `resetUSBDevice()`)
+- Health callbacks via `registerHealthCallback()`
 
 **Fork enhancements (TobiasWooldridge/SoapySDR):**
 - `Device.make(args, timeoutUs)` - timeout parameter for device open
@@ -183,10 +194,39 @@ Build and install:
 ```bash
 cd ../SoapySDRPlay3
 mkdir -p build && cd build
-cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ..
+cmake -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DENABLE_SUBPROCESS_MULTIDEV=ON ..
 make -j4
 sudo make install
 ```
+
+**Build options:**
+- `-DENABLE_SUBPROCESS_MULTIDEV=ON` - Enable native subprocess proxy for multi-device support
+- `-DCMAKE_INSTALL_PREFIX=/Users/thw/.local` - Install to user-local prefix
+
+Install recovery scripts (optional, for passwordless service restart):
+```bash
+cd ../SoapySDRPlay3
+sudo scripts/install-recovery-scripts.sh
+```
+
+## SDRplay Multi-Device Architecture
+
+WaveCap-SDR supports two proxy modes for multi-device SDRplay operation:
+
+**1. Native Driver Proxy (Preferred)**
+- Enabled when SoapySDRPlay3 is built with `ENABLE_SUBPROCESS_MULTIDEV=ON`
+- WaveCap-SDR automatically detects and uses native proxy
+- Driver spawns worker subprocess transparently
+- Uses C++ shared memory ring buffer for IQ transfer
+- More robust health monitoring and recovery
+
+**2. Python Subprocess Proxy (Fallback)**
+- Used when native proxy is unavailable
+- Implemented in `sdrplay_proxy.py` and `sdrplay_worker.py`
+- Uses Python multiprocessing + shared memory
+- Works with any SoapySDRPlay3 build
+
+The SDRplay API v3.15 only allows ONE device per process, so subprocess isolation is required for multi-device operation. WaveCap-SDR automatically selects the best available proxy mode.
 
 ## SDRplay Service Recovery
 
@@ -196,12 +236,21 @@ The SDRplay API service can become stuck, causing captures to hang in "starting"
 - `SoapySDRUtil --find` hangs indefinitely
 - Spectrum analyzer shows "starting" but never updates
 - SDRplay device not detected
+- Log messages: "SDRplay API lock timed out" or "sdrplay_api_Open() timed out"
 
 **Automatic Recovery:**
-WaveCap-SDR has proactive health monitoring that detects stuck states and attempts service restart.
+WaveCap-SDR integrates with SoapySDRPlay3's health monitoring system:
+- Driver-level watchdog detects stale streams (callbacks stop arriving)
+- API-level timeout protection prevents indefinite hangs
+- Proactive service health checking via `check_service_responsive()`
+- Automatic service restart when health degrades (configurable)
 
 **Manual Recovery:**
 ```bash
+# Preferred: Use the sdrplay-service-restart script from SoapySDRPlay3
+# (handles SIGHUP soft restart, plist detection, stale lock cleanup)
+sudo sdrplay-service-restart --force
+
 # Full reset script (kills service, power-cycles USB, restarts service, verifies enumeration)
 # Requires uhubctl for USB power cycling
 sudo scripts/fix-sdrplay-full.sh
@@ -209,15 +258,22 @@ sudo scripts/fix-sdrplay-full.sh
 # Via API
 curl -X POST http://localhost:8087/api/v1/devices/sdrplay/restart-service
 
+# Check health status
+curl http://localhost:8087/api/v1/devices/sdrplay/health
+
 # Via CLI (Linux/systemd)
-sudo systemctl restart sdrplay
+sudo systemctl restart sdrplayService
 
 # Via CLI (macOS)
 sudo launchctl kickstart -k system/com.sdrplay.service
 ```
 
-**Passwordless sudo for fix script:**
+**Passwordless sudo for recovery scripts:**
 ```bash
+# Install recovery scripts with sudoers configuration
+cd ../SoapySDRPlay3 && sudo scripts/install-recovery-scripts.sh
+
+# Or manually configure sudoers for the fix script
 echo 'thw ALL=(ALL) NOPASSWD: /Users/thw/Projects/WaveCap-SDR/scripts/fix-sdrplay-full.sh' | sudo tee /etc/sudoers.d/fix-sdrplay
 ```
 

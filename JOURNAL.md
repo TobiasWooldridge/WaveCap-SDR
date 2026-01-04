@@ -177,3 +177,143 @@ Despite correct sample rate (48 kHz, 10 SPS), RTL-SDR still has ~0.1% TSBK CRC p
 - Compare with SDRTrunk on same RTL-SDR
 - Test with different RTL-SDR hardware
 - Try higher gain settings
+
+---
+
+## 2026-01-03 (continued): Static Analysis of SDRplay Trunking Failures
+
+### Problem Summary
+
+SDRplay trunking systems fail to start - captures get stuck in "starting" state for 45+ seconds, then fail. Pattern observed:
+1. SDRplay enumeration times out or returns no devices
+2. `Device::make()` times out after 10 seconds
+3. `SDRplay API lock timed out` errors
+4. Capture stuck in "starting" for 45+ seconds
+5. System enters "searching" state but never finds control channel
+
+### Architecture Review
+
+The SDRplay device flow involves multiple layers of locking and subprocess isolation:
+
+```
+TrunkingSystem.start()
+  └─ CaptureManager.create_capture()
+       └─ Capture._run_thread()
+            └─ SoapyDriver.open()
+                 └─ SDRplayProxyDevice (subprocess isolation)
+                      ├─ sdrplay_lock.py (file-based cross-process lock)
+                      └─ SDRplayWorker subprocess
+                           └─ SoapySDR.Device.make() (10s timeout)
+                                └─ SoapySDRPlay3
+                                     └─ SdrplayApiLockGuard (C++, 5s timeout)
+                                          └─ sdrplay_api_LockDeviceApi()
+```
+
+### Key Files Analyzed
+
+| File | Purpose |
+|------|---------|
+| `backend/wavecapsdr/devices/soapy.py` | SoapySDR driver, SDRplay health tracking |
+| `backend/wavecapsdr/devices/sdrplay_proxy.py` | Subprocess proxy for SDRplay isolation |
+| `backend/wavecapsdr/devices/sdrplay_worker.py` | Worker subprocess that opens SDRplay device |
+| `backend/wavecapsdr/devices/sdrplay_lock.py` | Cross-process file-based lock |
+| `backend/wavecapsdr/sdrplay_recovery.py` | Automatic service recovery |
+| `backend/wavecapsdr/trunking/system.py` | Trunking system startup |
+
+### Root Causes Identified
+
+#### 1. SDRplay Service State Corruption
+
+When `Device::make()` times out in a subprocess:
+1. Worker subprocess is killed by parent (`process.terminate()`)
+2. SDRplay API service internal state is corrupted
+3. The C++ `SdrplayApiLockGuard` fix releases the *application-level* lock
+4. But the service itself (`sdrplay_apiService`) may still hold internal state
+5. Subsequent device opens fail because service is in bad state
+
+**Evidence:**
+- `sdrplay_worker.py:383`: `SoapySDR.Device.make(device_args, DEVICE_OPEN_TIMEOUT_US)` with 10s timeout
+- When timeout occurs, subprocess is killed but service remains corrupted
+
+#### 2. macOS Recovery May Be Failing Silently
+
+The automatic recovery in `sdrplay_recovery.py` uses:
+```python
+subprocess.run(["sudo", "-n", "launchctl", "kickstart", ...], ...)
+```
+
+The `-n` flag requires passwordless sudo. If not configured for these commands, recovery silently fails and falls back to `killall` which also needs passwordless sudo.
+
+**File:** `sdrplay_recovery.py:144-179`
+
+#### 3. Missing USB Power Cycle in Automatic Recovery
+
+The `fix-sdrplay-full.sh` script works because it:
+1. Kills ALL service instances (`killall -9`)
+2. **Power-cycles USB ports via uhubctl** (critical!)
+3. Restarts service fresh
+4. Verifies enumeration
+
+The automatic recovery only restarts the service - it doesn't power-cycle USB.
+
+**File:** `scripts/fix-sdrplay-full.sh:17-24`
+
+#### 4. Cooldown May Be Insufficient
+
+The file-based lock in `sdrplay_lock.py` has a 1-second cooldown:
+```python
+if elapsed < cooldown:
+    sleep_time = cooldown - elapsed
+    time.sleep(sleep_time)
+```
+
+**File:** `sdrplay_lock.py:113-116`
+
+The SDRplay API may need more time to stabilize after device operations.
+
+### Potential Fixes
+
+| Fix | Description | Complexity |
+|-----|-------------|------------|
+| **1. Configure passwordless sudo for recovery** | Add launchctl/killall to sudoers for WaveCap | Low |
+| **2. Integrate USB power cycling into recovery** | Call uhubctl in `sdrplay_recovery.py` | Medium |
+| **3. Increase cooldown period** | Change from 1s to 2-3s in `sdrplay_lock.py` | Low |
+| **4. Sequential trunking startup** | Start SDRplay trunking systems one at a time | Medium |
+| **5. Pre-flight health check** | Verify enumeration works before Device::make() | Medium |
+| **6. Call fix script from recovery** | Use the working `fix-sdrplay-full.sh` in automatic recovery | Low |
+
+### Immediate Workaround
+
+Before starting WaveCap-SDR server with SDRplay trunking:
+```bash
+sudo scripts/fix-sdrplay-full.sh
+```
+
+### Recommended Fix: Integrate Fix Script into Recovery
+
+Modify `sdrplay_recovery.py` to call the fix script instead of individual commands:
+
+```python
+def _restart_macos(self) -> bool:
+    fix_script = Path(__file__).parent.parent / "scripts" / "fix-sdrplay-full.sh"
+    if fix_script.exists():
+        result = subprocess.run(
+            ["sudo", "-n", str(fix_script)],
+            capture_output=True,
+            timeout=30,
+        )
+        return result.returncode == 0
+    # Fallback to existing logic...
+```
+
+### GitHub Issues Created
+
+Created `../SoapySDRPlay3/GITHUB_ISSUES.md` with 6 proposed stress tests:
+1. Multi-device concurrent access
+2. Rapid open/close cycles
+3. API lock timeout recovery
+4. Long-running stability
+5. Enumeration under load
+6. Service crash recovery
+
+Also copied `fix-sdrplay-full.sh` to `../SoapySDRPlay3/scripts/` and updated its README.
