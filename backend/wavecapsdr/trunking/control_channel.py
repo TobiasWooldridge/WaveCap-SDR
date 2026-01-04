@@ -55,6 +55,7 @@ class P25Modulation(str, Enum):
 
     C4FM = "c4fm"  # Standard non-simulcast
     LSM = "lsm"  # Linear Simulcast Modulation (CQPSK)
+    C4FM_WIDE = "c4fm_wide"  # Wide-pulse C4FM (older Motorola ASTRO simulcast)
 
 
 @dataclass
@@ -116,11 +117,15 @@ class ControlChannelMonitor:
 
         # P25 control channels can use either C4FM or LSM (CQPSK) modulation.
         # - C4FM: Standard non-simulcast systems
+        # - C4FM_WIDE: Wide-pulse C4FM (older Motorola ASTRO simulcast, not P25 compliant)
         # - LSM/CQPSK: Simulcast systems (like SA-GRN with 240+ sites)
         #
         # For simulcast, the same signal is transmitted from multiple sites
         # simultaneously. CQPSK/LSM is more robust to the multipath interference
         # that occurs when signals from different sites combine.
+        #
+        # Wide-pulse C4FM was used by older Motorola ASTRO equipment (~2000 era)
+        # and uses a different pulse-shaping filter that spreads energy wider.
         #
         if self.modulation == P25Modulation.LSM:
             # Use CQPSK demodulator for simulcast systems
@@ -131,6 +136,17 @@ class ControlChannelMonitor:
             logger.info(
                 f"ControlChannelMonitor: Using P25CQPSKDemodulator @ {self.sample_rate} Hz "
                 f"(LSM/CQPSK for simulcast systems)"
+            )
+        elif self.modulation == P25Modulation.C4FM_WIDE:
+            # Use DSP C4FM demodulator with wide-pulse mode for older Motorola ASTRO
+            self._demod = DSPC4FMDemodulator(
+                sample_rate=self.sample_rate,
+                symbol_rate=4800,
+                wide_pulse=True,
+            )
+            logger.info(
+                f"ControlChannelMonitor: Using DSP C4FMDemodulator @ {self.sample_rate} Hz "
+                f"(wide-pulse C4FM for older Motorola ASTRO simulcast)"
             )
         else:
             # Use DSP C4FM demodulator with soft symbols for trellis decoding

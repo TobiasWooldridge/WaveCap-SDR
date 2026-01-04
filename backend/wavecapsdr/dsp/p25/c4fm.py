@@ -2405,14 +2405,15 @@ class C4FMDemodulator:
     # SDRTrunk uses 80/80/110 with radians (max correlation ~133), which is 60%/60%/82% of max
     # WaveCap uses ±3 normalized range (max correlation 216)
     # Equivalent thresholds: 80 × (216/133) ≈ 130, 110 × (216/133) ≈ 179
-    SYNC_THRESHOLD_DETECTION = 130.0  # 60% of max (SDRTrunk: 80)
-    SYNC_THRESHOLD_OPTIMIZED = 130.0  # 60% of max (SDRTrunk: 80)
+    SYNC_THRESHOLD_DETECTION = 100.0  # Lowered to match control channel (was 130)
+    SYNC_THRESHOLD_OPTIMIZED = 100.0  # Lowered to match control channel (was 130)
     SYNC_THRESHOLD_EQUALIZED = 179.0  # 82% of max (SDRTrunk: 110)
 
     def __init__(
         self,
         sample_rate: int = 19200,  # SDRTrunk uses ~19.2 kHz (4 SPS)
         symbol_rate: int = 4800,
+        wide_pulse: bool = False,  # Wide-pulse C4FM for older Motorola ASTRO simulcast
         **kwargs: Any,  # Accept but ignore other params for API compatibility
     ) -> None:
         """Initialize C4FM demodulator.
@@ -2420,21 +2421,42 @@ class C4FMDemodulator:
         Args:
             sample_rate: Input sample rate in Hz (~19200 for 4 SPS like SDRTrunk)
             symbol_rate: Symbol rate (4800 baud for P25)
+            wide_pulse: Use wide-pulse C4FM mode for older Motorola ASTRO simulcast
+                       systems. These use a wider pulse-shaping filter that's not
+                       P25 compliant but was common in early 2000s deployments.
         """
         self.sample_rate = sample_rate
         self.symbol_rate = symbol_rate
         self.samples_per_symbol = sample_rate / symbol_rate
+        self.wide_pulse = wide_pulse
 
-        # Baseband LPF (5.2kHz passband, 6.5kHz stopband - matches SDRTrunk)
-        # Applied to I and Q before RRC for noise rejection
-        self._baseband_lpf = design_baseband_lpf(sample_rate)
+        # Baseband LPF parameters
+        # Standard C4FM: 5.2kHz passband, 6.5kHz stopband (matches SDRTrunk)
+        # Wide-pulse C4FM: 10kHz passband, 12kHz stopband (very wide for simulcast multipath)
+        if wide_pulse:
+            # Wide-pulse mode uses much wider filters for simulcast systems
+            # SA-GRN and similar 240+ site simulcast networks have significant
+            # multipath that spreads symbol energy across a wider bandwidth
+            baseband_passband = 10000.0
+            baseband_stopband = 12000.0
+            rrc_alpha = 0.5  # Very wide excess bandwidth for multipath
+        else:
+            # Standard P25 C4FM parameters
+            baseband_passband = 5200.0
+            baseband_stopband = 6500.0
+            rrc_alpha = 0.2
+
+        # Baseband LPF - Applied to I and Q before RRC for noise rejection
+        self._baseband_lpf = design_baseband_lpf(
+            sample_rate, passband_hz=baseband_passband, stopband_hz=baseband_stopband
+        )
         self._lpf_state_i = np.zeros(len(self._baseband_lpf) - 1, dtype=np.float32)
         self._lpf_state_q = np.zeros(len(self._baseband_lpf) - 1, dtype=np.float32)
 
-        # RRC pulse shaping filter (alpha=0.2, 16 symbols span)
+        # RRC pulse shaping filter
         # Applied after baseband LPF, before FM demodulation (matches SDRTrunk)
         self._rrc_filter = design_rrc_filter(
-            self.samples_per_symbol, num_taps=int(16 * self.samples_per_symbol) + 1, alpha=0.2
+            self.samples_per_symbol, num_taps=int(16 * self.samples_per_symbol) + 1, alpha=rrc_alpha
         )
         self._rrc_state_i = np.zeros(len(self._rrc_filter) - 1, dtype=np.float32)
         self._rrc_state_q = np.zeros(len(self._rrc_filter) - 1, dtype=np.float32)
@@ -2474,8 +2496,9 @@ class C4FMDemodulator:
         self._symbols_processed = 0
         self._sync_count = 0
 
+        mode_str = "wide-pulse" if wide_pulse else "standard"
         logger.debug(
-            f"C4FM demod initialized (SDRTrunk-style): {sample_rate} Hz, "
+            f"C4FM demod initialized ({mode_str}): {sample_rate} Hz, "
             f"{symbol_rate} baud, {self.samples_per_symbol:.2f} sps"
         )
 
@@ -2729,12 +2752,16 @@ class C4FMDemodulator:
                                 f"pll={self._equalizer.pll:.4f}, gain={self._equalizer.gain:.3f}"
                             )
 
-                    if self._sync_count <= 5 or self._sync_count % 100 == 0:
+                    if self._sync_count <= 5 or self._sync_count % 50 == 0:
                         detector_type = "LAG" if use_lagging else "PRI"
-                        logger.debug(
-                            f"P25 sync #{self._sync_count} [{detector_type}]: score={opt_score:.1f}, "
+                        # Calculate expected sync score range
+                        max_score = 216.0  # Max correlation for normalized ±3 symbols
+                        score_pct = 100.0 * opt_score / max_score
+                        logger.info(
+                            f"[DIAG-SYNC] P25 sync #{self._sync_count} [{detector_type}]: "
+                            f"score={opt_score:.1f} ({score_pct:.0f}%), "
                             f"timing_adj={timing_adj:.2f}, pll={self._equalizer.pll:.4f}, "
-                            f"gain={self._equalizer.gain:.3f}"
+                            f"gain={self._equalizer.gain:.3f}, fine={self._fine_sync}"
                         )
 
             # Lose fine sync if no sync detected for too long

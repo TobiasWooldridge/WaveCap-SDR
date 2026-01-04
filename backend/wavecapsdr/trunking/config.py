@@ -82,6 +82,7 @@ class P25Modulation(str, Enum):
 
     C4FM = "c4fm"  # Standard 4FSK modulation
     LSM = "lsm"  # Linear Simulcast Modulation (CQPSK)
+    C4FM_WIDE = "c4fm_wide"  # Wide-pulse C4FM (older Motorola ASTRO simulcast)
 
 
 class HuntMode(str, Enum):
