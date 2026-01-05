@@ -37,10 +37,34 @@ def run_trunking_worker(
     event_conn: Connection,
 ) -> None:
     """Entry point for per-device trunking worker process."""
-    logging.basicConfig(
-        level=parse_log_level(os.getenv("WAVECAP_LOG_LEVEL"), logging.INFO),
-        format="[TrunkingWorker] %(levelname)s: %(message)s",
+    # Set up logging to both console and file
+    log_level = parse_log_level(os.getenv("WAVECAP_LOG_LEVEL"), logging.INFO)
+
+    # Create a safe device ID for filename (remove special chars)
+    safe_device_id = "".join(c if c.isalnum() else "_" for c in device_id[:30])
+    log_dir = os.path.join(os.path.dirname(config_path) if config_path else ".", "..", "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    worker_log_path = os.path.join(log_dir, f"trunking_worker_{safe_device_id}.log")
+
+    # Set up root logger with both handlers
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+
+    # Console handler (existing behavior)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(log_level)
+    console_handler.setFormatter(logging.Formatter("[TrunkingWorker] %(levelname)s: %(message)s"))
+    root_logger.addHandler(console_handler)
+
+    # File handler for diagnostics
+    file_handler = logging.FileHandler(worker_log_path, mode="w")
+    file_handler.setLevel(log_level)
+    file_handler.setFormatter(
+        logging.Formatter("%(asctime)s [TrunkingWorker] %(levelname)s: %(message)s")
     )
+    root_logger.addHandler(file_handler)
+
+    logger.info(f"Worker logging to: {worker_log_path}")
     try:
         asyncio.run(
             _worker_main(

@@ -519,6 +519,7 @@ class TSBKBlock:
     mfid: int
     data: bytes  # 8 bytes of data
     crc_valid: bool = True
+    error_metric: int = 0  # Trellis decode error metric (lower is better)
 
 
 def dibits_to_bits(dibits: NDArrayAny) -> NDArrayAny:
@@ -1298,6 +1299,7 @@ def extract_tsbk_blocks(dibits: NDArrayAny, soft: NDArrayAny | None = None) -> l
                 mfid=mfid,
                 data=bytes(data),
                 crc_valid=crc_valid,
+                error_metric=error_metric,
             )
         )
 

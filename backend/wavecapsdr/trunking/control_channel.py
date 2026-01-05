@@ -98,6 +98,11 @@ class ControlChannelMonitor:
     _dibit_debug_count: int = 0
     tsbk_rejected: int = 0  # TSBKs rejected due to invalid fields
 
+    # Detailed diagnostics for debugging decode chain
+    _diag_duid_histogram: dict[int, int] = field(default_factory=dict)  # DUID value -> count
+    _diag_bch_errors: list[int] = field(default_factory=list)  # BCH error counts
+    _diag_trellis_metrics: list[int] = field(default_factory=list)  # Trellis error metrics
+
     # Callbacks
     on_tsbk: Callable[[bytes], None] | None = None
     on_sync_acquired: Callable[[], None] | None = None
@@ -293,6 +298,95 @@ class ControlChannelMonitor:
                 f"first_8_dibits_after_correction={sample}"
             )
 
+        # [DIAG-HISTOGRAM] Track dibit distribution from slicer
+        if not hasattr(self, "_dibit_histogram"):
+            self._dibit_histogram = {0: 0, 1: 0, 2: 0, 3: 0}
+            self._dibit_histogram_count = 0
+        for d in dibits:
+            if 0 <= d <= 3:
+                self._dibit_histogram[int(d)] += 1
+        self._dibit_histogram_count += len(dibits)
+        if self._dibit_histogram_count >= 50000 and self._polarity_diag_count % 500 == 1:
+            total = sum(self._dibit_histogram.values())
+            pcts = {k: 100 * v / total if total > 0 else 0 for k, v in self._dibit_histogram.items()}
+            logger.info(
+                f"[DIAG-HISTOGRAM] Dibit distribution (n={total}): "
+                f"0(+1)={pcts[0]:.1f}%, 1(+3)={pcts[1]:.1f}%, "
+                f"2(-1)={pcts[2]:.1f}%, 3(-3)={pcts[3]:.1f}%"
+            )
+
+        # [DIAG-HZ-HISTOGRAM] Track discriminator output in Hz at decision instants
+        # P25 C4FM ideal deviation points: -1800, -600, +600, +1800 Hz
+        # Conversion: Hz ≈ soft_symbol_norm * 600 (since boundary at 2.0 = 1200 Hz)
+        if soft is not None and len(soft) > 0:
+            if not hasattr(self, "_hz_histogram_bins"):
+                # Bins from -2400 to +2400 Hz in 200 Hz steps
+                self._hz_histogram_bins = np.linspace(-2400.0, 2400.0, 25)
+                self._hz_histogram_counts = np.zeros(24, dtype=np.int64)
+                self._hz_symbol_total = 0
+                self._hz_min = float('inf')
+                self._hz_max = float('-inf')
+                self._hz_sum = 0.0
+                self._hz_sum_sq = 0.0  # For standard deviation
+
+            # Convert soft symbols to Hz (approximate)
+            # Soft symbol scale: ±3 → ±1800 Hz, so Hz = soft * 600
+            soft_hz = soft * 600.0
+
+            # Update histogram
+            hist, _ = np.histogram(soft_hz, bins=self._hz_histogram_bins)
+            self._hz_histogram_counts += hist
+            self._hz_symbol_total += len(soft_hz)
+            self._hz_min = min(self._hz_min, float(np.min(soft_hz)))
+            self._hz_max = max(self._hz_max, float(np.max(soft_hz)))
+            self._hz_sum += float(np.sum(soft_hz))
+            self._hz_sum_sq += float(np.sum(soft_hz ** 2))
+
+            # Log periodically (every ~10000 symbols after initial 5000)
+            if self._hz_symbol_total >= 5000 and self._hz_symbol_total % 10000 < 500:
+                mean_hz = self._hz_sum / self._hz_symbol_total if self._hz_symbol_total > 0 else 0
+                var_hz = (self._hz_sum_sq / self._hz_symbol_total) - (mean_hz ** 2) if self._hz_symbol_total > 0 else 0
+                std_hz = np.sqrt(max(0, var_hz))
+
+                total_counts = self._hz_histogram_counts.sum()
+                if total_counts > 0:
+                    pcts = 100.0 * self._hz_histogram_counts / total_counts
+                    bin_centers = (self._hz_histogram_bins[:-1] + self._hz_histogram_bins[1:]) / 2
+
+                    # Show distribution as ASCII histogram
+                    hist_str = ""
+                    for center, pct in zip(bin_centers, pcts):
+                        bar = "#" * int(pct / 2)  # Scale to reasonable width
+                        # Mark expected peak positions
+                        marker = ""
+                        if abs(center - (-1800)) < 150:
+                            marker = " ← -1800"
+                        elif abs(center - (-600)) < 150:
+                            marker = " ← -600"
+                        elif abs(center - 600) < 150:
+                            marker = " ← +600"
+                        elif abs(center - 1800) < 150:
+                            marker = " ← +1800"
+                        hist_str += f"\n    {center:+5.0f} Hz: {pct:5.1f}% {bar}{marker}"
+
+                    # Assess quality: check if peaks are near expected positions
+                    # Find the 4 highest bins
+                    top_4_indices = np.argsort(self._hz_histogram_counts)[-4:]
+                    top_4_centers = [bin_centers[i] for i in top_4_indices]
+
+                    logger.info(
+                        f"[DIAG-HZ-HISTOGRAM] Discriminator Hz at decision instants (n={self._hz_symbol_total}):\n"
+                        f"    min={self._hz_min:.0f} Hz, max={self._hz_max:.0f} Hz\n"
+                        f"    DC offset (mean)={mean_hz:.0f} Hz, std={std_hz:.0f} Hz\n"
+                        f"    Top 4 peaks at: {sorted(top_4_centers)}\n"
+                        f"    (Expected: 4 peaks near -1800, -600, +600, +1800 Hz){hist_str}"
+                    )
+
+        # Track total dibits for sync delta calculation
+        if not hasattr(self, "_total_dibits_seen"):
+            self._total_dibits_seen = 0
+        self._total_dibits_seen += len(dibits)
+
         # Add to buffer
         self._dibit_buffer.extend(dibits.tolist())
         if soft is not None:
@@ -400,6 +494,15 @@ class ControlChannelMonitor:
                 if len(self._diag_last_nacs) > 20:
                     self._diag_last_nacs = self._diag_last_nacs[-20:]
 
+            # Track DUID histogram and BCH errors
+            if nid is not None:
+                duid_val = nid.duid.value if hasattr(nid.duid, 'value') else int(nid.duid)
+                self._diag_duid_histogram[duid_val] = self._diag_duid_histogram.get(duid_val, 0) + 1
+                if nid.errors >= 0:  # BCH succeeded
+                    self._diag_bch_errors.append(nid.errors)
+                    if len(self._diag_bch_errors) > 100:
+                        self._diag_bch_errors = self._diag_bch_errors[-100:]
+
             if self._diag_nid_count % 20 == 0:
                 valid_rate = (
                     100.0 * self._diag_nid_valid / self._diag_nid_count
@@ -409,10 +512,24 @@ class ControlChannelMonitor:
                 # Check NAC consistency - all same = good, all different = bad
                 unique_nacs = set(self._diag_last_nacs)
                 nac_str = ",".join([f"0x{n:03x}" for n in list(unique_nacs)[:5]])
+
+                # DUID histogram for diagnosis
+                duid_str = ", ".join([f"{k}:{v}" for k, v in sorted(self._diag_duid_histogram.items())])
+
+                # BCH error stats
+                bch_stats = ""
+                if self._diag_bch_errors:
+                    bch_pass = len([e for e in self._diag_bch_errors if e >= 0])
+                    bch_avg = sum(self._diag_bch_errors) / len(self._diag_bch_errors) if self._diag_bch_errors else 0
+                    bch_stats = f", bch_avg_errors={bch_avg:.1f}"
+
                 logger.info(
                     f"[DIAG-STAGE7] NID: count={self._diag_nid_count}, "
                     f"valid={self._diag_nid_valid}, rate={valid_rate:.1f}%, "
                     f"unique_nacs={len(unique_nacs)}, recent_nacs=[{nac_str}]"
+                )
+                logger.info(
+                    f"[DIAG-DUID] DUID histogram: {{{duid_str}}}{bch_stats}"
                 )
 
             # Debug: log every 100th frame (less frequent)
@@ -460,6 +577,11 @@ class ControlChannelMonitor:
                         # Track all TSBK decode attempts for stats
                         self.tsbk_attempts += 1
 
+                        # Track trellis error metrics
+                        self._diag_trellis_metrics.append(tsbk_block.error_metric)
+                        if len(self._diag_trellis_metrics) > 100:
+                            self._diag_trellis_metrics = self._diag_trellis_metrics[-100:]
+
                         if not tsbk_block.crc_valid:
                             # CRC failed - log periodically for debugging
                             if self.tsbk_attempts <= 10 or self.tsbk_attempts % 50 == 0:
@@ -475,9 +597,16 @@ class ControlChannelMonitor:
                         # [DIAG-STAGE7b] TSBK CRC statistics (every 20 attempts)
                         if self.tsbk_attempts % 20 == 0:
                             crc_rate = 100.0 * self.tsbk_crc_pass / self.tsbk_attempts
+                            # Trellis error metric stats
+                            trellis_stats = ""
+                            if self._diag_trellis_metrics:
+                                avg_metric = sum(self._diag_trellis_metrics) / len(self._diag_trellis_metrics)
+                                min_metric = min(self._diag_trellis_metrics)
+                                max_metric = max(self._diag_trellis_metrics)
+                                trellis_stats = f", trellis_err: avg={avg_metric:.1f} min={min_metric} max={max_metric}"
                             logger.info(
                                 f"[DIAG-STAGE7b] TSBK: attempts={self.tsbk_attempts}, "
-                                f"crc_pass={self.tsbk_crc_pass}, rate={crc_rate:.1f}%"
+                                f"crc_pass={self.tsbk_crc_pass}, rate={crc_rate:.1f}%{trellis_stats}"
                             )
 
                         # Pass opcode and mfid from TSBKBlock to parser
@@ -667,9 +796,77 @@ class ControlChannelMonitor:
         if not hasattr(self, "_diag_sync_attempts"):
             self._diag_sync_attempts = 0
             self._diag_sync_found = 0
+            self._diag_exact_sync_found = 0
         self._diag_sync_attempts += 1
         if best_score >= self.SOFT_SYNC_THRESHOLD:
             self._diag_sync_found += 1
+
+        # [DIAG-SYNC-SCORE-HISTOGRAM] Track distribution of sync correlation scores
+        # This helps identify:
+        # 1. Whether there's a bimodal distribution (noise vs real syncs)
+        # 2. Where the optimal threshold should be set
+        # 3. False positive rate at current threshold
+        # Expected: Peak near 0 (noise) and peak near 180-216 (real syncs with good signal)
+        if not hasattr(self, "_sync_score_histogram"):
+            # Bins: 0-20, 20-40, ..., 200-220 (11 bins covering 0-220)
+            self._sync_score_histogram: dict[int, int] = {}
+            self._sync_score_total = 0
+            self._sync_score_sum = 0.0
+            self._sync_score_max = 0.0
+
+        # Track this score
+        bucket = int(best_score // 20) * 20  # 20-point buckets
+        self._sync_score_histogram[bucket] = self._sync_score_histogram.get(bucket, 0) + 1
+        self._sync_score_total += 1
+        self._sync_score_sum += best_score
+        if best_score > self._sync_score_max:
+            self._sync_score_max = best_score
+
+        # Log histogram periodically
+        if self._sync_score_total > 0 and self._sync_score_total % 100 == 0:
+            # Build ASCII histogram
+            sorted_buckets = sorted(self._sync_score_histogram.keys())
+            max_count = max(self._sync_score_histogram.values()) if self._sync_score_histogram else 1
+            hist_lines = []
+            for b in range(0, 220, 20):
+                count = self._sync_score_histogram.get(b, 0)
+                bar_len = int(40 * count / max_count) if max_count > 0 else 0
+                bar = "#" * bar_len
+                pct = 100.0 * count / self._sync_score_total if self._sync_score_total > 0 else 0
+                # Mark threshold bucket
+                marker = " <-- THRESHOLD" if b <= self.SOFT_SYNC_THRESHOLD < b + 20 else ""
+                hist_lines.append(f"    {b:3d}-{b+19:3d}: {bar:<40} {count:5d} ({pct:5.1f}%){marker}")
+
+            mean_score = self._sync_score_sum / self._sync_score_total if self._sync_score_total > 0 else 0
+            above_threshold = sum(c for b, c in self._sync_score_histogram.items() if b >= self.SOFT_SYNC_THRESHOLD)
+            false_alarm_rate = 100.0 * above_threshold / self._sync_score_total if self._sync_score_total > 0 else 0
+
+            logger.info(
+                f"[DIAG-SYNC-SCORE] Sync score histogram (n={self._sync_score_total}):\n"
+                + "\n".join(hist_lines) + "\n"
+                f"    Mean={mean_score:.1f}, Max={self._sync_score_max:.1f}, "
+                f"Above threshold={above_threshold} ({false_alarm_rate:.1f}%)"
+            )
+
+        # [DIAG-EXACT-SYNC] Also search for EXACT sync pattern match (hard decision)
+        # Expected: 1 1 1 1 1 3 1 1 3 3 1 1 3 3 3 3 1 3 1 3 3 3 3 3
+        # Reversed (XOR 2): 3 3 3 3 3 1 3 3 1 1 3 3 1 1 1 1 3 1 3 1 1 1 1 1
+        EXACT_SYNC = [1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1, 3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3]
+        EXACT_SYNC_REV = [3, 3, 3, 3, 3, 1, 3, 3, 1, 1, 3, 3, 1, 1, 1, 1, 3, 1, 3, 1, 1, 1, 1, 1]
+        exact_pos = -1
+        exact_rev = False
+        for i in range(len(self._dibit_buffer) - 24 + 1):
+            window = self._dibit_buffer[i:i+24]
+            if window == EXACT_SYNC:
+                exact_pos = i
+                exact_rev = False
+                self._diag_exact_sync_found += 1
+                break
+            elif window == EXACT_SYNC_REV:
+                exact_pos = i
+                exact_rev = True
+                self._diag_exact_sync_found += 1
+                break
 
         if self._diag_sync_attempts % 50 == 0:
             sync_rate = (
@@ -679,9 +876,10 @@ class ControlChannelMonitor:
             )
             logger.info(
                 f"[DIAG-STAGE6] Sync: attempts={self._diag_sync_attempts}, "
-                f"found={self._diag_sync_found}, rate={sync_rate:.1f}%, "
-                f"best_score={best_score:.1f}, threshold={self.SOFT_SYNC_THRESHOLD}, "
-                f"polarity={'reversed' if best_is_reversed else 'normal'}"
+                f"soft_found={self._diag_sync_found}, exact_found={self._diag_exact_sync_found}, "
+                f"rate={sync_rate:.1f}%, best_score={best_score:.1f}, threshold={self.SOFT_SYNC_THRESHOLD}, "
+                f"polarity={'reversed' if best_is_reversed else 'normal'}, "
+                f"exact_pos={exact_pos}, exact_rev={exact_rev if exact_pos >= 0 else 'N/A'}"
             )
 
         if verbose:
@@ -695,6 +893,42 @@ class ControlChannelMonitor:
 
         # Check if best score exceeds threshold
         if best_score >= self.SOFT_SYNC_THRESHOLD:
+            # [DIAG-SYNC-DELTA] Track sync-to-sync delta for periodicity check
+            # On control channel, real syncs should be ~180 dibits apart (single-block TSBK)
+            # Flat/random distribution = false positives
+            if not hasattr(self, "_last_sync_dibit_pos"):
+                self._last_sync_dibit_pos = 0
+                self._sync_delta_histogram: dict[int, int] = {}
+                self._total_syncs_for_delta = 0
+
+            current_total_dibits = getattr(self, "_total_dibits_seen", 0) + best_pos
+            delta = current_total_dibits - self._last_sync_dibit_pos
+            self._last_sync_dibit_pos = current_total_dibits
+
+            if delta > 0 and delta < 1000:  # Ignore first sync and very large gaps
+                # Bucket into 10-dibit ranges for histogram
+                bucket = (delta // 10) * 10
+                self._sync_delta_histogram[bucket] = self._sync_delta_histogram.get(bucket, 0) + 1
+                self._total_syncs_for_delta += 1
+
+            # Log periodically
+            if self._total_syncs_for_delta > 0 and self._total_syncs_for_delta % 50 == 0:
+                # Sort by bucket and show top 10
+                delta_top_buckets = sorted(self._sync_delta_histogram.items(), key=lambda x: -x[1])[:10]
+                hist_str = ", ".join([f"{b}:{c}" for b, c in delta_top_buckets])
+                # Check if there's a dominant peak (should be near 180 for control channel)
+                if delta_top_buckets:
+                    dominant_bucket, dominant_count = delta_top_buckets[0]
+                    total_count = sum(self._sync_delta_histogram.values())
+                    dominant_pct = 100.0 * dominant_count / total_count if total_count > 0 else 0
+                    is_periodic = 150 <= dominant_bucket <= 210 and dominant_pct > 30
+                    logger.info(
+                        f"[DIAG-SYNC-DELTA] Sync-to-sync delta histogram (n={self._total_syncs_for_delta}):\n"
+                        f"    Top buckets: {hist_str}\n"
+                        f"    Dominant: {dominant_bucket} dibits ({dominant_pct:.1f}%), "
+                        f"periodic={'YES' if is_periodic else 'NO (expect peak at ~180)'}"
+                    )
+
             # Latch polarity on FIRST successful sync only (don't flip-flop)
             # This follows OP25 approach: detect once and maintain
             if not hasattr(self, "_polarity_latched"):
@@ -711,6 +945,56 @@ class ControlChannelMonitor:
                 else:
                     logger.info(f"ControlChannelMonitor: Latching normal polarity (reverse_p=0)")
                 self._polarity_latched = True
+
+            # [DIAG-SYNC-DUMP] Dump raw dibits at sync for expert analysis
+            # This helps verify:
+            # 1. Sync pattern matches 0x5575F5FF77FF (first 24 dibits)
+            # 2. Raw frame structure for microslot/status alignment analysis
+            if not hasattr(self, "_sync_dump_count"):
+                self._sync_dump_count = 0
+            self._sync_dump_count += 1
+            if self._sync_dump_count <= 5:
+                # Dump 180 dibits (5 microslots) starting at sync position
+                end_pos = min(best_pos + 180, len(self._dibit_buffer))
+                raw_dibits = self._dibit_buffer[best_pos:end_pos]
+
+                # Verify sync pattern: expected 0x5575F5FF77FF
+                # Dibits: 1 1 1 1 1 3 1 1 3 3 1 1 3 3 3 3 1 3 1 3 3 3 3 3
+                sync_dibits = raw_dibits[:24] if len(raw_dibits) >= 24 else raw_dibits
+                expected_sync = [1, 1, 1, 1, 1, 3, 1, 1, 3, 3, 1, 1, 3, 3, 3, 3, 1, 3, 1, 3, 3, 3, 3, 3]
+                sync_match = sync_dibits == expected_sync
+
+                # Convert sync dibits to hex for comparison with 0x5575F5FF77FF
+                sync_hex = 0
+                for d in sync_dibits:
+                    sync_hex = (sync_hex << 2) | d
+
+                logger.info(
+                    f"[DIAG-SYNC-DUMP] Frame #{self._sync_dump_count}: "
+                    f"sync_hex=0x{sync_hex:012x} (expected 0x5575f5ff77ff), match={sync_match}"
+                )
+
+                # Dump first 60 dibits (sync + NID region)
+                dibit_str = " ".join(f"{d}" for d in raw_dibits[:60])
+                logger.info(f"[DIAG-SYNC-DUMP] raw_dibits[0:60] = {dibit_str}")
+
+                # Dump full 180 dibits for expert analysis (split into 3 lines)
+                if len(raw_dibits) >= 180:
+                    line1 = " ".join(f"{d}" for d in raw_dibits[0:60])
+                    line2 = " ".join(f"{d}" for d in raw_dibits[60:120])
+                    line3 = " ".join(f"{d}" for d in raw_dibits[120:180])
+                    logger.info(f"[DIAG-SYNC-DUMP] raw_dibits[0:60]   = {line1}")
+                    logger.info(f"[DIAG-SYNC-DUMP] raw_dibits[60:120] = {line2}")
+                    logger.info(f"[DIAG-SYNC-DUMP] raw_dibits[120:180]= {line3}")
+
+                    # Also show dibit positions where status symbols should be
+                    # Status at frame positions 35, 71, 107, 143, 179...
+                    status_positions = [35, 71, 107, 143, 179]
+                    status_dibits = [raw_dibits[p] if p < len(raw_dibits) else -1 for p in status_positions]
+                    logger.info(
+                        f"[DIAG-SYNC-DUMP] Status symbol positions {status_positions}: "
+                        f"dibits={status_dibits}"
+                    )
 
             return best_pos
 
