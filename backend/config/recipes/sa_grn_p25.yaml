@@ -1,0 +1,32 @@
+name: SA GRN P25 Emergency Scanner
+description: South Australia Government Radio Network P25 Phase 1 trunking (400-422
+  MHz UHF). System ID 0x3DC, WACN 0xBEE00. Monitors Adelaide Metro control channels.
+  IMPORTANT - Police/Ambulance dispatch are encrypted. CFS/SES/Utilities may have
+  unencrypted channels. Requires DSD-FME for voice decoding.
+category: Public Safety
+center_hz: 415500000
+sample_rate: 6000000
+channels:
+- offset_hz: -2237500
+  name: CC1 - 413.2625
+  mode: p25
+  squelch_db: -65
+- offset_hz: -737500
+  name: CC2 - 414.7625
+  mode: p25
+  squelch_db: -65
+- offset_hz: 2262500
+  name: CC3 - 417.7625
+  mode: p25
+  squelch_db: -65
+- offset_hz: -2187500
+  name: CC4 - 413.3125
+  mode: p25
+  squelch_db: -65
+- offset_hz: -812500
+  name: CC5 - 414.6875
+  mode: p25
+  squelch_db: -65
+allow_frequency_input: false
+gain: 40
+bandwidth: 5500000

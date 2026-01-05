@@ -1,0 +1,14 @@
+name: 915 MHz ISM Band
+description: Monitor 915 MHz US ISM band for LoRa, Zigbee, Z-Wave, and smart home
+  devices. Raw mode captures baseband for external decoder analysis.
+category: ISM/IoT
+center_hz: 915000000
+sample_rate: 1000000
+channels:
+- offset_hz: 0
+  name: 915 MHz Center
+  mode: raw
+  squelch_db: -75
+allow_frequency_input: false
+gain: 40
+bandwidth: 800000

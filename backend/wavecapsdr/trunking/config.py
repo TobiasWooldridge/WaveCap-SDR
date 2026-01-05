@@ -263,6 +263,7 @@ class TrunkingSystemConfig:
     talkgroups: dict[int, TalkgroupConfig] = field(default_factory=dict)
     talkgroups_file: str | None = None  # External YAML file for talkgroup definitions
     talkgroups_rr: RadioReferenceTalkgroupsConfig | None = None
+    control_channels_file: str | None = None  # RadioReference CSV file for control channels
     recording_path: str = "./recordings"
     record_unknown: bool = False
     min_call_duration: float = 1.0
@@ -347,7 +348,48 @@ class TrunkingSystemConfig:
         Args:
             data: Configuration dictionary
             config_dir: Base directory for resolving relative paths (e.g., talkgroups_file)
+
+        Supports inheritance via 'extends' field:
+            extends: systems/sa_grn.yaml
+
+        The base config is loaded first, then instance-specific values override it.
         """
+        # Handle inheritance via 'extends' field
+        extends_path = data.get("extends")
+        if extends_path:
+            base_data = _load_extends_config(extends_path, config_dir)
+            # Merge: base config first, then instance config overlays
+            data = _deep_merge(base_data, data)
+            # Remove 'extends' from merged data to avoid re-processing
+            data.pop("extends", None)
+
+        # Parse control channels from external file if specified
+        control_channels_file = data.get("control_channels_file")
+        control_channels: list[ControlChannelConfig] = []
+
+        if control_channels_file:
+            from wavecapsdr.trunking.radioreference_csv import load_control_channels_csv
+
+            cc_list = load_control_channels_csv(control_channels_file, config_dir)
+            for freq_hz, site_name in cc_list:
+                control_channels.append(
+                    ControlChannelConfig(frequency_hz=freq_hz, name=site_name)
+                )
+
+        # Inline control channels supplement or override file-based ones
+        inline_cc = data.get("control_channels", [])
+        if inline_cc:
+            # If file was loaded, inline channels override (by frequency)
+            if control_channels:
+                existing_freqs = {cc.frequency_hz for cc in control_channels}
+                for cc_raw in inline_cc:
+                    cc = ControlChannelConfig.from_value(cc_raw)
+                    if cc.frequency_hz not in existing_freqs:
+                        control_channels.append(cc)
+            else:
+                # No file, use inline channels directly
+                control_channels = [ControlChannelConfig.from_value(f) for f in inline_cc]
+
         # Parse talkgroups from external file if specified
         talkgroups_file = data.get("talkgroups_file")
         talkgroups = {}
@@ -453,13 +495,13 @@ class TrunkingSystemConfig:
             name=data.get("name", "P25 System"),
             protocol=protocol,
             modulation=modulation,
-            control_channels=[
-                ControlChannelConfig.from_value(f) for f in data.get("control_channels", [])
-            ],
+            control_channels=control_channels,
+            control_channels_file=control_channels_file,
             center_hz=parse_frequency(data.get("center_hz", 851_000_000)),
             sample_rate=int(data.get("sample_rate", 8_000_000)),
             device_id=data.get("device_id", ""),
             gain=gain,
+            ppm=data.get("ppm"),
             antenna=data.get("antenna"),
             device_settings=data.get("device_settings", {}),
             element_gains=data.get("element_gains", {}),
@@ -725,3 +767,62 @@ def load_talkgroups_radioreference(
         except Exception as exc:
             logger.warning("Failed to write RadioReference talkgroup cache: %s", exc)
     return converted
+
+
+def _load_extends_config(extends_path: str, config_dir: str | None) -> dict[str, Any]:
+    """Load a base configuration file for inheritance.
+
+    Args:
+        extends_path: Path to base config (relative to config_dir, supports ~)
+        config_dir: Base directory for resolving relative paths
+
+    Returns:
+        Parsed configuration dictionary
+    """
+    import os
+
+    import yaml
+
+    # Expand ~ to home directory
+    extends_path = os.path.expanduser(extends_path)
+
+    # Resolve relative path
+    if config_dir and not os.path.isabs(extends_path):
+        extends_path = os.path.join(config_dir, extends_path)
+
+    try:
+        with open(extends_path, encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        import logging
+
+        logging.getLogger(__name__).warning(f"Base config not found: {extends_path}")
+        return {}
+    except Exception as e:
+        import logging
+
+        logging.getLogger(__name__).error(f"Error loading base config {extends_path}: {e}")
+        return {}
+
+
+def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Deep merge two dictionaries, with overlay taking precedence.
+
+    Args:
+        base: Base configuration dictionary
+        overlay: Overlay configuration (values override base)
+
+    Returns:
+        Merged dictionary
+    """
+    result = base.copy()
+
+    for key, value in overlay.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            # Recursively merge nested dicts
+            result[key] = _deep_merge(result[key], value)
+        else:
+            # Overlay value replaces base value
+            result[key] = value
+
+    return result

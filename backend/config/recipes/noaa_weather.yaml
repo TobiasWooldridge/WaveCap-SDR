@@ -1,0 +1,38 @@
+name: NOAA Weather Radio
+description: Monitor all 7 NOAA Weather Radio frequencies (162.400-162.550 MHz). Continuous
+  broadcast with severe weather alerts. NBFM with 5 kHz deviation.
+category: Broadcast
+center_hz: 162475000
+sample_rate: 500000
+channels:
+- offset_hz: -75000
+  name: WX2 - 162.400
+  mode: nbfm
+  squelch_db: -55
+- offset_hz: -50000
+  name: WX4 - 162.425
+  mode: nbfm
+  squelch_db: -55
+- offset_hz: -25000
+  name: WX5 - 162.450
+  mode: nbfm
+  squelch_db: -55
+- offset_hz: 0
+  name: WX3 - 162.475
+  mode: nbfm
+  squelch_db: -55
+- offset_hz: 25000
+  name: WX6 - 162.500
+  mode: nbfm
+  squelch_db: -55
+- offset_hz: 50000
+  name: WX7 - 162.525
+  mode: nbfm
+  squelch_db: -55
+- offset_hz: 75000
+  name: WX1 - 162.550
+  mode: nbfm
+  squelch_db: -55
+allow_frequency_input: false
+gain: 35
+bandwidth: 400000

@@ -1,0 +1,8 @@
+center_hz: 414000000
+sample_rate: 2400000
+offsets:
+- 0.0
+gain: 6.4
+bandwidth: 200000.0
+ppm: 0.0
+antenna: Antenna B

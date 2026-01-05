@@ -1,0 +1,30 @@
+name: 2 Meter Amateur Radio
+description: Monitor 2m ham band 144-148 MHz. Includes national calling frequency
+  146.52 MHz and common simplex/repeater outputs. NBFM with 5 kHz deviation.
+category: Amateur Radio
+center_hz: 146200000
+sample_rate: 2400000
+channels:
+- offset_hz: 320000
+  name: 146.52 - National Calling
+  mode: nbfm
+  squelch_db: -60
+- offset_hz: -680000
+  name: 145.52 - Regional Calling
+  mode: nbfm
+  squelch_db: -60
+- offset_hz: -200000
+  name: '146.00'
+  mode: nbfm
+  squelch_db: -60
+- offset_hz: 720000
+  name: 146.92 - Repeater Out
+  mode: nbfm
+  squelch_db: -60
+- offset_hz: 880000
+  name: 147.08 - Repeater Out
+  mode: nbfm
+  squelch_db: -60
+allow_frequency_input: false
+gain: 35
+bandwidth: 2200000

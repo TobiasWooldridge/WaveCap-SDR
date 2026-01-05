@@ -1,0 +1,16 @@
+name: BrandMeister DMR Hotspot
+description: Monitor amateur DMR hotspots on BrandMeister network. Common simplex
+  frequencies include 438.8 MHz (US), 439.0 MHz, and 433.45 MHz (EU). DMR uses 4FSK
+  with 12.5 kHz spacing.
+category: Amateur Radio
+center_hz: 438800000
+sample_rate: 48000
+channels:
+- offset_hz: 0
+  name: DMR Hotspot
+  mode: dmr
+  squelch_db: -65
+allow_frequency_input: true
+gain: 40
+bandwidth: 12500
+frequency_label: Hotspot Frequency (MHz)

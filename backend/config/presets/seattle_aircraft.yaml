@@ -1,0 +1,11 @@
+center_hz: 121500000
+sample_rate: 6000000
+offsets:
+- -500000
+- 0
+- 500000
+- 700000
+gain: 30.0
+bandwidth: 1800000.0
+ppm: 0.0
+antenna: Antenna A

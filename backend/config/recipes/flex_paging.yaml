@@ -1,0 +1,30 @@
+name: FLEX/POCSAG Paging (929 MHz)
+description: Monitor 929 MHz paging band. Originally FLEX protocol but many systems
+  now use POCSAG or simulcast both. Try 512, 1200, or 2400 baud for POCSAG decoding.
+category: Paging
+center_hz: 929600000
+sample_rate: 250000
+channels:
+- offset_hz: -87500
+  name: 929.5125 MHz
+  mode: nbfm
+  squelch_db: -70
+  enable_flex: true
+- offset_hz: 0
+  name: 929.6000 MHz
+  mode: nbfm
+  squelch_db: -70
+  enable_flex: true
+- offset_hz: 12500
+  name: 929.6125 MHz
+  mode: nbfm
+  squelch_db: -70
+  enable_flex: true
+- offset_hz: 25000
+  name: 929.6250 MHz
+  mode: nbfm
+  squelch_db: -70
+  enable_flex: true
+allow_frequency_input: false
+gain: 40
+bandwidth: 200000

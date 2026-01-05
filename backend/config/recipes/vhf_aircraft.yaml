@@ -1,0 +1,39 @@
+name: VHF Aircraft
+description: Monitor aviation VHF AM band 118-137 MHz. Includes 121.5 emergency guard,
+  common unicom frequencies, and ATIS. Aviation uses AM modulation with 25 kHz channel
+  spacing.
+category: Aviation
+center_hz: 122250000
+sample_rate: 2400000
+channels:
+- offset_hz: -750000
+  name: 121.5 - Guard/Emergency
+  mode: am
+  squelch_db: -60
+- offset_hz: 750000
+  name: 123.0 - Unicom
+  mode: am
+  squelch_db: -60
+- offset_hz: -250000
+  name: 122.0 - Flight Watch
+  mode: am
+  squelch_db: -60
+- offset_hz: 450000
+  name: 122.7 - Unicom
+  mode: am
+  squelch_db: -60
+- offset_hz: 550000
+  name: 122.8 - Unicom
+  mode: am
+  squelch_db: -60
+- offset_hz: 675000
+  name: 122.925 - Multicom
+  mode: am
+  squelch_db: -60
+- offset_hz: 825000
+  name: 123.075 - Heli Air-Air
+  mode: am
+  squelch_db: -60
+allow_frequency_input: false
+gain: 35
+bandwidth: 2200000

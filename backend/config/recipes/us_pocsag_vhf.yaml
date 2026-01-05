@@ -1,0 +1,16 @@
+name: US POCSAG Paging (VHF)
+description: Monitor VHF POCSAG paging 152-158 MHz used by fire, EMS, and hospitals.
+  Most systems use 1200 baud, some older systems use 512 baud. 25 kHz channel spacing
+  with FSK modulation.
+category: Paging
+center_hz: 152480000
+sample_rate: 48000
+channels:
+- offset_hz: 0
+  name: VHF Pager
+  mode: nbfm
+  squelch_db: -70
+allow_frequency_input: true
+gain: 40
+bandwidth: 25000
+frequency_label: Pager Frequency (MHz)

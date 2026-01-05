@@ -1,0 +1,16 @@
+name: DMR UHF Repeater
+description: Monitor DMR digital voice on UHF 430-450 MHz. DMR uses 4FSK modulation
+  with 12.5 kHz channel spacing and TDMA for two simultaneous talk paths. Configure
+  with your local repeater output frequency.
+category: Digital Voice
+center_hz: 438500000
+sample_rate: 48000
+channels:
+- offset_hz: 0
+  name: DMR Repeater
+  mode: dmr
+  squelch_db: -65
+allow_frequency_input: true
+gain: 40
+bandwidth: 12500
+frequency_label: DMR Frequency (MHz)

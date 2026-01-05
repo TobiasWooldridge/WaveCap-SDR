@@ -1,0 +1,15 @@
+name: Fire/EMS Paging
+description: Monitor fire department and EMS POCSAG paging for dispatch calls. Most
+  systems use 1200 baud. Volunteer fire departments commonly use 153-155 MHz.
+category: Paging
+center_hz: 154000000
+sample_rate: 48000
+channels:
+- offset_hz: 0
+  name: Fire/EMS Pager
+  mode: nbfm
+  squelch_db: -70
+allow_frequency_input: true
+gain: 40
+bandwidth: 25000
+frequency_label: Pager Frequency (MHz)

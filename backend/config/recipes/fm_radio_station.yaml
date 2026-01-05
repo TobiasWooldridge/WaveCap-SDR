@@ -1,0 +1,16 @@
+name: FM Radio Station
+description: Listen to a single FM broadcast radio station with stereo RDS support.
+  WBFM requires ~200 kHz bandwidth for full stereo audio. RDS data (station name,
+  song info) appears in the channel panel when available.
+category: Broadcast
+center_hz: 100000000
+sample_rate: 250000
+channels:
+- offset_hz: 0
+  name: FM Station
+  mode: wbfm
+  squelch_db: -70
+allow_frequency_input: true
+gain: 40
+bandwidth: 200000
+frequency_label: Station Frequency (MHz)

@@ -1,0 +1,39 @@
+name: VHF Marine
+description: Monitor VHF marine channels 156-162 MHz. Includes Ch 16 (distress/calling),
+  Ch 9 (recreational calling), Ch 13 (bridge-to-bridge), and Ch 70 (DSC digital).
+  25 kHz channel spacing with 16 kHz deviation.
+category: Marine
+center_hz: 156700000
+sample_rate: 2000000
+channels:
+- offset_hz: 100000
+  name: Ch 16 - Distress
+  mode: nbfm
+  squelch_db: -55
+- offset_hz: -250000
+  name: Ch 9 - Calling
+  mode: nbfm
+  squelch_db: -55
+- offset_hz: -175000
+  name: Ch 70 - DSC
+  mode: nbfm
+  squelch_db: -55
+- offset_hz: -25000
+  name: Ch 13 - Bridge
+  mode: nbfm
+  squelch_db: -55
+- offset_hz: 200000
+  name: Ch 68 - Marina
+  mode: nbfm
+  squelch_db: -55
+- offset_hz: 225000
+  name: Ch 69 - Marina
+  mode: nbfm
+  squelch_db: -55
+- offset_hz: 525000
+  name: Ch 22A - Coast Guard
+  mode: nbfm
+  squelch_db: -55
+allow_frequency_input: false
+gain: 35
+bandwidth: 1800000

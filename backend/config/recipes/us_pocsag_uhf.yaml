@@ -1,0 +1,15 @@
+name: US POCSAG Paging (UHF)
+description: Monitor UHF POCSAG paging 450-470 MHz used by commercial and emergency
+  services. Configure with your local paging frequency. Try 512, 1200, or 2400 baud.
+category: Paging
+center_hz: 454000000
+sample_rate: 48000
+channels:
+- offset_hz: 0
+  name: UHF Pager
+  mode: nbfm
+  squelch_db: -70
+allow_frequency_input: true
+gain: 40
+bandwidth: 25000
+frequency_label: Pager Frequency (MHz)

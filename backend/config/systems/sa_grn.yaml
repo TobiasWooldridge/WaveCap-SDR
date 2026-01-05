@@ -1,0 +1,54 @@
+# South Australia Government Radio Network (SA-GRN)
+# System definition - shared by all instances
+#
+# This file contains settings that are specific to the SA-GRN radio system
+# but not specific to any particular SDR device or installation.
+#
+# Device-specific settings (gain, antenna, center_hz, device_id) should be
+# configured in instance configs (config/instances/*.yaml or wavecapsdr.local.yaml).
+
+name: SA-GRN
+protocol: p25_phase1
+
+# System identifiers
+wacn: 781056
+system_id: 988
+
+# Control channels from RadioReference CSV export
+# Only frequencies marked with 'c' suffix are control channels
+control_channels_file: ~/radioreference/trs_sites_8145.csv
+
+# Talkgroups from local YAML file (can also use talkgroups_rr for RadioReference API)
+talkgroups_file: talkgroups/sa_grn.yaml
+
+# Channel identifiers for frequency calculation (IDEN_UP seed data)
+# These are system-wide and don't change per device
+channel_identifiers:
+  0:
+    base_freq_mhz: 412.475
+    channel_spacing_khz: 12.5
+    bandwidth_khz: 12.5
+    tx_offset_mhz: 0.0
+  1:
+    base_freq_mhz: 415.125
+    channel_spacing_khz: 12.5
+    bandwidth_khz: 12.5
+    tx_offset_mhz: 0.0
+  2:
+    base_freq_mhz: 420.0125
+    channel_spacing_khz: 6.25
+    bandwidth_khz: 12.5
+    tx_offset_mhz: 5.2
+  3:
+    base_freq_mhz: 467.5
+    channel_spacing_khz: 6.25
+    bandwidth_khz: 12.5
+    tx_offset_mhz: -10.0
+
+# Default recording settings
+recording_path: ./recordings/sa_grn
+record_unknown: true
+min_call_duration: 1.0
+squelch_db: -60
+max_voice_recorders: 2
+control_channel_timeout: 5

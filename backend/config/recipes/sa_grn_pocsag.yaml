@@ -1,0 +1,16 @@
+name: SA GRN POCSAG Pagers
+description: South Australia Government Radio Network POCSAG paging (148 MHz VHF).
+  Decodes alphanumeric and numeric messages at 1200 baud. Messages appear in the Pager
+  Feed panel. Metro frequency is 148.0625 MHz.
+category: Paging
+center_hz: 148062500
+sample_rate: 48000
+channels:
+- offset_hz: 0
+  name: SA Paging
+  mode: nbfm
+  squelch_db: -70
+allow_frequency_input: true
+gain: 40
+bandwidth: 25000
+frequency_label: Pager Frequency (MHz)

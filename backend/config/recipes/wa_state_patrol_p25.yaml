@@ -1,0 +1,16 @@
+name: WA State Patrol P25
+description: Washington State Patrol P25 trunked system on 700 MHz band. Monitors
+  control channel for voice grants. King County simulcast control is 774.03125 MHz.
+  P25 uses C4FM with 12.5 kHz spacing.
+category: Public Safety
+center_hz: 774031250
+sample_rate: 500000
+channels:
+- offset_hz: 0
+  name: Control Channel
+  mode: p25
+  squelch_db: -65
+allow_frequency_input: true
+gain: 40
+bandwidth: 400000
+frequency_label: Control Channel Frequency (MHz)

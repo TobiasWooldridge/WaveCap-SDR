@@ -1,0 +1,15 @@
+name: 433 MHz ISM Band
+description: Monitor 433 MHz ISM band for wireless sensors, remotes, weather stations,
+  and IoT devices. Common protocols include ASK/OOK and FSK. Raw mode captures baseband
+  for external decoder analysis.
+category: ISM/IoT
+center_hz: 433920000
+sample_rate: 1000000
+channels:
+- offset_hz: 0
+  name: 433.92 MHz Center
+  mode: raw
+  squelch_db: -75
+allow_frequency_input: false
+gain: 40
+bandwidth: 800000

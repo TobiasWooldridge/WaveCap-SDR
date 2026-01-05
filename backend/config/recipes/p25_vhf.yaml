@@ -1,0 +1,16 @@
+name: P25 VHF System
+description: Monitor P25 Phase 1 digital voice on VHF 150-174 MHz. P25 uses C4FM modulation
+  with 12.5 kHz channel spacing. Many local government and public safety systems operate
+  on VHF.
+category: Public Safety
+center_hz: 155000000
+sample_rate: 48000
+channels:
+- offset_hz: 0
+  name: P25 Channel
+  mode: p25
+  squelch_db: -65
+allow_frequency_input: true
+gain: 40
+bandwidth: 12500
+frequency_label: P25 Frequency (MHz)

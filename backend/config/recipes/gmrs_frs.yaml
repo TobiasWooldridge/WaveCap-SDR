@@ -1,0 +1,42 @@
+name: GMRS/FRS Radio
+description: Monitor GMRS/FRS channels 462-467 MHz. FRS channels 1-7 share with GMRS
+  at 2W. GMRS channels 15-22 are 50W capable. 12.5/25 kHz spacing.
+category: Personal Radio
+center_hz: 462612500
+sample_rate: 1000000
+channels:
+- offset_hz: -50000
+  name: Ch 1 - 462.5625
+  mode: nbfm
+  squelch_db: -60
+- offset_hz: -25000
+  name: Ch 2 - 462.5875
+  mode: nbfm
+  squelch_db: -60
+- offset_hz: 0
+  name: Ch 3 - 462.6125
+  mode: nbfm
+  squelch_db: -60
+- offset_hz: 25000
+  name: Ch 4 - 462.6375
+  mode: nbfm
+  squelch_db: -60
+- offset_hz: 50000
+  name: Ch 5 - 462.6625
+  mode: nbfm
+  squelch_db: -60
+- offset_hz: 75000
+  name: Ch 6 - 462.6875
+  mode: nbfm
+  squelch_db: -60
+- offset_hz: 100000
+  name: Ch 7 - 462.7125
+  mode: nbfm
+  squelch_db: -60
+- offset_hz: -225000
+  name: Ch 15 - 462.550 GMRS
+  mode: nbfm
+  squelch_db: -60
+allow_frequency_input: false
+gain: 35
+bandwidth: 900000

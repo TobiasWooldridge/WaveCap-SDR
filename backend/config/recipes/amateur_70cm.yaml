@@ -1,0 +1,30 @@
+name: 70cm Amateur Radio
+description: Monitor 70cm ham band 420-450 MHz. Includes national simplex 446.00 MHz
+  and common repeater outputs. NBFM with 5 kHz deviation.
+category: Amateur Radio
+center_hz: 445800000
+sample_rate: 2400000
+channels:
+- offset_hz: 200000
+  name: 446.00 - National Simplex
+  mode: nbfm
+  squelch_db: -60
+- offset_hz: -300000
+  name: '445.50'
+  mode: nbfm
+  squelch_db: -60
+- offset_hz: 700000
+  name: '446.50'
+  mode: nbfm
+  squelch_db: -60
+- offset_hz: -725000
+  name: 445.075 - Repeater Out
+  mode: nbfm
+  squelch_db: -60
+- offset_hz: -600000
+  name: 445.20 - Repeater Out
+  mode: nbfm
+  squelch_db: -60
+allow_frequency_input: false
+gain: 35
+bandwidth: 2200000

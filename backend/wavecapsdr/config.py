@@ -215,6 +215,57 @@ def _overlay(dst: dict[str, Any], src: dict[str, Any]) -> dict[str, Any]:
     return dst
 
 
+def _load_presets_from_directory(presets_dir: Path) -> dict[str, "PresetConfig"]:
+    """Load preset configs from a directory of YAML files.
+
+    Each file in the directory becomes a preset with the filename (minus .yaml) as the key.
+    """
+    presets: dict[str, PresetConfig] = {}
+    if not presets_dir.exists():
+        return presets
+
+    for preset_file in presets_dir.glob("*.yaml"):
+        try:
+            preset_data = _read_yaml(preset_file)
+            if preset_data:
+                name = preset_file.stem
+                presets[name] = PresetConfig(**preset_data)
+        except Exception:
+            pass  # Skip invalid preset files
+    return presets
+
+
+def _load_recipes_from_directory(recipes_dir: Path) -> dict[str, "RecipeConfig"]:
+    """Load recipe configs from a directory of YAML files.
+
+    Each file in the directory becomes a recipe with the filename (minus .yaml) as the key.
+    """
+    recipes: dict[str, RecipeConfig] = {}
+    if not recipes_dir.exists():
+        return recipes
+
+    for recipe_file in recipes_dir.glob("*.yaml"):
+        try:
+            recipe_data = _read_yaml(recipe_file)
+            if recipe_data:
+                name = recipe_file.stem
+                # Parse channels if present
+                channels = []
+                channels_raw = recipe_data.get("channels", [])
+                if isinstance(channels_raw, list):
+                    for ch_data in channels_raw:
+                        if isinstance(ch_data, dict):
+                            channels.append(RecipeChannel(**ch_data))
+
+                # Create recipe with parsed channels
+                recipe_dict = dict(recipe_data)
+                recipe_dict["channels"] = channels
+                recipes[name] = RecipeConfig(**recipe_dict)
+        except Exception:
+            pass  # Skip invalid recipe files
+    return recipes
+
+
 def load_config(path_str: str) -> AppConfig:
     path = Path(path_str)
     raw: dict[str, Any] = {}
@@ -289,16 +340,24 @@ def load_config(path_str: str) -> AppConfig:
     else:
         radioreference = RadioReferenceConfig()
 
-    # Parse presets
+    # Parse presets from directory and inline config
     presets: dict[str, PresetConfig] = {}
+    # Load from presets/ directory first
+    presets_dir = path.parent / "presets" if path.is_file() else path / "presets"
+    presets = _load_presets_from_directory(presets_dir)
+    # Inline presets override directory presets
     presets_raw = raw.get("presets", {})
     if isinstance(presets_raw, dict):
         for name, preset_data in presets_raw.items():
             if isinstance(preset_data, dict):
                 presets[name] = PresetConfig(**preset_data)
 
-    # Parse recipes
+    # Parse recipes from directory and inline config
     recipes: dict[str, RecipeConfig] = {}
+    # Load from recipes/ directory first
+    recipes_dir = path.parent / "recipes" if path.is_file() else path / "recipes"
+    recipes = _load_recipes_from_directory(recipes_dir)
+    # Inline recipes override directory recipes
     recipes_raw = raw.get("recipes", {})
     if isinstance(recipes_raw, dict):
         for name, recipe_data in recipes_raw.items():

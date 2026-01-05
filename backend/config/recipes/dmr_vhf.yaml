@@ -1,0 +1,16 @@
+name: DMR VHF Repeater
+description: Monitor DMR digital voice on VHF 144-174 MHz. DMR uses 4FSK with 12.5
+  kHz spacing and TDMA. Common for amateur (145-148 MHz) and commercial (150-174 MHz)
+  use.
+category: Digital Voice
+center_hz: 145000000
+sample_rate: 48000
+channels:
+- offset_hz: 0
+  name: DMR Repeater
+  mode: dmr
+  squelch_db: -65
+allow_frequency_input: true
+gain: 40
+bandwidth: 12500
+frequency_label: DMR Frequency (MHz)

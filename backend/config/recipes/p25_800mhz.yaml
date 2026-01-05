@@ -1,0 +1,15 @@
+name: P25 800 MHz System
+description: Monitor P25 Phase 1 on 800 MHz rebanded public safety band (851-869 MHz).
+  P25 uses C4FM with 12.5 kHz spacing. Many large metro trunked systems operate here.
+category: Public Safety
+center_hz: 860000000
+sample_rate: 48000
+channels:
+- offset_hz: 0
+  name: P25 Channel
+  mode: p25
+  squelch_db: -65
+allow_frequency_input: true
+gain: 40
+bandwidth: 12500
+frequency_label: P25 Frequency (MHz)
